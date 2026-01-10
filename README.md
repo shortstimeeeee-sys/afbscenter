@@ -1,6 +1,6 @@
 # AFBS 스포츠 운영 센터
 
-웹 기반 야구 기록 관리 시스템입니다. 회원 관리 및 야구 기록을 관리하고 분석할 수 있습니다.
+웹 기반 야구 센터 관리 시스템입니다. 회원 관리, 예약 관리, 결제, 출석, 코치 관리, 훈련 기록 등을 통합 관리할 수 있습니다.
 
 ## 기술 스택
 
@@ -17,32 +17,74 @@
 src/main/java/com/afbscenter/
 ├── AfbsCenterApplication.java    # Spring Boot 메인 클래스
 ├── controller/                   # REST API 컨트롤러
-│   ├── MemberController.java
+│   ├── AttendanceController.java
 │   ├── BaseballRecordController.java
-│   └── WebController.java
+│   ├── BookingController.java
+│   ├── CoachController.java
+│   ├── DashboardController.java
+│   ├── DatabaseCheckController.java
+│   ├── FacilityController.java
+│   ├── MemberController.java
+│   ├── PaymentController.java
+│   ├── ProductController.java
+│   └── TrainingLogController.java
 ├── model/                        # JPA 엔티티
-│   ├── Member.java              # 회원
-│   └── BaseballRecord.java      # 야구 기록
+│   ├── Announcement.java
+│   ├── Attendance.java
+│   ├── BaseballRecord.java
+│   ├── Booking.java
+│   ├── Coach.java
+│   ├── Facility.java
+│   ├── FacilitySlot.java
+│   ├── Lesson.java
+│   ├── Member.java
+│   ├── MemberProduct.java
+│   ├── Message.java
+│   ├── Payment.java
+│   ├── Product.java
+│   ├── Setting.java
+│   ├── TrainingLog.java
+│   └── User.java
 ├── repository/                   # JPA Repository
-│   ├── MemberRepository.java
-│   └── BaseballRecordRepository.java
-└── service/                      # 비즈니스 로직
-    ├── MemberService.java
-    └── BaseballRecordService.java
+│   └── (각 엔티티별 Repository)
+├── service/                      # 비즈니스 로직
+│   ├── BaseballRecordService.java
+│   ├── CoachService.java
+│   └── MemberService.java
+└── util/                         # 유틸리티
+    └── LessonCategoryUtil.java
 
 src/main/resources/
 ├── application.properties        # 설정 파일
 └── static/                       # 정적 리소스
-    ├── index.html
-    ├── css/style.css
-    └── js/app.js
+    ├── index.html               # 대시보드
+    ├── members.html             # 회원 관리
+    ├── bookings.html            # 예약 관리
+    ├── payments.html            # 결제 관리
+    ├── facilities.html          # 시설 관리
+    ├── products.html            # 상품 관리
+    ├── attendance.html          # 출석 관리
+    ├── coaches.html             # 코치 관리
+    ├── training-logs.html       # 훈련 기록
+    ├── analytics.html           # 통계/분석
+    ├── announcements.html       # 공지사항
+    ├── settings.html            # 설정
+    ├── css/                     # 스타일시트
+    └── js/                      # JavaScript
 ```
 
-## 기능
+## 주요 기능
 
-- **회원 관리**: 회원 등록, 수정, 삭제, 검색
-- **야구 기록 관리**: 타격 기록, 투구 기록 관리
-- **기록 분석**: 타율, 방어율 등 통계 계산
+- **회원 관리**: 회원 등록, 수정, 삭제, 검색, 등급 관리
+- **예약 관리**: 시설 예약, 레슨 예약, 예약 상태 관리
+- **결제 관리**: 결제 처리, 환불, 정산
+- **시설 관리**: 시설 정보, 슬롯 관리, 운영시간 설정
+- **상품 관리**: 이용권, 패키지 상품 관리
+- **출석 관리**: 체크인/체크아웃, 출석 기록
+- **코치 관리**: 코치 정보, 레슨 일정 관리
+- **훈련 기록**: 타격 기록, 투구 기록, 체력 기록
+- **통계/분석**: 운영 지표, 매출 분석, 회원 분석
+- **야구 기록**: 타격 기록, 투구 기록 관리 및 분석
 
 ## 실행 방법
 
@@ -53,8 +95,17 @@ src/main/resources/
 
 ### 2. 실행
 
+#### 방법 1: PowerShell 스크립트 (권장)
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+
+#### 방법 2: GUI 제어판 사용
+바탕화면의 "Server Control Panel" 바로가기를 더블클릭
+
+#### 방법 3: Maven 직접 실행
+```powershell
+mvn spring-boot:run
 ```
 
 ### 3. 접속
@@ -65,9 +116,27 @@ powershell -ExecutionPolicy Bypass -File .\run.ps1
   - Username: `sa`
   - Password: (비어있음)
 
+## 서버 관리
+
+### GUI 제어판
+- 바탕화면의 "Server Control Panel" 바로가기 사용
+- 서버 시작/중지/재시작, 브라우저 열기 기능 제공
+
+### 명령어
+```powershell
+# 서버 시작
+.\start-server.ps1
+
+# 서버 중지
+.\stop-server.ps1
+
+# 서버 재시작
+.\restart-server.ps1
+```
+
 ## API 엔드포인트
 
-### 회원 관리
+### 회원 관리 (`/api/members`)
 - `GET /api/members` - 전체 회원 조회
 - `GET /api/members/{id}` - 회원 상세 조회
 - `POST /api/members` - 회원 등록
@@ -75,14 +144,39 @@ powershell -ExecutionPolicy Bypass -File .\run.ps1
 - `DELETE /api/members/{id}` - 회원 삭제
 - `GET /api/members/search?name={name}` - 회원 검색
 
-### 야구 기록 관리
+### 예약 관리 (`/api/bookings`)
+- `GET /api/bookings` - 예약 목록 조회
+- `GET /api/bookings/{id}` - 예약 상세 조회
+- `POST /api/bookings` - 예약 등록
+- `PUT /api/bookings/{id}` - 예약 수정
+- `DELETE /api/bookings/{id}` - 예약 삭제
+
+### 결제 관리 (`/api/payments`)
+- `GET /api/payments` - 결제 목록 조회
+- `POST /api/payments` - 결제 처리
+- `POST /api/payments/{id}/refund` - 환불 처리
+
+### 시설 관리 (`/api/facilities`)
+- `GET /api/facilities` - 시설 목록 조회
+- `POST /api/facilities` - 시설 등록
+- `PUT /api/facilities/{id}` - 시설 수정
+- `DELETE /api/facilities/{id}` - 시설 삭제
+
+### 상품 관리 (`/api/products`)
+- `GET /api/products` - 상품 목록 조회
+- `POST /api/products` - 상품 등록
+- `PUT /api/products/{id}` - 상품 수정
+- `DELETE /api/products/{id}` - 상품 삭제
+
+### 야구 기록 관리 (`/api/baseball-records`)
 - `GET /api/baseball-records/member/{memberId}` - 회원별 기록 조회
 - `GET /api/baseball-records/{id}` - 기록 상세 조회
 - `POST /api/baseball-records/member/{memberId}` - 기록 등록
 - `PUT /api/baseball-records/{id}` - 기록 수정
 - `DELETE /api/baseball-records/{id}` - 기록 삭제
-- `GET /api/baseball-records/date-range?startDate={date}&endDate={date}` - 기간별 기록 조회
 - `GET /api/baseball-records/member/{memberId}/average-batting` - 평균 타율 조회
+
+자세한 API 문서는 `PROJECT_STRUCTURE.md`를 참고하세요.
 
 ## 데이터베이스
 
@@ -91,6 +185,11 @@ H2 파일 데이터베이스를 사용하며, 데이터는 `./data/afbscenter.mv
 ## 개발 환경 설정
 
 자세한 설치 가이드는 `SETUP_GUIDE.md`를 참고하세요.
+
+## 배포
+
+배포 가이드는 `DEPLOYMENT_GUIDE.md`를 참고하세요.
+빠른 시작은 `QUICK_START.md`를 참고하세요.
 
 ## 빌드
 
