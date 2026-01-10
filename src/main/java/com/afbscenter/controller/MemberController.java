@@ -243,6 +243,7 @@ public class MemberController {
     public ResponseEntity<MemberProduct> assignProductToMember(
             @PathVariable Long memberId,
             @RequestBody Map<String, Object> request) {
+        Long productIdLong = null;
         try {
             Member member = memberRepository.findById(memberId)
                     .orElseThrow(() -> new IllegalArgumentException("회원을 찾을 수 없습니다."));
@@ -252,7 +253,8 @@ public class MemberController {
                 return ResponseEntity.badRequest().build();
             }
             
-            Product product = productRepository.findById(productId.longValue())
+            productIdLong = productId.longValue();
+            Product product = productRepository.findById(productIdLong)
                     .orElseThrow(() -> new IllegalArgumentException("상품을 찾을 수 없습니다."));
             
             // 이미 할당된 상품인지 확인
