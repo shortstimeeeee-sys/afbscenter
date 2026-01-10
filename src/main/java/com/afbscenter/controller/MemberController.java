@@ -258,7 +258,7 @@ public class MemberController {
             // 이미 할당된 상품인지 확인
             List<MemberProduct> existing = memberProductRepository.findByMemberId(memberId);
             boolean alreadyAssigned = existing.stream()
-                    .anyMatch(mp -> mp.getProduct().getId().equals(productId.longValue()) && 
+                    .anyMatch(mp -> mp.getProduct().getId().equals(productIdLong) && 
                                  mp.getStatus() == MemberProduct.Status.ACTIVE);
             
             if (alreadyAssigned) {
