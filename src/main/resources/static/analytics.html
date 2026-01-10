@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>통계/분석 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/analytics.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">📅</span><span>예약/대관 관리</span></a>
+                    <a href="/attendance.html" class="menu-item" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">기록/분석</div>
+                    <a href="/training-logs.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
+                    <a href="/analytics.html" class="menu-item active" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
+                </div>
+            </nav>
+        </aside>
+        
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">통계/분석</h1>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn">🔔</button>
+                    <button class="user-menu-btn">👤</button>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <!-- 기간 선택 -->
+                <div class="card">
+                    <div class="filter-group">
+                        <select class="form-control" id="analytics-period" style="width: 150px;">
+                            <option value="today">오늘</option>
+                            <option value="week">이번 주</option>
+                            <option value="month" selected>이번 달</option>
+                            <option value="year">이번 해</option>
+                            <option value="custom">기간 선택</option>
+                        </select>
+                        <input type="date" class="form-control" id="analytics-start-date" style="width: 150px;" disabled>
+                        <input type="date" class="form-control" id="analytics-end-date" style="width: 150px;" disabled>
+                        <button class="btn btn-secondary" onclick="loadAnalytics()">조회</button>
+                        <button class="btn btn-secondary" onclick="exportAnalytics()">CSV 다운로드</button>
+                    </div>
+                </div>
+                
+                <!-- 운영 지표 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">운영 지표</h2>
+                    </div>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-label">시설별 가동률</div>
+                            <div id="facility-utilization-chart" class="chart-container">
+                                <p style="color: var(--text-muted);">차트 준비 중...</p>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">시간대별 수요</div>
+                            <div id="hourly-demand-chart" class="chart-container">
+                                <p style="color: var(--text-muted);">차트 준비 중...</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-label">취소율</div>
+                            <div class="metric-value" id="cancel-rate">-</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">노쇼율</div>
+                            <div class="metric-value" id="no-show-rate">-</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 매출 지표 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">매출 지표</h2>
+                    </div>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-label">카테고리별 매출</div>
+                            <div id="category-revenue-chart" class="chart-container">
+                                <p style="color: var(--text-muted);">차트 준비 중...</p>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">매출 추이</div>
+                            <div id="revenue-trend-chart" class="chart-container">
+                                <p style="color: var(--text-muted);">차트 준비 중...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 회원 지표 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">회원 지표</h2>
+                    </div>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-label">신규/이탈 추이</div>
+                            <div id="member-trend-chart" class="chart-container">
+                                <p style="color: var(--text-muted);">차트 준비 중...</p>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">활동 회원 수</div>
+                            <div class="metric-value" id="active-members">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="/js/common.js"></script>
+    <script src="/js/analytics.js"></script>
+</body>
+</html>

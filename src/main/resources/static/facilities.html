@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>시설/슬롯 설정 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/facilities.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">📅</span><span>예약/대관 관리</span></a>
+                    <a href="/attendance.html" class="menu-item" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">시설 관리</div>
+                    <a href="/facilities.html" class="menu-item active" data-role="Manager"><span class="menu-item-icon">🏟️</span><span>시설/슬롯 설정</span></a>
+                </div>
+            </nav>
+        </aside>
+        
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">시설/슬롯 설정</h1>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn">🔔</button>
+                    <button class="user-menu-btn">👤</button>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">시설 목록</h2>
+                        <button class="btn btn-primary" onclick="openFacilityModal()">시설 추가</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>시설명</th>
+                                    <th>위치</th>
+                                    <th>수용 인원</th>
+                                    <th>시간당 단가</th>
+                                    <th>운영시간</th>
+                                    <th>작업</th>
+                                </tr>
+                            </thead>
+                            <tbody id="facilities-table-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">슬롯 관리</h2>
+                        <select class="form-control" id="facility-select" style="width: 200px;" onchange="loadSlots()">
+                            <option value="">시설 선택...</option>
+                        </select>
+                    </div>
+                    <div id="slots-container">
+                        <p style="color: var(--text-muted);">시설을 선택하세요.</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 시설 등록/수정 모달 -->
+    <div class="modal-overlay" id="facility-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title" id="facility-modal-title">시설 추가</h2>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="facility-form">
+                    <input type="hidden" id="facility-id">
+                    <div class="form-group" id="facility-id-display" style="display: none;">
+                        <label class="form-label">시설 ID</label>
+                        <div style="padding: 8px; background: var(--bg-tertiary); border-radius: var(--radius-md); color: var(--text-secondary); font-weight: 600;" id="facility-id-value">-</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">시설명 *</label>
+                        <input type="text" class="form-control" id="facility-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">위치</label>
+                        <input type="text" class="form-control" id="facility-location">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">수용 인원 *</label>
+                            <input type="number" class="form-control" id="facility-capacity" required min="1">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">시간당 단가 *</label>
+                            <input type="number" class="form-control" id="facility-price" required min="0">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">운영시간</label>
+                        <div class="form-row">
+                            <input type="time" class="form-control" id="facility-open-time">
+                            <span style="align-self: center;">~</span>
+                            <input type="time" class="form-control" id="facility-close-time">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">사용 가능 장비</label>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" value="PITCHING_MACHINE"> 피칭머신</label>
+                            <label><input type="checkbox" value="RADAR"> 레이다</label>
+                            <label><input type="checkbox" value="BATTING_ANALYZER"> 타격측정기</label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('facility-modal')">취소</button>
+                <button class="btn btn-primary" onclick="saveFacility()">저장</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/js/common.js"></script>
+    <script src="/js/facilities.js"></script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>출석/이용 기록 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/attendance.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">📅</span><span>예약/대관 관리</span></a>
+                    <a href="/attendance.html" class="menu-item active" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+            </nav>
+        </aside>
+        
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">출석/이용 기록</h1>
+                    <div class="search-box">
+                        <input type="text" placeholder="검색..." id="attendance-search">
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn">🔔</button>
+                    <button class="user-menu-btn">👤</button>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <!-- 오늘 예약 목록 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">오늘 예약 목록</h2>
+                        <input type="date" class="form-control" id="attendance-date" style="width: 200px;" onchange="loadTodayBookings()">
+                    </div>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>시간</th>
+                                    <th>시설</th>
+                                    <th>회원</th>
+                                    <th>인원</th>
+                                    <th>상태</th>
+                                    <th>작업</th>
+                                </tr>
+                            </thead>
+                            <tbody id="today-bookings-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- 출석 기록 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">출석 기록</h2>
+                        <div class="filter-group">
+                            <input type="date" class="form-control" id="filter-date-start" style="width: 150px;">
+                            <input type="date" class="form-control" id="filter-date-end" style="width: 150px;">
+                            <button class="btn btn-secondary" onclick="loadAttendanceRecords()">조회</button>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>날짜</th>
+                                    <th>회원</th>
+                                    <th>시설</th>
+                                    <th>체크인</th>
+                                    <th>체크아웃</th>
+                                    <th>이용시간</th>
+                                    <th>상태</th>
+                                </tr>
+                            </thead>
+                            <tbody id="attendance-records-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 체크인 모달 -->
+    <div class="modal-overlay" id="checkin-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">체크인 처리</h2>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="checkin-form">
+                    <input type="hidden" id="checkin-booking-id">
+                    <div class="form-group">
+                        <label class="form-label">회원</label>
+                        <input type="text" class="form-control" id="checkin-member-name" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">시설</label>
+                        <input type="text" class="form-control" id="checkin-facility-name" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">예약 시간</label>
+                        <input type="text" class="form-control" id="checkin-booking-time" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">이용권 자동 차감</label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="checkin-auto-deduct" checked>
+                            <span>이용권 자동 차감</span>
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('checkin-modal')">취소</button>
+                <button class="btn btn-primary" onclick="processCheckin()">체크인</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/js/common.js"></script>
+    <script src="/js/attendance.js"></script>
+</body>
+</html>

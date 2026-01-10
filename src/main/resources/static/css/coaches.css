@@ -1,0 +1,35 @@
+/* 코치/레슨 관리 페이지 스타일 */
+
+/* 코치 목록 테이블 스크롤바 */
+.coaches-page .table-container {
+    max-height: 600px;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
+/* 또는 전체 페이지의 table-container에 적용 */
+.content-area .table-container {
+    max-height: 600px;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
+/* 스크롤바 스타일링 (선택사항) */
+.table-container::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.table-container::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+    border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}

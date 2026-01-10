@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>결제/정산 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/payments.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">📅</span><span>예약/대관 관리</span></a>
+                    <a href="/attendance.html" class="menu-item" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">상품/결제</div>
+                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>상품/이용권</span></a>
+                    <a href="/payments.html" class="menu-item active" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
+                </div>
+            </nav>
+        </aside>
+        
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">결제/정산</h1>
+                    <div class="search-box">
+                        <input type="text" placeholder="검색..." id="payment-search">
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn">🔔</button>
+                    <button class="user-menu-btn">👤</button>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <!-- 정산 요약 -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-label">오늘 매출</div>
+                        <div class="kpi-value" id="kpi-today-revenue">-</div>
+                        <div class="kpi-change">전일 대비</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">이번 달 매출</div>
+                        <div class="kpi-value" id="kpi-month-revenue">-</div>
+                        <div class="kpi-change">전월 대비</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">미수금</div>
+                        <div class="kpi-value" id="kpi-unpaid">-</div>
+                        <div class="kpi-change negative">주의 필요</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">환불 대기</div>
+                        <div class="kpi-value" id="kpi-refund-pending">-</div>
+                        <div class="kpi-change">건</div>
+                    </div>
+                </div>
+                
+                <!-- 필터 -->
+                <div class="card">
+                    <div class="filter-group">
+                        <select class="form-control" id="filter-payment-method" style="width: 150px;">
+                            <option value="">전체 결제수단</option>
+                            <option value="CASH">현금</option>
+                            <option value="CARD">카드</option>
+                            <option value="BANK">계좌이체</option>
+                            <option value="MOBILE">간편결제</option>
+                        </select>
+                        <select class="form-control" id="filter-status" style="width: 150px;">
+                            <option value="">전체 상태</option>
+                            <option value="COMPLETED">완료</option>
+                            <option value="PARTIAL">부분</option>
+                            <option value="REFUNDED">환불</option>
+                        </select>
+                        <select class="form-control" id="filter-category" style="width: 150px;">
+                            <option value="">전체 분류</option>
+                            <option value="RENTAL">대관</option>
+                            <option value="LESSON">레슨</option>
+                            <option value="PRODUCT">상품판매</option>
+                        </select>
+                        <input type="date" class="form-control" id="filter-date-start" style="width: 150px;">
+                        <input type="date" class="form-control" id="filter-date-end" style="width: 150px;">
+                        <button class="btn btn-secondary" onclick="applyFilters()">적용</button>
+                        <button class="btn btn-secondary" onclick="exportReport()">정산 리포트</button>
+                    </div>
+                </div>
+                
+                <!-- 결제 목록 -->
+                <div class="card">
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>결제번호</th>
+                                    <th>날짜/시간</th>
+                                    <th>회원</th>
+                                    <th>분류</th>
+                                    <th>결제수단</th>
+                                    <th>금액</th>
+                                    <th>상태</th>
+                                    <th>작업</th>
+                                </tr>
+                            </thead>
+                            <tbody id="payments-table-body">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="pagination-container" class="pagination"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 결제 처리 모달 -->
+    <div class="modal-overlay" id="payment-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">결제 처리</h2>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="payment-form">
+                    <div class="form-group">
+                        <label class="form-label">회원 선택</label>
+                        <select class="form-control" id="payment-member">
+                            <option value="">회원 선택...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">예약번호 (선택)</label>
+                        <input type="text" class="form-control" id="payment-booking-id" placeholder="예약번호 입력">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">결제 분류</label>
+                        <select class="form-control" id="payment-category" required>
+                            <option value="RENTAL">대관</option>
+                            <option value="LESSON">레슨</option>
+                            <option value="PRODUCT">상품판매</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">결제수단</label>
+                        <select class="form-control" id="payment-method" required>
+                            <option value="CASH">현금</option>
+                            <option value="CARD">카드</option>
+                            <option value="BANK">계좌이체</option>
+                            <option value="MOBILE">간편결제</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">금액 *</label>
+                        <input type="number" class="form-control" id="payment-amount" required min="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">메모</label>
+                        <textarea class="form-control" id="payment-notes" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('payment-modal')">취소</button>
+                <button class="btn btn-primary" onclick="processPayment()">결제 처리</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 환불 모달 -->
+    <div class="modal-overlay" id="refund-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">환불 처리</h2>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="refund-form">
+                    <input type="hidden" id="refund-payment-id">
+                    <div class="form-group">
+                        <label class="form-label">환불 금액 *</label>
+                        <input type="number" class="form-control" id="refund-amount" required min="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">환불 사유 *</label>
+                        <textarea class="form-control" id="refund-reason" rows="4" required></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('refund-modal')">취소</button>
+                <button class="btn btn-danger" onclick="processRefund()">환불 처리</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/js/common.js"></script>
+    <script src="/js/payments.js"></script>
+</body>
+</html>

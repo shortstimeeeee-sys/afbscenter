@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>대시보드 - AFBS 센터</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/dashboard.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 사이드바 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item active" data-role="Front">
+                        <span class="menu-item-icon">📊</span>
+                        <span>대시보드</span>
+                    </a>
+                </div>
+                
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front">
+                        <span class="menu-item-icon">👥</span>
+                        <span>회원 관리</span>
+                    </a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager">
+                        <span class="menu-item-icon">🏃</span>
+                        <span>코치/레슨 관리</span>
+                    </a>
+                </div>
+                
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front">
+                        <span class="menu-item-icon">📅</span>
+                        <span>예약/대관 관리</span>
+                    </a>
+                    <a href="/attendance.html" class="menu-item" data-role="Front">
+                        <span class="menu-item-icon">✓</span>
+                        <span>출석/이용 기록</span>
+                    </a>
+                </div>
+                
+                <div class="menu-section">
+                    <div class="menu-section-title">상품/결제</div>
+                    <a href="/products.html" class="menu-item" data-role="Manager">
+                        <span class="menu-item-icon">🎁</span>
+                        <span>상품/이용권</span>
+                    </a>
+                    <a href="/payments.html" class="menu-item" data-role="Manager">
+                        <span class="menu-item-icon">💳</span>
+                        <span>결제/정산</span>
+                    </a>
+                </div>
+                
+                <div class="menu-section">
+                    <div class="menu-section-title">시설 관리</div>
+                    <a href="/facilities.html" class="menu-item" data-role="Manager">
+                        <span class="menu-item-icon">🏟️</span>
+                        <span>시설/슬롯 설정</span>
+                    </a>
+                </div>
+                
+                <div class="menu-section">
+                    <div class="menu-section-title">기록/분석</div>
+                    <a href="/training-logs.html" class="menu-item" data-role="Coach">
+                        <span class="menu-item-icon">📝</span>
+                        <span>훈련 기록</span>
+                    </a>
+                    <a href="/analytics.html" class="menu-item" data-role="Manager">
+                        <span class="menu-item-icon">📈</span>
+                        <span>통계/분석</span>
+                    </a>
+                </div>
+                
+                <div class="menu-section" data-role="Admin">
+                    <div class="menu-section-title">관리자</div>
+                    <a href="/announcements.html" class="menu-item" data-role="Manager">
+                        <span class="menu-item-icon">📢</span>
+                        <span>공지/메시지</span>
+                    </a>
+                    <a href="/settings.html" class="menu-item" data-role="Admin">
+                        <span class="menu-item-icon">⚙️</span>
+                        <span>설정</span>
+                    </a>
+                </div>
+            </nav>
+        </aside>
+        
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">대시보드</h1>
+                    <div class="search-box">
+                        <input type="text" placeholder="검색..." id="global-search">
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn" id="notification-btn" title="알림">🔔</button>
+                    <button class="user-menu-btn" id="user-menu-btn" title="사용자 메뉴">👤</button>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <!-- KPI 카드 -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-label">총 회원 수</div>
+                        <div class="kpi-value" id="kpi-total-members">-</div>
+                        <div class="kpi-change positive">전체 회원</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">월 가입자</div>
+                        <div class="kpi-value" id="kpi-monthly-new-members">-</div>
+                        <div class="kpi-change positive">이번 달</div>
+                    </div>
+                    <div class="kpi-card kpi-card-empty">
+                        <div class="kpi-label">-</div>
+                        <div class="kpi-value">-</div>
+                        <div class="kpi-change">-</div>
+                    </div>
+                    <div class="kpi-card kpi-card-empty">
+                        <div class="kpi-label">-</div>
+                        <div class="kpi-value">-</div>
+                        <div class="kpi-change">-</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">오늘 가입 수</div>
+                        <div class="kpi-value" id="kpi-new-members">-</div>
+                        <div class="kpi-change positive">신규 회원</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">오늘 예약 수</div>
+                        <div class="kpi-value" id="kpi-bookings">-</div>
+                        <div class="kpi-change positive">+12% 어제 대비</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">오늘 매출</div>
+                        <div class="kpi-value" id="kpi-revenue">-</div>
+                        <div class="kpi-change positive">+15% 어제 대비</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">월 매출</div>
+                        <div class="kpi-value" id="kpi-monthly-revenue">-</div>
+                        <div class="kpi-change positive">이번 달</div>
+                    </div>
+                    <!-- 방문 수 카드 숨김 처리 -->
+                    <div class="kpi-card" style="display: none;">
+                        <div class="kpi-label">오늘 방문 수</div>
+                        <div class="kpi-value" id="kpi-visits">-</div>
+                        <div class="kpi-change positive">+8% 어제 대비</div>
+                    </div>
+                </div>
+                
+                <!-- 빠른 작업 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">빠른 작업</h2>
+                    </div>
+                    <div class="quick-actions">
+                        <button class="btn btn-primary" onclick="location.href='/bookings.html?action=new'">
+                            예약 등록
+                        </button>
+                        <button class="btn btn-primary" onclick="location.href='/payments.html?action=new'">
+                            현장 결제
+                        </button>
+                        <button class="btn btn-primary" onclick="location.href='/members.html?action=new'">
+                            회원 등록
+                        </button>
+                        <button class="btn btn-primary" onclick="location.href='/attendance.html'">
+                            출석 처리
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 오늘 일정 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">오늘 일정</h2>
+                    </div>
+                    <div id="today-schedule">
+                        <p style="color: var(--text-muted);">로딩 중...</p>
+                    </div>
+                </div>
+                
+                <!-- 미처리 알림 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">미처리 알림</h2>
+                    </div>
+                    <div id="pending-alerts">
+                        <p style="color: var(--text-muted);">로딩 중...</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="/js/common.js"></script>
+    <script src="/js/dashboard.js"></script>
+</body>
+</html>

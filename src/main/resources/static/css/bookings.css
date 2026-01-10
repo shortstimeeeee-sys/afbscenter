@@ -1,0 +1,212 @@
+/* 예약/대관 관리 페이지 스타일 */
+
+.view-controls {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* 코치 범례 스타일 */
+.coach-legend {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 12px;
+    margin-bottom: 20px;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    white-space: nowrap;
+    width: 100%;
+}
+
+.legend-title {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    margin-right: 2px;
+    flex-shrink: 0;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.legend-color {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.legend-name {
+    font-size: 11px;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.view-container {
+    display: none;
+}
+
+.view-container.active {
+    display: block;
+}
+
+.filter-group {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.calendar-container {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+}
+
+.calendar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+
+.calendar-header h2 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+}
+
+.calendar-day-header {
+    padding: 12px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+}
+
+.calendar-day {
+    min-height: 120px;
+    padding: 8px;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+.calendar-day:hover {
+    background-color: var(--bg-hover);
+    border-color: var(--accent-primary);
+}
+
+.calendar-day.other-month {
+    opacity: 0.3;
+}
+
+.calendar-day.today {
+    border-color: var(--accent-primary);
+    background-color: rgba(94, 106, 210, 0.1);
+}
+
+.calendar-day-number {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text-primary);
+}
+
+.calendar-day-header-wrapper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 4px;
+}
+
+.calendar-event {
+    font-size: 11px;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: var(--radius-sm);
+    background-color: var(--accent-primary);
+    color: white;
+    overflow: hidden;
+    cursor: move;
+    transition: all 0.2s;
+    border-left: 3px solid var(--accent-primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+    line-height: 1.4;
+    user-select: none;
+}
+
+.calendar-event:hover {
+    transform: translateX(2px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.calendar-event:active {
+    cursor: grabbing;
+}
+
+.calendar-day.drag-over {
+    background-color: rgba(94, 106, 210, 0.2) !important;
+    border-color: var(--accent-primary) !important;
+}
+
+.calendar-event.pending {
+    background-color: var(--warning);
+    border-left-color: var(--warning);
+}
+
+.calendar-event.cancelled {
+    background-color: var(--danger);
+    border-left-color: var(--danger);
+    opacity: 0.6;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+}
+
+/* 날짜별 스케줄 아이콘 */
+.day-schedule-icon {
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 4px;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+    border-radius: 4px;
+}
+
+.day-schedule-icon:hover {
+    opacity: 1;
+    background-color: var(--bg-hover);
+}

@@ -1,0 +1,79 @@
+// 설정 페이지 JavaScript
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadSettings();
+    loadUsers();
+});
+
+async function loadSettings() {
+    try {
+        const settings = await App.api.get('/settings');
+        document.getElementById('setting-center-name').value = settings.centerName || '';
+        document.getElementById('setting-phone').value = settings.phone || '';
+        document.getElementById('setting-address').value = settings.address || '';
+        document.getElementById('setting-open-time').value = settings.openTime || '';
+        document.getElementById('setting-close-time').value = settings.closeTime || '';
+    } catch (error) {
+        console.error('설정 로드 실패:', error);
+    }
+}
+
+async function saveSettings() {
+    const data = {
+        centerName: document.getElementById('setting-center-name').value,
+        phone: document.getElementById('setting-phone').value,
+        address: document.getElementById('setting-address').value,
+        openTime: document.getElementById('setting-open-time').value,
+        closeTime: document.getElementById('setting-close-time').value
+    };
+    
+    try {
+        await App.api.put('/settings', data);
+        App.showNotification('설정이 저장되었습니다.', 'success');
+    } catch (error) {
+        App.showNotification('저장에 실패했습니다.', 'danger');
+    }
+}
+
+async function loadUsers() {
+    try {
+        const users = await App.api.get('/users');
+        renderUsersTable(users);
+    } catch (error) {
+        console.error('사용자 목록 로드 실패:', error);
+    }
+}
+
+function renderUsersTable(users) {
+    const tbody = document.getElementById('users-table-body');
+    
+    if (!users || users.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">사용자가 없습니다.</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = users.map(user => `
+        <tr>
+            <td>${user.name}</td>
+            <td><span class="badge badge-info">${getRoleText(user.role)}</span></td>
+            <td>${user.permissions?.join(', ') || '-'}</td>
+            <td>
+                <button class="btn btn-sm btn-secondary" onclick="editUser(${user.id})">수정</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function getRoleText(role) {
+    const map = {
+        'Admin': '관리자',
+        'Manager': '매니저',
+        'Coach': '코치',
+        'Front': '데스크'
+    };
+    return map[role] || role;
+}
+
+function editUser(id) {
+    App.showNotification('사용자 수정 기능은 준비 중입니다.', 'info');
+}

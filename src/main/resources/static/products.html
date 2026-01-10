@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>상품/이용권 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/products.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">📅</span><span>예약/대관 관리</span></a>
+                    <a href="/attendance.html" class="menu-item" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">상품/결제</div>
+                    <a href="/products.html" class="menu-item active" data-role="Manager"><span class="menu-item-icon">🎁</span><span>상품/이용권</span></a>
+                    <a href="/payments.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
+                </div>
+            </nav>
+        </aside>
+        
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">상품/이용권</h1>
+                    <div class="search-box">
+                        <input type="text" placeholder="검색..." id="product-search">
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn">🔔</button>
+                    <button class="user-menu-btn">👤</button>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">상품 목록</h2>
+                        <button class="btn btn-primary" onclick="openProductModal()">상품 추가</button>
+                    </div>
+                    <div class="filter-group" style="margin-bottom: 20px;">
+                        <select class="form-control" id="filter-type" style="width: 200px;">
+                            <option value="">전체 유형</option>
+                            <option value="SINGLE_RENTAL">단건 대관</option>
+                            <option value="TIME_PASS">시간권</option>
+                            <option value="SESSION_PASS">회차권</option>
+                            <option value="MONTHLY">월정기</option>
+                            <option value="TEAM_PACKAGE">팀 대관 패키지</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="applyFilters()">필터 적용</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>상품명</th>
+                                    <th>유형</th>
+                                    <th>가격</th>
+                                    <th>유효기간</th>
+                                    <th>사용 조건</th>
+                                    <th>작업</th>
+                                </tr>
+                            </thead>
+                            <tbody id="products-table-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 상품 등록/수정 모달 -->
+    <div class="modal-overlay" id="product-modal">
+        <div class="modal" style="max-width: 700px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="product-modal-title">상품 추가</h2>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="product-form">
+                    <input type="hidden" id="product-id">
+                    <div class="form-group">
+                        <label class="form-label">상품명 *</label>
+                        <input type="text" class="form-control" id="product-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">유형 *</label>
+                        <select class="form-control" id="product-type" required>
+                            <option value="SINGLE_USE">단건 대관</option>
+                            <option value="TIME_PASS">시간권</option>
+                            <option value="COUNT_PASS">회차권 (10회권 등)</option>
+                            <option value="MONTHLY_PASS">월정기</option>
+                            <option value="TEAM_PACKAGE">팀 대관 패키지</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">가격 *</label>
+                            <input type="number" class="form-control" id="product-price" required min="0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">유효기간 (일)</label>
+                            <input type="number" class="form-control" id="product-validity" min="0" placeholder="0 = 무제한">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">사용 조건</label>
+                        <textarea class="form-control" id="product-conditions" rows="3" placeholder="예: 평일만 사용 가능, 피크타임 제외 등"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">환불 규정</label>
+                        <textarea class="form-control" id="product-refund-policy" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('product-modal')">취소</button>
+                <button class="btn btn-primary" onclick="saveProduct()">저장</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/js/common.js"></script>
+    <script src="/js/products.js"></script>
+</body>
+</html>

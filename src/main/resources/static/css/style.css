@@ -1,0 +1,304 @@
+/* AFBS 센터 - 야구 기록 관리 시스템 스타일 */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: "Pretendard", "Inter", "Malgun Gothic", "맑은 고딕", -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: #F8F9FA;
+    color: #202124;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+header {
+    background: linear-gradient(135deg, #1A73E8 0%, #1557B0 100%);
+    color: white;
+    padding: 32px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 12px rgba(26, 115, 232, 0.2);
+}
+
+header h1 {
+    font-size: 36px;
+    font-weight: 800;
+    margin-bottom: 8px;
+}
+
+header p {
+    font-size: 16px;
+    opacity: 0.9;
+}
+
+nav {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.nav-btn {
+    padding: 12px 24px;
+    background: white;
+    border: 1px solid #E8EAED;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+    color: #5F6368;
+    transition: all 0.2s;
+}
+
+.nav-btn:hover {
+    background: #F8F9FA;
+    border-color: #DADCE0;
+}
+
+.nav-btn.active {
+    background: #1A73E8;
+    color: white;
+    border-color: #1A73E8;
+}
+
+.page {
+    display: none;
+    background: white;
+    padding: 32px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.page.active {
+    display: block;
+}
+
+.page h2 {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 24px;
+    color: #202124;
+}
+
+.toolbar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
+    align-items: center;
+}
+
+.toolbar input[type="text"] {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1px solid #DADCE0;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+.toolbar select {
+    padding: 12px 16px;
+    border: 1px solid #DADCE0;
+    border-radius: 8px;
+    font-size: 14px;
+    background: white;
+    cursor: pointer;
+}
+
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: #1A73E8;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #1557B0;
+    box-shadow: 0 4px 12px rgba(26, 115, 232, 0.3);
+}
+
+.btn-secondary {
+    background: #F1F3F4;
+    color: #202124;
+}
+
+.btn-secondary:hover {
+    background: #E8EAED;
+}
+
+.btn-danger {
+    background: #EA4335;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #C5221F;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.data-table thead {
+    background: #F8F9FA;
+}
+
+.data-table th {
+    padding: 14px 18px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 13px;
+    color: #5F6368;
+    border-bottom: 1px solid #E8EAED;
+}
+
+.data-table td {
+    padding: 14px 18px;
+    border-bottom: 1px solid #F1F3F4;
+}
+
+.data-table tbody tr:hover {
+    background: #F8F9FA;
+}
+
+.data-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* 모달 */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    overflow-y: auto;
+}
+
+.modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    padding: 32px;
+    max-width: 600px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    position: relative;
+}
+
+.close {
+    position: absolute;
+    right: 24px;
+    top: 24px;
+    font-size: 28px;
+    font-weight: 300;
+    color: #5F6368;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.close:hover {
+    color: #202124;
+}
+
+.modal-content h3 {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 24px;
+    color: #202124;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    font-size: 14px;
+    color: #5F6368;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid #DADCE0;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: #1A73E8;
+    box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1);
+}
+
+.form-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 32px;
+}
+
+/* 반응형 */
+@media (max-width: 768px) {
+    .container {
+        padding: 16px;
+    }
+
+    header {
+        padding: 24px;
+    }
+
+    header h1 {
+        font-size: 28px;
+    }
+
+    .page {
+        padding: 20px;
+    }
+
+    .data-table {
+        font-size: 13px;
+    }
+
+    .data-table th,
+    .data-table td {
+        padding: 10px 12px;
+    }
+}

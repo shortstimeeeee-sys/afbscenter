@@ -1,0 +1,7 @@
+/* 설정 페이지 스타일 */
+
+.form-actions {
+    margin-top: 24px;
+    display: flex;
+    justify-content: flex-end;
+}

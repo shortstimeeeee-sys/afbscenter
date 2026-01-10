@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>설정 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/settings.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">📅</span><span>예약/대관 관리</span></a>
+                    <a href="/attendance.html" class="menu-item" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section" data-role="Admin">
+                    <div class="menu-section-title">관리자</div>
+                    <a href="/announcements.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📢</span><span>공지/메시지</span></a>
+                    <a href="/settings.html" class="menu-item active" data-role="Admin"><span class="menu-item-icon">⚙️</span><span>설정</span></a>
+                </div>
+            </nav>
+        </aside>
+        
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">설정</h1>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn">🔔</button>
+                    <button class="user-menu-btn">👤</button>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">시스템 설정</h2>
+                    </div>
+                    <form id="settings-form">
+                        <div class="form-group">
+                            <label class="form-label">센터명</label>
+                            <input type="text" class="form-control" id="setting-center-name">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">연락처</label>
+                            <input type="text" class="form-control" id="setting-phone">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">주소</label>
+                            <input type="text" class="form-control" id="setting-address">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">운영시간</label>
+                            <div class="form-row">
+                                <input type="time" class="form-control" id="setting-open-time">
+                                <span style="align-self: center;">~</span>
+                                <input type="time" class="form-control" id="setting-close-time">
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-primary" onclick="saveSettings()">저장</button>
+                        </div>
+                    </form>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">권한 관리</h2>
+                    </div>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>사용자</th>
+                                    <th>역할</th>
+                                    <th>권한</th>
+                                    <th>작업</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="/js/common.js"></script>
+    <script src="/js/settings.js"></script>
+</body>
+</html>
