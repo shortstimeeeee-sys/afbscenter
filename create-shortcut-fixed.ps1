@@ -1,7 +1,7 @@
 # 바로가기 생성 스크립트
 $desktop = [Environment]::GetFolderPath("Desktop")
 $shortcutPath = "$desktop\Server Control Panel.lnk"
-$batPath = Join-Path $PSScriptRoot "Server-Control-Panel.bat"
+$batPath = Join-Path $PSScriptRoot "Server-Control-Panel-Fixed.bat"
 $scriptDir = $PSScriptRoot
 
 $shell = New-Object -ComObject WScript.Shell

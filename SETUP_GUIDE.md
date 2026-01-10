@@ -154,12 +154,12 @@ cd C:\Users\dlfgi\OneDrive\Desktop\afbscenter
 mvn clean install
 
 # 애플리케이션 실행
-mvn spring-boot:run -Dspring-boot.run.main-class=com.afbscenter.JavafxApplication
+mvn spring-boot:run
 ```
 
 ### IDE에서 실행
 
-1. `JavafxApplication.java` 파일 열기
+1. `AfbsCenterApplication.java` 파일 열기
 2. Run 버튼 클릭 또는 Shift+F10
 
 ---
