@@ -258,9 +258,10 @@ public class MemberController {
                     .orElseThrow(() -> new IllegalArgumentException("상품을 찾을 수 없습니다."));
             
             // 이미 할당된 상품인지 확인
+            final Long finalProductId = productIdLong; // 람다 표현식에서 사용하기 위해 final 변수 생성
             List<MemberProduct> existing = memberProductRepository.findByMemberId(memberId);
             boolean alreadyAssigned = existing.stream()
-                    .anyMatch(mp -> mp.getProduct().getId().equals(productIdLong) && 
+                    .anyMatch(mp -> mp.getProduct().getId().equals(finalProductId) &&
                                  mp.getStatus() == MemberProduct.Status.ACTIVE);
             
             if (alreadyAssigned) {
