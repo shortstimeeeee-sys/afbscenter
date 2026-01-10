@@ -693,7 +693,7 @@ public class BookingController {
             result.put("message", updatedCount + "개의 예약이 업데이트되었습니다.");
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            logger.error("예약 상태 변경 중 오류 발생. ID: {}", id, e);
+            logger.error("예약 상태 변경 중 오류 발생", e);
             Map<String, Object> result = new HashMap<>();
             result.put("status", "error");
             result.put("message", "업데이트 중 오류가 발생했습니다: " + e.getMessage());

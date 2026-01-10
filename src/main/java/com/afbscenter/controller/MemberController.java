@@ -310,7 +310,7 @@ public class MemberController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
         } catch (Exception e) {
-            logger.error("회원 상품 할당 중 오류 발생. 회원 ID: {}, 상품 ID: {}", memberId, productId, e);
+            logger.error("회원 상품 할당 중 오류 발생. 회원 ID: {}, 상품 ID: {}", memberId, product.getId(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

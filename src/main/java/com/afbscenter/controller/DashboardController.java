@@ -6,6 +6,8 @@ import com.afbscenter.repository.AttendanceRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.CoachRepository;
 import com.afbscenter.util.LessonCategoryUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +25,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/dashboard")
 @CrossOrigin(origins = "*")
 public class DashboardController {
+
+    private static final Logger logger = LoggerFactory.getLogger(DashboardController.class);
 
     @Autowired
     private BookingRepository bookingRepository;
