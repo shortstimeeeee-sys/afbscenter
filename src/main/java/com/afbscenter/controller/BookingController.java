@@ -8,6 +8,8 @@ import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.CoachRepository;
 import com.afbscenter.repository.FacilityRepository;
 import com.afbscenter.repository.MemberRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +31,8 @@ import java.util.Optional;
 @RequestMapping("/api/bookings")
 @CrossOrigin(origins = "*")
 public class BookingController {
+
+    private static final Logger logger = LoggerFactory.getLogger(BookingController.class);
 
     @Autowired
     private BookingRepository bookingRepository;
@@ -74,8 +78,7 @@ public class BookingController {
                     
                     bookings = bookingRepository.findByDateRange(startDate, endDate);
                 } catch (Exception e) {
-                    System.err.println("날짜 파싱 실패: start=" + start + ", end=" + end);
-                    e.printStackTrace();
+                    logger.error("날짜 파싱 실패: start={}, end={}", start, end, e);
                     bookings = new java.util.ArrayList<>();
                 }
             } else {
@@ -140,15 +143,13 @@ public class BookingController {
                     bookingMaps.add(bookingMap);
                 } catch (Exception e) {
                     // 개별 예약 변환 오류는 무시하고 계속 진행
-                    System.err.println("예약 변환 오류 (ID: " + booking.getId() + "): " + e.getMessage());
-                    e.printStackTrace();
+                    logger.warn("예약 변환 오류 (ID: {}): {}", booking.getId(), e.getMessage(), e);
                 }
             }
             
             return ResponseEntity.ok(bookingMaps);
         } catch (Exception e) {
-            System.err.println("예약 조회 실패: " + e.getMessage());
-            e.printStackTrace();
+            logger.error("예약 조회 실패", e);
             // 오류 발생 시 빈 리스트 반환
             return ResponseEntity.ok(new java.util.ArrayList<>());
         }
@@ -225,8 +226,7 @@ public class BookingController {
             
             return ResponseEntity.ok(bookingMap);
         } catch (Exception e) {
-            e.printStackTrace();
-            System.err.println("예약 조회 실패 (ID: " + id + "): " + e.getMessage());
+            logger.error("예약 조회 실패 (ID: {})", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -257,7 +257,7 @@ public class BookingController {
                 member = memberRepository.findByMemberNumber(memberNumber)
                         .orElse(null);
                 if (member == null) {
-                    System.err.println("회원번호로 회원을 찾을 수 없습니다: " + memberNumber);
+                    logger.warn("회원번호로 회원을 찾을 수 없습니다: {}", memberNumber);
                 }
             } else if (requestData.get("member") != null) {
                 // 하위 호환성: ID로도 찾기 시도
@@ -285,8 +285,7 @@ public class BookingController {
                     String startTimeStr = (String) requestData.get("startTime");
                     booking.setStartTime(java.time.LocalDateTime.parse(startTimeStr));
                 } catch (Exception e) {
-                    System.err.println("시작 시간 파싱 실패: " + requestData.get("startTime"));
-                    e.printStackTrace();
+                    logger.error("시작 시간 파싱 실패: {}", requestData.get("startTime"), e);
                     return ResponseEntity.badRequest().build();
                 }
             } else {
@@ -300,18 +299,17 @@ public class BookingController {
                     
                     // 종료 시간이 시작 시간보다 이전인지 확인
                     if (booking.getStartTime() != null && endTime.isBefore(booking.getStartTime())) {
-                        System.err.println("종료 시간이 시작 시간보다 이전입니다. 시작: " + booking.getStartTime() + ", 종료: " + endTime);
+                        logger.warn("종료 시간이 시작 시간보다 이전입니다. 시작: {}, 종료: {}", booking.getStartTime(), endTime);
                         return ResponseEntity.badRequest().build();
                     }
                     
                     booking.setEndTime(endTime);
                 } catch (Exception e) {
-                    System.err.println("종료 시간 파싱 실패: " + requestData.get("endTime"));
-                    e.printStackTrace();
+                    logger.error("종료 시간 파싱 실패: {}", requestData.get("endTime"), e);
                     return ResponseEntity.badRequest().build();
                 }
             } else {
-                System.err.println("종료 시간이 없습니다.");
+                logger.warn("종료 시간이 없습니다.");
                 return ResponseEntity.badRequest().build();
             }
             
@@ -330,7 +328,7 @@ public class BookingController {
                 try {
                     booking.setLessonCategory(com.afbscenter.model.Lesson.LessonCategory.valueOf((String) requestData.get("lessonCategory")));
                 } catch (IllegalArgumentException e) {
-                    System.err.println("레슨 카테고리 파싱 실패: " + requestData.get("lessonCategory"));
+                    logger.warn("레슨 카테고리 파싱 실패: {}", requestData.get("lessonCategory"));
                 }
             }
             
@@ -338,7 +336,7 @@ public class BookingController {
                 try {
                     booking.setStatus(Booking.BookingStatus.valueOf((String) requestData.get("status")));
                 } catch (IllegalArgumentException e) {
-                    System.err.println("상태 파싱 실패: " + requestData.get("status"));
+                    logger.warn("상태 파싱 실패: {}", requestData.get("status"));
                     booking.setStatus(Booking.BookingStatus.PENDING);
                 }
             }
@@ -347,7 +345,7 @@ public class BookingController {
                 try {
                     booking.setPaymentMethod(Booking.PaymentMethod.valueOf((String) requestData.get("paymentMethod")));
                 } catch (IllegalArgumentException e) {
-                    System.err.println("결제 방법 파싱 실패: " + requestData.get("paymentMethod"));
+                    logger.warn("결제 방법 파싱 실패: {}", requestData.get("paymentMethod"));
                 }
             }
             
@@ -392,16 +390,15 @@ public class BookingController {
                         Long memberProductMemberId = memberProduct.getMember().getId();
                         if (memberProductMemberId != null && memberProductMemberId.equals(member.getId())) {
                             booking.setMemberProduct(memberProduct);
-                            System.out.println("상품 설정 완료: MemberProduct ID=" + memberProductId);
+                            logger.debug("상품 설정 완료: MemberProduct ID={}", memberProductId);
                         } else {
-                            System.err.println("상품이 해당 회원의 것이 아닙니다. MemberProduct Member ID: " + memberProductMemberId + ", 요청 회원 ID: " + member.getId());
+                            logger.warn("상품이 해당 회원의 것이 아닙니다. MemberProduct Member ID: {}, 요청 회원 ID: {}", memberProductMemberId, member.getId());
                         }
                     } else {
-                        System.err.println("상품을 찾을 수 없습니다: MemberProduct ID=" + memberProductId);
+                        logger.warn("상품을 찾을 수 없습니다: MemberProduct ID={}", memberProductId);
                     }
                 } catch (Exception e) {
-                    System.err.println("상품 설정 실패: " + e.getMessage());
-                    e.printStackTrace();
+                    logger.error("상품 설정 실패", e);
                     // 상품 설정 실패해도 예약은 저장됨
                 }
             }
@@ -427,7 +424,7 @@ public class BookingController {
             }
 
             Booking saved = bookingRepository.save(booking);
-            System.out.println("예약 저장 성공: ID=" + saved.getId());
+            logger.debug("예약 저장 성공: ID={}", saved.getId());
             
             // 상품/이용권 사용 처리 (이제 memberProduct 필드에 저장되므로 실제 예약 데이터로 계산)
             // remainingCount는 더 이상 직접 수정하지 않고, 실제 예약 데이터를 기반으로 계산
@@ -465,11 +462,10 @@ public class BookingController {
                         }
                         
                         memberProductRepository.save(memberProduct);
-                        System.out.println("횟수권 상태 업데이트: MemberProduct ID=" + memberProduct.getId() + ", 사용=" + usedCount + "회, 잔여=" + remainingCount + "회");
+                        logger.debug("횟수권 상태 업데이트: MemberProduct ID={}, 사용={}회, 잔여={}회", memberProduct.getId(), usedCount, remainingCount);
                     }
                 } catch (Exception e) {
-                    System.err.println("상품 사용 처리 실패: " + e.getMessage());
-                    e.printStackTrace();
+                    logger.error("상품 사용 처리 실패", e);
                     // 상품 처리 실패해도 예약은 저장됨
                 }
             } else if (saved.getMember() != null && saved.getStatus() == Booking.BookingStatus.CONFIRMED) {
@@ -477,21 +473,17 @@ public class BookingController {
                 try {
                     decreaseCountPassUsage(saved.getMember().getId());
                 } catch (Exception e) {
-                    System.err.println("횟수권 차감 실패: " + e.getMessage());
-                    e.printStackTrace();
+                    logger.error("횟수권 차감 실패", e);
                     // 횟수권 차감 실패해도 예약은 저장됨
                 }
             }
             
             return ResponseEntity.status(HttpStatus.CREATED).body(saved);
         } catch (IllegalArgumentException e) {
-            e.printStackTrace();
-            System.err.println("예약 저장 실패 (IllegalArgumentException): " + e.getMessage());
+            logger.warn("예약 저장 실패 (IllegalArgumentException): {}", e.getMessage(), e);
             return ResponseEntity.badRequest().build();
         } catch (Exception e) {
-            e.printStackTrace();
-            System.err.println("예약 저장 실패 (Exception): " + e.getMessage());
-            e.printStackTrace();
+            logger.error("예약 저장 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -559,8 +551,7 @@ public class BookingController {
                     try {
                         decreaseCountPassUsage(booking.getMember().getId());
                     } catch (Exception e) {
-                        System.err.println("횟수권 차감 실패: " + e.getMessage());
-                        e.printStackTrace();
+                        logger.error("횟수권 차감 실패", e);
                     }
                 }
             }
@@ -613,16 +604,15 @@ public class BookingController {
                     }
                 }
             } catch (Exception e) {
-                System.err.println("예약 응답 로드 오류 (ID: " + result.getId() + "): " + e.getMessage());
-                e.printStackTrace();
+                logger.warn("예약 응답 로드 오류 (ID: {}): {}", result.getId(), e.getMessage(), e);
             }
             
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
-            e.printStackTrace();
+            logger.warn("예약을 찾을 수 없습니다. ID: {}", id, e);
             return ResponseEntity.notFound().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("예약 수정 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -639,7 +629,7 @@ public class BookingController {
             reorderBookingIds();
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("예약 삭제 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.badRequest().build();
         }
     }
@@ -667,7 +657,7 @@ public class BookingController {
             }
         } catch (Exception e) {
             // 조용히 실패 (로그만 출력)
-            System.err.println("레슨 카테고리 자동 업데이트 실패: " + e.getMessage());
+            logger.warn("레슨 카테고리 자동 업데이트 실패: {}", e.getMessage(), e);
         }
     }
 
@@ -703,7 +693,7 @@ public class BookingController {
             result.put("message", updatedCount + "개의 예약이 업데이트되었습니다.");
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("예약 상태 변경 중 오류 발생. ID: {}", id, e);
             Map<String, Object> result = new HashMap<>();
             result.put("status", "error");
             result.put("message", "업데이트 중 오류가 발생했습니다: " + e.getMessage());
@@ -783,7 +773,7 @@ public class BookingController {
             response.put("status", "success");
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("예약 번호 재할당 중 오류 발생", e);
             Map<String, String> response = new HashMap<>();
             response.put("message", "예약 번호 재할당 중 오류가 발생했습니다: " + e.getMessage());
             response.put("status", "error");

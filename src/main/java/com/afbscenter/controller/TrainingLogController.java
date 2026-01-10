@@ -4,6 +4,8 @@ import com.afbscenter.model.TrainingLog;
 import com.afbscenter.model.Member;
 import com.afbscenter.repository.TrainingLogRepository;
 import com.afbscenter.repository.MemberRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +19,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/training-logs")
 @CrossOrigin(origins = "*")
 public class TrainingLogController {
+
+    private static final Logger logger = LoggerFactory.getLogger(TrainingLogController.class);
 
     @Autowired
     private TrainingLogRepository trainingLogRepository;
@@ -55,7 +59,7 @@ public class TrainingLogController {
             
             return ResponseEntity.ok(logs);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("훈련 기록 목록 조회 중 오류 발생", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -77,7 +81,7 @@ public class TrainingLogController {
                     })
                     .orElse(ResponseEntity.notFound().build());
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("훈련 기록 조회 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -110,10 +114,10 @@ public class TrainingLogController {
             TrainingLog saved = trainingLogRepository.save(trainingLog);
             return ResponseEntity.status(HttpStatus.CREATED).body(saved);
         } catch (IllegalArgumentException e) {
-            e.printStackTrace();
+            logger.warn("훈련 기록 생성 중 잘못된 인자: {}", e.getMessage());
             return ResponseEntity.badRequest().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("훈련 기록 생성 중 오류 발생", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -194,10 +198,10 @@ public class TrainingLogController {
             TrainingLog saved = trainingLogRepository.save(log);
             return ResponseEntity.ok(saved);
         } catch (IllegalArgumentException e) {
-            e.printStackTrace();
+            logger.warn("훈련 기록을 찾을 수 없습니다. ID: {}", id, e);
             return ResponseEntity.notFound().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("훈련 기록 수정 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -211,7 +215,7 @@ public class TrainingLogController {
             trainingLogRepository.deleteById(id);
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("훈련 기록 삭제 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

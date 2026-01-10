@@ -2,6 +2,8 @@ package com.afbscenter.controller;
 
 import com.afbscenter.model.Product;
 import com.afbscenter.repository.ProductRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +16,8 @@ import java.util.List;
 @CrossOrigin(origins = "*")
 public class ProductController {
 
+    private static final Logger logger = LoggerFactory.getLogger(ProductController.class);
+
     @Autowired
     private ProductRepository productRepository;
 
@@ -24,7 +28,7 @@ public class ProductController {
             // memberProducts는 @JsonIgnore로 처리되므로 별도 로드 불필요
             return ResponseEntity.ok(products);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("상품 목록 조회 중 오류 발생", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -36,7 +40,7 @@ public class ProductController {
                     .map(ResponseEntity::ok)
                     .orElse(ResponseEntity.notFound().build());
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("상품 조회 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -65,7 +69,7 @@ public class ProductController {
             Product saved = productRepository.save(product);
             return ResponseEntity.status(HttpStatus.CREATED).body(saved);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("상품 생성 중 오류 발생", e);
             return ResponseEntity.badRequest().build();
         }
     }
@@ -116,10 +120,10 @@ public class ProductController {
             Product saved = productRepository.save(product);
             return ResponseEntity.ok(saved);
         } catch (IllegalArgumentException e) {
-            e.printStackTrace();
+            logger.warn("상품을 찾을 수 없습니다. ID: {}", id, e);
             return ResponseEntity.notFound().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("상품 수정 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -133,7 +137,7 @@ public class ProductController {
             productRepository.deleteById(id);
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("상품 삭제 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

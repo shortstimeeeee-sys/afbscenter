@@ -110,7 +110,7 @@ public class DashboardController {
             }
         } catch (Exception e) {
             // 조용히 실패 (로그만 출력)
-            System.err.println("레슨 카테고리 자동 업데이트 실패: " + e.getMessage());
+            logger.warn("레슨 카테고리 자동 업데이트 실패: {}", e.getMessage(), e);
         }
     }
 

@@ -10,6 +10,8 @@ import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.ProductRepository;
 import com.afbscenter.service.MemberService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -28,6 +30,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/members")
 @CrossOrigin(origins = "*")
 public class MemberController {
+
+    private static final Logger logger = LoggerFactory.getLogger(MemberController.class);
 
     @Autowired
     private MemberService memberService;
@@ -131,7 +135,7 @@ public class MemberController {
                     member.getCoach().getName(); // Lazy loading trigger
                 }
             } catch (Exception e) {
-                System.err.println("Coach 로드 실패 (회원 ID: " + id + "): " + e.getMessage());
+                logger.warn("Coach 로드 실패 (회원 ID: {}): {}", id, e.getMessage());
             }
             
             // memberProducts를 안전하게 로드 (JOIN FETCH 사용)
@@ -147,7 +151,7 @@ public class MemberController {
                             }
                         } catch (Exception e) {
                             // 개별 product 로드 실패는 무시
-                            System.err.println("Product 로드 실패 (MemberProduct ID: " + (mp != null ? mp.getId() : "null") + "): " + e.getMessage());
+                            logger.warn("Product 로드 실패 (MemberProduct ID: {}): {}", (mp != null ? mp.getId() : "null"), e.getMessage());
                         }
                     }
                     member.setMemberProducts(memberProducts);
@@ -155,15 +159,13 @@ public class MemberController {
                     member.setMemberProducts(new java.util.ArrayList<>());
                 }
             } catch (Exception e) {
-                System.err.println("MemberProducts 로드 실패 (회원 ID: " + id + "): " + e.getMessage());
-                e.printStackTrace();
+                logger.warn("MemberProducts 로드 실패 (회원 ID: {}): {}", id, e.getMessage(), e);
                 member.setMemberProducts(new java.util.ArrayList<>());
             }
             
             return ResponseEntity.ok(member);
         } catch (Exception e) {
-            System.err.println("회원 조회 중 오류 발생 (회원 ID: " + id + "): " + e.getMessage());
-            e.printStackTrace();
+            logger.error("회원 조회 중 오류 발생 (회원 ID: {})", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -231,8 +233,7 @@ public class MemberController {
             
             return ResponseEntity.ok(productsWithRemainingCount);
         } catch (Exception e) {
-            System.err.println("회원 상품 목록 조회 실패 (회원 ID: " + memberId + "): " + e.getMessage());
-            e.printStackTrace();
+            logger.error("회원 상품 목록 조회 실패 (회원 ID: {})", memberId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -281,7 +282,7 @@ public class MemberController {
                 Integer usageCount = product.getUsageCount();
                 if (usageCount == null || usageCount <= 0) {
                     // usageCount가 없으면 기본값 10으로 설정 (또는 에러 발생)
-                    System.err.println("경고: 상품 " + product.getId() + "의 usageCount가 설정되지 않았습니다. 기본값 10을 사용합니다.");
+                    logger.warn("경고: 상품 {}의 usageCount가 설정되지 않았습니다. 기본값 10을 사용합니다.", product.getId());
                     usageCount = 10; // 기본값
                 }
                 memberProduct.setTotalCount(usageCount);
@@ -309,7 +310,7 @@ public class MemberController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("회원 상품 할당 중 오류 발생. 회원 ID: {}, 상품 ID: {}", memberId, productId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -322,7 +323,7 @@ public class MemberController {
             memberProductRepository.deleteAll(memberProducts);
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("회원 상품 할당 제거 중 오류 발생. 회원 ID: {}", memberId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -410,7 +411,7 @@ public class MemberController {
                     memberMap.put("coach", null);
                 }
             } catch (Exception e) {
-                System.err.println("코치 정보 로드 실패 (회원 ID: " + member.getId() + "): " + e.getMessage());
+                logger.warn("코치 정보 로드 실패 (회원 ID: {}): {}", member.getId(), e.getMessage());
                 memberMap.put("coach", null);
             }
             

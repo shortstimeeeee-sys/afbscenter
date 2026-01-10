@@ -2,6 +2,8 @@ package com.afbscenter.controller;
 
 import com.afbscenter.model.Facility;
 import com.afbscenter.repository.FacilityRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +16,8 @@ import java.util.Optional;
 @RequestMapping("/api/facilities")
 @CrossOrigin(origins = "*")
 public class FacilityController {
+
+    private static final Logger logger = LoggerFactory.getLogger(FacilityController.class);
 
     @Autowired
     private FacilityRepository facilityRepository;
@@ -46,7 +50,7 @@ public class FacilityController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(facilityRepository.save(facility));
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("시설 생성 중 오류 발생", e);
             return ResponseEntity.badRequest().build();
         }
     }
@@ -68,8 +72,10 @@ public class FacilityController {
             
             return ResponseEntity.ok(facilityRepository.save(existingFacility));
         } catch (IllegalArgumentException e) {
+            logger.warn("시설을 찾을 수 없습니다. ID: {}", id, e);
             return ResponseEntity.notFound().build();
         } catch (Exception e) {
+            logger.error("시설 수정 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.badRequest().build();
         }
     }
@@ -83,6 +89,7 @@ public class FacilityController {
             facilityRepository.deleteById(id);
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
+            logger.error("시설 삭제 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.badRequest().build();
         }
     }

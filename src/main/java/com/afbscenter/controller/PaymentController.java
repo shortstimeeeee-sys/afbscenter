@@ -8,6 +8,8 @@ import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.ProductRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +27,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/payments")
 @CrossOrigin(origins = "*")
 public class PaymentController {
+
+    private static final Logger logger = LoggerFactory.getLogger(PaymentController.class);
 
     @Autowired
     private PaymentRepository paymentRepository;
@@ -116,7 +120,7 @@ public class PaymentController {
             
             return ResponseEntity.ok(payments);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("결제 목록 조회 중 오류 발생", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -154,7 +158,7 @@ public class PaymentController {
             
             return ResponseEntity.ok(summary);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("결제 요약 조회 중 오류 발생", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -182,7 +186,7 @@ public class PaymentController {
                     })
                     .orElse(ResponseEntity.notFound().build());
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("결제 조회 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -234,10 +238,10 @@ public class PaymentController {
             Payment saved = paymentRepository.save(payment);
             return ResponseEntity.status(HttpStatus.CREATED).body(saved);
         } catch (IllegalArgumentException e) {
-            e.printStackTrace();
+            logger.warn("결제 생성 중 잘못된 인자: {}", e.getMessage());
             return ResponseEntity.badRequest().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("결제 생성 중 오류 발생", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -284,10 +288,10 @@ public class PaymentController {
             Payment saved = paymentRepository.save(payment);
             return ResponseEntity.ok(saved);
         } catch (IllegalArgumentException e) {
-            e.printStackTrace();
+            logger.warn("결제를 찾을 수 없습니다. ID: {}", id, e);
             return ResponseEntity.notFound().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("결제 수정 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -301,7 +305,7 @@ public class PaymentController {
             paymentRepository.deleteById(id);
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("결제 삭제 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -325,10 +329,10 @@ public class PaymentController {
             Payment saved = paymentRepository.save(payment);
             return ResponseEntity.ok(saved);
         } catch (IllegalArgumentException e) {
-            e.printStackTrace();
+            logger.warn("결제를 찾을 수 없습니다. ID: {}", id, e);
             return ResponseEntity.notFound().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("환불 처리 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

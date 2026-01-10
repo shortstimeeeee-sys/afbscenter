@@ -4,6 +4,8 @@ import com.afbscenter.model.Attendance;
 import com.afbscenter.repository.AttendanceRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.FacilityRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +19,8 @@ import java.util.Optional;
 @RequestMapping("/api/attendance")
 @CrossOrigin(origins = "*")
 public class AttendanceController {
+
+    private static final Logger logger = LoggerFactory.getLogger(AttendanceController.class);
 
     @Autowired
     private AttendanceRepository attendanceRepository;
@@ -62,7 +66,7 @@ public class AttendanceController {
             
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("출석 기록 조회 중 오류 발생", e);
             return ResponseEntity.badRequest().build();
         }
     }
@@ -92,9 +96,10 @@ public class AttendanceController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(attendanceRepository.save(attendance));
         } catch (IllegalArgumentException e) {
+            logger.warn("출석 기록 생성 중 잘못된 인자: {}", e.getMessage());
             return ResponseEntity.badRequest().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("출석 기록 생성 중 오류 발생", e);
             return ResponseEntity.badRequest().build();
         }
     }
@@ -123,9 +128,10 @@ public class AttendanceController {
             
             return ResponseEntity.ok(attendanceRepository.save(attendance));
         } catch (IllegalArgumentException e) {
+            logger.warn("출석 기록을 찾을 수 없습니다. ID: {}", id, e);
             return ResponseEntity.notFound().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("출석 기록 수정 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.badRequest().build();
         }
     }
@@ -139,7 +145,7 @@ public class AttendanceController {
             attendanceRepository.deleteById(id);
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("출석 기록 삭제 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.badRequest().build();
         }
     }
@@ -215,7 +221,7 @@ public class AttendanceController {
             
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("체크인된 출석 기록 조회 중 오류 발생", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
