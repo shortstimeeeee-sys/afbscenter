@@ -10,6 +10,7 @@ import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.ProductRepository;
 import com.afbscenter.service.MemberService;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +29,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/members")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "http://localhost:8080")
 public class MemberController {
 
     private static final Logger logger = LoggerFactory.getLogger(MemberController.class);
@@ -332,7 +333,7 @@ public class MemberController {
     }
 
     @PostMapping
-    public ResponseEntity<Member> createMember(@RequestBody Member member) {
+    public ResponseEntity<Member> createMember(@Valid @RequestBody Member member) {
         try {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(memberService.createMember(member));
@@ -342,7 +343,7 @@ public class MemberController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Member> updateMember(@PathVariable Long id, @RequestBody Member member) {
+    public ResponseEntity<Member> updateMember(@PathVariable Long id, @Valid @RequestBody Member member) {
         try {
             return ResponseEntity.ok(memberService.updateMember(id, member));
         } catch (IllegalArgumentException e) {

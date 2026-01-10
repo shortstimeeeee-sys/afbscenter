@@ -29,7 +29,7 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/bookings")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "http://localhost:8080")
 public class BookingController {
 
     private static final Logger logger = LoggerFactory.getLogger(BookingController.class);
@@ -241,7 +241,22 @@ public class BookingController {
             // Facility 설정
             if (requestData.get("facility") != null) {
                 Map<String, Object> facilityMap = (Map<String, Object>) requestData.get("facility");
-                Long facilityId = ((Number) facilityMap.get("id")).longValue();
+                Object facilityIdObj = facilityMap.get("id");
+                if (facilityIdObj == null) {
+                    logger.warn("시설 ID가 없습니다.");
+                    return ResponseEntity.badRequest().build();
+                }
+                Long facilityId;
+                try {
+                    if (facilityIdObj instanceof Number) {
+                        facilityId = ((Number) facilityIdObj).longValue();
+                    } else {
+                        facilityId = Long.parseLong(facilityIdObj.toString());
+                    }
+                } catch (NumberFormatException e) {
+                    logger.warn("시설 ID 형식이 올바르지 않습니다: {}", facilityIdObj);
+                    return ResponseEntity.badRequest().build();
+                }
                 Facility facility = facilityRepository.findById(facilityId)
                         .orElseThrow(() -> new IllegalArgumentException("시설을 찾을 수 없습니다."));
                 booking.setFacility(facility);
@@ -262,9 +277,19 @@ public class BookingController {
             } else if (requestData.get("member") != null) {
                 // 하위 호환성: ID로도 찾기 시도
                 Map<String, Object> memberMap = (Map<String, Object>) requestData.get("member");
-                if (memberMap.get("id") != null) {
-                    Long memberId = ((Number) memberMap.get("id")).longValue();
-                    member = memberRepository.findById(memberId).orElse(null);
+                Object memberIdObj = memberMap.get("id");
+                if (memberIdObj != null) {
+                    try {
+                        Long memberId;
+                        if (memberIdObj instanceof Number) {
+                            memberId = ((Number) memberIdObj).longValue();
+                        } else {
+                            memberId = Long.parseLong(memberIdObj.toString());
+                        }
+                        member = memberRepository.findById(memberId).orElse(null);
+                    } catch (NumberFormatException e) {
+                        logger.warn("회원 ID 형식이 올바르지 않습니다: {}", memberIdObj);
+                    }
                 }
             }
             
@@ -357,11 +382,21 @@ public class BookingController {
             Coach assignedCoach = null;
             if (requestData.get("coach") != null) {
                 Map<String, Object> coachMap = (Map<String, Object>) requestData.get("coach");
-                if (coachMap.get("id") != null) {
-                    Long coachId = ((Number) coachMap.get("id")).longValue();
-                    assignedCoach = coachRepository.findById(coachId)
-                            .orElseThrow(() -> new IllegalArgumentException("코치를 찾을 수 없습니다."));
-                    booking.setCoach(assignedCoach);
+                Object coachIdObj = coachMap.get("id");
+                if (coachIdObj != null) {
+                    try {
+                        Long coachId;
+                        if (coachIdObj instanceof Number) {
+                            coachId = ((Number) coachIdObj).longValue();
+                        } else {
+                            coachId = Long.parseLong(coachIdObj.toString());
+                        }
+                        assignedCoach = coachRepository.findById(coachId)
+                                .orElseThrow(() -> new IllegalArgumentException("코치를 찾을 수 없습니다."));
+                        booking.setCoach(assignedCoach);
+                    } catch (NumberFormatException e) {
+                        logger.warn("코치 ID 형식이 올바르지 않습니다: {}", coachIdObj);
+                    }
                 }
             } else if (member != null) {
                 // 예약에 코치가 없으면 회원의 코치 확인
@@ -378,7 +413,13 @@ public class BookingController {
             // MemberProduct 설정 (상품/이용권 사용)
             if (requestData.get("memberProductId") != null && member != null) {
                 try {
-                    Long memberProductId = ((Number) requestData.get("memberProductId")).longValue();
+                    Object memberProductIdObj = requestData.get("memberProductId");
+                    Long memberProductId;
+                    if (memberProductIdObj instanceof Number) {
+                        memberProductId = ((Number) memberProductIdObj).longValue();
+                    } else {
+                        memberProductId = Long.parseLong(memberProductIdObj.toString());
+                    }
                     // JOIN FETCH를 사용하여 member와 product를 함께 로드 (lazy loading 방지)
                     java.util.Optional<com.afbscenter.model.MemberProduct> memberProductOpt = 
                         memberProductRepository.findByIdWithMember(memberProductId);
@@ -397,6 +438,9 @@ public class BookingController {
                     } else {
                         logger.warn("상품을 찾을 수 없습니다: MemberProduct ID={}", memberProductId);
                     }
+                } catch (NumberFormatException e) {
+                    logger.warn("MemberProduct ID 형식이 올바르지 않습니다: {}", requestData.get("memberProductId"));
+                    // 상품 설정 실패해도 예약은 저장됨
                 } catch (Exception e) {
                     logger.error("상품 설정 실패", e);
                     // 상품 설정 실패해도 예약은 저장됨
@@ -823,11 +867,18 @@ public class BookingController {
     // H2 시퀀스 리셋
     private void resetBookingSequence(long nextValue) {
         try {
+            // SQL 인젝션 방지: nextValue가 유효한 long 값인지 확인
+            if (nextValue < 1) {
+                logger.warn("잘못된 시퀀스 값: {}", nextValue);
+                return;
+            }
             // H2에서 IDENTITY 컬럼의 시퀀스 리셋
+            // H2의 ALTER TABLE은 파라미터화를 지원하지 않으므로, 값 검증 후 사용
             String sql = "ALTER TABLE bookings ALTER COLUMN id RESTART WITH " + nextValue;
             jdbcTemplate.execute(sql);
         } catch (Exception e) {
             // 시퀀스 리셋 실패는 무시 (다음 삽입 시 자동으로 조정됨)
+            logger.warn("예약 시퀀스 리셋 실패: {}", e.getMessage());
         }
     }
 }

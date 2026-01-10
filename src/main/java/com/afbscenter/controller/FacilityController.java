@@ -2,6 +2,7 @@ package com.afbscenter.controller;
 
 import com.afbscenter.model.Facility;
 import com.afbscenter.repository.FacilityRepository;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +15,7 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/facilities")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "http://localhost:8080")
 public class FacilityController {
 
     private static final Logger logger = LoggerFactory.getLogger(FacilityController.class);
@@ -35,13 +36,8 @@ public class FacilityController {
     }
 
     @PostMapping
-    public ResponseEntity<Facility> createFacility(@RequestBody Facility facility) {
+    public ResponseEntity<Facility> createFacility(@Valid @RequestBody Facility facility) {
         try {
-            // 필수 필드 검증
-            if (facility.getName() == null || facility.getName().trim().isEmpty()) {
-                return ResponseEntity.badRequest().build();
-            }
-            
             // active 기본값 설정
             if (facility.getActive() == null) {
                 facility.setActive(true);
@@ -56,7 +52,7 @@ public class FacilityController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Facility> updateFacility(@PathVariable Long id, @RequestBody Facility facility) {
+    public ResponseEntity<Facility> updateFacility(@PathVariable Long id, @Valid @RequestBody Facility facility) {
         try {
             Facility existingFacility = facilityRepository.findById(id)
                     .orElseThrow(() -> new IllegalArgumentException("시설을 찾을 수 없습니다."));

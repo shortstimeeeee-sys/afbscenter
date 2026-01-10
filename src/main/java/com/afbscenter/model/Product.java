@@ -2,6 +2,10 @@ package com.afbscenter.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -21,16 +25,22 @@ public class Product {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @NotBlank(message = "상품명은 필수입니다")
+    @Size(max = 255, message = "상품명은 255자 이하여야 합니다")
     @Column(nullable = false)
     private String name;
 
+    @Size(max = 1000, message = "설명은 1000자 이하여야 합니다")
     @Column(length = 1000)
     private String description;
 
+    @NotNull(message = "상품 유형은 필수입니다")
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ProductType type;
 
+    @NotNull(message = "가격은 필수입니다")
+    @Positive(message = "가격은 0보다 커야 합니다")
     @Column(nullable = false)
     private Integer price;
 

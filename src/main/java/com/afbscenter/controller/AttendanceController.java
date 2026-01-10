@@ -17,7 +17,7 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/attendance")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "http://localhost:8080")
 public class AttendanceController {
 
     private static final Logger logger = LoggerFactory.getLogger(AttendanceController.class);

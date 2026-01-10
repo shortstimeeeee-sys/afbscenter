@@ -2,6 +2,7 @@ package com.afbscenter.controller;
 
 import com.afbscenter.model.Product;
 import com.afbscenter.repository.ProductRepository;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +14,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/products")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "http://localhost:8080")
 public class ProductController {
 
     private static final Logger logger = LoggerFactory.getLogger(ProductController.class);
@@ -46,21 +47,8 @@ public class ProductController {
     }
 
     @PostMapping
-    public ResponseEntity<Product> createProduct(@RequestBody Product product) {
+    public ResponseEntity<Product> createProduct(@Valid @RequestBody Product product) {
         try {
-            // 필수 필드 검증
-            if (product.getName() == null || product.getName().trim().isEmpty()) {
-                return ResponseEntity.badRequest().build();
-            }
-            
-            if (product.getType() == null) {
-                return ResponseEntity.badRequest().build();
-            }
-            
-            if (product.getPrice() == null) {
-                return ResponseEntity.badRequest().build();
-            }
-            
             // active 기본값 설정
             if (product.getActive() == null) {
                 product.setActive(true);
@@ -75,7 +63,7 @@ public class ProductController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Product> updateProduct(@PathVariable Long id, @RequestBody Product updatedProduct) {
+    public ResponseEntity<Product> updateProduct(@PathVariable Long id, @Valid @RequestBody Product updatedProduct) {
         try {
             Product product = productRepository.findById(id)
                     .orElseThrow(() -> new IllegalArgumentException("상품을 찾을 수 없습니다."));

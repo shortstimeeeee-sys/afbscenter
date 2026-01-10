@@ -2,6 +2,8 @@ package com.afbscenter.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -21,6 +23,8 @@ public class Facility {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @NotBlank(message = "시설명은 필수입니다")
+    @Size(max = 255, message = "시설명은 255자 이하여야 합니다")
     @Column(nullable = false)
     private String name;
 

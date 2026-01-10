@@ -2,6 +2,11 @@ package com.afbscenter.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Past;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -22,25 +27,37 @@ public class Member {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Size(max = 20, message = "회원번호는 20자 이하여야 합니다")
     @Column(name = "member_number", unique = true, length = 20)
     private String memberNumber; // 회원번호 (예: M0001, M0002)
 
+    @NotBlank(message = "이름은 필수입니다")
+    @Size(max = 255, message = "이름은 255자 이하여야 합니다")
     @Column(nullable = false)
     private String name;
 
+    @NotBlank(message = "전화번호는 필수입니다")
+    @Size(max = 20, message = "전화번호는 20자 이하여야 합니다")
     @Column(nullable = false, unique = true)
     private String phoneNumber;
 
+    @NotNull(message = "생년월일은 필수입니다")
+    @Past(message = "생년월일은 과거 날짜여야 합니다")
     @Column(nullable = false)
     private LocalDate birthDate;
 
+    @NotNull(message = "성별은 필수입니다")
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Gender gender;
 
+    @NotNull(message = "키는 필수입니다")
+    @Positive(message = "키는 0보다 커야 합니다")
     @Column(nullable = false)
     private Integer height; // cm
 
+    @NotNull(message = "몸무게는 필수입니다")
+    @Positive(message = "몸무게는 0보다 커야 합니다")
     @Column(nullable = false)
     private Integer weight; // kg
 
