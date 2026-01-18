@@ -2,6 +2,7 @@
 
 let currentPage = 1;
 let currentFilters = {};
+let currentMemberDetail = null; // 현재 상세 정보 모달에 표시 중인 회원 정보
 
 document.addEventListener('DOMContentLoaded', function() {
     loadMembers();
@@ -140,7 +141,7 @@ function renderMembersTable(members) {
     const tbody = document.getElementById('members-table-body');
     
     if (!members || members.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--text-muted);">회원이 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">회원이 없습니다.</td></tr>';
         return;
     }
     
@@ -159,6 +160,9 @@ function renderMembersTable(members) {
                 ${member.remainingCount > 0 ? `<br><small style="color: var(--accent-primary);">${member.remainingCount}회 남음</small>` : ''}
             </td>
             <td>${App.formatCurrency(member.totalPayment || 0)}</td>
+            <td style="text-align: center;">
+                <button class="btn btn-sm btn-primary" onclick="openExtendProductModal(${member.id})">연장</button>
+            </td>
             <td>
                 <button class="btn btn-sm btn-secondary" onclick="editMember(${member.id})">수정</button>
                 <button class="btn btn-sm btn-danger" onclick="deleteMember(${member.id})">삭제</button>
@@ -246,7 +250,7 @@ async function loadMemberData(id) {
         document.getElementById('member-gender').value = member.gender;
         document.getElementById('member-height').value = member.height;
         document.getElementById('member-weight').value = member.weight;
-        document.getElementById('member-grade').value = member.grade || 'REGULAR';
+        document.getElementById('member-grade').value = member.grade || 'SOCIAL';
         document.getElementById('member-status').value = member.status || 'ACTIVE';
         // 주소 및 소속
         document.getElementById('member-address').value = member.address || '';
@@ -461,14 +465,18 @@ async function saveMember() {
     const isNewMember = !memberId;
     
     const memberNumber = document.getElementById('member-number').value.trim();
+    const birthDateValue = document.getElementById('member-birth').value;
+    const heightValue = document.getElementById('member-height').value;
+    const weightValue = document.getElementById('member-weight').value;
+    
     const data = {
         name: document.getElementById('member-name').value,
         phoneNumber: document.getElementById('member-phone').value,
         memberNumber: memberNumber || null, // 회원번호가 있으면 설정, 없으면 null (자동 생성)
-        birthDate: document.getElementById('member-birth').value,
+        birthDate: birthDateValue || null,
         gender: document.getElementById('member-gender').value,
-        height: parseInt(document.getElementById('member-height').value),
-        weight: parseInt(document.getElementById('member-weight').value),
+        height: heightValue ? parseInt(heightValue) : null,
+        weight: weightValue ? parseInt(weightValue) : null,
         grade: document.getElementById('member-grade').value,
         status: document.getElementById('member-status').value,
         address: document.getElementById('member-address').value,
@@ -520,14 +528,37 @@ async function saveMember() {
             App.showNotification('회원이 등록되었습니다.', 'success');
         }
         
-        // 선택된 상품 할당 및 결제 생성
+        // 선택된 상품 할당 및 결제 생성 (변경된 경우에만)
         const productSelect = document.getElementById('member-products');
         const selectedProductIds = Array.from(productSelect.selectedOptions)
             .map(option => option.value)
             .filter(id => id && id !== '');
         
-        if (selectedProductIds.length > 0) {
-            await assignProductsToMember(savedMember.id, selectedProductIds);
+        // 기존 상품과 비교하여 변경된 경우에만 재할당
+        if (id) {
+            // 수정 모드: 기존 상품과 비교
+            const member = await App.api.get(`/members/${id}`);
+            const existingProductIds = (member.memberProducts || [])
+                .map(mp => String(mp.product?.id || mp.productId))
+                .filter(id => id && id !== '')
+                .sort();
+            const newProductIds = selectedProductIds.map(id => String(id)).sort();
+            
+            // 상품이 변경된 경우에만 재할당
+            const productsChanged = JSON.stringify(existingProductIds) !== JSON.stringify(newProductIds);
+            if (productsChanged) {
+                if (selectedProductIds.length > 0) {
+                    await assignProductsToMember(savedMember.id, selectedProductIds);
+                } else {
+                    // 상품이 모두 제거된 경우
+                    await App.api.delete(`/members/${savedMember.id}/products`);
+                }
+            }
+        } else {
+            // 신규 등록: 상품이 있으면 할당
+            if (selectedProductIds.length > 0) {
+                await assignProductsToMember(savedMember.id, selectedProductIds);
+            }
         }
         
         App.Modal.close('member-modal');
@@ -569,6 +600,7 @@ async function deleteMember(id) {
 async function openMemberDetail(id) {
     try {
         const member = await App.api.get(`/members/${id}`);
+        currentMemberDetail = member; // 현재 회원 정보 저장
         document.getElementById('member-detail-title').textContent = `${member.name} 상세 정보`;
         
         switchTab('info', member);
@@ -583,6 +615,11 @@ function switchTab(tab, member = null) {
         btn.classList.toggle('active', btn.getAttribute('data-tab') === tab);
     });
     
+    // member가 전달되지 않았으면 저장된 currentMemberDetail 사용
+    if (!member && currentMemberDetail) {
+        member = currentMemberDetail;
+    }
+    
     const content = document.getElementById('detail-tab-content');
     
     switch(tab) {
@@ -590,13 +627,32 @@ function switchTab(tab, member = null) {
             content.innerHTML = renderMemberInfo(member);
             break;
         case 'products':
-            loadMemberProductsForDetail(member?.id);
+            if (member?.id) {
+                loadMemberProductsForDetail(member.id);
+            } else {
+                content.innerHTML = '<p style="color: var(--text-muted);">회원 정보를 불러올 수 없습니다.</p>';
+            }
+            break;
+        case 'payments':
+            if (member?.id) {
+                loadMemberPayments(member.id);
+            } else {
+                content.innerHTML = '<p style="color: var(--text-muted);">회원 정보를 불러올 수 없습니다.</p>';
+            }
             break;
         case 'bookings':
-            loadMemberBookings(member?.id);
+            if (member?.id) {
+                loadMemberBookings(member.id);
+            } else {
+                content.innerHTML = '<p style="color: var(--text-muted);">회원 정보를 불러올 수 없습니다.</p>';
+            }
             break;
         case 'attendance':
-            loadMemberAttendance(member?.id);
+            if (member?.id) {
+                loadMemberAttendance(member.id);
+            } else {
+                content.innerHTML = '<p style="color: var(--text-muted);">회원 정보를 불러올 수 없습니다.</p>';
+            }
             break;
         case 'memo':
             content.innerHTML = renderMemberMemo(member);
@@ -640,6 +696,10 @@ function renderMemberInfo(member) {
 // 회원 상세 정보 탭에서 상품 목록 표시 (회원 수정 모달의 loadMemberProducts와 구분)
 async function loadMemberProductsForDetail(memberId) {
     const content = document.getElementById('detail-tab-content');
+    if (!memberId) {
+        content.innerHTML = '<p style="color: var(--text-muted);">회원 ID가 없습니다.</p>';
+        return;
+    }
     try {
         const products = await App.api.get(`/members/${memberId}/products`);
         content.innerHTML = renderProductsList(products);
@@ -654,15 +714,180 @@ function renderProductsList(products) {
     }
     return `
         <div class="product-list">
-            ${products.map(p => `
-                <div class="product-item">
-                    <div class="product-info">
-                        <div class="product-name">${p.name}</div>
-                        <div class="product-detail">잔여: ${p.remaining}/${p.total} | 유효기간: ${App.formatDate(p.expiryDate)}</div>
+            ${products.map(p => {
+                const product = p.product || {};
+                const productName = product.name || '알 수 없음';
+                const remaining = p.remainingCount !== undefined ? p.remainingCount : p.remaining || 0;
+                const total = p.totalCount !== undefined ? p.totalCount : p.total || 0;
+                const expiryDate = p.expiryDate ? App.formatDate(p.expiryDate) : '-';
+                const status = p.status || 'UNKNOWN';
+                const productId = p.id;
+                const isCountPass = product.type === 'COUNT_PASS';
+                
+                return `
+                <div class="product-item" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid var(--border-color);">
+                    <div class="product-info" style="flex: 1;">
+                        <div class="product-name" style="font-weight: 600; margin-bottom: 4px;">${productName}</div>
+                        <div class="product-detail" style="font-size: 14px; color: var(--text-secondary);">
+                            잔여: ${remaining}/${total} | 유효기간: ${expiryDate}
+                        </div>
                     </div>
-                    <span class="badge badge-${p.status === 'ACTIVE' ? 'success' : 'warning'}">${p.status}</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="badge badge-${status === 'ACTIVE' ? 'success' : status === 'EXPIRED' ? 'warning' : 'secondary'}">${status}</span>
+                        ${isCountPass ? `
+                            <button class="btn btn-sm btn-secondary" onclick="openAdjustCountModal(${productId}, ${remaining})" title="횟수 조정">
+                                조정
+                            </button>
+                        ` : ''}
+                    </div>
                 </div>
-            `).join('')}
+            `;
+            }).join('')}
+        </div>
+    `;
+}
+
+// 횟수 조정 모달 열기
+async function openAdjustCountModal(productId, currentRemaining) {
+    document.getElementById('adjust-product-id').value = productId;
+    document.getElementById('adjust-current-count').textContent = `현재 잔여 횟수: ${currentRemaining}회`;
+    document.getElementById('adjust-amount').value = '';
+    App.Modal.open('adjust-count-modal');
+}
+
+// 횟수 조정 처리
+async function processAdjustCount() {
+    const productId = document.getElementById('adjust-product-id').value;
+    const amountInput = document.getElementById('adjust-amount').value;
+    
+    if (!amountInput || amountInput.trim() === '') {
+        App.showNotification('조정할 횟수를 입력해주세요.', 'warning');
+        return;
+    }
+    
+    const amount = parseInt(amountInput);
+    if (isNaN(amount) || amount === 0) {
+        App.showNotification('유효한 숫자를 입력해주세요. (양수: 추가, 음수: 차감)', 'warning');
+        return;
+    }
+    
+    try {
+        const result = await App.api.put(`/member-products/${productId}/adjust-count`, {
+            amount: amount
+        });
+        
+        App.showNotification(result.message || '횟수가 조정되었습니다.', 'success');
+        App.Modal.close('adjust-count-modal');
+        
+        // 이용권 목록 새로고침
+        if (currentMemberDetail && currentMemberDetail.id) {
+            loadMemberProductsForDetail(currentMemberDetail.id);
+        }
+    } catch (error) {
+        App.showNotification('횟수 조정에 실패했습니다.', 'danger');
+    }
+}
+
+async function loadMemberPayments(memberId) {
+    const content = document.getElementById('detail-tab-content');
+    try {
+        const payments = await App.api.get(`/members/${memberId}/payments`);
+        content.innerHTML = renderPaymentsList(payments);
+    } catch (error) {
+        console.error('결제 내역 로드 실패:', error);
+        content.innerHTML = '<p style="color: var(--text-muted);">결제 내역을 불러올 수 없습니다.</p>';
+    }
+}
+
+function renderPaymentsList(payments) {
+    if (!payments || payments.length === 0) {
+        return '<p style="color: var(--text-muted);">결제 내역이 없습니다.</p>';
+    }
+    
+    function getPaymentMethodText(method) {
+        const methodMap = {
+            'CASH': '현금',
+            'CARD': '카드',
+            'BANK_TRANSFER': '계좌이체',
+            'EASY_PAY': '간편결제'
+        };
+        return methodMap[method] || method;
+    }
+    
+    function getCategoryText(category) {
+        const categoryMap = {
+            'RENTAL': '대관',
+            'LESSON': '레슨',
+            'PRODUCT_SALE': '상품판매'
+        };
+        return categoryMap[category] || category;
+    }
+    
+    function getStatusText(status) {
+        const statusMap = {
+            'COMPLETED': '완료',
+            'PARTIAL': '부분 결제',
+            'REFUNDED': '환불'
+        };
+        return statusMap[status] || status;
+    }
+    
+    function getStatusBadge(status) {
+        const badgeMap = {
+            'COMPLETED': 'success',
+            'PARTIAL': 'warning',
+            'REFUNDED': 'danger'
+        };
+        return badgeMap[status] || 'secondary';
+    }
+    
+    return `
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>결제일시</th>
+                        <th>상품명</th>
+                        <th>카테고리</th>
+                        <th>코치</th>
+                        <th>결제방법</th>
+                        <th>금액</th>
+                        <th>상태</th>
+                        <th>메모</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${payments.map(p => {
+                        const paidAt = p.paidAt ? App.formatDateTime(p.paidAt) : '-';
+                        const productName = p.product?.name || '-';
+                        const category = getCategoryText(p.category);
+                        const method = getPaymentMethodText(p.paymentMethod);
+                        const amount = App.formatCurrency(p.amount || 0);
+                        const status = getStatusText(p.status);
+                        const statusBadge = getStatusBadge(p.status);
+                        const memo = p.memo || '-';
+                        const refundAmount = p.refundAmount || 0;
+                        
+                        const coachName = p.coach?.name || '-';
+                        
+                        return `
+                        <tr>
+                            <td>${paidAt}</td>
+                            <td>${productName}</td>
+                            <td>${category}</td>
+                            <td>${coachName}</td>
+                            <td>${method}</td>
+                            <td style="font-weight: 600; color: var(--accent-primary);">
+                                ${amount}
+                                ${refundAmount > 0 ? `<br><small style="color: var(--danger);">환불: ${App.formatCurrency(refundAmount)}</small>` : ''}
+                            </td>
+                            <td><span class="badge badge-${statusBadge}">${status}</span></td>
+                            <td>${memo}</td>
+                        </tr>
+                    `;
+                    }).join('')}
+                </tbody>
+            </table>
         </div>
     `;
 }
@@ -681,6 +906,31 @@ function renderBookingsList(bookings) {
     if (!bookings || bookings.length === 0) {
         return '<p style="color: var(--text-muted);">예약 내역이 없습니다.</p>';
     }
+    
+    // 예약 상태 텍스트 변환 함수
+    function getBookingStatusText(status) {
+        const statusMap = {
+            'PENDING': '대기',
+            'CONFIRMED': '확정',
+            'CANCELLED': '취소',
+            'NO_SHOW': '노쇼',
+            'COMPLETED': '완료'
+        };
+        return statusMap[status] || status;
+    }
+    
+    // 예약 상태 배지 색상 함수
+    function getBookingStatusBadge(status) {
+        const badgeMap = {
+            'PENDING': 'warning',
+            'CONFIRMED': 'success',
+            'CANCELLED': 'secondary',
+            'NO_SHOW': 'danger',
+            'COMPLETED': 'info'
+        };
+        return badgeMap[status] || 'secondary';
+    }
+    
     return `
         <div class="table-container">
             <table class="table">
@@ -693,14 +943,22 @@ function renderBookingsList(bookings) {
                     </tr>
                 </thead>
                 <tbody>
-                    ${bookings.map(b => `
+                    ${bookings.map(b => {
+                        const facilityName = b.facility?.name || b.facilityName || '-';
+                        const startTime = b.startTime ? App.formatDateTime(b.startTime) : '-';
+                        const status = b.status || 'UNKNOWN';
+                        const statusText = getBookingStatusText(status);
+                        const statusBadge = getBookingStatusBadge(status);
+                        
+                        return `
                         <tr>
-                            <td>${b.id}</td>
-                            <td>${b.facilityName}</td>
-                            <td>${App.formatDateTime(b.startTime)}</td>
-                            <td><span class="badge badge-${getStatusBadge(b.status)}">${getStatusText(b.status)}</span></td>
+                            <td>${b.id || '-'}</td>
+                            <td>${facilityName}</td>
+                            <td>${startTime}</td>
+                            <td><span class="badge badge-${statusBadge}">${statusText}</span></td>
                         </tr>
-                    `).join('')}
+                    `;
+                    }).join('')}
                 </tbody>
             </table>
         </div>
@@ -721,6 +979,29 @@ function renderAttendanceList(attendance) {
     if (!attendance || attendance.length === 0) {
         return '<p style="color: var(--text-muted);">출석 내역이 없습니다.</p>';
     }
+    
+    // 출석 상태 텍스트 변환 함수
+    function getAttendanceStatusText(status) {
+        const statusMap = {
+            'PRESENT': '출석',
+            'ABSENT': '결석',
+            'LATE': '지각',
+            'NO_SHOW': '노쇼'
+        };
+        return statusMap[status] || status;
+    }
+    
+    // 출석 상태 배지 색상 함수
+    function getAttendanceStatusBadge(status) {
+        const badgeMap = {
+            'PRESENT': 'success',
+            'ABSENT': 'secondary',
+            'LATE': 'warning',
+            'NO_SHOW': 'danger'
+        };
+        return badgeMap[status] || 'secondary';
+    }
+    
     return `
         <div class="table-container">
             <table class="table">
@@ -730,17 +1011,29 @@ function renderAttendanceList(attendance) {
                         <th>시설</th>
                         <th>체크인 시간</th>
                         <th>체크아웃 시간</th>
+                        <th>상태</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${attendance.map(a => `
+                    ${attendance.map(a => {
+                        const facilityName = a.facility?.name || a.facilityName || '-';
+                        const date = a.date ? App.formatDate(a.date) : '-';
+                        const checkInTime = a.checkInTime ? App.formatDateTime(a.checkInTime) : '-';
+                        const checkOutTime = a.checkOutTime ? App.formatDateTime(a.checkOutTime) : '-';
+                        const status = a.status || 'UNKNOWN';
+                        const statusText = getAttendanceStatusText(status);
+                        const statusBadge = getAttendanceStatusBadge(status);
+                        
+                        return `
                         <tr>
-                            <td>${App.formatDate(a.date)}</td>
-                            <td>${a.facilityName}</td>
-                            <td>${a.checkInTime || '-'}</td>
-                            <td>${a.checkOutTime || '-'}</td>
+                            <td>${date}</td>
+                            <td>${facilityName}</td>
+                            <td>${checkInTime}</td>
+                            <td>${checkOutTime}</td>
+                            <td><span class="badge badge-${statusBadge}">${statusText}</span></td>
                         </tr>
-                    `).join('')}
+                    `;
+                    }).join('')}
                 </tbody>
             </table>
         </div>
@@ -759,6 +1052,335 @@ function renderMemberMemo(member) {
 
 function exportCSV() {
     App.showNotification('CSV 다운로드 기능은 준비 중입니다.', 'info');
+}
+
+// 상품/이용권 연장 모달 열기
+async function openExtendProductModal(memberId) {
+    document.getElementById('extend-member-id').value = memberId;
+    document.getElementById('extend-product-select').innerHTML = '<option value="">로딩 중...</option>';
+    document.getElementById('extend-current-expiry').textContent = '-';
+    document.getElementById('extend-purchase-price').textContent = '-';
+    document.getElementById('extend-calculated-price').textContent = '-';
+    document.getElementById('extend-days').value = '';
+    
+    try {
+        // 회원의 보유 상품/이용권 목록 가져오기 (기존 구매한 것들)
+        const memberProducts = await App.api.get(`/members/${memberId}/products`);
+        
+        // 새로 구매 가능한 모든 상품 목록 가져오기 (할인 상품 포함)
+        const allProducts = await App.api.get('/products');
+        
+        const select = document.getElementById('extend-product-select');
+        
+        console.log('연장 모달 - 회원 보유 상품 개수:', memberProducts?.length || 0);
+        console.log('연장 모달 - 구매 가능한 상품 개수:', allProducts?.length || 0);
+        
+        select.innerHTML = '<option value="">상품/이용권을 선택하세요...</option>';
+        
+        // 보유 상품과 구매 가능한 상품이 모두 없으면
+        if ((!memberProducts || memberProducts.length === 0) && (!allProducts || allProducts.length === 0)) {
+            select.innerHTML = '<option value="">상품/이용권이 없습니다</option>';
+            select.disabled = true;
+            App.showNotification('상품/이용권이 없습니다.', 'warning');
+            return;
+        }
+        
+        select.disabled = false;
+        
+        // 기존 이벤트 리스너 제거 (중복 방지)
+        const newSelect = select.cloneNode(true);
+        select.parentNode.replaceChild(newSelect, select);
+        const freshSelect = document.getElementById('extend-product-select');
+        
+        // 모든 상품을 저장할 배열 (기존 보유 + 새로 구매 가능)
+        const allAvailableProducts = [];
+        
+        // 1. 기존 보유 상품권 추가 (MemberProduct - 연장용)
+        if (memberProducts && memberProducts.length > 0) {
+            memberProducts.forEach(mp => {
+                const productName = mp.product?.name || '상품';
+                const productType = mp.product?.type || '';
+                const expiryDate = mp.expiryDate ? App.formatDate(mp.expiryDate) : '만료일 없음';
+                const status = mp.status || 'ACTIVE';
+                const remainingCount = mp.remainingCount !== undefined ? mp.remainingCount : '-';
+                const actualPurchasePrice = mp.actualPurchasePrice || mp.product?.price || 0;
+                const totalCount = mp.totalCount || mp.product?.usageCount || 10;
+                
+                // 상품 타입에 따른 표시
+                let typeText = '';
+                if (productType === 'COUNT_PASS') {
+                    typeText = `[횟수권]`;
+                } else if (productType === 'TIME_PASS') {
+                    typeText = `[시간권]`;
+                } else if (productType === 'MONTHLY_PASS') {
+                    typeText = `[월정기]`;
+                }
+                
+                // 실제 구매 금액 표시
+                const priceText = App.formatCurrency(actualPurchasePrice);
+                
+                const optionText = `[보유] ${typeText} ${productName} - ${priceText} (만료일: ${expiryDate}, 상태: ${status}${productType === 'COUNT_PASS' ? `, 잔여: ${remainingCount}회` : ''})`;
+                const option = new Option(optionText, `memberProduct_${mp.id}`);
+                option.dataset.isMemberProduct = 'true';
+                option.dataset.memberProductId = mp.id;
+                option.dataset.productType = productType;
+                option.dataset.actualPurchasePrice = actualPurchasePrice;
+                option.dataset.totalCount = totalCount;
+                option.dataset.expiryDate = mp.expiryDate || '';
+                allAvailableProducts.push({
+                    type: 'memberProduct',
+                    id: mp.id,
+                    memberProduct: mp,
+                    product: mp.product
+                });
+                freshSelect.appendChild(option);
+            });
+        }
+        
+        // 2. 새로 구매 가능한 모든 상품 추가 (Product - 새 구매용, 할인 상품 포함)
+        if (allProducts && allProducts.length > 0) {
+            // 횟수권만 필터링 (연장은 횟수권만 가능)
+            const countPassProducts = allProducts.filter(p => p.type === 'COUNT_PASS' && p.active !== false);
+            
+            if (countPassProducts.length > 0) {
+                // 구분선 추가
+                const separatorOption = new Option('────────── 새로 구매 가능 ──────────', '');
+                separatorOption.disabled = true;
+                freshSelect.appendChild(separatorOption);
+                
+                countPassProducts.forEach(product => {
+                    const productName = product.name || '상품';
+                    const productType = product.type || '';
+                    const productPrice = product.price || 0;
+                    const totalCount = product.usageCount || 10;
+                    
+                    const typeText = `[횟수권]`;
+                    const priceText = App.formatCurrency(productPrice);
+                    
+                    const optionText = `[신규] ${typeText} ${productName} - ${priceText}`;
+                    const option = new Option(optionText, `product_${product.id}`);
+                    option.dataset.isMemberProduct = 'false';
+                    option.dataset.productId = product.id;
+                    option.dataset.productType = productType;
+                    option.dataset.actualPurchasePrice = productPrice;
+                    option.dataset.totalCount = totalCount;
+                    option.dataset.expiryDate = '';
+                    allAvailableProducts.push({
+                        type: 'product',
+                        id: product.id,
+                        product: product
+                    });
+                    freshSelect.appendChild(option);
+                });
+            }
+        }
+        
+        console.log('연장 모달 - 드롭다운에 추가된 옵션 개수:', freshSelect.options.length - 1); // -1은 기본 옵션 제외
+        
+        // 상품/이용권 선택 시 만료일 및 구매 금액 표시, 연장 금액 계산
+        freshSelect.addEventListener('change', function() {
+            const selectedValue = this.value;
+            if (selectedValue) {
+                const selectedOption = this.options[this.selectedIndex];
+                const isMemberProduct = selectedOption.dataset.isMemberProduct === 'true';
+                
+                if (isMemberProduct) {
+                    // 기존 보유 상품권 선택
+                    const memberProductId = selectedOption.dataset.memberProductId;
+                    const selectedMemberProduct = memberProducts.find(mp => mp.id == memberProductId);
+                    
+                    if (selectedMemberProduct) {
+                        // 만료일 표시
+                        if (selectedMemberProduct.expiryDate) {
+                            document.getElementById('extend-current-expiry').textContent = App.formatDate(selectedMemberProduct.expiryDate);
+                        } else {
+                            document.getElementById('extend-current-expiry').textContent = '만료일 없음';
+                        }
+                        
+                        // 구매 금액 표시
+                        const actualPurchasePrice = selectedMemberProduct.actualPurchasePrice || selectedMemberProduct.product?.price || 0;
+                        document.getElementById('extend-purchase-price').textContent = App.formatCurrency(actualPurchasePrice);
+                    }
+                } else {
+                    // 새 상품 선택
+                    const productId = selectedOption.dataset.productId;
+                    const selectedProduct = allProducts.find(p => p.id == productId);
+                    
+                    if (selectedProduct) {
+                        document.getElementById('extend-current-expiry').textContent = '신규 구매';
+                        document.getElementById('extend-purchase-price').textContent = App.formatCurrency(selectedProduct.price || 0);
+                    }
+                }
+                
+                // 연장 금액 계산 초기화
+                updateExtendPrice();
+            } else {
+                document.getElementById('extend-current-expiry').textContent = '-';
+                document.getElementById('extend-purchase-price').textContent = '-';
+                document.getElementById('extend-calculated-price').textContent = '-';
+            }
+        });
+        
+        // 연장 횟수 입력 시 연장 금액 계산
+        const daysInput = document.getElementById('extend-days');
+        daysInput.addEventListener('input', function() {
+            updateExtendPrice();
+        });
+        
+        // 연장 금액 계산 함수
+        function updateExtendPrice() {
+            const selectedValue = freshSelect.value;
+            const daysValue = parseInt(daysInput.value) || 0;
+            
+            if (selectedValue && daysValue > 0) {
+                const selectedOption = freshSelect.options[freshSelect.selectedIndex];
+                const actualPurchasePrice = parseInt(selectedOption.dataset.actualPurchasePrice) || 0;
+                const totalCount = parseInt(selectedOption.dataset.totalCount) || 10;
+                
+                if (totalCount > 0 && actualPurchasePrice > 0) {
+                    const unitPrice = Math.floor(actualPurchasePrice / totalCount);
+                    const totalPrice = unitPrice * daysValue;
+                    document.getElementById('extend-calculated-price').textContent = App.formatCurrency(totalPrice);
+                } else {
+                    document.getElementById('extend-calculated-price').textContent = '₩0';
+                }
+            } else {
+                document.getElementById('extend-calculated-price').textContent = '-';
+            }
+        }
+        
+        App.Modal.open('extend-product-modal');
+    } catch (error) {
+        console.error('상품/이용권 목록 로드 실패:', error);
+        App.showNotification('상품/이용권 목록을 불러오는데 실패했습니다.', 'danger');
+    }
+}
+
+// 상품/이용권 연장 처리
+async function processExtendProduct() {
+    const selectedValue = document.getElementById('extend-product-select').value;
+    const daysInput = document.getElementById('extend-days').value;
+    const memberId = document.getElementById('extend-member-id').value;
+    
+    if (!selectedValue) {
+        App.showNotification('상품/이용권을 선택해주세요.', 'warning');
+        return;
+    }
+    
+    // 선택된 상품의 타입 확인
+    const selectElement = document.getElementById('extend-product-select');
+    const selectedOption = selectElement.options[selectElement.selectedIndex];
+    const isMemberProduct = selectedOption.dataset.isMemberProduct === 'true';
+    const productType = selectedOption.dataset.productType;
+    
+    // 횟수권이 아닌 경우 경고
+    if (productType && productType !== 'COUNT_PASS') {
+        App.showNotification('횟수권만 연장할 수 있습니다.', 'warning');
+        return;
+    }
+    
+    if (!daysInput || daysInput.trim() === '') {
+        App.showNotification('연장 횟수를 입력해주세요.', 'warning');
+        return;
+    }
+    
+    const days = parseInt(daysInput);
+    if (isNaN(days) || days <= 0) {
+        App.showNotification('연장 횟수는 1 이상의 숫자여야 합니다.', 'warning');
+        return;
+    }
+    
+    try {
+        if (isMemberProduct) {
+            // 기존 보유 상품권 연장
+            const memberProductId = selectedOption.dataset.memberProductId;
+            const result = await App.api.put(`/member-products/${memberProductId}/extend`, {
+                days: days
+            });
+            
+            App.showNotification(result.message || '상품/이용권이 연장되었습니다.', 'success');
+        } else {
+            // 새 상품 선택 - 같은 상품이 있으면 연장, 없으면 새로 생성
+            const productId = parseInt(selectedOption.dataset.productId);
+            const actualPurchasePrice = parseInt(selectedOption.dataset.actualPurchasePrice) || 0;
+            const totalCount = parseInt(selectedOption.dataset.totalCount) || 10;
+            
+            // 먼저 같은 Product ID를 가진 기존 MemberProduct가 있는지 확인
+            const memberProducts = await App.api.get(`/members/${memberId}/products`);
+            const existingMemberProduct = memberProducts.find(mp => {
+                const mpProductId = mp.product?.id || mp.productId;
+                return mpProductId != null && parseInt(mpProductId) === productId;
+            });
+            
+            if (existingMemberProduct) {
+                // 같은 상품이 있으면 기존 MemberProduct에 연장
+                const extendResult = await App.api.put(`/member-products/${existingMemberProduct.id}/extend`, {
+                    days: days
+                });
+                App.showNotification(extendResult.message || '상품이 연장되었습니다.', 'success');
+            } else {
+                // 같은 상품이 없으면 새로 생성 시도 (결제 생성을 건너뛰고 연장 시에만 결제 생성)
+                try {
+                    const result = await App.api.post(`/members/${memberId}/products`, {
+                        productId: productId,
+                        skipPayment: true  // 연장 모달에서 호출하므로 결제 생성을 건너뜀
+                    });
+                    
+                    // 생성된 MemberProduct에 횟수 추가 (연장 시 결제 생성됨)
+                    if (result && result.id) {
+                        const extendResult = await App.api.put(`/member-products/${result.id}/extend`, {
+                            days: days
+                        });
+                        App.showNotification(extendResult.message || '새 상품이 구매되고 연장되었습니다.', 'success');
+                    } else {
+                        App.showNotification('상품 구매 및 연장이 완료되었습니다.', 'success');
+                    }
+                } catch (error) {
+                    // POST 실패 시 (409 Conflict 또는 500 에러) 같은 상품이 있는지 다시 확인하고 연장
+                    console.warn('상품 생성 실패, 기존 상품 확인 중:', error);
+                    const retryMemberProducts = await App.api.get(`/members/${memberId}/products`);
+                    const retryExistingMemberProduct = retryMemberProducts.find(mp => {
+                        const mpProductId = mp.product?.id || mp.productId;
+                        return mpProductId != null && parseInt(mpProductId) === productId;
+                    });
+                    
+                    if (retryExistingMemberProduct) {
+                        // 같은 상품이 있으면 연장
+                        const extendResult = await App.api.put(`/member-products/${retryExistingMemberProduct.id}/extend`, {
+                            days: days
+                        });
+                        App.showNotification(extendResult.message || '상품이 연장되었습니다.', 'success');
+                    } else {
+                        // 여전히 없으면 에러
+                        throw error;
+                    }
+                }
+            }
+        }
+        
+        App.Modal.close('extend-product-modal');
+        
+        // 회원 목록 새로고침 (누적 결제 금액 업데이트)
+        loadMembers();
+        
+        // 회원 상세 모달이 열려있으면 결제 내역과 이용권 목록도 새로고침
+        if (currentMemberDetail && currentMemberDetail.id) {
+            const activeTab = document.querySelector('.tab-btn.active');
+            if (activeTab) {
+                const activeTabName = activeTab.getAttribute('data-tab');
+                if (activeTabName === 'payments') {
+                    // 결제 내역 탭이 활성화되어 있으면 새로고침
+                    loadMemberPayments(currentMemberDetail.id);
+                } else if (activeTabName === 'products') {
+                    // 이용권 탭이 활성화되어 있으면 새로고침
+                    loadMemberProductsForDetail(currentMemberDetail.id);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('상품/이용권 연장 실패:', error);
+        App.showNotification('상품/이용권 연장에 실패했습니다.', 'danger');
+    }
 }
 
 function debounce(func, wait) {

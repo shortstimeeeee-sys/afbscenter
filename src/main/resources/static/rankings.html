@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>훈련 기록 랭킹 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/rankings.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">📅</span><span>예약/대관 관리</span></a>
+                    <a href="/attendance.html" class="menu-item" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">기록/분석</div>
+                    <a href="/training-logs.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
+                    <a href="/rankings.html" class="menu-item active" data-role="Coach"><span class="menu-item-icon">🏆</span><span>훈련 랭킹</span></a>
+                    <a href="/analytics.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">상품/결제</div>
+                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>상품/이용권</span></a>
+                    <a href="/payments.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
+                </div>
+            </nav>
+        </aside>
+        
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">🏆 훈련 기록 랭킹</h1>
+                </div>
+                <div class="topbar-right">
+                    <div class="user-info">
+                        <span class="user-name">관리자</span>
+                        <span class="user-role">Manager</span>
+                    </div>
+                </div>
+            </header>
+
+            <div class="content-area">
+                <!-- 기간 선택 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">조회 기간</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="period-selector">
+                            <button class="btn btn-sm btn-secondary period-btn active" data-days="7">최근 7일</button>
+                            <button class="btn btn-sm btn-secondary period-btn" data-days="30">최근 30일</button>
+                            <button class="btn btn-sm btn-secondary period-btn" data-days="90">최근 90일</button>
+                            <button class="btn btn-sm btn-secondary period-btn" data-days="365">최근 1년</button>
+                            <div style="display: flex; gap: 8px; align-items: center; margin-left: 16px;">
+                                <input type="date" id="custom-start-date" class="form-control" style="width: auto;">
+                                <span>~</span>
+                                <input type="date" id="custom-end-date" class="form-control" style="width: auto;">
+                                <button class="btn btn-sm btn-primary" onclick="loadCustomPeriod()">조회</button>
+                            </div>
+                            <div style="display: flex; gap: 8px; align-items: center; margin-left: auto;">
+                                <label style="font-size: 13px; color: var(--text-secondary); font-weight: 600;">회원 등급:</label>
+                                <select id="grade-filter" class="form-control" style="width: auto;">
+                                    <option value="ALL">전체</option>
+                                    <option value="SOCIAL">사회인</option>
+                                    <option value="ELITE">엘리트</option>
+                                    <option value="YOUTH">유소년</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="period-info" style="margin-top: 12px; font-size: 13px; color: var(--text-secondary);"></div>
+                    </div>
+                </div>
+
+                <!-- 랭킹 카드들 -->
+                <div class="rankings-grid">
+                    <!-- 타구속도 랭킹 -->
+                    <div class="card ranking-card">
+                        <div class="card-header">
+                            <h3 class="card-title">⚡ 타구속도 랭킹</h3>
+                            <span class="ranking-subtitle">최고 타구 속도 기준</span>
+                        </div>
+                        <div class="card-body">
+                            <div id="ball-speed-ranking" class="ranking-list">
+                                <p style="color: var(--text-muted); text-align: center;">데이터 로딩 중...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 구속 랭킹 -->
+                    <div class="card ranking-card">
+                        <div class="card-header">
+                            <h3 class="card-title">🔥 구속 랭킹</h3>
+                            <span class="ranking-subtitle">최고 구속 기준</span>
+                        </div>
+                        <div class="card-body">
+                            <div id="pitch-speed-ranking" class="ranking-list">
+                                <p style="color: var(--text-muted); text-align: center;">데이터 로딩 중...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 컨택률 랭킹 -->
+                    <div class="card ranking-card">
+                        <div class="card-header">
+                            <h3 class="card-title">🎯 컨택률 랭킹</h3>
+                            <span class="ranking-subtitle">최고 컨택률 기준</span>
+                        </div>
+                        <div class="card-body">
+                            <div id="contact-rate-ranking" class="ranking-list">
+                                <p style="color: var(--text-muted); text-align: center;">데이터 로딩 중...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 스트라이크율 랭킹 -->
+                    <div class="card ranking-card">
+                        <div class="card-header">
+                            <h3 class="card-title">🎲 스트라이크율 랭킹</h3>
+                            <span class="ranking-subtitle">최고 스트라이크율 기준</span>
+                        </div>
+                        <div class="card-body">
+                            <div id="strike-rate-ranking" class="ranking-list">
+                                <p style="color: var(--text-muted); text-align: center;">데이터 로딩 중...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 훈련 횟수 랭킹 -->
+                    <div class="card ranking-card">
+                        <div class="card-header">
+                            <h3 class="card-title">💪 훈련 횟수 랭킹</h3>
+                            <span class="ranking-subtitle">총 훈련 기록 수 기준</span>
+                        </div>
+                        <div class="card-body">
+                            <div id="record-count-ranking" class="ranking-list">
+                                <p style="color: var(--text-muted); text-align: center;">데이터 로딩 중...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/js/common.js"></script>
+    <script src="/js/rankings.js"></script>
+</body>
+</html>

@@ -3,6 +3,7 @@
 document.addEventListener('DOMContentLoaded', function() {
     loadTodayBookings();
     loadAttendanceRecords();
+    loadUncheckedBookings();
 });
 
 async function loadTodayBookings() {
@@ -122,6 +123,7 @@ async function processCheckin() {
         App.Modal.close('checkin-modal');
         loadTodayBookings();
         loadAttendanceRecords();
+        loadUncheckedBookings();
     } catch (error) {
         App.showNotification('체크인 처리에 실패했습니다.', 'danger');
     }
@@ -136,7 +138,11 @@ async function loadAttendanceRecords() {
         if (startDate) params.append('startDate', startDate);
         if (endDate) params.append('endDate', endDate);
         
-        const records = await App.api.get(`/attendance?${params}`);
+        // 쿼리 파라미터가 있을 때만 ? 추가
+        const queryString = params.toString();
+        const url = queryString ? `/attendance?${queryString}` : '/attendance';
+        
+        const records = await App.api.get(url);
         renderAttendanceRecords(records);
     } catch (error) {
         console.error('출석 기록 로드 실패:', error);
@@ -147,7 +153,7 @@ function renderAttendanceRecords(records) {
     const tbody = document.getElementById('attendance-records-body');
     
     if (!records || records.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">출석 기록이 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">출석 기록이 없습니다.</td></tr>';
         return;
     }
     
@@ -157,6 +163,11 @@ function renderAttendanceRecords(records) {
         const duration = checkIn && checkOut ? 
             Math.round((checkOut - checkIn) / (1000 * 60)) + '분' : '-';
         
+        // 체크인은 했지만 체크아웃은 안 한 경우 "이용중"
+        const isInUse = checkIn && !checkOut;
+        const statusText = isInUse ? '이용중' : (checkOut ? '완료' : '-');
+        const statusBadge = isInUse ? 'warning' : (checkOut ? 'success' : 'secondary');
+        
         return `
             <tr>
                 <td>${App.formatDate(record.date)}</td>
@@ -165,7 +176,91 @@ function renderAttendanceRecords(records) {
                 <td>${checkIn ? checkIn.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
                 <td>${checkOut ? checkOut.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
                 <td>${duration}</td>
-                <td><span class="badge badge-${record.status === 'COMPLETED' ? 'success' : 'warning'}">${record.status === 'COMPLETED' ? '완료' : '이용중'}</span></td>
+                <td><span class="badge badge-${statusBadge}">${statusText}</span></td>
+                <td>
+                    ${isInUse ? `
+                        <button class="btn btn-sm btn-secondary" onclick="processCheckout(${record.id})">체크아웃</button>
+                    ` : ''}
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// 체크아웃 처리
+async function processCheckout(attendanceId) {
+    if (!confirm('체크아웃을 처리하시겠습니까?')) {
+        return;
+    }
+    
+    try {
+        await App.api.post(`/attendance/checkout`, {
+            attendanceId: attendanceId
+        });
+        App.showNotification('체크아웃이 완료되었습니다.', 'success');
+        loadAttendanceRecords();
+    } catch (error) {
+        console.error('체크아웃 처리 실패:', error);
+        App.showNotification('체크아웃 처리에 실패했습니다.', 'danger');
+    }
+}
+
+// 체크인 미처리 예약 목록 로드
+async function loadUncheckedBookings() {
+    try {
+        const bookings = await App.api.get('/attendance/unchecked-bookings');
+        renderUncheckedBookings(bookings);
+    } catch (error) {
+        console.error('체크인 미처리 예약 로드 실패:', error);
+        const tbody = document.getElementById('unchecked-bookings-body');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">로드 실패</td></tr>';
+        }
+    }
+}
+
+function renderUncheckedBookings(bookings) {
+    const tbody = document.getElementById('unchecked-bookings-body');
+    
+    if (!bookings || bookings.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">체크인 미처리 예약이 없습니다.</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = bookings.map(booking => {
+        const startTime = new Date(booking.startTime);
+        const dateStr = App.formatDate(booking.startTime);
+        const timeStr = `${startTime.getHours().toString().padStart(2, '0')}:${startTime.getMinutes().toString().padStart(2, '0')}`;
+        
+        // 시설 이름 추출
+        const facilityName = booking.facility?.name || booking.facilityName || '-';
+        
+        // 회원 이름 추출
+        let memberName = '비회원';
+        if (booking.member) {
+            memberName = booking.member.name || booking.memberName || '비회원';
+        } else if (booking.nonMemberName) {
+            memberName = booking.nonMemberName;
+        } else if (booking.nonMemberPhone) {
+            memberName = booking.nonMemberPhone;
+        }
+        
+        // 상태 추출
+        const status = booking.status || 'PENDING';
+        
+        return `
+            <tr>
+                <td>${dateStr}</td>
+                <td>${timeStr}</td>
+                <td>${facilityName}</td>
+                <td>${memberName}</td>
+                <td>${booking.participants || 1}명</td>
+                <td><span class="badge badge-${getBookingStatusBadge(status)}">${getBookingStatusText(status)}</span></td>
+                <td>
+                    ${status === 'CONFIRMED' || status === 'COMPLETED' ? `
+                        <button class="btn btn-sm btn-primary" onclick="openCheckinModal(${booking.id})">체크인</button>
+                    ` : ''}
+                </td>
             </tr>
         `;
     }).join('');

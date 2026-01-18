@@ -224,39 +224,48 @@ async function loadCoachLegend() {
         // 색상 캐시 초기화
         App.CoachColors.resetCache();
         
-        // 코치 정렬: 이름만 -> 야구 담당 -> 필라테스 -> 트레이닝
+        // 코치 정렬: 대표 -> 코치 -> 분야별코치 -> 트레이너 -> 강사
         const sortedCoaches = activeCoaches.sort((a, b) => {
             const aName = a.name || '';
             const bName = b.name || '';
             
-            // specialties가 배열이면 join, 문자열이면 그대로 사용
-            const getSpecialtiesString = (coach) => {
-                if (!coach.specialties) return '';
-                if (Array.isArray(coach.specialties)) {
-                    return coach.specialties.join(' ').toLowerCase();
-                }
-                return String(coach.specialties).toLowerCase();
-            };
-            
             // 카테고리 분류 함수
             const getCategory = (coach) => {
                 const name = coach.name || '';
-                const specialties = getSpecialtiesString(coach);
                 
-                // 필라테스 체크 (이름에 "필라테스" 포함 또는 specialties에 필라테스)
-                if (name.includes('필라테스') || specialties.includes('pilates') || specialties.includes('필라테스')) {
-                    return 3;
+                // 1. 대표: [대표] 포함
+                if (name.includes('[대표]')) {
+                    return 1;
                 }
-                // 트레이닝 체크 (이름에 "트레이닝" 포함 또는 specialties에 트레이닝)
-                if (name.includes('트레이닝') || specialties.includes('training') || specialties.includes('트레이닝')) {
-                    return 4;
-                }
-                // 야구 담당 체크 (이름에 [담당] 형식 포함)
-                if (name.includes('[') && name.includes(']')) {
+                // 2. 코치: [코치] 포함 (하지만 분야별코치는 제외)
+                if (name.includes('[코치]') && 
+                    !name.includes('[유소년코치]') && 
+                    !name.includes('[투수코치]') && 
+                    !name.includes('[포수코치]') &&
+                    !name.includes('[타격코치]') &&
+                    !name.includes('[수비코치]') &&
+                    !name.includes('[주루코치]')) {
                     return 2;
                 }
-                // 이름만 있는 코치 (필라테스, 트레이닝, [담당] 형식이 없는 경우)
-                return 1;
+                // 3. 분야별코치: [유소년코치], [투수코치], [포수코치] 등
+                if (name.includes('[유소년코치]') || 
+                    name.includes('[투수코치]') || 
+                    name.includes('[포수코치]') ||
+                    name.includes('[타격코치]') ||
+                    name.includes('[수비코치]') ||
+                    name.includes('[주루코치]')) {
+                    return 3;
+                }
+                // 4. 트레이너: 트레이너 또는 트레이닝 포함
+                if (name.includes('트레이너') || name.includes('트레이닝')) {
+                    return 4;
+                }
+                // 5. 강사: [강사] 포함
+                if (name.includes('[강사]')) {
+                    return 5;
+                }
+                // 기타: 이름만 있는 경우는 코치로 간주 (2번 카테고리)
+                return 2;
             };
             
             const aCat = getCategory(a);
@@ -267,22 +276,9 @@ async function loadCoachLegend() {
                 return aCat - bCat;
             }
             
-            // 같은 카테고리 내에서는 이름순 정렬
-            // 1. 이름만 있는 코치: 이름 그대로 비교
-            if (aCat === 1) {
-                return aName.localeCompare(bName, 'ko');
-            }
-            
-            // 2. 야구 담당: 담당 표시 제거 후 비교
-            if (aCat === 2) {
-                const aNameForSort = aName.replace(/\s*\[.*?\]\s*/g, '').trim();
-                const bNameForSort = bName.replace(/\s*\[.*?\]\s*/g, '').trim();
-                return aNameForSort.localeCompare(bNameForSort, 'ko');
-            }
-            
-            // 3, 4. 필라테스/트레이닝: 접두사 제거 후 비교
-            const aNameForSort = aName.replace(/^(필라테스|트레이닝)\s*/i, '').trim();
-            const bNameForSort = bName.replace(/^(필라테스|트레이닝)\s*/i, '').trim();
+            // 같은 카테고리 내에서는 이름순 정렬 (대괄호 제거 후 비교)
+            const aNameForSort = aName.replace(/\s*\[.*?\]\s*/g, '').trim();
+            const bNameForSort = bName.replace(/\s*\[.*?\]\s*/g, '').trim();
             return aNameForSort.localeCompare(bNameForSort, 'ko');
         });
         
@@ -561,12 +557,34 @@ async function renderCalendar() {
                 event.style.backgroundColor = coachColor;
                 event.style.borderLeft = `3px solid ${coachColor}`;
                 
-                // 상태에 따라 체크 표시 추가
+                // 상태에 따라 아이콘 표시 추가
                 const status = booking.status || 'PENDING';
-                const checkIcon = status === 'CONFIRMED' ? '✓ ' : '';
+                const now = new Date();
+                const isEnded = endTime < now; // 종료 시간이 지났는지 확인
                 
-                // 이벤트 내용 설정 (한 줄로 표시: 체크표시 + 시간 / 이름)
-                event.innerHTML = `${checkIcon}${timeStr} / ${memberName}`;
+                let statusIcon = '';
+                let statusIconStyle = '';
+                if (status === 'COMPLETED' || isEnded) {
+                    // 완료된 예약 또는 종료된 예약: 초록색 원형 배경에 흰색 원 표시
+                    statusIcon = '';
+                    statusIconStyle = 'display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; min-width: 16px; min-height: 16px; background-color: #2ECC71; border-radius: 50%; margin-right: 5px; vertical-align: middle; flex-shrink: 0; position: relative;';
+                } else if (status === 'CONFIRMED') {
+                    // 확정된 예약: 파란색 원형 배경에 흰색 체크 표시
+                    statusIcon = '✓';
+                    statusIconStyle = 'display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; background-color: #3498DB; border-radius: 50%; color: white; font-size: 11px; font-weight: 900; margin-right: 5px; vertical-align: middle; flex-shrink: 0;';
+                }
+                
+                // 이벤트 내용 설정 (한 줄로 표시: 아이콘 + 시간 / 이름)
+                if (statusIcon || statusIconStyle) {
+                    if (status === 'COMPLETED' || isEnded) {
+                        // 완료된 예약: CSS ::after로 흰색 원 추가
+                        event.innerHTML = `<span style="${statusIconStyle}"></span>${timeStr} / ${memberName}`;
+                    } else {
+                        event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${timeStr} / ${memberName}`;
+                    }
+                } else {
+                    event.innerHTML = `${timeStr} / ${memberName}`;
+                }
                 
                 // 드래그 앤 드롭 기능 추가
                 event.draggable = true;
@@ -822,7 +840,9 @@ async function loadBookingsList() {
         // 예약 목록 로드 전에 자동으로 날짜/시간 기준으로 예약 번호 재정렬
         await reorderBookingIdsSilent();
         
-        const bookings = await App.api.get(`/bookings?page=${currentPage}`);
+        // page 파라미터 제거 (백엔드에서 처리하지 않음)
+        const bookings = await App.api.get(`/bookings`);
+        console.log('예약 목록 조회 결과:', bookings?.length || 0, '건');
         renderBookingsTable(bookings);
     } catch (error) {
         console.error('예약 목록 로드 실패:', error);
@@ -1089,8 +1109,8 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
         await loadMemberProducts(member.id);
         
         // 회원의 등급에 따라 기본값 설정
-        // 선수반 회원은 기본적으로 레슨으로 설정
-        if (member.grade === 'PLAYER' && !document.getElementById('booking-purpose').value) {
+        // 유소년 회원은 기본적으로 레슨으로 설정
+        if (member.grade === 'YOUTH' && !document.getElementById('booking-purpose').value) {
             document.getElementById('booking-purpose').value = 'LESSON';
             toggleLessonCategory();
         }
@@ -1298,6 +1318,12 @@ function openBookingModal(id = null) {
         }
         
         // 현재 뷰 버튼 유지
+        // 목적 필드 활성화 (수정 시에도 선택 가능하도록)
+        const purposeSelect = document.getElementById('booking-purpose');
+        if (purposeSelect) {
+            purposeSelect.disabled = false;
+            purposeSelect.style.display = 'block';
+        }
         loadBookingData(id);
     } else {
         // 예약 등록 모달
@@ -1324,6 +1350,13 @@ function openBookingModal(id = null) {
         document.getElementById('selected-member-id').value = '';
         document.getElementById('selected-member-number').value = '';
         document.getElementById('booking-date').value = selectedBookingDate || new Date().toISOString().split('T')[0];
+        
+        // 목적 필드 활성화
+        const purposeSelect = document.getElementById('booking-purpose');
+        if (purposeSelect) {
+            purposeSelect.disabled = false;
+            purposeSelect.style.display = 'block';
+        }
         
         // 레슨 카테고리 필드 초기화
         toggleLessonCategory();
@@ -1435,6 +1468,15 @@ async function loadBookingData(id) {
         
         document.getElementById('booking-participants').value = booking.participants || 1;
         document.getElementById('booking-purpose').value = booking.purpose || 'RENTAL';
+        // 목적 변경 시 레슨 카테고리 필드 표시/숨김 처리
+        toggleLessonCategory();
+        // 레슨 카테고리 설정
+        if (booking.lessonCategory) {
+            const lessonCategoryEl = document.getElementById('booking-lesson-category');
+            if (lessonCategoryEl) {
+                lessonCategoryEl.value = booking.lessonCategory;
+            }
+        }
         document.getElementById('booking-status').value = booking.status || 'PENDING';
         document.getElementById('booking-payment-method').value = booking.paymentMethod || '';
         document.getElementById('booking-notes').value = booking.memo || '';

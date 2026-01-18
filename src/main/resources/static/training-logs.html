@@ -32,7 +32,13 @@
                 <div class="menu-section">
                     <div class="menu-section-title">기록/분석</div>
                     <a href="/training-logs.html" class="menu-item active" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
+                    <a href="/rankings.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">🏆</span><span>훈련 랭킹</span></a>
                     <a href="/analytics.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">상품/결제</div>
+                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>상품/이용권</span></a>
+                    <a href="/payments.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
                 </div>
             </nav>
         </aside>
@@ -72,6 +78,7 @@
                                     <th>타구속도</th>
                                     <th>구속</th>
                                     <th>컨택률</th>
+                                    <th>상세 정보</th>
                                     <th>작업</th>
                                 </tr>
                             </thead>
@@ -82,6 +89,60 @@
                 </div>
             </div>
         </main>
+    </div>
+    
+    <!-- 상세보기 모달 -->
+    <div class="modal-overlay" id="log-detail-modal">
+        <div class="modal" style="max-width: 1000px;">
+            <div class="modal-header">
+                <h2 class="modal-title">훈련 기록 상세보기</h2>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="log-detail-content">
+                    <!-- 기본 정보 구역 -->
+                    <div style="margin-bottom: 32px; padding-bottom: 24px; border-bottom: 2px solid var(--border-color);">
+                        <h3 style="margin-bottom: 20px; color: var(--text-primary); font-size: 18px; font-weight: 600;">기본 정보</h3>
+                        <div id="log-detail-basic" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;">
+                        </div>
+                    </div>
+                    
+                    <!-- 훈련 기록 추이 구역 -->
+                    <div style="margin-bottom: 24px;">
+                        <h3 style="margin-bottom: 20px; color: var(--text-primary); font-size: 18px; font-weight: 600;">훈련 기록 추이</h3>
+                        <div id="log-detail-charts" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px;">
+                            <div>
+                                <h4 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">타구속도 추이</h4>
+                                <div id="chart-ball-speed" style="height: 200px; background-color: var(--bg-hover); border-radius: 8px; padding: 16px;">
+                                    <p style="color: var(--text-muted); text-align: center; line-height: 168px;">데이터 로딩 중...</p>
+                                </div>
+                            </div>
+                            <div>
+                                <h4 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">구속 추이</h4>
+                                <div id="chart-pitch-speed" style="height: 200px; background-color: var(--bg-hover); border-radius: 8px; padding: 16px;">
+                                    <p style="color: var(--text-muted); text-align: center; line-height: 168px;">데이터 로딩 중...</p>
+                                </div>
+                            </div>
+                            <div>
+                                <h4 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">컨택률 추이</h4>
+                                <div id="chart-contact-rate" style="height: 200px; background-color: var(--bg-hover); border-radius: 8px; padding: 16px;">
+                                    <p style="color: var(--text-muted); text-align: center; line-height: 168px;">데이터 로딩 중...</p>
+                                </div>
+                            </div>
+                            <div>
+                                <h4 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">스트라이크율 추이</h4>
+                                <div id="chart-strike-rate" style="height: 200px; background-color: var(--bg-hover); border-radius: 8px; padding: 16px;">
+                                    <p style="color: var(--text-muted); text-align: center; line-height: 168px;">데이터 로딩 중...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('log-detail-modal')">닫기</button>
+            </div>
+        </div>
     </div>
     
     <!-- 기록 입력 모달 -->
@@ -95,11 +156,11 @@
                 <form id="log-form">
                     <input type="hidden" id="log-id">
                     <div class="form-group" style="margin-bottom: 20px;">
-                        <label class="form-label">체크인 기록 선택 (자동 입력)</label>
+                        <label class="form-label">예약 날짜 기준 체크인 기록 선택 (자동 입력)</label>
                         <select class="form-control" id="log-attendance" onchange="loadAttendanceData(this.value)">
-                            <option value="">체크인 기록 선택 (선택사항)...</option>
+                            <option value="">예약 날짜 기준 체크인 기록 선택 (선택사항)...</option>
                         </select>
-                        <small style="color: var(--text-muted); margin-top: 4px; display: block;">체크인 기록을 선택하면 회원, 날짜, 코치 정보가 자동으로 입력됩니다.</small>
+                        <small style="color: var(--text-muted); margin-top: 4px; display: block;">예약 날짜 기준 체크인 기록을 선택하면 회원, 예약 날짜, 코치 정보가 자동으로 입력됩니다.</small>
                     </div>
                     <div class="form-row">
                         <div class="form-group">

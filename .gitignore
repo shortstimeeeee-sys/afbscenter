@@ -73,3 +73,9 @@ debug-*.vbs
 
 # OneDrive
 ~$*
+
+# External tools
+ngrok.exe
+
+# One-time SQL scripts
+*.sql

@@ -106,10 +106,31 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ResponseEntity<Map<String, Object>> handleGenericException(Exception e) {
         logger.error("예상치 못한 오류 발생", e);
+        logger.error("오류 클래스: {}", e.getClass().getName());
+        logger.error("오류 메시지: {}", e.getMessage());
+        e.printStackTrace(); // 스택 트레이스 출력
+        
+        // 원인 체인 전체 출력
+        Throwable cause = e.getCause();
+        int depth = 0;
+        while (cause != null && depth < 5) {
+            logger.error("원인 {}: {} - {}", depth + 1, cause.getClass().getName(), cause.getMessage());
+            cause = cause.getCause();
+            depth++;
+        }
+        
         Map<String, Object> errorResponse = new HashMap<>();
         errorResponse.put("error", "Internal Server Error");
-        errorResponse.put("message", "서버 내부 오류가 발생했습니다.");
+        errorResponse.put("message", "서버 내부 오류가 발생했습니다: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        errorResponse.put("errorClass", e.getClass().getName());
         errorResponse.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
+        if (e.getCause() != null) {
+            errorResponse.put("cause", e.getCause().getClass().getName() + ": " + e.getCause().getMessage());
+        }
+        // 스택 트레이스의 첫 번째 줄도 포함
+        if (e.getStackTrace() != null && e.getStackTrace().length > 0) {
+            errorResponse.put("stackTrace", e.getStackTrace()[0].toString());
+        }
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
     }
 }

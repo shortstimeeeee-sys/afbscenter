@@ -11,8 +11,15 @@ import java.util.List;
 
 @Repository
 public interface AnnouncementRepository extends JpaRepository<Announcement, Long> {
-    List<Announcement> findByActiveTrue();
     
-    @Query("SELECT a FROM Announcement a WHERE a.active = true AND (a.startDate IS NULL OR a.startDate <= :date) AND (a.endDate IS NULL OR a.endDate >= :date)")
-    List<Announcement> findActiveByDate(@Param("date") LocalDate date);
+    // 활성 공지 조회 (현재 날짜가 시작일과 종료일 사이에 있는 공지)
+    @Query("SELECT a FROM Announcement a WHERE " +
+           "(a.startDate IS NULL OR a.startDate <= :currentDate) AND " +
+           "(a.endDate IS NULL OR a.endDate >= :currentDate) " +
+           "ORDER BY a.createdAt DESC")
+    List<Announcement> findActiveAnnouncements(@Param("currentDate") LocalDate currentDate);
+    
+    // 전체 공지 조회 (최신순)
+    @Query("SELECT a FROM Announcement a ORDER BY a.createdAt DESC")
+    List<Announcement> findAllOrderByCreatedAtDesc();
 }

@@ -51,6 +51,18 @@
                 </div>
                 
                 <div class="menu-section">
+                    <div class="menu-section-title">기록/분석</div>
+                    <a href="/training-logs.html" class="menu-item" data-role="Coach">
+                        <span class="menu-item-icon">📝</span>
+                        <span>훈련 기록</span>
+                    </a>
+                    <a href="/analytics.html" class="menu-item" data-role="Manager">
+                        <span class="menu-item-icon">📈</span>
+                        <span>통계/분석</span>
+                    </a>
+                </div>
+                
+                <div class="menu-section">
                     <div class="menu-section-title">상품/결제</div>
                     <a href="/products.html" class="menu-item" data-role="Manager">
                         <span class="menu-item-icon">🎁</span>
@@ -67,18 +79,6 @@
                     <a href="/facilities.html" class="menu-item" data-role="Manager">
                         <span class="menu-item-icon">🏟️</span>
                         <span>시설/슬롯 설정</span>
-                    </a>
-                </div>
-                
-                <div class="menu-section">
-                    <div class="menu-section-title">기록/분석</div>
-                    <a href="/training-logs.html" class="menu-item" data-role="Coach">
-                        <span class="menu-item-icon">📝</span>
-                        <span>훈련 기록</span>
-                    </a>
-                    <a href="/analytics.html" class="menu-item" data-role="Manager">
-                        <span class="menu-item-icon">📈</span>
-                        <span>통계/분석</span>
                     </a>
                 </div>
                 
@@ -111,6 +111,20 @@
             </header>
             
             <div class="content-area">
+                <!-- 공지사항 -->
+                <div class="card" style="margin-bottom: 24px; border-left: 3px solid var(--accent-primary); padding: 0;">
+                    <div class="card-header" style="padding: 12px 16px; margin-bottom: 0;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 15px;">📢</span>
+                            <h2 class="card-title" style="margin: 0; font-size: 16px; font-weight: 600; color: var(--accent-primary);">공지사항</h2>
+                            <div id="announcement-count" style="margin-left: auto; background-color: var(--bg-tertiary); color: var(--text-muted); padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 500;"></div>
+                        </div>
+                    </div>
+                    <div id="active-announcements" style="padding: 0;">
+                        <p style="color: var(--text-muted); padding: 16px; text-align: center; font-size: 13px;">로딩 중...</p>
+                    </div>
+                </div>
+                
                 <!-- KPI 카드 -->
                 <div class="kpi-grid">
                     <div class="kpi-card">
@@ -141,12 +155,12 @@
                     <div class="kpi-card">
                         <div class="kpi-label">오늘 예약 수</div>
                         <div class="kpi-value" id="kpi-bookings">-</div>
-                        <div class="kpi-change positive">+12% 어제 대비</div>
+                        <div class="kpi-change" id="kpi-bookings-change">-</div>
                     </div>
                     <div class="kpi-card">
                         <div class="kpi-label">오늘 매출</div>
                         <div class="kpi-value" id="kpi-revenue">-</div>
-                        <div class="kpi-change positive">+15% 어제 대비</div>
+                        <div class="kpi-change" id="kpi-revenue-change">-</div>
                     </div>
                     <div class="kpi-card">
                         <div class="kpi-label">월 매출</div>

@@ -41,9 +41,8 @@ public class Member {
     @Column(nullable = false, unique = true)
     private String phoneNumber;
 
-    @NotNull(message = "생년월일은 필수입니다")
     @Past(message = "생년월일은 과거 날짜여야 합니다")
-    @Column(nullable = false)
+    @Column(name = "birth_date", nullable = true)
     private LocalDate birthDate;
 
     @NotNull(message = "성별은 필수입니다")
@@ -51,14 +50,12 @@ public class Member {
     @Column(nullable = false)
     private Gender gender;
 
-    @NotNull(message = "키는 필수입니다")
     @Positive(message = "키는 0보다 커야 합니다")
-    @Column(nullable = false)
+    @Column(nullable = true)
     private Integer height; // cm
 
-    @NotNull(message = "몸무게는 필수입니다")
     @Positive(message = "몸무게는 0보다 커야 합니다")
-    @Column(nullable = false)
+    @Column(nullable = true)
     private Integer weight; // kg
 
     @Column(length = 500)
@@ -69,7 +66,7 @@ public class Member {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private MemberGrade grade = MemberGrade.REGULAR;
+    private MemberGrade grade = MemberGrade.SOCIAL;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -122,10 +119,6 @@ public class Member {
 
     @OneToMany(mappedBy = "member", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
-    private List<Lesson> lessons = new ArrayList<>();
-
-    @OneToMany(mappedBy = "member", cascade = CascadeType.ALL, orphanRemoval = true)
-    @JsonIgnore
     private List<TrainingLog> trainingLogs = new ArrayList<>();
 
     @PreUpdate
@@ -138,9 +131,9 @@ public class Member {
     }
 
     public enum MemberGrade {
-        REGULAR,        // 일반
-        REGULAR_MEMBER, // 정기
-        PLAYER          // 선수반
+        SOCIAL,  // 사회인
+        ELITE,   // 엘리트
+        YOUTH    // 유소년
     }
 
     public enum MemberStatus {

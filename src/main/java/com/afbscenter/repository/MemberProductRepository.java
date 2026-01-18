@@ -18,7 +18,8 @@ public interface MemberProductRepository extends JpaRepository<MemberProduct, Lo
     
     // 회원의 모든 상품을 product와 함께 로드 (lazy loading 방지)
     // member는 이미 조회 중이므로 JOIN FETCH하지 않음 (순환 참조 방지)
-    @Query("SELECT DISTINCT mp FROM MemberProduct mp LEFT JOIN FETCH mp.product WHERE mp.member.id = :memberId")
+    // DISTINCT 제거: 같은 상품을 여러 번 구매한 경우 모두 표시해야 함
+    @Query("SELECT mp FROM MemberProduct mp LEFT JOIN FETCH mp.product WHERE mp.member.id = :memberId ORDER BY mp.purchaseDate DESC")
     List<MemberProduct> findByMemberIdWithProduct(@Param("memberId") Long memberId);
     
     // MemberProduct를 member와 함께 로드 (상품 설정 시 사용)

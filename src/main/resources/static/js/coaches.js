@@ -88,8 +88,66 @@ async function renderCoachesTable(coaches) {
         return;
     }
     
+    // 코치 정렬: 대표 -> 코치 -> 분야별코치 -> 트레이너 -> 강사
+    const sortedCoaches = coaches.sort((a, b) => {
+        const aName = a.name || '';
+        const bName = b.name || '';
+        
+        // 카테고리 분류 함수
+        const getCategory = (coach) => {
+            const name = coach.name || '';
+            
+            // 1. 대표: [대표] 포함
+            if (name.includes('[대표]')) {
+                return 1;
+            }
+            // 2. 코치: [코치] 포함 (하지만 분야별코치는 제외)
+            if (name.includes('[코치]') && 
+                !name.includes('[유소년코치]') && 
+                !name.includes('[투수코치]') && 
+                !name.includes('[포수코치]') &&
+                !name.includes('[타격코치]') &&
+                !name.includes('[수비코치]') &&
+                !name.includes('[주루코치]')) {
+                return 2;
+            }
+            // 3. 분야별코치: [유소년코치], [투수코치], [포수코치] 등
+            if (name.includes('[유소년코치]') || 
+                name.includes('[투수코치]') || 
+                name.includes('[포수코치]') ||
+                name.includes('[타격코치]') ||
+                name.includes('[수비코치]') ||
+                name.includes('[주루코치]')) {
+                return 3;
+            }
+            // 4. 트레이너: 트레이너 또는 트레이닝 포함
+            if (name.includes('트레이너') || name.includes('트레이닝')) {
+                return 4;
+            }
+            // 5. 강사: [강사] 포함
+            if (name.includes('[강사]')) {
+                return 5;
+            }
+            // 기타: 이름만 있는 경우는 코치로 간주 (2번 카테고리)
+            return 2;
+        };
+        
+        const aCat = getCategory(a);
+        const bCat = getCategory(b);
+        
+        // 카테고리 순서대로 정렬
+        if (aCat !== bCat) {
+            return aCat - bCat;
+        }
+        
+        // 같은 카테고리 내에서는 이름순 정렬 (대괄호 제거 후 비교)
+        const aNameForSort = aName.replace(/\s*\[.*?\]\s*/g, '').trim();
+        const bNameForSort = bName.replace(/\s*\[.*?\]\s*/g, '').trim();
+        return aNameForSort.localeCompare(bNameForSort, 'ko');
+    });
+    
     // 각 코치의 수강 인원 수를 가져오기
-    const coachesWithCount = await Promise.all(coaches.map(async (coach) => {
+    const coachesWithCount = await Promise.all(sortedCoaches.map(async (coach) => {
         try {
             const count = await App.api.get(`/coaches/${coach.id}/student-count`);
             return { ...coach, studentCount: count };

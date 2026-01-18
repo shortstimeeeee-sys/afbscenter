@@ -47,10 +47,35 @@
             </header>
             
             <div class="content-area">
-                <!-- 오늘 예약 목록 -->
+                <!-- 체크인 미처리 현황 -->
                 <div class="card">
                     <div class="card-header">
-                        <h2 class="card-title">오늘 예약 목록</h2>
+                        <h2 class="card-title">체크인 미처리 현황</h2>
+                        <button class="btn btn-secondary" onclick="loadUncheckedBookings()">새로고침</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>날짜</th>
+                                    <th>시간</th>
+                                    <th>시설</th>
+                                    <th>회원</th>
+                                    <th>인원</th>
+                                    <th>상태</th>
+                                    <th>작업</th>
+                                </tr>
+                            </thead>
+                            <tbody id="unchecked-bookings-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- 예약 목록 (날짜 선택) -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">예약 목록</h2>
                         <input type="date" class="form-control" id="attendance-date" style="width: 200px;" onchange="loadTodayBookings()">
                     </div>
                     <div class="table-container">
@@ -92,6 +117,7 @@
                                     <th>체크아웃</th>
                                     <th>이용시간</th>
                                     <th>상태</th>
+                                    <th>작업</th>
                                 </tr>
                             </thead>
                             <tbody id="attendance-records-body">

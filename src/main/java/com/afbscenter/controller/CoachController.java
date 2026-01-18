@@ -66,9 +66,15 @@ public class CoachController {
     @GetMapping("/{id}/student-count")
     public ResponseEntity<Long> getStudentCount(@PathVariable Long id) {
         try {
+            // 코치 존재 여부 확인
+            if (!coachService.getCoachById(id).isPresent()) {
+                // 코치가 없으면 0 반환 (404 대신)
+                return ResponseEntity.ok(0L);
+            }
             return ResponseEntity.ok(coachService.getStudentCount(id));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            // 예외 발생 시에도 0 반환 (서비스 중단 방지)
+            return ResponseEntity.ok(0L);
         }
     }
 

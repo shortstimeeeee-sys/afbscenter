@@ -51,9 +51,5 @@ public class Facility {
 
     @OneToMany(mappedBy = "facility", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
-    private List<FacilitySlot> slots = new ArrayList<>();
-
-    @OneToMany(mappedBy = "facility", cascade = CascadeType.ALL, orphanRemoval = true)
-    @JsonIgnore
     private List<Booking> bookings = new ArrayList<>();
 }

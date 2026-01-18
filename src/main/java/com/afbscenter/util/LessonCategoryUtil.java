@@ -1,7 +1,7 @@
 package com.afbscenter.util;
 
 import com.afbscenter.model.Coach;
-import com.afbscenter.model.Lesson;
+import com.afbscenter.model.LessonCategory;
 
 /**
  * 레슨 카테고리 관련 유틸리티 클래스
@@ -13,18 +13,18 @@ public class LessonCategoryUtil {
      * @param coach 코치 객체
      * @return 레슨 카테고리 (없으면 null)
      */
-    public static Lesson.LessonCategory fromCoachSpecialties(Coach coach) {
+    public static LessonCategory fromCoachSpecialties(Coach coach) {
         if (coach == null || coach.getSpecialties() == null) {
             return null;
         }
         
         String specialties = coach.getSpecialties().toLowerCase();
         if (specialties.contains("야구") || specialties.contains("baseball")) {
-            return Lesson.LessonCategory.BASEBALL;
+            return LessonCategory.BASEBALL;
         } else if (specialties.contains("필라테스") || specialties.contains("pilates")) {
-            return Lesson.LessonCategory.PILATES;
+            return LessonCategory.PILATES;
         } else if (specialties.contains("트레이닝") || specialties.contains("training")) {
-            return Lesson.LessonCategory.TRAINING;
+            return LessonCategory.TRAINING;
         }
         return null;
     }
@@ -34,7 +34,7 @@ public class LessonCategoryUtil {
      * @param category 레슨 카테고리
      * @return 한글 텍스트
      */
-    public static String toKoreanText(Lesson.LessonCategory category) {
+    public static String toKoreanText(LessonCategory category) {
         if (category == null) {
             return "";
         }

@@ -42,8 +42,4 @@ public class Coach {
 
     @Column(nullable = false)
     private Boolean active = true;
-
-    @OneToMany(mappedBy = "coach", cascade = CascadeType.ALL, orphanRemoval = true)
-    @JsonIgnore
-    private List<Lesson> lessons = new ArrayList<>();
 }

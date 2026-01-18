@@ -54,8 +54,27 @@ App.api = {
                 },
                 body: JSON.stringify(data)
             });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return await response.json();
+            
+            let responseData = null;
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                try {
+                    responseData = await response.json();
+                } catch (e) {
+                    console.warn('JSON 파싱 실패:', e);
+                    responseData = { error: '응답 파싱 실패' };
+                }
+            } else {
+                const text = await response.text();
+                responseData = { error: text || `HTTP ${response.status}` };
+            }
+            
+            if (!response.ok) {
+                const error = new Error(`HTTP ${response.status}`);
+                error.response = { status: response.status, data: responseData };
+                throw error;
+            }
+            return responseData;
         } catch (error) {
             console.error('API POST Error:', error);
             throw error;
@@ -515,9 +534,9 @@ App.PaymentMethod = {
 App.MemberGrade = {
     getText: function(grade) {
         const map = {
-            'REGULAR': '일반',
-            'REGULAR_MEMBER': '정기',
-            'PLAYER': '선수반'
+            'SOCIAL': '사회인',
+            'ELITE': '엘리트',
+            'YOUTH': '유소년'
         };
         return map[grade] || grade || '-';
     }

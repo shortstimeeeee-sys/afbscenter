@@ -98,20 +98,45 @@ async function loadAnnouncementData(id) {
 }
 
 async function saveAnnouncement() {
+    const title = document.getElementById('announcement-title').value.trim();
+    const content = document.getElementById('announcement-content').value.trim();
+    const startDateInput = document.getElementById('announcement-start-date').value;
+    const endDateInput = document.getElementById('announcement-end-date').value;
+    
     const data = {
-        title: document.getElementById('announcement-title').value,
-        content: document.getElementById('announcement-content').value,
-        startDate: document.getElementById('announcement-start-date').value || null,
-        endDate: document.getElementById('announcement-end-date').value || null
+        title: title,
+        content: content,
+        startDate: startDateInput && startDateInput.trim() !== '' ? startDateInput.trim() : null,
+        endDate: endDateInput && endDateInput.trim() !== '' ? endDateInput.trim() : null
     };
     
     try {
-        await App.api.post('/announcements', data);
+        const response = await App.api.post('/announcements', data);
         App.showNotification('공지가 등록되었습니다.', 'success');
         App.Modal.close('announcement-modal');
         loadAnnouncements();
     } catch (error) {
-        App.showNotification('저장에 실패했습니다.', 'danger');
+        console.error('공지 저장 오류:', error);
+        console.error('오류 상세:', error.response);
+        let errorMessage = '저장에 실패했습니다.';
+        if (error.response && error.response.data) {
+            const errorData = error.response.data;
+            console.error('오류 데이터 전체:', JSON.stringify(errorData, null, 2));
+            errorMessage = errorData.error || errorData.message || errorMessage;
+            if (errorData.cause) {
+                console.error('오류 원인:', errorData.cause);
+                errorMessage += ' - ' + errorData.cause;
+            }
+            if (errorData.stackTrace) {
+                console.error('스택 트레이스:', errorData.stackTrace);
+            }
+            if (errorData.errorClass) {
+                console.error('오류 클래스:', errorData.errorClass);
+            }
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+        App.showNotification(errorMessage, 'danger');
     }
 }
 

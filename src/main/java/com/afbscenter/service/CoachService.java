@@ -1,14 +1,15 @@
 package com.afbscenter.service;
 
 import com.afbscenter.model.Coach;
-import com.afbscenter.model.Lesson;
 import com.afbscenter.model.Member;
 import com.afbscenter.model.Booking;
 import com.afbscenter.repository.CoachRepository;
-import com.afbscenter.repository.LessonRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.BookingRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,17 +24,20 @@ import java.util.stream.Collectors;
 @Transactional
 public class CoachService {
 
+    private static final Logger logger = LoggerFactory.getLogger(CoachService.class);
+
     private final CoachRepository coachRepository;
-    private final LessonRepository lessonRepository;
     private final MemberRepository memberRepository;
     private final BookingRepository bookingRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     @Autowired
-    public CoachService(CoachRepository coachRepository, LessonRepository lessonRepository, MemberRepository memberRepository, BookingRepository bookingRepository) {
+    public CoachService(CoachRepository coachRepository, MemberRepository memberRepository, 
+                        BookingRepository bookingRepository, JdbcTemplate jdbcTemplate) {
         this.coachRepository = coachRepository;
-        this.lessonRepository = lessonRepository;
         this.memberRepository = memberRepository;
         this.bookingRepository = bookingRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     // 코치 생성
@@ -86,52 +90,82 @@ public class CoachService {
     }
 
     // 코치별 수강 인원 수 조회
-    // Member.coach 필드(담당 코치로 지정된 회원), Lesson.coach 필드(레슨을 받는 회원), Booking.coach 필드(예약에 할당된 코치) 모두 고려
+    // Member.coach 필드(담당 코치로 지정된 회원), Booking.coach 필드(예약에 할당된 코치) 모두 고려
     // 비회원 예약도 포함 (확정된 예약만 카운트)
     @Transactional(readOnly = true)
     public Long getStudentCount(Long coachId) {
-        Set<Long> uniqueMemberIds = new HashSet<>();
-        int nonMemberBookingCount = 0; // 비회원 예약 수
-        
-        // 1. Member.coach 필드를 통해 담당 코치로 지정된 회원
-        List<Member> membersByCoach = memberRepository.findByCoachId(coachId);
-        membersByCoach.forEach(member -> uniqueMemberIds.add(member.getId()));
-        
-        // 2. Lesson을 통해 레슨을 받는 회원
-        List<Lesson> lessons = lessonRepository.findByCoachId(coachId);
-        lessons.forEach(lesson -> uniqueMemberIds.add(lesson.getMember().getId()));
-        
-        // 3. Booking을 통해 예약에 할당된 코치 (회원 + 비회원 모두 포함)
-        List<Booking> bookings = bookingRepository.findAll();
-        for (Booking booking : bookings) {
-            // 예약에 직접 할당된 코치 또는 회원의 코치가 해당 코치인 경우
-            boolean isAssignedToThisCoach = false;
-            if (booking.getCoach() != null && booking.getCoach().getId().equals(coachId)) {
-                isAssignedToThisCoach = true;
-            } else if (booking.getMember() != null && booking.getMember().getCoach() != null && 
-                      booking.getMember().getCoach().getId().equals(coachId)) {
-                isAssignedToThisCoach = true;
+        try {
+            // 코치 존재 여부 확인
+            if (coachId == null || !coachRepository.existsById(coachId)) {
+                return 0L;
             }
             
-            if (isAssignedToThisCoach && booking.getStatus() == Booking.BookingStatus.CONFIRMED) {
-                if (booking.getMember() != null) {
-                    // 회원 예약
-                    uniqueMemberIds.add(booking.getMember().getId());
-                } else {
-                    // 비회원 예약 (nonMemberName이 있는 경우)
-                    if (booking.getNonMemberName() != null && !booking.getNonMemberName().trim().isEmpty()) {
-                        nonMemberBookingCount++;
-                    }
+            Set<Long> uniqueMemberIds = new HashSet<>();
+            int nonMemberBookingCount = 0; // 비회원 예약 수
+            
+            // 1. Member.coach 필드를 통해 담당 코치로 지정된 회원 (JdbcTemplate 사용하여 enum 변환 오류 방지)
+            try {
+                List<Long> memberIds = jdbcTemplate.queryForList(
+                    "SELECT id FROM members WHERE coach_id = ?",
+                    Long.class,
+                    coachId
+                );
+                if (memberIds != null) {
+                    uniqueMemberIds.addAll(memberIds);
                 }
+            } catch (Exception e) {
+                logger.warn("코치별 회원 조회 실패 (coachId: {}): {}", coachId, e.getMessage());
             }
+            
+            // 2. Booking을 통해 예약에 할당된 코치 (회원 + 비회원 모두 포함)
+            // JdbcTemplate을 사용하여 직접 쿼리 (enum 변환 오류 방지)
+            try {
+                // 예약에 직접 할당된 코치인 경우
+                List<Long> bookingMemberIds = jdbcTemplate.queryForList(
+                    "SELECT DISTINCT member_id FROM bookings WHERE coach_id = ? AND status = 'CONFIRMED' AND member_id IS NOT NULL",
+                    Long.class,
+                    coachId
+                );
+                if (bookingMemberIds != null) {
+                    uniqueMemberIds.addAll(bookingMemberIds);
+                }
+                
+                // 비회원 예약 수 (예약에 직접 할당된 코치이고 member_id가 NULL인 경우)
+                Integer nonMemberCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM bookings WHERE coach_id = ? AND status = 'CONFIRMED' AND member_id IS NULL AND non_member_name IS NOT NULL AND non_member_name != ''",
+                    Integer.class,
+                    coachId
+                );
+                if (nonMemberCount != null) {
+                    nonMemberBookingCount += nonMemberCount;
+                }
+                
+                // 회원의 코치가 해당 코치인 경우 (회원의 coach_id를 통해)
+                List<Long> memberCoachIds = jdbcTemplate.queryForList(
+                    "SELECT DISTINCT b.member_id FROM bookings b " +
+                    "INNER JOIN members m ON b.member_id = m.id " +
+                    "WHERE m.coach_id = ? AND b.status = 'CONFIRMED' AND b.member_id IS NOT NULL",
+                    Long.class,
+                    coachId
+                );
+                if (memberCoachIds != null) {
+                    uniqueMemberIds.addAll(memberCoachIds);
+                }
+            } catch (Exception e) {
+                logger.warn("코치별 예약 조회 실패 (coachId: {}): {}", coachId, e.getMessage());
+            }
+            
+            // 회원 수 + 비회원 예약 수
+            return (long) (uniqueMemberIds.size() + nonMemberBookingCount);
+        } catch (Exception e) {
+            logger.error("코치별 학생 수 조회 실패 (coachId: {}): {}", coachId, e.getMessage(), e);
+            // 모든 예외를 catch하여 0 반환
+            return 0L;
         }
-        
-        // 회원 수 + 비회원 예약 수
-        return (long) (uniqueMemberIds.size() + nonMemberBookingCount);
     }
 
     // 코치별 수강 인원 목록 조회
-    // Member.coach 필드(담당 코치로 지정된 회원), Lesson.coach 필드(레슨을 받는 회원), Booking.coach 필드(예약에 할당된 코치) 모두 고려
+    // Member.coach 필드(담당 코치로 지정된 회원), Booking.coach 필드(예약에 할당된 코치) 모두 고려
     // 비회원 예약도 포함 (확정된 예약만)
     @Transactional(readOnly = true)
     public List<Member> getStudents(Long coachId) {
@@ -147,17 +181,7 @@ public class CoachService {
             }
         }
         
-        // 2. Lesson을 통해 레슨을 받는 회원
-        List<Lesson> lessons = lessonRepository.findByCoachId(coachId);
-        for (Lesson lesson : lessons) {
-            Member member = lesson.getMember();
-            if (!uniqueMemberIds.contains(member.getId())) {
-                uniqueMemberIds.add(member.getId());
-                allStudents.add(member);
-            }
-        }
-        
-        // 3. Booking을 통해 예약에 할당된 코치 (회원만, 비회원은 수강 인원 수에만 포함)
+        // 2. Booking을 통해 예약에 할당된 코치 (회원만, 비회원은 수강 인원 수에만 포함)
         // JOIN FETCH를 사용하여 member와 coach를 함께 로드
         List<Booking> bookings = bookingRepository.findAllWithFacilityAndMember();
         for (Booking booking : bookings) {
@@ -185,7 +209,7 @@ public class CoachService {
                             }
                         } catch (Exception ex) {
                             // 조회 실패 시 무시하고 계속 진행
-                            System.err.println("Member 조회 실패 (ID: " + booking.getMember().getId() + "): " + ex.getMessage());
+                            // Member 조회 실패 시 무시하고 계속 진행
                         }
                     }
                 }
@@ -200,7 +224,7 @@ public class CoachService {
                 }
             } catch (Exception e) {
                 // 개별 예약 처리 실패 시 무시하고 계속 진행
-                System.err.println("Booking 처리 실패 (ID: " + booking.getId() + "): " + e.getMessage());
+                // Booking 처리 실패 시 무시하고 계속 진행
             }
         }
         

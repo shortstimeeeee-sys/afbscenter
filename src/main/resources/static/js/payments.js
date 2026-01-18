@@ -37,7 +37,7 @@ function renderPaymentsTable(payments) {
     const tbody = document.getElementById('payments-table-body');
     
     if (!payments || payments.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">결제 내역이 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">결제 내역이 없습니다.</td></tr>';
         return;
     }
     
@@ -46,6 +46,7 @@ function renderPaymentsTable(payments) {
             <td>${payment.id}</td>
             <td>${App.formatDateTime(payment.paidAt || payment.paymentDate)}</td>
             <td>${payment.member ? payment.member.name : (payment.memberName || '비회원')}</td>
+            <td>${payment.coach ? payment.coach.name : '-'}</td>
             <td>${getCategoryText(payment.category || payment.paymentCategory)}</td>
             <td>${getPaymentMethodText(payment.paymentMethod)}</td>
             <td style="font-weight: 600; color: var(--accent-primary);">${App.formatCurrency(payment.amount)}</td>

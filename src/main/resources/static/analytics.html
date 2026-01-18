@@ -32,7 +32,13 @@
                 <div class="menu-section">
                     <div class="menu-section-title">기록/분석</div>
                     <a href="/training-logs.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
+                    <a href="/rankings.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">🏆</span><span>훈련 랭킹</span></a>
                     <a href="/analytics.html" class="menu-item active" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">상품/결제</div>
+                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>상품/이용권</span></a>
+                    <a href="/payments.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
                 </div>
             </nav>
         </aside>
@@ -68,31 +74,15 @@
                 
                 <!-- 운영 지표 -->
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header" id="operational-header">
                         <h2 class="card-title">운영 지표</h2>
                     </div>
                     <div class="metrics-grid">
-                        <div class="metric-card">
+                        <div class="metric-card" style="grid-column: 1 / -1; padding: 20px;">
                             <div class="metric-label">시설별 가동률</div>
                             <div id="facility-utilization-chart" class="chart-container">
                                 <p style="color: var(--text-muted);">차트 준비 중...</p>
                             </div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-label">시간대별 수요</div>
-                            <div id="hourly-demand-chart" class="chart-container">
-                                <p style="color: var(--text-muted);">차트 준비 중...</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="metrics-grid">
-                        <div class="metric-card">
-                            <div class="metric-label">취소율</div>
-                            <div class="metric-value" id="cancel-rate">-</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-label">노쇼율</div>
-                            <div class="metric-value" id="no-show-rate">-</div>
                         </div>
                     </div>
                 </div>

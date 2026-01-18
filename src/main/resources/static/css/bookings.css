@@ -165,6 +165,25 @@
     user-select: none;
 }
 
+/* 완료된 예약 아이콘 내부 원 정렬 */
+.calendar-event span[style*="background-color: #2ECC71"] {
+    position: relative;
+}
+
+.calendar-event span[style*="background-color: #2ECC71"]::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 10px;
+    height: 10px;
+    border: 2px solid white;
+    border-radius: 50%;
+    background-color: transparent;
+    box-sizing: border-box;
+}
+
 .calendar-event:hover {
     transform: translateX(2px);
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);

@@ -63,6 +63,9 @@ public class Payment {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    @Column(name = "payment_number", unique = true)
+    private String paymentNumber; // 관리용 결제 번호 (예: PAY-2026-0001)
+
     public enum PaymentMethod {
         CASH,           // 현금
         CARD,           // 카드

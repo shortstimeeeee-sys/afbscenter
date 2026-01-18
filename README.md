@@ -22,29 +22,23 @@ src/main/java/com/afbscenter/
 │   ├── BookingController.java
 │   ├── CoachController.java
 │   ├── DashboardController.java
-│   ├── DatabaseCheckController.java
 │   ├── FacilityController.java
 │   ├── MemberController.java
 │   ├── PaymentController.java
 │   ├── ProductController.java
 │   └── TrainingLogController.java
 ├── model/                        # JPA 엔티티
-│   ├── Announcement.java
 │   ├── Attendance.java
 │   ├── BaseballRecord.java
 │   ├── Booking.java
 │   ├── Coach.java
 │   ├── Facility.java
-│   ├── FacilitySlot.java
-│   ├── Lesson.java
+│   ├── LessonCategory.java
 │   ├── Member.java
 │   ├── MemberProduct.java
-│   ├── Message.java
 │   ├── Payment.java
 │   ├── Product.java
-│   ├── Setting.java
-│   ├── TrainingLog.java
-│   └── User.java
+│   └── TrainingLog.java
 ├── repository/                   # JPA Repository
 │   └── (각 엔티티별 Repository)
 ├── service/                      # 비즈니스 로직

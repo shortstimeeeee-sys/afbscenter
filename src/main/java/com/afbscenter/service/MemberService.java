@@ -2,19 +2,27 @@ package com.afbscenter.service;
 
 import com.afbscenter.model.Coach;
 import com.afbscenter.model.Member;
+import com.afbscenter.model.Member.MemberGrade;
+import com.afbscenter.model.Member.MemberStatus;
 import com.afbscenter.repository.CoachRepository;
 import com.afbscenter.repository.MemberRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
 @Transactional
 public class MemberService {
+
+    private static final Logger logger = LoggerFactory.getLogger(MemberService.class);
 
     private final MemberRepository memberRepository;
     private final CoachRepository coachRepository;
@@ -28,36 +36,260 @@ public class MemberService {
     }
 
     // 회원 생성
+    @Transactional(rollbackFor = Exception.class)
     public Member createMember(Member member) {
-        // 전화번호 중복 체크
-        if (memberRepository.findByPhoneNumber(member.getPhoneNumber()).isPresent()) {
-            throw new IllegalArgumentException("이미 등록된 전화번호입니다.");
+        try {
+            logger.debug("회원 생성 시작: 이름={}, 전화번호={}, 성별={}", 
+                member.getName(), member.getPhoneNumber(), member.getGender());
+            
+            // 필수 필드 검증
+            if (member.getName() == null || member.getName().trim().isEmpty()) {
+                throw new IllegalArgumentException("이름은 필수입니다.");
+            }
+            if (member.getPhoneNumber() == null || member.getPhoneNumber().trim().isEmpty()) {
+                throw new IllegalArgumentException("전화번호는 필수입니다.");
+            }
+            if (member.getGender() == null) {
+                throw new IllegalArgumentException("성별은 필수입니다.");
+            }
+            
+            // 전화번호 중복 체크 (JdbcTemplate 사용하여 enum 변환 오류 방지)
+            try {
+                Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM members WHERE phone_number = ?", 
+                    Integer.class, 
+                    member.getPhoneNumber()
+                );
+                if (count != null && count > 0) {
+                    throw new IllegalArgumentException("이미 등록된 전화번호입니다.");
+                }
+            } catch (IllegalArgumentException e) {
+                throw e;
+            } catch (Exception e) {
+                logger.warn("전화번호 중복 체크 실패 (JPA로 재시도): {}", e.getMessage());
+                // JPA로 재시도
+                if (memberRepository.findByPhoneNumber(member.getPhoneNumber()).isPresent()) {
+                    throw new IllegalArgumentException("이미 등록된 전화번호입니다.");
+                }
+            }
+            
+            // 등록 일자 및 시간 자동 설정
+            if (member.getJoinDate() == null) {
+                member.setJoinDate(java.time.LocalDate.now());
+            }
+            
+            // 등록일시 설정 (소급 등록 지원: 프론트엔드에서 설정한 값이 있으면 사용, 없으면 현재 시간)
+            if (member.getCreatedAt() == null) {
+                member.setCreatedAt(java.time.LocalDateTime.now());
+            }
+            
+            // 등급 기본값 설정
+            if (member.getGrade() == null) {
+                member.setGrade(MemberGrade.SOCIAL);
+            }
+            
+            // 상태 기본값 설정
+            if (member.getStatus() == null) {
+                member.setStatus(MemberStatus.ACTIVE);
+            }
+            
+            // 코치 설정 (Coach 엔티티가 제대로 로드되지 않은 경우 처리)
+            if (member.getCoach() != null && member.getCoach().getId() != null) {
+                Long coachId = member.getCoach().getId();
+                Optional<Coach> coachOpt = coachRepository.findById(coachId);
+                if (coachOpt.isPresent()) {
+                    member.setCoach(coachOpt.get());
+                } else {
+                    logger.warn("코치를 찾을 수 없습니다. ID: {}, 코치 참조 제거", coachId);
+                    member.setCoach(null);
+                }
+            } else {
+                member.setCoach(null);
+            }
+            
+            // 회원번호 자동 생성 (없는 경우만)
+            String currentMemberNumber = member.getMemberNumber();
+            if (currentMemberNumber == null || (currentMemberNumber != null && currentMemberNumber.trim().isEmpty())) {
+                try {
+                    logger.debug("회원번호 자동 생성 시작");
+                    String memberNumber = generateMemberNumber(member);
+                    logger.debug("생성된 회원번호: {}", memberNumber);
+                    
+                    // 회원번호 중복 체크 (최대 10회 재시도)
+                    int retryCount = 0;
+                    while (retryCount < 10) {
+                        try {
+                            // JdbcTemplate으로 중복 체크 (enum 변환 오류 방지)
+                            Integer count = jdbcTemplate.queryForObject(
+                                "SELECT COUNT(*) FROM members WHERE member_number = ?", 
+                                Integer.class, 
+                                memberNumber
+                            );
+                            if (count == null || count == 0) {
+                                // 중복이 없으면 사용
+                                break;
+                            }
+                            logger.warn("회원번호 중복 발견: {}, 재생성 시도 {}", memberNumber, retryCount + 1);
+                            // 순번을 증가시켜서 재생성
+                            long totalMembers = memberRepository.count();
+                            int registrationOrder = (int) (totalMembers + 1 + retryCount + 1);
+                            String phonePart = extractPhonePart(member);
+                            memberNumber = String.format("M%d%s", registrationOrder, phonePart);
+                            retryCount++;
+                        } catch (Exception e) {
+                            logger.warn("회원번호 중복 체크 중 오류 (무시하고 계속): {}", e.getMessage());
+                            break; // 중복 체크 실패 시 생성된 번호 사용
+                        }
+                    }
+                    
+                    if (retryCount >= 10) {
+                        throw new IllegalArgumentException("회원번호 생성에 실패했습니다. 중복 회원번호가 너무 많습니다.");
+                    }
+                    
+                    member.setMemberNumber(memberNumber);
+                    logger.info("회원번호 자동 생성 완료: {}", memberNumber);
+                } catch (IllegalArgumentException e) {
+                    throw e;
+                } catch (Exception e) {
+                    logger.error("회원번호 생성 실패: {}", e.getMessage(), e);
+                    logger.error("회원번호 생성 실패 스택 트레이스:", e);
+                    throw new IllegalArgumentException("회원번호 생성 중 오류가 발생했습니다: " + e.getMessage());
+                }
+            }
+            
+            // Bean Validation을 피하기 위해 @Past, @Positive 검증 위반 가능성 제거
+            // 생년월일이 미래 날짜인 경우 null로 설정
+            if (member.getBirthDate() != null && member.getBirthDate().isAfter(java.time.LocalDate.now())) {
+                logger.warn("생년월일이 미래 날짜입니다. null로 설정: {}", member.getBirthDate());
+                member.setBirthDate(null);
+            }
+            
+            // 키와 몸무게가 0 이하인 경우 null로 설정 (@Positive 검증 위반 방지)
+            if (member.getHeight() != null && member.getHeight() <= 0) {
+                logger.warn("키가 0 이하입니다. null로 설정: {}", member.getHeight());
+                member.setHeight(null);
+            }
+            if (member.getWeight() != null && member.getWeight() <= 0) {
+                logger.warn("몸무게가 0 이하입니다. null로 설정: {}", member.getWeight());
+                member.setWeight(null);
+            }
+            
+            logger.info("회원 저장 실행: 이름={}, 전화번호={}, 회원번호={}, 등급={}, 상태={}, 가입일={}, 등록일시={}, 생년월일={}, 키={}, 몸무게={}", 
+                member.getName(), member.getPhoneNumber(), member.getMemberNumber(), 
+                member.getGrade(), member.getStatus(), member.getJoinDate(), member.getCreatedAt(),
+                member.getBirthDate(), member.getHeight(), member.getWeight());
+            
+            try {
+                Member savedMember = memberRepository.save(member);
+                logger.info("회원 저장 성공: ID={}, 회원번호={}", savedMember.getId(), savedMember.getMemberNumber());
+                return savedMember;
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                logger.error("회원 저장 중 데이터 무결성 오류: {}", e.getMessage(), e);
+                logger.error("회원 정보: 이름={}, 전화번호={}, 회원번호={}, 등급={}, 상태={}", 
+                    member.getName(), member.getPhoneNumber(), member.getMemberNumber(), 
+                    member.getGrade(), member.getStatus());
+                
+                String errorMessage = e.getMessage() != null ? e.getMessage() : "";
+                if (errorMessage.contains("member_number") || errorMessage.contains("MEMBER_NUMBER")) {
+                    // 회원번호 중복인 경우 재생성 시도
+                    logger.info("회원번호 중복으로 인한 재생성 시도: {}", member.getMemberNumber());
+                    try {
+                        member.setMemberNumber(null);
+                        String newMemberNumber = generateMemberNumber(member);
+                        member.setMemberNumber(newMemberNumber);
+                        logger.info("새 회원번호 생성: {}", newMemberNumber);
+                        return memberRepository.save(member);
+                    } catch (Exception e2) {
+                        logger.error("회원번호 재생성 실패: {}", e2.getMessage(), e2);
+                        throw new IllegalArgumentException("회원번호가 이미 존재합니다. 다시 시도해주세요.");
+                    }
+                }
+                if (errorMessage.contains("phone_number") || errorMessage.contains("PHONE_NUMBER")) {
+                    throw new IllegalArgumentException("이미 등록된 전화번호입니다.");
+                }
+                throw new IllegalArgumentException("데이터 저장 중 오류가 발생했습니다: " + errorMessage);
+            } catch (Exception e) {
+                logger.error("회원 저장 중 예상치 못한 오류: {}", e.getMessage(), e);
+                logger.error("회원 저장 오류 클래스: {}", e.getClass().getName());
+                logger.error("회원 정보: 이름={}, 전화번호={}, 회원번호={}, 등급={}, 상태={}", 
+                    member.getName(), member.getPhoneNumber(), member.getMemberNumber(), 
+                    member.getGrade(), member.getStatus());
+                e.printStackTrace();
+                throw new RuntimeException("회원 저장 중 오류가 발생했습니다: " + e.getMessage(), e);
+            }
+        } catch (IllegalArgumentException e) {
+            logger.warn("회원 등록 실패 (IllegalArgumentException): {}", e.getMessage());
+            throw e;
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            logger.error("회원 등록 중 데이터 무결성 오류: {}", e.getMessage(), e);
+            logger.error("회원 정보: 이름={}, 전화번호={}, 회원번호={}, 등급={}, 상태={}", 
+                member.getName(), member.getPhoneNumber(), member.getMemberNumber(), 
+                member.getGrade(), member.getStatus());
+            
+            String errorMessage = e.getMessage() != null ? e.getMessage() : "";
+            if (errorMessage.contains("member_number") || errorMessage.contains("MEMBER_NUMBER")) {
+                throw new IllegalArgumentException("회원번호가 이미 존재합니다.");
+            }
+            if (errorMessage.contains("phone_number") || errorMessage.contains("PHONE_NUMBER")) {
+                throw new IllegalArgumentException("이미 등록된 전화번호입니다.");
+            }
+            throw new IllegalArgumentException("데이터 저장 중 오류가 발생했습니다: " + errorMessage);
+        } catch (Exception e) {
+            logger.error("회원 등록 중 예상치 못한 오류: {}", e.getMessage(), e);
+            logger.error("회원 등록 오류 클래스: {}", e.getClass().getName());
+            logger.error("회원 정보: 이름={}, 전화번호={}, 회원번호={}, 등급={}, 상태={}, 가입일={}, 등록일시={}", 
+                member != null ? member.getName() : "null",
+                member != null ? member.getPhoneNumber() : "null",
+                member != null ? member.getMemberNumber() : "null",
+                member != null ? member.getGrade() : "null",
+                member != null ? member.getStatus() : "null",
+                member != null ? member.getJoinDate() : "null",
+                member != null ? member.getCreatedAt() : "null");
+            e.printStackTrace();
+            throw new RuntimeException("회원 등록 중 오류가 발생했습니다: " + e.getMessage(), e);
         }
-        // 등록 일자 및 시간 자동 설정
-        if (member.getJoinDate() == null) {
-            member.setJoinDate(java.time.LocalDate.now());
-        }
-        // 등록일시 설정 (소급 등록 지원: 프론트엔드에서 설정한 값이 있으면 사용, 없으면 현재 시간)
-        if (member.getCreatedAt() == null) {
-            member.setCreatedAt(java.time.LocalDateTime.now());
-        }
-        // 회원번호 자동 생성 (없는 경우만)
-        if (member.getMemberNumber() == null || member.getMemberNumber().trim().isEmpty()) {
-            String memberNumber = generateMemberNumber(member);
-            member.setMemberNumber(memberNumber);
-        }
-        return memberRepository.save(member);
     }
     
     // 회원번호 자동 생성 (M + 회원등록 순번 + 휴대폰번호(010 제외))
     // 주의: 회원번호의 순번은 ID와 별개로 실제 등록된 회원 수를 기준으로 계산됩니다.
     // ID는 데이터베이스가 자동으로 관리하며 (1, 2, 3...), 회원번호는 별도로 관리됩니다.
     private String generateMemberNumber(Member member) {
-        // 회원 등록 순번 계산 (실제 등록된 회원 수 + 1)
-        // 이 순번은 ID와 별개이며, 실제 등록 순서를 나타냅니다.
-        long totalMembers = memberRepository.count();
-        int registrationOrder = (int) (totalMembers + 1);
-        
+        try {
+            logger.debug("회원번호 생성 시작");
+            // 회원 등록 순번 계산 (실제 등록된 회원 수 + 1)
+            // 이 순번은 ID와 별개이며, 실제 등록 순서를 나타냅니다.
+            long totalMembers = 0;
+            try {
+                totalMembers = memberRepository.count();
+                logger.debug("현재 회원 수: {}", totalMembers);
+            } catch (Exception e) {
+                logger.warn("회원 수 조회 실패, 기본값 0 사용: {}", e.getMessage());
+                totalMembers = 0;
+            }
+            int registrationOrder = (int) (totalMembers + 1);
+            logger.debug("회원 등록 순번: {}", registrationOrder);
+            
+            String phonePart = extractPhonePart(member);
+            logger.debug("전화번호 부분: {}", phonePart);
+            
+            // M + 회원등록 순번 + 휴대폰번호(010 제외) 형식
+            // 예: M112345678 (M + 등록순번1 + 전화번호12345678)
+            String memberNumber = String.format("M%d%s", registrationOrder, phonePart);
+            logger.info("생성된 회원번호: {}", memberNumber);
+            return memberNumber;
+        } catch (Exception e) {
+            logger.error("회원번호 생성 중 오류: {}", e.getMessage(), e);
+            logger.error("회원번호 생성 오류 스택 트레이스:", e);
+            // 기본 회원번호 생성 (타임스탬프 기반)
+            long timestamp = System.currentTimeMillis() % 100000000; // 마지막 8자리
+            String fallbackNumber = String.format("M%d%08d", 1, timestamp);
+            logger.warn("기본 회원번호 생성: {}", fallbackNumber);
+            return fallbackNumber;
+        }
+    }
+    
+    // 전화번호에서 8자리 추출 (010 제외)
+    private String extractPhonePart(Member member) {
         // 전화번호 추출 (회원 전화번호 우선, 없으면 보호자 번호)
         String phoneNumber = member.getPhoneNumber();
         if (phoneNumber == null || phoneNumber.trim().isEmpty()) {
@@ -71,23 +303,26 @@ public class MemberService {
             String digitsOnly = phoneNumber.replaceAll("[^0-9]", "");
             
             // 010으로 시작하면 제거
-            if (digitsOnly.startsWith("010")) {
+            if (digitsOnly.startsWith("010") && digitsOnly.length() > 3) {
                 digitsOnly = digitsOnly.substring(3);
             }
             
             // 8자리로 맞추기 (부족하면 앞에 0 추가, 넘치면 뒤에서 8자리만)
             if (digitsOnly.length() > 8) {
                 phonePart = digitsOnly.substring(digitsOnly.length() - 8);
-            } else if (digitsOnly.length() < 8) {
-                phonePart = String.format("%08d", Long.parseLong(digitsOnly));
-            } else {
+            } else if (digitsOnly.length() > 0 && digitsOnly.length() < 8) {
+                try {
+                    phonePart = String.format("%08d", Long.parseLong(digitsOnly));
+                } catch (NumberFormatException e) {
+                    logger.warn("전화번호 파싱 실패: {}, 기본값 사용", digitsOnly);
+                    phonePart = "00000000";
+                }
+            } else if (digitsOnly.length() == 8) {
                 phonePart = digitsOnly;
             }
+            // digitsOnly가 빈 문자열이면 기본값 "00000000" 사용
         }
-        
-        // M + 회원등록 순번 + 휴대폰번호(010 제외) 형식
-        // 예: M112345678 (M + 등록순번1 + 전화번호12345678)
-        return String.format("M%d%s", registrationOrder, phonePart);
+        return phonePart;
     }
 
     // 회원 조회 (ID)
@@ -106,6 +341,182 @@ public class MemberService {
     @Transactional(readOnly = true)
     public List<Member> getAllMembers() {
         return memberRepository.findAllOrderByName();
+    }
+    
+    // 회원 등급 마이그레이션 (별도 트랜잭션으로 실행)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void migrateMemberGradesInSeparateTransaction() {
+        migrateMemberGradesIfNeeded();
+    }
+    
+    // NULL 허용 컬럼 마이그레이션 (별도 트랜잭션으로 실행)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void migrateNullableColumnsInSeparateTransaction() {
+        migrateNullableColumnsIfNeeded();
+    }
+    
+    // 회원 등급 마이그레이션 (필요한 경우)
+    private void migrateMemberGradesIfNeeded() {
+        try {
+            logger.debug("마이그레이션: 기존 등급 값 확인 시작");
+            // 기존 등급 값이 있는지 확인
+            Integer regularCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM members WHERE grade = 'REGULAR'", 
+                Integer.class
+            );
+            Integer regularMemberCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM members WHERE grade = 'REGULAR_MEMBER'", 
+                Integer.class
+            );
+            Integer playerCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM members WHERE grade = 'PLAYER'", 
+                Integer.class
+            );
+
+            int totalOldGrades = (regularCount != null ? regularCount : 0) + 
+                                (regularMemberCount != null ? regularMemberCount : 0) + 
+                                (playerCount != null ? playerCount : 0);
+
+            logger.info("마이그레이션: 기존 등급 값 확인 완료 - REGULAR: {}, REGULAR_MEMBER: {}, PLAYER: {}, 총: {}건", 
+                regularCount, regularMemberCount, playerCount, totalOldGrades);
+
+            if (totalOldGrades > 0) {
+                logger.info("회원 등급 마이그레이션 시작: {}건의 레코드 발견", totalOldGrades);
+
+                try {
+                    // CHECK 제약 조건 삭제 시도 (H2에서 enum에 대한 CHECK 제약 조건이 있을 수 있음)
+                    // H2에서는 오류 메시지에 나온 제약 조건 이름을 직접 삭제 시도
+                    String[] possibleConstraintNames = {
+                        "CONSTRAINT_635", "CONSTRAINT_636", "CONSTRAINT_637",
+                        "CHECK_GRADE", "MEMBERS_GRADE_CHECK"
+                    };
+                    
+                    for (String constraintName : possibleConstraintNames) {
+                        try {
+                            jdbcTemplate.execute("ALTER TABLE members DROP CONSTRAINT IF EXISTS " + constraintName);
+                            logger.debug("제약 조건 삭제 시도: {}", constraintName);
+                        } catch (Exception e) {
+                            // 제약 조건이 없거나 다른 이름일 수 있음 (무시)
+                            logger.debug("제약 조건 삭제 실패 (무시): {} - {}", constraintName, e.getMessage());
+                        }
+                    }
+                    
+                    // H2에서 제약 조건 목록 조회 시도 (다양한 방법)
+                    try {
+                        List<Map<String, Object>> constraints = jdbcTemplate.queryForList(
+                            "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS " +
+                            "WHERE TABLE_NAME = 'MEMBERS' AND CONSTRAINT_TYPE = 'CHECK'"
+                        );
+                        for (Map<String, Object> constraint : constraints) {
+                            String constraintName = (String) constraint.get("CONSTRAINT_NAME");
+                            if (constraintName != null) {
+                                try {
+                                    jdbcTemplate.execute("ALTER TABLE members DROP CONSTRAINT " + constraintName);
+                                    logger.info("CHECK 제약 조건 삭제: {}", constraintName);
+                                } catch (Exception e) {
+                                    logger.debug("제약 조건 삭제 실패 (무시): {}", constraintName);
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        logger.debug("제약 조건 목록 조회 실패 (무시): {}", e.getMessage());
+                    }
+
+                    // REGULAR -> SOCIAL (사회인)
+                    if (regularCount != null && regularCount > 0) {
+                        int updated = jdbcTemplate.update("UPDATE members SET grade = 'SOCIAL' WHERE grade = 'REGULAR'");
+                        logger.info("REGULAR -> SOCIAL 마이그레이션 완료: {}건", updated);
+                    }
+
+                    // REGULAR_MEMBER -> ELITE (엘리트)
+                    if (regularMemberCount != null && regularMemberCount > 0) {
+                        int updated = jdbcTemplate.update("UPDATE members SET grade = 'ELITE' WHERE grade = 'REGULAR_MEMBER'");
+                        logger.info("REGULAR_MEMBER -> ELITE 마이그레이션 완료: {}건", updated);
+                    }
+
+                    // PLAYER -> YOUTH (유소년)
+                    if (playerCount != null && playerCount > 0) {
+                        int updated = jdbcTemplate.update("UPDATE members SET grade = 'YOUTH' WHERE grade = 'PLAYER'");
+                        logger.info("PLAYER -> YOUTH 마이그레이션 완료: {}건", updated);
+                    }
+
+                    logger.info("회원 등급 마이그레이션 완료");
+                } catch (Exception e) {
+                    logger.error("마이그레이션 실행 중 오류: {}", e.getMessage(), e);
+                    throw e;
+                }
+            } else {
+                logger.debug("마이그레이션: 변환할 등급 값이 없습니다.");
+            }
+        } catch (Exception e) {
+            // 테이블이 아직 생성되지 않았거나 다른 오류가 발생한 경우 무시
+            logger.warn("마이그레이션 실행 중 오류: {}", e.getMessage(), e);
+        }
+    }
+    
+    // NULL 허용 컬럼 마이그레이션 (필요한 경우)
+    private void migrateNullableColumnsIfNeeded() {
+        try {
+            logger.debug("마이그레이션: NULL 허용 컬럼 마이그레이션 시작");
+            
+            // H2에서 컬럼 정보 확인
+            try {
+                List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME, IS_NULLABLE, TYPE_NAME " +
+                    "FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE TABLE_NAME = 'MEMBERS' AND COLUMN_NAME IN ('BIRTH_DATE', 'HEIGHT', 'WEIGHT')"
+                );
+                
+                for (Map<String, Object> column : columns) {
+                    String columnName = (String) column.get("COLUMN_NAME");
+                    String isNullable = (String) column.get("IS_NULLABLE");
+                    String typeName = (String) column.get("TYPE_NAME");
+                    
+                    if ("NO".equals(isNullable)) {
+                        logger.info("컬럼 {}이 NOT NULL로 설정되어 있음. NULL 허용으로 변경 시도", columnName);
+                        try {
+                            // H2 2.x에서 컬럼을 NULL 허용으로 변경
+                            // 여러 방법을 시도
+                            String[] alterStatements = {
+                                // 방법 1: SET NULL (H2 2.x)
+                                String.format("ALTER TABLE members ALTER COLUMN %s SET NULL", columnName),
+                                // 방법 2: 컬럼 타입 재지정 (H2 2.x)
+                                String.format("ALTER TABLE members ALTER COLUMN %s %s NULL", columnName, typeName),
+                                // 방법 3: DROP NOT NULL (일부 H2 버전)
+                                String.format("ALTER TABLE members ALTER COLUMN %s DROP NOT NULL", columnName)
+                            };
+                            
+                            boolean success = false;
+                            for (String sql : alterStatements) {
+                                try {
+                                    jdbcTemplate.execute(sql);
+                                    logger.info("컬럼 {}을 NULL 허용으로 변경 완료: {}", columnName, sql);
+                                    success = true;
+                                    break;
+                                } catch (Exception e) {
+                                    logger.debug("컬럼 {} NULL 허용 변경 시도 실패: {} - {}", columnName, sql, e.getMessage());
+                                }
+                            }
+                            
+                            if (!success) {
+                                logger.warn("컬럼 {} NULL 허용 변경 실패: 모든 방법 시도 실패", columnName);
+                            }
+                        } catch (Exception e) {
+                            logger.warn("컬럼 {} NULL 허용 변경 중 오류: {}", columnName, e.getMessage());
+                        }
+                    } else {
+                        logger.debug("컬럼 {}은 이미 NULL 허용", columnName);
+                    }
+                }
+            } catch (Exception e) {
+                logger.debug("컬럼 정보 확인 실패 (무시): {}", e.getMessage());
+            }
+            
+            logger.info("NULL 허용 컬럼 마이그레이션 완료");
+        } catch (Exception e) {
+            // 테이블이 아직 생성되지 않았거나 다른 오류가 발생한 경우 무시
+            logger.warn("NULL 허용 컬럼 마이그레이션 실행 중 오류: {}", e.getMessage(), e);
+        }
     }
 
     // 회원 검색 (이름)
@@ -151,8 +562,10 @@ public class MemberService {
         // 소급 등록 여부 확인: 가입일/등록일시만 변경하고 전화번호는 변경하지 않은 경우
         boolean isBackdateOnly = (updatedMember.getJoinDate() != null || updatedMember.getCreatedAt() != null) &&
                                  !phoneNumberChanged && !guardianPhoneChanged &&
-                                 (member.getName().equals(updatedMember.getName())) &&
-                                 (member.getBirthDate().equals(updatedMember.getBirthDate()));
+                                 (member.getName() != null && member.getName().equals(updatedMember.getName())) &&
+                                 ((member.getBirthDate() == null && updatedMember.getBirthDate() == null) ||
+                                  (member.getBirthDate() != null && updatedMember.getBirthDate() != null && 
+                                   member.getBirthDate().equals(updatedMember.getBirthDate())));
         
         member.setName(updatedMember.getName());
         member.setPhoneNumber(updatedMember.getPhoneNumber());
@@ -283,13 +696,112 @@ public class MemberService {
     // 회원 삭제
     // 주의: ID는 자동 증가하므로 재정렬하지 않습니다.
     // 회원번호는 삭제되어도 기존 순번을 유지합니다 (다른 회원의 회원번호는 변경되지 않음).
+    @Transactional(rollbackFor = Exception.class)
     public void deleteMember(Long id) {
-        if (!memberRepository.existsById(id)) {
-            throw new IllegalArgumentException("회원을 찾을 수 없습니다.");
+        // 회원 존재 여부 확인 (JdbcTemplate 사용)
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM members WHERE id = ?", 
+                Integer.class, 
+                id
+            );
+            if (count == null || count == 0) {
+                throw new IllegalArgumentException("회원을 찾을 수 없습니다.");
+            }
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            logger.warn("회원 존재 여부 확인 실패: {}", e.getMessage());
+            // JPA로 재시도
+            if (!memberRepository.existsById(id)) {
+                throw new IllegalArgumentException("회원을 찾을 수 없습니다.");
+            }
         }
-        memberRepository.deleteById(id);
-        // ID는 자동 증가하므로 재정렬하지 않음
-        // 회원번호는 삭제되어도 기존 순번 유지 (다른 회원의 회원번호 변경 없음)
+        
+        logger.info("회원 삭제 시작: ID={}", id);
+        
+        try {
+            // JPA deleteById는 내부적으로 엔티티를 로드할 수 있으므로,
+            // enum 변환 오류를 방지하기 위해 JdbcTemplate으로 직접 삭제
+            // H2 MODE=MySQL이므로 테이블/컬럼 이름은 대소문자 구분 없음
+            
+            // 관련 엔티티 삭제 (외래키 제약 조건을 고려한 순서)
+            // Payment와 Attendance가 Booking을 참조하므로, Booking 삭제 전에 먼저 삭제해야 함
+            
+            // 1. Payment 삭제 (Booking을 참조하므로 먼저 삭제)
+            try {
+                jdbcTemplate.update("DELETE FROM payments WHERE member_id = ?", id);
+                logger.info("Payment 삭제 완료: Member ID={}", id);
+            } catch (Exception e) {
+                logger.warn("Payment 삭제 실패 (무시): Member ID={}, 오류: {}", id, e.getMessage());
+            }
+            
+            // 2. Attendance 삭제 (Booking을 참조하므로 Booking 삭제 전에 먼저 삭제)
+            try {
+                jdbcTemplate.update("DELETE FROM attendances WHERE member_id = ?", id);
+                logger.info("Attendance 삭제 완료: Member ID={}", id);
+            } catch (Exception e) {
+                logger.warn("Attendance 삭제 실패 (무시): Member ID={}, 오류: {}", id, e.getMessage());
+            }
+            
+            // 3. Booking의 memberProduct 참조를 null로 설정 (외래키 제약 조건 해제)
+            try {
+                jdbcTemplate.update("UPDATE bookings SET member_product_id = NULL WHERE member_id = ?", id);
+                logger.info("Booking의 memberProduct 참조 제거 완료: Member ID={}", id);
+            } catch (Exception e) {
+                logger.warn("Booking의 memberProduct 참조 제거 실패 (무시): Member ID={}, 오류: {}", id, e.getMessage());
+            }
+            
+            // 4. Booking 삭제 (Payment와 Attendance가 이미 삭제되었으므로 안전)
+            try {
+                jdbcTemplate.update("DELETE FROM bookings WHERE member_id = ?", id);
+                logger.info("Booking 삭제 완료: Member ID={}", id);
+            } catch (Exception e) {
+                logger.warn("Booking 삭제 실패 (무시): Member ID={}, 오류: {}", id, e.getMessage());
+            }
+            
+            // 5. TrainingLog 삭제
+            try {
+                jdbcTemplate.update("DELETE FROM training_logs WHERE member_id = ?", id);
+                logger.info("TrainingLog 삭제 완료: Member ID={}", id);
+            } catch (Exception e) {
+                logger.warn("TrainingLog 삭제 실패 (무시): Member ID={}, 오류: {}", id, e.getMessage());
+            }
+            
+            // 6. BaseballRecord 삭제
+            try {
+                jdbcTemplate.update("DELETE FROM baseball_records WHERE member_id = ?", id);
+                logger.info("BaseballRecord 삭제 완료: Member ID={}", id);
+            } catch (Exception e) {
+                logger.warn("BaseballRecord 삭제 실패 (무시): Member ID={}, 오류: {}", id, e.getMessage());
+            }
+            
+            // 7. MemberProduct 삭제
+            try {
+                jdbcTemplate.update("DELETE FROM member_products WHERE member_id = ?", id);
+                logger.info("MemberProduct 삭제 완료: Member ID={}", id);
+            } catch (Exception e) {
+                logger.warn("MemberProduct 삭제 실패 (무시): Member ID={}, 오류: {}", id, e.getMessage());
+            }
+            
+            // 8. 마지막으로 Member 삭제 (이것만 실패하면 안됨)
+            int deleted = jdbcTemplate.update("DELETE FROM members WHERE id = ?", id);
+            if (deleted == 0) {
+                throw new IllegalArgumentException("회원을 찾을 수 없습니다.");
+            }
+            logger.info("회원 삭제 성공: ID={}", id);
+            
+            // ID는 자동 증가하므로 재정렬하지 않음
+            // 회원번호는 삭제되어도 기존 순번 유지 (다른 회원의 회원번호 변경 없음)
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            logger.error("회원 삭제 중 외래키 제약 조건 위반: ID={}, 오류: {}", id, e.getMessage(), e);
+            throw new IllegalArgumentException("회원을 삭제할 수 없습니다. 관련 데이터가 존재합니다: " + e.getMessage(), e);
+        } catch (Exception e) {
+            logger.error("회원 삭제 중 오류 발생: ID={}, 오류: {}", id, e.getMessage(), e);
+            throw new RuntimeException("회원 삭제 중 오류가 발생했습니다: " + e.getMessage(), e);
+        }
     }
     
     // 참고: ID 재정렬 기능은 제거되었습니다.

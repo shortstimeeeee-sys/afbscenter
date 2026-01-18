@@ -53,9 +53,9 @@
                         <div class="filter-group">
                             <select class="form-control" id="filter-grade" style="width: 150px;">
                                 <option value="">전체 등급</option>
-                                <option value="REGULAR">일반</option>
-                                <option value="REGULAR_MEMBER">정기</option>
-                                <option value="PLAYER">선수반</option>
+                                <option value="SOCIAL">사회인</option>
+                                <option value="ELITE">엘리트</option>
+                                <option value="YOUTH">유소년</option>
                             </select>
                             <select class="form-control" id="filter-status" style="width: 150px;">
                                 <option value="">전체 상태</option>
@@ -86,6 +86,7 @@
                                     <th>가입일</th>
                                     <th>최근 방문</th>
                                     <th>누적 결제</th>
+                                    <th style="text-align: center !important;">상품/이용권 연장</th>
                                     <th>작업</th>
                                 </tr>
                             </thead>
@@ -126,8 +127,8 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label class="form-label">생년월일 *</label>
-                            <input type="date" class="form-control" id="member-birth" required>
+                            <label class="form-label">생년월일</label>
+                            <input type="date" class="form-control" id="member-birth">
                         </div>
                         <div class="form-group">
                             <label class="form-label">성별 *</label>
@@ -139,19 +140,19 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label class="form-label">키(cm) *</label>
-                            <input type="number" class="form-control" id="member-height" required>
+                            <label class="form-label">키(cm)</label>
+                            <input type="number" class="form-control" id="member-height">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">몸무게(kg) *</label>
-                            <input type="number" class="form-control" id="member-weight" required>
+                            <label class="form-label">몸무게(kg)</label>
+                            <input type="number" class="form-control" id="member-weight">
                         </div>
                         <div class="form-group">
                             <label class="form-label">등급</label>
                             <select class="form-control" id="member-grade">
-                                <option value="REGULAR">일반</option>
-                                <option value="REGULAR_MEMBER">정기</option>
-                                <option value="PLAYER">선수반</option>
+                                <option value="SOCIAL">사회인</option>
+                                <option value="ELITE">엘리트</option>
+                                <option value="YOUTH">유소년</option>
                             </select>
                         </div>
                     </div>
@@ -238,11 +239,83 @@
                 <div class="detail-tabs">
                     <button class="tab-btn active" data-tab="info">기본 정보</button>
                     <button class="tab-btn" data-tab="products">이용권</button>
+                    <button class="tab-btn" data-tab="payments">결제 내역</button>
                     <button class="tab-btn" data-tab="bookings">예약 내역</button>
                     <button class="tab-btn" data-tab="attendance">출석 내역</button>
                     <button class="tab-btn" data-tab="memo">코치 메모</button>
                 </div>
                 <div id="detail-tab-content"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 이용권 횟수 조정 모달 -->
+    <div class="modal-overlay" id="adjust-count-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">이용권 횟수 조정</h2>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="adjust-count-form">
+                    <input type="hidden" id="adjust-product-id">
+                    <div class="form-group">
+                        <label class="form-label">현재 잔여 횟수</label>
+                        <div class="form-control" style="background: var(--bg-tertiary);" id="adjust-current-count">-</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">조정할 횟수</label>
+                        <input type="number" class="form-control" id="adjust-amount" placeholder="양수: 추가, 음수: 차감 (예: +1, -1)" required>
+                        <small style="color: var(--text-muted); font-size: 12px;">양수 입력 시 횟수 추가, 음수 입력 시 횟수 차감</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('adjust-count-modal')">취소</button>
+                <button class="btn btn-primary" onclick="processAdjustCount()">조정</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 상품/이용권 연장 모달 -->
+    <div class="modal-overlay" id="extend-product-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">상품/이용권 연장</h2>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="extend-product-form">
+                    <input type="hidden" id="extend-member-id">
+                    <div class="form-group">
+                        <label class="form-label">연장할 상품/이용권 선택 *</label>
+                        <select class="form-control" id="extend-product-select" required>
+                            <option value="">상품/이용권을 선택하세요...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">현재 만료일</label>
+                        <div class="form-control" style="background: var(--bg-tertiary);" id="extend-current-expiry">-</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">구매 금액</label>
+                        <div class="form-control" style="background: var(--bg-tertiary);" id="extend-purchase-price">-</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">연장 횟수 *</label>
+                        <input type="number" class="form-control" id="extend-days" min="1" placeholder="추가할 횟수를 입력하세요" required>
+                        <small style="color: var(--text-muted); font-size: 12px;">횟수권의 경우 입력한 횟수만큼 남은 횟수가 추가됩니다</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">예상 연장 금액</label>
+                        <div class="form-control" style="background: var(--bg-tertiary); font-weight: 600; color: var(--accent-primary);" id="extend-calculated-price">-</div>
+                        <small style="color: var(--text-muted); font-size: 12px;">구매 금액과 연장 횟수에 따라 자동 계산됩니다</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('extend-product-modal')">취소</button>
+                <button class="btn btn-primary" onclick="processExtendProduct()">연장</button>
             </div>
         </div>
     </div>

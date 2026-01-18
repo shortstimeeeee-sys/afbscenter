@@ -58,7 +58,7 @@ public class Booking {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "lesson_category")
-    private Lesson.LessonCategory lessonCategory; // 레슨 카테고리 (레슨인 경우)
+    private LessonCategory lessonCategory; // 레슨 카테고리 (레슨인 경우)
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

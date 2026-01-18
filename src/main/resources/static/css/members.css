@@ -127,3 +127,16 @@
     background-color: rgba(94, 106, 210, 0.5) !important;
     background: rgba(94, 106, 210, 0.5) !important;
 }
+
+/* 상품/이용권 연장 컬럼 중앙 정렬 */
+#members-table-body ~ * .table thead th:nth-child(11),
+.table thead th:nth-child(11),
+.table tbody td:nth-child(11) {
+    text-align: center !important;
+}
+
+/* 회원 목록 테이블의 상품/이용권 연장 컬럼 중앙 정렬 (더 구체적인 선택자) */
+.card .table thead th:nth-child(11),
+.card .table tbody td:nth-child(11) {
+    text-align: center !important;
+}

@@ -13,8 +13,11 @@ import java.util.List;
 public interface TrainingLogRepository extends JpaRepository<TrainingLog, Long> {
     List<TrainingLog> findByMemberId(Long memberId);
     
-    @Query("SELECT t FROM TrainingLog t WHERE t.recordDate >= :start AND t.recordDate <= :end")
+    @Query("SELECT t FROM TrainingLog t LEFT JOIN FETCH t.member WHERE t.recordDate >= :start AND t.recordDate <= :end")
     List<TrainingLog> findByDateRange(@Param("start") LocalDate start, @Param("end") LocalDate end);
+    
+    @Query("SELECT DISTINCT t FROM TrainingLog t LEFT JOIN FETCH t.member")
+    List<TrainingLog> findAllWithMember();
     
     @Query("SELECT t FROM TrainingLog t WHERE t.member.id = :memberId AND t.type = :type ORDER BY t.recordDate DESC")
     List<TrainingLog> findByMemberIdAndType(@Param("memberId") Long memberId, @Param("type") TrainingLog.TrainingType type);
