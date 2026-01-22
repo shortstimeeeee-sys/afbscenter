@@ -157,7 +157,22 @@ function renderAttendanceRecords(records) {
         return;
     }
     
-    tbody.innerHTML = records.map(record => {
+    // 날짜 및 체크인 시간 기준으로 정렬 (최신이 위로)
+    const sortedRecords = [...records].sort((a, b) => {
+        // 날짜 비교 (최신 날짜가 위로)
+        const dateA = new Date(a.date);
+        const dateB = new Date(b.date);
+        if (dateA.getTime() !== dateB.getTime()) {
+            return dateB - dateA;
+        }
+        
+        // 같은 날짜면 체크인 시간으로 비교 (최신이 위로)
+        const checkInA = a.checkInTime ? new Date(a.checkInTime) : new Date(0);
+        const checkInB = b.checkInTime ? new Date(b.checkInTime) : new Date(0);
+        return checkInB - checkInA;
+    });
+    
+    tbody.innerHTML = sortedRecords.map(record => {
         const checkIn = record.checkInTime ? new Date(record.checkInTime) : null;
         const checkOut = record.checkOutTime ? new Date(record.checkOutTime) : null;
         const duration = checkIn && checkOut ? 

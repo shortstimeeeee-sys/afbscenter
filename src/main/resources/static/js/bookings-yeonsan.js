@@ -157,7 +157,7 @@ async function initializeBookings() {
 async function loadFacilities() {
     try {
         // 페이지별 설정 읽기
-        const config = window.BOOKING_PAGE_CONFIG || { branch: 'SAHA', facilityType: 'BASEBALL' };
+        const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN', facilityType: 'BASEBALL' };
         const expectedBranch = config.branch?.toUpperCase();
         
         console.log(`[시설 로드] ========================================`);
@@ -347,7 +347,6 @@ async function loadFacilities() {
                 // 최종 확인
                 if (select.value && select.value !== '') {
                     // 선택된 시설의 지점 정보 확인 및 검증
-                    const selectedOption = select.options[select.selectedIndex];
                     const selectedFacilityBranch = selectedFacility.branch?.toString()?.toUpperCase();
                     const expectedBranchUpper = expectedBranch?.toUpperCase();
                     
@@ -425,7 +424,6 @@ async function loadFacilities() {
                     // 지점이 일치하는 경우 정상 처리
                     // 시설 자동 선택 및 고정 (비활성화)
                     select.disabled = true;
-                    // CSS 클래스 추가로 스타일 적용
                     select.classList.add('facility-fixed');
                     const selectedText = select.options[select.selectedIndex]?.textContent || selectedFacility.name;
                     // 오버레이에 선택된 시설명 표시
@@ -468,7 +466,7 @@ async function loadFacilities() {
 
 // 시설 로드 및 자동 선택 함수 (모달용)
 async function loadAndSelectFacility() {
-    const config = window.BOOKING_PAGE_CONFIG || { branch: 'SAHA', facilityType: 'BASEBALL' };
+    const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN', facilityType: 'BASEBALL' };
     const bookingId = document.getElementById('booking-id')?.value;
     const facilitySelect = document.getElementById('booking-facility');
     
@@ -503,14 +501,9 @@ async function loadAndSelectFacility() {
             // 시설 옵션 추가
             filteredFacilities.forEach(facility => {
                 const option = document.createElement('option');
-                option.value = facility.id.toString();
+                option.value = facility.id;
                 option.textContent = facility.name;
-                // 시설의 지점 정보를 data 속성에 저장
-                if (facility.branch) {
-                    option.dataset.branch = facility.branch;
-                }
                 facilitySelect.appendChild(option);
-                console.log(`[시설 로드] 옵션 추가: ${facility.name} (ID: ${facility.id}, 지점: ${facility.branch})`);
             });
             
             console.log(`[시설 로드] 옵션 추가 완료. 총 옵션 수: ${facilitySelect.options.length}`);
@@ -846,7 +839,7 @@ async function renderCalendar() {
     let bookings = [];
     try {
         // 페이지별 설정 읽기
-        const config = window.BOOKING_PAGE_CONFIG || { branch: 'SAHA', facilityType: 'BASEBALL' };
+        const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN', facilityType: 'BASEBALL' };
         
         // ISO 형식으로 변환 (UTC 시간대 포함)
         const startISO = queryStart.toISOString();
@@ -876,7 +869,7 @@ async function renderCalendar() {
                     facilityType: config.facilityType
                 });
                 const allBookings = await App.api.get(`/bookings?${allParams.toString()}`);
-                console.log(`전체 예약 (사하점): ${allBookings ? allBookings.length : 0}개`, allBookings);
+                console.log(`전체 예약 (연산점): ${allBookings ? allBookings.length : 0}개`, allBookings);
                 // 전체 예약 중 현재 월에 해당하는 예약 찾기
                 if (allBookings && allBookings.length > 0) {
                     const monthBookings = allBookings.filter(b => {
@@ -1212,7 +1205,7 @@ async function openDayScheduleModal(dateStr) {
         const startISO = startOfDay.toISOString();
         const endISO = endOfDay.toISOString();
         
-        const bookings = await App.api.get(`/bookings?start=${startISO}&end=${endISO}&branch=SAHA`);
+        const bookings = await App.api.get(`/bookings?start=${startISO}&end=${endISO}&branch=YEONSAN`);
         
         // 코치 목록 로드 (필터용)
         const coaches = await App.api.get('/coaches');
@@ -1337,8 +1330,8 @@ async function loadBookingsList() {
         await reorderBookingIdsSilent();
         
         // page 파라미터 제거 (백엔드에서 처리하지 않음)
-        const bookings = await App.api.get(`/bookings?branch=SAHA`);
-        console.log('예약 목록 조회 결과 (사하점):', bookings?.length || 0, '건');
+        const bookings = await App.api.get(`/bookings?branch=YEONSAN`);
+        console.log('예약 목록 조회 결과:', bookings?.length || 0, '건');
         renderBookingsTable(bookings);
     } catch (error) {
         console.error('예약 목록 로드 실패:', error);
@@ -1436,7 +1429,8 @@ async function openMemberSelectModal(date = null) {
     App.Modal.open('member-select-modal');
 }
 
-// 회원 목록 로드 (전체 회원)
+// 회원 목록 로드
+// 예약용 회원 목록 로드 (전체 회원)
 async function loadMembersForSelect() {
     try {
         // 페이지별 설정 읽기
@@ -1808,7 +1802,7 @@ async function selectNonMember() {
     }
     
     // 비회원 예약 모달에서도 시설 즉시 로드 및 선택
-    const config = window.BOOKING_PAGE_CONFIG || { branch: 'SAHA', facilityType: 'BASEBALL' };
+    const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN', facilityType: 'BASEBALL' };
     const facilitySelect = document.getElementById('booking-facility');
     
     if (facilitySelect) {
@@ -1913,7 +1907,7 @@ async function openBookingModal(id = null) {
         // 지점 필드 설정 (페이지별로 고정, hidden input)
         const branchInput = document.getElementById('booking-branch');
         if (branchInput) {
-            const config = window.BOOKING_PAGE_CONFIG || { branch: 'SAHA' };
+            const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN' };
             branchInput.value = config.branch;
         }
         
@@ -1942,7 +1936,7 @@ async function openBookingModal(id = null) {
         // 지점 필드 설정 (페이지별로 고정, hidden input) - reset 전에 설정
         const branchInput = document.getElementById('booking-branch');
         if (branchInput) {
-            const config = window.BOOKING_PAGE_CONFIG || { branch: 'SAHA' };
+            const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN' };
             branchInput.value = config.branch;
         }
         
@@ -1959,7 +1953,7 @@ async function openBookingModal(id = null) {
         
         // 지점 필드 다시 설정 (reset 후)
         if (branchInput) {
-            const config = window.BOOKING_PAGE_CONFIG || { branch: 'SAHA' };
+            const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN' };
             branchInput.value = config.branch;
         }
         
@@ -2259,7 +2253,7 @@ async function loadBookingData(id) {
         // 지점 필드 설정 (페이지별로 고정, hidden input)
         const branchInput = document.getElementById('booking-branch');
         if (branchInput) {
-            const config = window.BOOKING_PAGE_CONFIG || { branch: 'SAHA' };
+            const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN' };
             branchInput.value = config.branch;
         }
         
@@ -2423,7 +2417,7 @@ async function saveBooking() {
     
     // 시설 선택 시 시설의 지점 정보를 우선적으로 사용
     const facilitySelect = document.getElementById('booking-facility');
-    let branchValue = document.getElementById('booking-branch')?.value || (window.BOOKING_PAGE_CONFIG || {}).branch || 'SAHA';
+    let branchValue = document.getElementById('booking-branch')?.value || (window.BOOKING_PAGE_CONFIG || {}).branch || 'YEONSAN';
     
     // 시설이 선택되어 있으면 시설의 지점 정보를 사용
     if (facilitySelect && facilitySelect.value) {
@@ -2683,7 +2677,7 @@ async function copyBookingToDate(sourceBookingId, sourceBooking, targetDateStr) 
             participants: booking.participants || 1,
             purpose: booking.purpose,
             lessonCategory: booking.lessonCategory || null,
-            branch: (window.BOOKING_PAGE_CONFIG || {}).branch || 'SAHA', // 페이지별 지점 코드
+            branch: (window.BOOKING_PAGE_CONFIG || {}).branch || 'YEONSAN', // 페이지별 지점 코드
             status: 'PENDING', // 복사된 예약은 대기 상태로
             paymentMethod: booking.paymentMethod || null,
             memo: booking.memo ? `[복사] ${booking.memo}` : '[복사]'

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>야구 기록 관리 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/baseball-records.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    
+                    <!-- 사하점 -->
+                    <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    
+                    <!-- 연산점 -->
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
+                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    
+                    <!-- 대관 -->
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
+                    <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
+                    
+                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">훈련 기록</div>
+                    <a href="/training-logs.html" class="menu-item" data-role="Front"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
+                </div>
+                <div class="menu-section" data-role="Admin">
+                    <div class="menu-section-title">관리자</div>
+                    <a href="/analytics.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
+                    <a href="/announcements.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📢</span><span>공지/메시지</span></a>
+                    <a href="/settings.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚙️</span><span>설정</span></a>
+                </div>
+            </nav>
+        </aside>
+        
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">야구 기록 관리</h1>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn">🔔</button>
+                    <button class="user-menu-btn">👤</button>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <!-- 필터 섹션 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">기록 검색</h2>
+                    </div>
+                    <div class="filter-section">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">회원 선택</label>
+                                <select class="form-control" id="filter-member">
+                                    <option value="">전체</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">포지션</label>
+                                <select class="form-control" id="filter-position">
+                                    <option value="">전체</option>
+                                    <option value="PITCHER">투수</option>
+                                    <option value="CATCHER">포수</option>
+                                    <option value="FIRST_BASE">1루수</option>
+                                    <option value="SECOND_BASE">2루수</option>
+                                    <option value="THIRD_BASE">3루수</option>
+                                    <option value="SHORTSTOP">유격수</option>
+                                    <option value="LEFT_FIELD">좌익수</option>
+                                    <option value="CENTER_FIELD">중견수</option>
+                                    <option value="RIGHT_FIELD">우익수</option>
+                                    <option value="DESIGNATED_HITTER">지명타자</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">시작일</label>
+                                <input type="date" class="form-control" id="filter-start-date">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">종료일</label>
+                                <input type="date" class="form-control" id="filter-end-date">
+                            </div>
+                            <div class="form-group" style="align-self: flex-end;">
+                                <button class="btn btn-primary" onclick="loadRecords()">검색</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 기록 목록 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">야구 기록</h2>
+                        <button class="btn btn-primary" onclick="openRecordModal()">기록 등록</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>날짜</th>
+                                    <th>회원</th>
+                                    <th>포지션</th>
+                                    <th>타석/안타</th>
+                                    <th>타율</th>
+                                    <th>이닝/자책점</th>
+                                    <th>방어율</th>
+                                    <th>작업</th>
+                                </tr>
+                            </thead>
+                            <tbody id="records-table-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 기록 등록/수정 모달 -->
+    <div class="modal-overlay" id="record-modal">
+        <div class="modal" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modal-title">야구 기록 등록</h2>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="record-form">
+                    <input type="hidden" id="record-id">
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">회원 *</label>
+                            <select class="form-control" id="record-member" required>
+                                <option value="">선택하세요</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">기록 날짜 *</label>
+                            <input type="date" class="form-control" id="record-date" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">포지션 *</label>
+                        <select class="form-control" id="record-position" required>
+                            <option value="">선택하세요</option>
+                            <option value="PITCHER">투수</option>
+                            <option value="CATCHER">포수</option>
+                            <option value="FIRST_BASE">1루수</option>
+                            <option value="SECOND_BASE">2루수</option>
+                            <option value="THIRD_BASE">3루수</option>
+                            <option value="SHORTSTOP">유격수</option>
+                            <option value="LEFT_FIELD">좌익수</option>
+                            <option value="CENTER_FIELD">중견수</option>
+                            <option value="RIGHT_FIELD">우익수</option>
+                            <option value="DESIGNATED_HITTER">지명타자</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-section-title">타격 기록</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">타석</label>
+                            <input type="number" class="form-control" id="record-at-bats" min="0" placeholder="0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">안타</label>
+                            <input type="number" class="form-control" id="record-hits" min="0" placeholder="0">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">홈런</label>
+                            <input type="number" class="form-control" id="record-home-runs" min="0" placeholder="0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">타점</label>
+                            <input type="number" class="form-control" id="record-rbis" min="0" placeholder="0">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">삼진</label>
+                            <input type="number" class="form-control" id="record-strikeouts" min="0" placeholder="0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">볼넷</label>
+                            <input type="number" class="form-control" id="record-walks" min="0" placeholder="0">
+                        </div>
+                    </div>
+                    
+                    <div class="form-section-title">투구 기록</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">이닝</label>
+                            <input type="number" class="form-control" id="record-innings" step="0.1" min="0" placeholder="0.0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">자책점</label>
+                            <input type="number" class="form-control" id="record-earned-runs" min="0" placeholder="0">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">탈삼진</label>
+                            <input type="number" class="form-control" id="record-strikeouts-pitched" min="0" placeholder="0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">볼넷(투구)</label>
+                            <input type="number" class="form-control" id="record-walks-pitched" min="0" placeholder="0">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">피안타</label>
+                        <input type="number" class="form-control" id="record-hits-allowed" min="0" placeholder="0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">메모</label>
+                        <textarea class="form-control" id="record-notes" rows="3" placeholder="기타 메모 사항"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="App.Modal.close('record-modal')">취소</button>
+                <button type="button" class="btn btn-primary" onclick="document.getElementById('record-form').dispatchEvent(new Event('submit'))">저장</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/js/common.js"></script>
+    <script src="/js/baseball-records.js"></script>
+</body>
+</html>

@@ -8,18 +8,32 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadMembersForSelect() {
     try {
-        const members = await App.api.get('/members');
+        // 오늘 체크인한 회원만 로드 (훈련 종료된 회원)
+        const today = new Date().toISOString().split('T')[0];
+        const checkedInAttendances = await App.api.get(`/attendance/checked-in?startDate=${today}&endDate=${today}`);
+        
         const select = document.getElementById('filter-member');
         const logSelect = document.getElementById('log-member');
         
-        members.forEach(member => {
-            const option1 = new Option(member.name, member.id);
-            const option2 = new Option(member.name, member.id);
-            select.appendChild(option1);
-            logSelect.appendChild(option2);
-        });
+        // 중복 제거를 위한 Set
+        const addedMemberIds = new Set();
+        
+        if (checkedInAttendances && checkedInAttendances.length > 0) {
+            checkedInAttendances.forEach(attendance => {
+                if (attendance.member && !addedMemberIds.has(attendance.member.id)) {
+                    const option1 = new Option(attendance.member.name, attendance.member.id);
+                    const option2 = new Option(attendance.member.name, attendance.member.id);
+                    select.appendChild(option1);
+                    logSelect.appendChild(option2);
+                    addedMemberIds.add(attendance.member.id);
+                }
+            });
+            console.log(`오늘 체크인한 회원 ${addedMemberIds.size}명 로드됨 (훈련 종료)`);
+        } else {
+            console.log('오늘 체크인한 회원이 없습니다.');
+        }
     } catch (error) {
-        console.error('회원 목록 로드 실패:', error);
+        console.error('체크인 회원 목록 로드 실패:', error);
     }
 }
 
@@ -53,14 +67,15 @@ function renderTrainingLogs(logs) {
         const memberName = log.member ? log.member.name : '-';
         const date = log.recordDate || log.date;
         const ballSpeed = log.ballSpeed || log.batSpeed;
+        const formatSpeed = (speed) => speed ? (typeof speed === 'number' ? speed.toFixed(1) : speed) + ' mph' : '-';
         return `
         <tr>
             <td>${App.formatDate(date)}</td>
             <td>${memberName}</td>
             <td>${log.type || '-'}</td>
-            <td>${ballSpeed ? ballSpeed + ' km/h' : '-'}</td>
-            <td>${log.pitchSpeed ? log.pitchSpeed + ' km/h' : '-'}</td>
-            <td>${log.contactRate ? log.contactRate + '%' : '-'}</td>
+            <td>${formatSpeed(log.swingSpeed)}</td>
+            <td>${formatSpeed(ballSpeed)}</td>
+            <td>${formatSpeed(log.pitchSpeed)}</td>
             <td>
                 <button class="btn btn-sm btn-primary" onclick="viewLogDetail(${log.id})">상세보기</button>
             </td>
@@ -86,6 +101,10 @@ function openLogModal(id = null) {
     } else {
         title.textContent = '훈련 기록 추가';
         form.reset();
+        
+        // 중요: log-id를 명시적으로 초기화 (이전 수정 ID가 남아있으면 안됨)
+        document.getElementById('log-id').value = '';
+        
         // 체크인 기록을 선택하면 날짜가 자동으로 설정되므로, 기본값은 오늘 날짜
         // 하지만 체크인 기록을 선택하면 방문한 날짜로 자동 변경됨
         document.getElementById('log-date').value = new Date().toISOString().split('T')[0];
@@ -94,9 +113,57 @@ function openLogModal(id = null) {
         document.getElementById('log-attendance').value = '';
         // 체크인 기록 목록 다시 로드
         loadCheckedInAttendances();
+        
+        // 기록 타입 선택 영역 숨기기
+        document.getElementById('record-type-section').style.display = 'none';
+        document.getElementById('batter-section').style.display = 'none';
+        document.getElementById('pitcher-section').style.display = 'none';
     }
     
     App.Modal.open('log-modal');
+}
+
+// 회원 선택 시 기록 타입 선택 영역 표시
+function onMemberSelected() {
+    const memberId = document.getElementById('log-member').value;
+    const recordTypeSection = document.getElementById('record-type-section');
+    
+    if (memberId) {
+        recordTypeSection.style.display = 'block';
+    } else {
+        recordTypeSection.style.display = 'none';
+        document.getElementById('batter-section').style.display = 'none';
+        document.getElementById('pitcher-section').style.display = 'none';
+        // 라디오 버튼 초기화
+        document.querySelectorAll('input[name="record-type"]').forEach(radio => {
+            radio.checked = false;
+        });
+    }
+}
+
+// 기록 타입 변경 시 해당 섹션만 표시
+function onRecordTypeChanged() {
+    const selectedType = document.querySelector('input[name="record-type"]:checked')?.value;
+    const batterSection = document.getElementById('batter-section');
+    const pitcherSection = document.getElementById('pitcher-section');
+    
+    if (selectedType === 'BATTER') {
+        batterSection.style.display = 'block';
+        pitcherSection.style.display = 'none';
+        // 투수 필드 초기화
+        document.getElementById('log-pitch-speed').value = '';
+    } else if (selectedType === 'PITCHER') {
+        batterSection.style.display = 'none';
+        pitcherSection.style.display = 'block';
+        // 타자 필드 초기화
+        if (document.getElementById('log-swing-speed')) {
+            document.getElementById('log-swing-speed').value = '';
+        }
+        document.getElementById('log-bat-speed').value = '';
+    } else {
+        batterSection.style.display = 'none';
+        pitcherSection.style.display = 'none';
+    }
 }
 
 async function loadLogData(id) {
@@ -105,17 +172,32 @@ async function loadLogData(id) {
         document.getElementById('log-id').value = log.id;
         document.getElementById('log-member').value = log.member ? log.member.id : '';
         document.getElementById('log-date').value = log.recordDate || log.date;
-        document.getElementById('log-swings').value = log.swingCount || log.swings || '';
-        document.getElementById('log-bat-speed').value = log.ballSpeed || log.batSpeed || '';
-        document.getElementById('log-launch-angle').value = log.launchAngle || '';
-        document.getElementById('log-hit-direction').value = log.hitDirection || '';
-        document.getElementById('log-contact-rate').value = log.contactRate || '';
-        document.getElementById('log-pitch-speed').value = log.pitchSpeed || '';
-        document.getElementById('log-spin-rate').value = log.spinRate || '';
-        document.getElementById('log-pitch-type').value = log.pitchType || '';
-        document.getElementById('log-strike-rate').value = log.strikeRate || '';
-        document.getElementById('log-running').value = log.runningDistance || log.running || '';
-        document.getElementById('log-condition').value = log.conditionScore || log.condition || '';
+        
+        // 기록 타입 확인 및 표시
+        const recordTypeSection = document.getElementById('record-type-section');
+        recordTypeSection.style.display = 'block';
+        
+        // 타입에 따라 라디오 버튼 선택 및 섹션 표시
+        if (log.type === 'BATTING' || log.ballSpeed || log.swingSpeed) {
+            document.querySelector('input[name="record-type"][value="BATTER"]').checked = true;
+            document.getElementById('batter-section').style.display = 'block';
+            document.getElementById('pitcher-section').style.display = 'none';
+            
+            // 타자 기록 입력
+            const swingSpeedEl = document.getElementById('log-swing-speed');
+            if (swingSpeedEl) {
+                swingSpeedEl.value = log.swingSpeed || '';
+            }
+            document.getElementById('log-bat-speed').value = log.ballSpeed || log.batSpeed || '';
+        } else if (log.type === 'PITCHING' || log.pitchSpeed) {
+            document.querySelector('input[name="record-type"][value="PITCHER"]').checked = true;
+            document.getElementById('batter-section').style.display = 'none';
+            document.getElementById('pitcher-section').style.display = 'block';
+            
+            // 투수 기록 입력
+            document.getElementById('log-pitch-speed').value = log.pitchSpeed || '';
+        }
+        
         document.getElementById('log-notes').value = log.notes || '';
     } catch (error) {
         App.showNotification('기록 정보를 불러오는데 실패했습니다.', 'danger');
@@ -129,31 +211,49 @@ async function saveTrainingLog() {
         return;
     }
     
+    // 기록 타입 확인
+    const selectedType = document.querySelector('input[name="record-type"]:checked')?.value;
+    if (!selectedType) {
+        App.showNotification('기록 타입(투수/타자)을 선택해주세요.', 'danger');
+        return;
+    }
+    
     const data = {
         member: { id: memberId },
         recordDate: document.getElementById('log-date').value,
-        type: 'BATTING', // 기본값 (필수 필드)
-        part: 'BASEBALL_BATTING', // 기본값 (필수 필드)
-        swingCount: document.getElementById('log-swings').value ? parseInt(document.getElementById('log-swings').value) : null,
-        ballSpeed: document.getElementById('log-bat-speed').value ? parseFloat(document.getElementById('log-bat-speed').value) : null,
-        launchAngle: document.getElementById('log-launch-angle').value ? parseFloat(document.getElementById('log-launch-angle').value) : null,
-        hitDirection: document.getElementById('log-hit-direction').value || null,
-        contactRate: document.getElementById('log-contact-rate').value ? parseFloat(document.getElementById('log-contact-rate').value) : null,
-        pitchSpeed: document.getElementById('log-pitch-speed').value ? parseFloat(document.getElementById('log-pitch-speed').value) : null,
-        spinRate: document.getElementById('log-spin-rate').value ? parseInt(document.getElementById('log-spin-rate').value) : null,
-        pitchType: document.getElementById('log-pitch-type').value || null,
-        strikeRate: document.getElementById('log-strike-rate').value ? parseFloat(document.getElementById('log-strike-rate').value) : null,
-        runningDistance: document.getElementById('log-running').value ? parseFloat(document.getElementById('log-running').value) : null,
-        weightTraining: null, // 웨이트 트레이닝은 별도 필드가 없으므로 null
-        conditionScore: (() => {
-            const conditionValue = document.getElementById('log-condition').value;
-            if (!conditionValue) return null;
-            // 숫자로 변환 가능한 경우만 변환
-            const numValue = parseInt(conditionValue);
-            return isNaN(numValue) ? null : numValue;
-        })(),
+        type: selectedType === 'BATTER' ? 'BATTING' : 'PITCHING',
+        part: selectedType === 'BATTER' ? 'BASEBALL_BATTING' : 'BASEBALL_PITCHING',
+        swingCount: null,
+        ballSpeed: null,
+        launchAngle: null,
+        hitDirection: null,
+        contactRate: null,
+        pitchSpeed: null,
+        spinRate: null,
+        pitchType: null,
+        strikeRate: null,
+        runningDistance: null,
+        weightTraining: null,
+        conditionScore: null,
         notes: document.getElementById('log-notes').value || null
     };
+    
+    // 선택된 타입에 따라 필드 채우기
+    if (selectedType === 'BATTER') {
+        // 타자: 스윙속도, 타구속도
+        const swingSpeedEl = document.getElementById('log-swing-speed');
+        if (swingSpeedEl && swingSpeedEl.value) {
+            data.swingSpeed = parseFloat(swingSpeedEl.value);
+        }
+        if (document.getElementById('log-bat-speed').value) {
+            data.ballSpeed = parseFloat(document.getElementById('log-bat-speed').value);
+        }
+    } else if (selectedType === 'PITCHER') {
+        // 투수: 구속
+        if (document.getElementById('log-pitch-speed').value) {
+            data.pitchSpeed = parseFloat(document.getElementById('log-pitch-speed').value);
+        }
+    }
     
     try {
         const id = document.getElementById('log-id').value;
@@ -214,7 +314,7 @@ async function viewLogDetail(id) {
             </div>
             <div style="background-color: var(--bg-hover); border-radius: 8px; padding: 16px; border: 1px solid var(--border-color);">
                 <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 8px;">타구속도</div>
-                <div style="font-weight: 600; color: var(--text-primary); font-size: 16px;">${log.ballSpeed ? log.ballSpeed + ' km/h' : '-'}</div>
+                <div style="font-weight: 600; color: var(--text-primary); font-size: 16px;">${log.ballSpeed ? log.ballSpeed + ' mph' : '-'}</div>
             </div>
             <div style="background-color: var(--bg-hover); border-radius: 8px; padding: 16px; border: 1px solid var(--border-color);">
                 <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 8px;">구속</div>
@@ -265,7 +365,7 @@ async function loadMemberTrainingHistory(memberId) {
         });
         
         // 타구속도 추이 그래프
-        renderTrainingChart('chart-ball-speed', logs, 'ballSpeed', '타구속도 (km/h)', 'km/h');
+        renderTrainingChart('chart-ball-speed', logs, 'ballSpeed', '타구속도 (mph)', 'mph');
         
         // 구속 추이 그래프
         renderTrainingChart('chart-pitch-speed', logs, 'pitchSpeed', '구속 (km/h)', 'km/h');
@@ -451,6 +551,9 @@ async function loadAttendanceData(attendanceId) {
     try {
         const attendance = await App.api.get(`/attendance/${attendanceId}`);
         
+        // 중요: 체크인 기록에서 자동 입력할 때도 log-id는 비워야 함 (새 기록 추가)
+        document.getElementById('log-id').value = '';
+        
         // 회원 정보 자동 입력
         if (attendance.member && attendance.member.id) {
             document.getElementById('log-member').value = attendance.member.id;
@@ -497,6 +600,9 @@ async function loadAttendanceData(attendanceId) {
         
         const displayDate = dateValue || attendance.date || '-';
         App.showNotification('체크인 기록 정보가 자동으로 입력되었습니다. (예약 날짜: ' + displayDate + ')', 'success');
+        
+        // 회원이 선택되었으므로 기록 타입 선택 영역 표시
+        onMemberSelected();
     } catch (error) {
         console.error('체크인 기록 정보 로드 실패:', error);
         App.showNotification('체크인 기록 정보를 불러오는데 실패했습니다.', 'danger');

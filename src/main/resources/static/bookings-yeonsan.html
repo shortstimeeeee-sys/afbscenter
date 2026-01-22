@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <title>사하점 - 야구 예약 - AFBS 센터</title>
+    <title>연산점 - 야구 예약 - AFBS 센터</title>
     <link rel="stylesheet" href="/css/common.css">
     <link rel="stylesheet" href="/css/bookings.css">
 </head>
@@ -29,12 +29,12 @@
                     
                     <!-- 사하점 -->
                     <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
-                    <a href="/bookings.html" class="menu-item active" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
                     <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
-                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan.html" class="menu-item active" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
                     <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 대관 -->
@@ -55,7 +55,7 @@
         <main class="main-content">
             <header class="topbar">
                 <div class="topbar-left">
-                    <h1 class="page-title">📍 사하점 - ⚾ 야구 예약</h1>
+                    <h1 class="page-title">📍 연산점 - ⚾ 야구 예약</h1>
                     <div class="search-box">
                         <input type="text" placeholder="검색..." id="global-search">
                     </div>
@@ -266,7 +266,7 @@
                             </div>
                         </div>
                     </div>
-                    <input type="hidden" id="booking-branch" value="SAHA">
+                    <input type="hidden" id="booking-branch" value="YEONSAN">
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">날짜 <span style="color: var(--danger);">*</span></label>
@@ -424,7 +424,7 @@
     <script>
         // 페이지별 설정
         window.BOOKING_PAGE_CONFIG = {
-            branch: 'SAHA',
+            branch: 'YEONSAN',
             facilityType: 'BASEBALL',
             allowedCoaches: [
                 '서정민',
@@ -440,12 +440,12 @@
         document.addEventListener('DOMContentLoaded', function() {
             const branchInput = document.getElementById('booking-branch');
             if (branchInput) {
-                const config = window.BOOKING_PAGE_CONFIG || { branch: 'SAHA' };
+                const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN' };
                 branchInput.value = config.branch;
             }
         });
     </script>
     <script src="/js/common.js"></script>
-    <script src="/js/bookings.js"></script>
+    <script src="/js/bookings-yeonsan.js"></script>
 </body>
 </html>

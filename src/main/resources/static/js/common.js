@@ -5,7 +5,7 @@
 // 전역 변수
 const App = {
     currentUser: null,
-    currentRole: 'Manager', // Admin, Manager, Coach, Front
+    currentRole: 'Admin', // Admin, Manager, Coach, Front
     apiBase: '/api'
 };
 
@@ -36,7 +36,11 @@ App.filterMenuByRole = function() {
 App.api = {
     get: async function(url) {
         try {
-            const response = await fetch(`${App.apiBase}${url}`);
+            const response = await fetch(`${App.apiBase}${url}`, {
+                headers: {
+                    'ngrok-skip-browser-warning': 'true'
+                }
+            });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return await response.json();
         } catch (error) {
@@ -50,7 +54,8 @@ App.api = {
             const response = await fetch(`${App.apiBase}${url}`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true'
                 },
                 body: JSON.stringify(data)
             });
@@ -86,7 +91,8 @@ App.api = {
             const response = await fetch(`${App.apiBase}${url}`, {
                 method: 'PUT',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true'
                 },
                 body: JSON.stringify(data)
             });
@@ -101,7 +107,10 @@ App.api = {
     delete: async function(url) {
         try {
             const response = await fetch(`${App.apiBase}${url}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                headers: {
+                    'ngrok-skip-browser-warning': 'true'
+                }
             });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return response.status === 204 ? null : await response.json();
@@ -350,16 +359,42 @@ App.CoachColors = {
         '#3F51B5', '#8BC34A', '#FF6B6B', '#4ECDC4', '#45B7D1'
     ],
     
-    // 특정 코치 이름에 대한 고정 색상 (빨간색 계열 제외)
+    // 특정 코치 이름에 대한 고정 색상 (모든 페이지에서 동일)
+    // 11명 모두 고유한 색상 할당 (중복 없음)
     fixedColors: {
-        '이원준 [포수담당]': '#00BCD4',      // 청록색
-        '필라테스 이소연': '#9C27B0',        // 보라색
-        '필라테스 이서현': '#FFC0CB',        // 핑크색
-        '김승진 [유소년]': '#13C7A3',        // 민트색
-        '이원준': '#00BCD4',                 // 포수담당과 동일
-        '이소연': '#9C27B0',                 // 필라테스 이소연과 동일
-        '이서현': '#FFC0CB',                 // 필라테스 이서현과 동일
-        '김승진': '#13C7A3'                  // 유소년과 동일
+        // 대표
+        '서정민 [대표]': '#FF9800',          // 1. 오렌지
+        '서정민': '#FF9800',
+        
+        // 코치
+        '조장우 [코치]': '#4CAF50',          // 2. 초록
+        '조장우': '#4CAF50',
+        '최성훈 [코치]': '#E91E63',          // 3. 핫핑크
+        '최성훈': '#E91E63',
+        
+        // 분야별 코치
+        '김우경 [투수코치]': '#9C27B0',      // 4. 보라
+        '김우경': '#9C27B0',
+        '이원준 [포수코치]': '#00BCD4',      // 5. 청록
+        '이원준': '#00BCD4',
+        
+        // 트레이너
+        '박준현 [트레이너]': '#5E6AD2',      // 6. 남색
+        '박준현': '#5E6AD2',
+        
+        // 연산점 강사
+        '이소연 [강사]': '#FFC107',          // 7. 노란색
+        '이소연': '#FFC107',
+        '이서현 [강사]': '#F06292',          // 8. 밝은핑크
+        '이서현': '#F06292',
+        
+        // 사하점 강사
+        '김가영 [강사]': '#795548',          // 9. 브라운
+        '김가영': '#795548',
+        '김소연 [강사]': '#009688',          // 10. 틸
+        '김소연': '#009688',
+        '조혜진 [강사]': '#673AB7',          // 11. 진보라
+        '조혜진': '#673AB7'
     },
     
     // 코치별 색상 캐시 (ID -> 색상 매핑)
@@ -535,7 +570,9 @@ App.MemberGrade = {
     getText: function(grade) {
         const map = {
             'SOCIAL': '사회인',
-            'ELITE': '엘리트',
+            'ELITE_ELEMENTARY': '엘리트 (초)',
+            'ELITE_MIDDLE': '엘리트 (중)',
+            'ELITE_HIGH': '엘리트 (고)',
             'YOUTH': '유소년'
         };
         return map[grade] || grade || '-';
@@ -546,6 +583,39 @@ App.MemberGrade = {
 document.addEventListener('DOMContentLoaded', function() {
     // 메뉴 필터링
     App.filterMenuByRole();
+    
+    // 시간 입력 필드 자동 포맷팅 (HH:MM)
+    document.addEventListener('input', function(e) {
+        const target = e.target;
+        
+        // 시간 입력 필드 감지 (id에 'time'이 포함되고 type이 text인 경우)
+        if (target.type === 'text' && 
+            (target.id.includes('time') || target.id.includes('Time')) &&
+            target.pattern && target.pattern.includes('0-9')) {
+            
+            let value = target.value.replace(/[^0-9]/g, ''); // 숫자만 추출
+            
+            if (value.length >= 2) {
+                // 2자리 이상이면 HH:MM 형식으로 변환
+                let hours = value.substring(0, 2);
+                let minutes = value.substring(2, 4);
+                
+                // 시간 검증 (0~23)
+                if (parseInt(hours) > 23) {
+                    hours = '23';
+                }
+                
+                // 분 검증 (0~59)
+                if (minutes && parseInt(minutes) > 59) {
+                    minutes = '59';
+                }
+                
+                target.value = minutes ? `${hours}:${minutes}` : hours;
+            } else {
+                target.value = value;
+            }
+        }
+    });
     
     // 모달 닫기 이벤트
     document.addEventListener('click', function(e) {
@@ -602,7 +672,350 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// 애니메이션 CSS 추가
+// ========================================
+// 알림 시스템
+// ========================================
+
+// 알림 드롭다운 초기화
+App.initNotifications = function() {
+    const notificationBtn = document.getElementById('notification-btn');
+    if (!notificationBtn) return;
+    
+    // 알림 드롭다운 생성
+    const dropdown = document.createElement('div');
+    dropdown.className = 'notification-dropdown';
+    dropdown.id = 'notification-dropdown';
+    dropdown.innerHTML = `
+        <div class="notification-header">
+            <h3>알림</h3>
+            <button class="mark-all-read" onclick="App.markAllNotificationsRead()">모두 읽음</button>
+        </div>
+        <div class="notification-list" id="notification-list">
+            <div class="notification-loading">로딩 중...</div>
+        </div>
+    `;
+    notificationBtn.parentElement.style.position = 'relative';
+    notificationBtn.parentElement.appendChild(dropdown);
+    
+    // 클릭 이벤트
+    notificationBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dropdown.classList.toggle('active');
+        if (dropdown.classList.contains('active')) {
+            App.loadNotifications();
+        }
+    });
+    
+    // 외부 클릭 시 닫기
+    document.addEventListener('click', () => {
+        dropdown.classList.remove('active');
+    });
+    
+    // 초기 로드
+    App.updateNotificationBadge();
+};
+
+// 알림 개수 업데이트
+App.updateNotificationBadge = async function() {
+    try {
+        const announcements = await App.api.get('/announcements');
+        const unreadCount = announcements.filter(a => a.isActive).length;
+        
+        const badge = document.getElementById('notification-badge');
+        const notificationBtn = document.getElementById('notification-btn');
+        
+        if (unreadCount > 0) {
+            if (!badge) {
+                const newBadge = document.createElement('span');
+                newBadge.id = 'notification-badge';
+                newBadge.className = 'notification-badge';
+                newBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+                notificationBtn.appendChild(newBadge);
+            } else {
+                badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+            }
+        } else if (badge) {
+            badge.remove();
+        }
+    } catch (error) {
+        console.error('알림 개수 업데이트 실패:', error);
+    }
+};
+
+// 알림 목록 로드
+App.loadNotifications = async function() {
+    const listElement = document.getElementById('notification-list');
+    if (!listElement) return;
+    
+    try {
+        const announcements = await App.api.get('/announcements');
+        const activeAnnouncements = announcements
+            .filter(a => a.isActive)
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+            .slice(0, 5);
+        
+        if (activeAnnouncements.length === 0) {
+            listElement.innerHTML = '<div class="notification-empty">새 알림이 없습니다</div>';
+            return;
+        }
+        
+        listElement.innerHTML = activeAnnouncements.map(announcement => `
+            <div class="notification-item" onclick="App.viewAnnouncement(${announcement.id})">
+                <div class="notification-icon">📢</div>
+                <div class="notification-content">
+                    <div class="notification-title">${announcement.title}</div>
+                    <div class="notification-time">${App.formatDateTime(announcement.createdAt)}</div>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('알림 로드 실패:', error);
+        listElement.innerHTML = '<div class="notification-empty">알림을 불러올 수 없습니다</div>';
+    }
+};
+
+// 공지사항 보기
+App.viewAnnouncement = function(id) {
+    window.location.href = '/announcements.html#' + id;
+};
+
+// 모두 읽음 처리
+App.markAllNotificationsRead = function() {
+    const badge = document.getElementById('notification-badge');
+    if (badge) {
+        badge.remove();
+    }
+    App.showNotification('모든 알림을 읽음 처리했습니다', 'success');
+};
+
+// ========================================
+// 다크 모드 시스템
+// ========================================
+
+App.initDarkMode = function() {
+    // localStorage에서 테마 불러오기
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    
+    // 초기 테마 설정 (저장된 값 > 시스템 설정 > 다크 모드)
+    const isDark = savedTheme ? savedTheme === 'dark' : prefersDark;
+    
+    if (!isDark) {
+        document.body.classList.add('light-mode');
+    }
+    
+    // 토글 버튼 추가
+    App.addDarkModeToggle();
+    
+    // 시스템 테마 변경 감지
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        if (!localStorage.getItem('theme')) {
+            if (e.matches) {
+                document.body.classList.remove('light-mode');
+            } else {
+                document.body.classList.add('light-mode');
+            }
+            App.updateDarkModeIcon();
+        }
+    });
+};
+
+App.addDarkModeToggle = function() {
+    const topbarRight = document.querySelector('.topbar-right');
+    if (!topbarRight) return;
+    
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'theme-toggle-btn';
+    toggleBtn.id = 'theme-toggle-btn';
+    toggleBtn.title = '테마 전환';
+    toggleBtn.innerHTML = document.body.classList.contains('light-mode') ? '🌙' : '☀️';
+    
+    toggleBtn.addEventListener('click', () => {
+        App.toggleDarkMode();
+    });
+    
+    // 알림 버튼 앞에 삽입
+    const notificationBtn = document.getElementById('notification-btn');
+    if (notificationBtn) {
+        topbarRight.insertBefore(toggleBtn, notificationBtn);
+    } else {
+        topbarRight.prepend(toggleBtn);
+    }
+};
+
+App.toggleDarkMode = function() {
+    const body = document.body;
+    const isLightMode = body.classList.contains('light-mode');
+    
+    if (isLightMode) {
+        body.classList.remove('light-mode');
+        localStorage.setItem('theme', 'dark');
+    } else {
+        body.classList.add('light-mode');
+        localStorage.setItem('theme', 'light');
+    }
+    
+    App.updateDarkModeIcon();
+    
+    // 부드러운 전환 효과
+    body.style.transition = 'background-color 0.3s ease, color 0.3s ease';
+    setTimeout(() => {
+        body.style.transition = '';
+    }, 300);
+};
+
+App.updateDarkModeIcon = function() {
+    const toggleBtn = document.getElementById('theme-toggle-btn');
+    if (toggleBtn) {
+        const isLightMode = document.body.classList.contains('light-mode');
+        toggleBtn.innerHTML = isLightMode ? '🌙' : '☀️';
+        toggleBtn.title = isLightMode ? '다크 모드로 전환' : '라이트 모드로 전환';
+    }
+};
+
+// 페이지 로드 시 초기화
+document.addEventListener('DOMContentLoaded', () => {
+    App.initDarkMode();
+    App.initNotifications();
+    App.initSearch();
+    // 5분마다 알림 개수 업데이트
+    setInterval(() => App.updateNotificationBadge(), 5 * 60 * 1000);
+});
+
+// ========================================
+// 전역 검색 시스템
+// ========================================
+
+App.initSearch = function() {
+    const searchInput = document.getElementById('global-search');
+    if (!searchInput) return;
+    
+    // 검색 결과 드롭다운 생성
+    const dropdown = document.createElement('div');
+    dropdown.className = 'search-dropdown';
+    dropdown.id = 'search-dropdown';
+    searchInput.parentElement.style.position = 'relative';
+    searchInput.parentElement.appendChild(dropdown);
+    
+    let searchTimeout;
+    
+    // 입력 이벤트
+    searchInput.addEventListener('input', (e) => {
+        clearTimeout(searchTimeout);
+        const query = e.target.value.trim();
+        
+        if (query.length < 2) {
+            dropdown.classList.remove('active');
+            return;
+        }
+        
+        searchTimeout = setTimeout(() => {
+            App.performSearch(query);
+        }, 300);
+    });
+    
+    // 포커스 이벤트
+    searchInput.addEventListener('focus', () => {
+        if (searchInput.value.trim().length >= 2) {
+            dropdown.classList.add('active');
+        }
+    });
+    
+    // Enter 키 이벤트
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const query = searchInput.value.trim();
+            if (query.length >= 2) {
+                App.performSearch(query);
+            }
+        }
+    });
+    
+    // 외부 클릭 시 닫기
+    document.addEventListener('click', (e) => {
+        if (!searchInput.parentElement.contains(e.target)) {
+            dropdown.classList.remove('active');
+        }
+    });
+};
+
+// 검색 실행
+App.performSearch = async function(query) {
+    const dropdown = document.getElementById('search-dropdown');
+    if (!dropdown) return;
+    
+    dropdown.innerHTML = '<div class="search-loading">검색 중...</div>';
+    dropdown.classList.add('active');
+    
+    try {
+        // 병렬로 검색
+        const [members, bookings] = await Promise.all([
+            App.api.get('/members').catch(() => []),
+            App.api.get('/bookings').catch(() => [])
+        ]);
+        
+        // 회원 검색 (이름, 전화번호, 회원번호)
+        const memberResults = members.filter(m => 
+            m.name?.toLowerCase().includes(query.toLowerCase()) ||
+            m.phoneNumber?.includes(query) ||
+            m.memberNumber?.toLowerCase().includes(query.toLowerCase())
+        ).slice(0, 5);
+        
+        // 예약 검색 (회원명)
+        const bookingResults = bookings.filter(b =>
+            b.memberName?.toLowerCase().includes(query.toLowerCase())
+        ).slice(0, 3);
+        
+        // 결과 렌더링
+        let html = '';
+        
+        if (memberResults.length > 0) {
+            html += '<div class="search-section">';
+            html += '<div class="search-section-title">회원</div>';
+            html += memberResults.map(m => `
+                <div class="search-item" onclick="window.location.href='/members.html#${m.id}'">
+                    <div class="search-icon">👤</div>
+                    <div class="search-content">
+                        <div class="search-title">${m.name}</div>
+                        <div class="search-subtitle">${m.phoneNumber || ''} • ${m.memberNumber || ''}</div>
+                    </div>
+                </div>
+            `).join('');
+            html += '</div>';
+        }
+        
+        if (bookingResults.length > 0) {
+            html += '<div class="search-section">';
+            html += '<div class="search-section-title">예약</div>';
+            html += bookingResults.map(b => `
+                <div class="search-item" onclick="window.location.href='/bookings.html#${b.id}'">
+                    <div class="search-icon">📅</div>
+                    <div class="search-content">
+                        <div class="search-title">${b.memberName || '이름 없음'}</div>
+                        <div class="search-subtitle">${App.formatDate(b.bookingDate)} • ${b.facilityName || ''}</div>
+                    </div>
+                </div>
+            `).join('');
+            html += '</div>';
+        }
+        
+        if (html === '') {
+            html = '<div class="search-empty">검색 결과가 없습니다</div>';
+        }
+        
+        dropdown.innerHTML = html;
+        
+    } catch (error) {
+        console.error('검색 실패:', error);
+        dropdown.innerHTML = '<div class="search-empty">검색 중 오류가 발생했습니다</div>';
+    }
+};
+
+// ========================================
+// 애니메이션 CSS
+// ========================================
+
 const style = document.createElement('style');
 style.textContent = `
     @keyframes slideIn {
@@ -625,6 +1038,233 @@ style.textContent = `
             transform: translateX(100%);
             opacity: 0;
         }
+    }
+    
+    /* 알림 드롭다운 스타일 */
+    .notification-dropdown {
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        width: 360px;
+        max-height: 480px;
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        display: none;
+        flex-direction: column;
+        z-index: 1000;
+    }
+    
+    .notification-dropdown.active {
+        display: flex;
+    }
+    
+    .notification-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px;
+        border-bottom: 1px solid var(--border-color);
+    }
+    
+    .notification-header h3 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    
+    .mark-all-read {
+        background: none;
+        border: none;
+        color: var(--primary-color);
+        font-size: 13px;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: var(--radius-md);
+    }
+    
+    .mark-all-read:hover {
+        background: var(--bg-tertiary);
+    }
+    
+    .notification-list {
+        flex: 1;
+        overflow-y: auto;
+        max-height: 400px;
+    }
+    
+    .notification-item {
+        display: flex;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-color);
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    
+    .notification-item:hover {
+        background: var(--bg-secondary);
+    }
+    
+    .notification-item:last-child {
+        border-bottom: none;
+    }
+    
+    .notification-icon {
+        font-size: 24px;
+        flex-shrink: 0;
+    }
+    
+    .notification-content {
+        flex: 1;
+        min-width: 0;
+    }
+    
+    .notification-title {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .notification-time {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+    
+    .notification-empty,
+    .notification-loading {
+        padding: 40px 16px;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 14px;
+    }
+    
+    .notification-badge {
+        position: absolute;
+        top: -4px;
+        right: -4px;
+        background: var(--accent-primary);
+        color: white;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 2px 5px;
+        border-radius: 10px;
+        min-width: 16px;
+        text-align: center;
+    }
+    
+    .notification-btn {
+        position: relative;
+    }
+    
+    /* 검색 드롭다운 스타일 */
+    .search-dropdown {
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 0;
+        right: 0;
+        max-height: 480px;
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        display: none;
+        flex-direction: column;
+        overflow-y: auto;
+        z-index: 1000;
+    }
+    
+    .search-dropdown.active {
+        display: flex;
+    }
+    
+    .search-section {
+        padding: 8px 0;
+    }
+    
+    .search-section + .search-section {
+        border-top: 1px solid var(--border-color);
+    }
+    
+    .search-section-title {
+        padding: 8px 16px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+    }
+    
+    .search-item {
+        display: flex;
+        gap: 12px;
+        padding: 10px 16px;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    
+    .search-item:hover {
+        background: var(--bg-secondary);
+    }
+    
+    .search-icon {
+        font-size: 20px;
+        flex-shrink: 0;
+    }
+    
+    .search-content {
+        flex: 1;
+        min-width: 0;
+    }
+    
+    .search-title {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-primary);
+        margin-bottom: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .search-subtitle {
+        font-size: 12px;
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .search-empty,
+    .search-loading {
+        padding: 40px 16px;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 14px;
+    }
+    
+    /* 다크 모드 토글 버튼 */
+    .theme-toggle-btn {
+        background: none;
+        border: none;
+        font-size: 20px;
+        cursor: pointer;
+        padding: 8px;
+        border-radius: var(--radius-md);
+        transition: background 0.2s;
+        display: flex;
+        align-items: center;
+        justify-center;
+        line-height: 1;
+    }
+    
+    .theme-toggle-btn:hover {
+        background: var(--bg-tertiary);
     }
 `;
 document.head.appendChild(style);

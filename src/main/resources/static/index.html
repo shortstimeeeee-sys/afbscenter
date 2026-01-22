@@ -40,25 +40,55 @@
                 
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
+                    
+                    <!-- 사하점 -->
+                    <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front">
-                        <span class="menu-item-icon">📅</span>
-                        <span>예약/대관 관리</span>
+                        <span class="menu-item-icon">⚾</span>
+                        <span>야구</span>
                     </a>
-                    <a href="/attendance.html" class="menu-item" data-role="Front">
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front">
+                        <span class="menu-item-icon">💪</span>
+                        <span>트레이닝+필라테스</span>
+                    </a>
+                    
+                    <!-- 연산점 -->
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
+                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front">
+                        <span class="menu-item-icon">⚾</span>
+                        <span>야구</span>
+                    </a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front">
+                        <span class="menu-item-icon">💪</span>
+                        <span>트레이닝+필라테스</span>
+                    </a>
+                    
+                    <!-- 대관 -->
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
+                    <a href="/rentals.html" class="menu-item" data-role="Front">
+                        <span class="menu-item-icon">🏟️</span>
+                        <span>대관 관리</span>
+                    </a>
+                    
+                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;">
                         <span class="menu-item-icon">✓</span>
                         <span>출석/이용 기록</span>
                     </a>
                 </div>
                 
                 <div class="menu-section">
-                    <div class="menu-section-title">기록/분석</div>
+                    <div class="menu-section-title">훈련 관리</div>
                     <a href="/training-logs.html" class="menu-item" data-role="Coach">
                         <span class="menu-item-icon">📝</span>
                         <span>훈련 기록</span>
                     </a>
-                    <a href="/analytics.html" class="menu-item" data-role="Manager">
+                    <a href="/rankings.html" class="menu-item" data-role="Coach">
+                        <span class="menu-item-icon">🏆</span>
+                        <span>훈련 랭킹</span>
+                    </a>
+                    <a href="/training-stats.html" class="menu-item" data-role="Coach">
                         <span class="menu-item-icon">📈</span>
-                        <span>통계/분석</span>
+                        <span>훈련 통계</span>
                     </a>
                 </div>
                 
@@ -84,6 +114,10 @@
                 
                 <div class="menu-section" data-role="Admin">
                     <div class="menu-section-title">관리자</div>
+                    <a href="/analytics.html" class="menu-item" data-role="Manager">
+                        <span class="menu-item-icon">📈</span>
+                        <span>통계/분석</span>
+                    </a>
                     <a href="/announcements.html" class="menu-item" data-role="Manager">
                         <span class="menu-item-icon">📢</span>
                         <span>공지/메시지</span>
@@ -137,15 +171,15 @@
                         <div class="kpi-value" id="kpi-monthly-new-members">-</div>
                         <div class="kpi-change positive">이번 달</div>
                     </div>
-                    <div class="kpi-card kpi-card-empty">
-                        <div class="kpi-label">-</div>
-                        <div class="kpi-value">-</div>
-                        <div class="kpi-change">-</div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">오늘 출석 수</div>
+                        <div class="kpi-value" id="kpi-today-attendance">-</div>
+                        <div class="kpi-change positive">출석</div>
                     </div>
-                    <div class="kpi-card kpi-card-empty">
-                        <div class="kpi-label">-</div>
-                        <div class="kpi-value">-</div>
-                        <div class="kpi-change">-</div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">활성 회원</div>
+                        <div class="kpi-value" id="kpi-active-members">-</div>
+                        <div class="kpi-change positive">ACTIVE</div>
                     </div>
                     <div class="kpi-card">
                         <div class="kpi-label">오늘 가입 수</div>
@@ -172,6 +206,26 @@
                         <div class="kpi-label">오늘 방문 수</div>
                         <div class="kpi-value" id="kpi-visits">-</div>
                         <div class="kpi-change positive">+8% 어제 대비</div>
+                    </div>
+                </div>
+                
+                <!-- 차트 섹션 -->
+                <div class="charts-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title">회원 증가 추이</h2>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="memberChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title">월별 매출</h2>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="revenueChart"></canvas>
+                        </div>
                     </div>
                 </div>
                 
@@ -206,6 +260,17 @@
                     </div>
                 </div>
                 
+                <!-- 만료 임박 회원 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">⚠️ 만료 임박 회원</h2>
+                        <span style="font-size: 13px; color: var(--text-secondary);">횟수 5회 이하 또는 기간 7일 이하</span>
+                    </div>
+                    <div id="expiring-members">
+                        <p style="color: var(--text-muted);">로딩 중...</p>
+                    </div>
+                </div>
+                
                 <!-- 미처리 알림 -->
                 <div class="card">
                     <div class="card-header">
@@ -219,7 +284,9 @@
         </main>
     </div>
     
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="/js/common.js"></script>
     <script src="/js/dashboard.js"></script>
+    <script src="/js/expiring-members.js"></script>
 </body>
 </html>

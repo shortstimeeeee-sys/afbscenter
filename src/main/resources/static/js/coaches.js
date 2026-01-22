@@ -156,24 +156,33 @@ async function renderCoachesTable(coaches) {
         }
     }));
     
-    tbody.innerHTML = coachesWithCount.map(coach => `
-        <tr>
-            <td>${coach.name}</td>
-            <td>${coach.specialties || '-'}</td>
-            <td>${coach.availableTimes || '-'}</td>
-            <td>
-                <a href="#" onclick="showCoachStudents(${coach.id}); return false;" 
-                   style="color: var(--accent-primary); text-decoration: underline; cursor: pointer;">
-                    ${coach.studentCount}명
-                </a>
-            </td>
-            <td>${coach.active ? '활성' : '비활성'}</td>
-            <td>
-                <button class="btn btn-sm btn-secondary" onclick="editCoach(${coach.id})">수정</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteCoach(${coach.id})">삭제</button>
-            </td>
-        </tr>
-    `).join('');
+    tbody.innerHTML = coachesWithCount.map(coach => {
+        // 배정 지점 표시
+        const branches = coach.availableBranches ? coach.availableBranches.split(',').map(b => {
+            const branchNames = { 'SAHA': '사하', 'YEONSAN': '연산', 'RENTAL': '대관' };
+            return branchNames[b.trim().toUpperCase()] || b;
+        }).join(', ') : '-';
+        
+        return `
+            <tr>
+                <td>${coach.name}</td>
+                <td>${coach.specialties || '-'}</td>
+                <td>${branches}</td>
+                <td>${coach.availableTimes || '-'}</td>
+                <td>
+                    <a href="#" onclick="showCoachStudents(${coach.id}); return false;" 
+                       style="color: var(--accent-primary); text-decoration: underline; cursor: pointer;">
+                        ${coach.studentCount}명
+                    </a>
+                </td>
+                <td>${coach.active ? '활성' : '비활성'}</td>
+                <td>
+                    <button class="btn btn-sm btn-secondary" onclick="editCoach(${coach.id})">수정</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteCoach(${coach.id})">삭제</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
 }
 
 function renderCoachSelect(coaches) {
@@ -292,6 +301,10 @@ function openCoachModal(id = null) {
         document.querySelectorAll('#coach-form input[type="checkbox"]').forEach(cb => {
             cb.checked = false;
         });
+        // 지점 체크박스 기본값 설정 (사하점만 체크)
+        document.getElementById('branch-saha').checked = true;
+        document.getElementById('branch-yeonsan').checked = false;
+        document.getElementById('branch-rental').checked = false;
     }
     
     App.Modal.open('coach-modal');
@@ -308,8 +321,8 @@ async function loadCoachData(id) {
         document.getElementById('coach-name').value = coach.name;
         document.getElementById('coach-available-time').value = coach.availableTimes || '';
         
-        // 체크박스 처리 (specialties가 쉼표로 구분된 문자열)
-        const checkboxes = document.querySelectorAll('#coach-form input[type="checkbox"]');
+        // 담당 종목 체크박스 처리
+        const checkboxes = document.querySelectorAll('#coach-form .checkbox-group:first-of-type input[type="checkbox"]');
         checkboxes.forEach(cb => {
             cb.checked = false;
         });
@@ -322,6 +335,17 @@ async function loadCoachData(id) {
                 }
             });
         }
+        
+        // 배정 지점 체크박스 처리
+        const branches = coach.availableBranches ? coach.availableBranches.split(',').map(s => s.trim().toUpperCase()) : [];
+        document.getElementById('branch-saha').checked = branches.includes('SAHA');
+        document.getElementById('branch-yeonsan').checked = branches.includes('YEONSAN');
+        document.getElementById('branch-rental').checked = branches.includes('RENTAL');
+        
+        // 만약 배정된 지점이 없으면 기본값으로 사하점 체크
+        if (branches.length === 0) {
+            document.getElementById('branch-saha').checked = true;
+        }
     } catch (error) {
         App.showNotification('코치 정보를 불러오는데 실패했습니다.', 'danger');
     }
@@ -329,12 +353,24 @@ async function loadCoachData(id) {
 
 async function saveCoach() {
     const checkedSpecialties = Array.from(document.querySelectorAll('#coach-form input[type="checkbox"]:checked'))
+        .filter(cb => cb.value !== 'SAHA' && cb.value !== 'YEONSAN' && cb.value !== 'RENTAL')
         .map(cb => cb.value);
+    
+    const checkedBranches = [];
+    if (document.getElementById('branch-saha').checked) checkedBranches.push('SAHA');
+    if (document.getElementById('branch-yeonsan').checked) checkedBranches.push('YEONSAN');
+    if (document.getElementById('branch-rental').checked) checkedBranches.push('RENTAL');
+    
+    if (checkedBranches.length === 0) {
+        App.showNotification('최소 1개 이상의 지점을 선택해야 합니다.', 'warning');
+        return;
+    }
     
     const data = {
         name: document.getElementById('coach-name').value,
         specialties: checkedSpecialties.length > 0 ? checkedSpecialties.join(', ') : null,
-        availableTimes: document.getElementById('coach-available-time').value || null
+        availableTimes: document.getElementById('coach-available-time').value || null,
+        availableBranches: checkedBranches.join(',')
     };
     
     try {

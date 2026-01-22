@@ -2,26 +2,35 @@
 
 document.addEventListener('DOMContentLoaded', function() {
     loadSettings();
-    loadUsers();
+    // loadUsers(); // 사용자 관리 기능 비활성화 (미구현)
 });
 
 async function loadSettings() {
     try {
         const settings = await App.api.get('/settings');
         document.getElementById('setting-center-name').value = settings.centerName || '';
-        document.getElementById('setting-phone').value = settings.phone || '';
+        document.getElementById('setting-phone').value = settings.phoneNumber || '';
         document.getElementById('setting-address').value = settings.address || '';
         document.getElementById('setting-open-time').value = settings.openTime || '';
         document.getElementById('setting-close-time').value = settings.closeTime || '';
     } catch (error) {
         console.error('설정 로드 실패:', error);
+        // 에러 발생 시 기본값 설정
+        document.getElementById('setting-center-name').value = 'AFBS 야구센터';
+        document.getElementById('setting-phone').value = '';
+        document.getElementById('setting-address').value = '';
+        document.getElementById('setting-open-time').value = '09:00';
+        document.getElementById('setting-close-time').value = '22:00';
+        
+        // 알림은 표시하지 않음 (개발 중이므로)
+        console.warn('설정을 불러올 수 없어 기본값을 사용합니다.');
     }
 }
 
 async function saveSettings() {
     const data = {
         centerName: document.getElementById('setting-center-name').value,
-        phone: document.getElementById('setting-phone').value,
+        phoneNumber: document.getElementById('setting-phone').value,
         address: document.getElementById('setting-address').value,
         openTime: document.getElementById('setting-open-time').value,
         closeTime: document.getElementById('setting-close-time').value
@@ -31,6 +40,7 @@ async function saveSettings() {
         await App.api.put('/settings', data);
         App.showNotification('설정이 저장되었습니다.', 'success');
     } catch (error) {
+        console.error('설정 저장 실패:', error);
         App.showNotification('저장에 실패했습니다.', 'danger');
     }
 }

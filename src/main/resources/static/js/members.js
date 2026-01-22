@@ -1,5 +1,24 @@
 // 회원 관리 페이지 JavaScript
 
+// 기간권 날짜 포맷 (26. 01. 01. ~ 01. 31.)
+function formatPeriodPass(startDate, endDate) {
+    if (!startDate || !endDate) return '';
+    
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    // 시작일: YY. MM. DD.
+    const startYear = String(start.getFullYear()).slice(-2);
+    const startMonth = String(start.getMonth() + 1).padStart(2, '0');
+    const startDay = String(start.getDate()).padStart(2, '0');
+    
+    // 종료일: MM. DD.
+    const endMonth = String(end.getMonth() + 1).padStart(2, '0');
+    const endDay = String(end.getDate()).padStart(2, '0');
+    
+    return `${startYear}. ${startMonth}. ${startDay}. ~ ${endMonth}. ${endDay}.`;
+}
+
 let currentPage = 1;
 let currentFilters = {};
 let currentMemberDetail = null; // 현재 상세 정보 모달에 표시 중인 회원 정보
@@ -32,6 +51,44 @@ document.addEventListener('DOMContentLoaded', function() {
                 applySelectedProductStyles();
             }, 100);
         });
+    }
+    
+    // 횟수 조정 모드 변경 이벤트
+    document.addEventListener('change', function(e) {
+        if (e.target.name === 'adjust-mode') {
+            const mode = e.target.value;
+            const amountInput = document.getElementById('adjust-amount');
+            const amountLabel = document.getElementById('adjust-amount-label');
+            const amountHint = document.getElementById('adjust-amount-hint');
+            
+            if (mode === 'absolute') {
+                // 직접 설정 모드
+                amountLabel.textContent = '설정할 횟수';
+                amountInput.placeholder = '원하는 횟수 입력 (예: 10)';
+                amountInput.value = '';
+                amountHint.textContent = '직접 입력한 값으로 횟수가 설정됩니다 (0 이상)';
+            } else {
+                // 상대 조정 모드
+                amountLabel.textContent = '조정할 횟수';
+                amountInput.placeholder = '양수: 추가, 음수: 차감 (예: +5, -3)';
+                amountInput.value = '';
+                amountHint.textContent = '양수 입력 시 횟수 추가, 음수 입력 시 횟수 차감';
+            }
+        }
+    });
+    
+    // URL 파라미터 확인하여 연장 모달 자동 열기
+    const urlParams = new URLSearchParams(window.location.search);
+    const memberId = urlParams.get('id');
+    const action = urlParams.get('action');
+    
+    if (memberId && action === 'extend') {
+        // 페이지 로드 후 연장 모달 열기
+        setTimeout(() => {
+            openExtendProductModal(parseInt(memberId));
+            // URL에서 action 파라미터 제거
+            window.history.replaceState({}, document.title, `/members.html?id=${memberId}`);
+        }, 500);
     }
 });
 
@@ -128,6 +185,14 @@ async function loadMembers() {
                 // 그 외는 이름으로 검색
                 members = await App.api.get(`/members/search?name=${encodeURIComponent(searchQuery)}`);
             }
+            
+            // 검색 결과에 필터 적용 (클라이언트 측에서)
+            if (currentFilters.grade) {
+                members = members.filter(m => m.grade === currentFilters.grade);
+            }
+            if (currentFilters.status) {
+                members = members.filter(m => m.status === currentFilters.status);
+            }
         } else {
             members = await App.api.get(`/members?${params}`);
         }
@@ -142,14 +207,22 @@ function renderMembersTable(members) {
     
     if (!members || members.length === 0) {
         tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">회원이 없습니다.</td></tr>';
+        document.getElementById('pagination-container').innerHTML = '';
         return;
     }
+    
+    // 회원 수 표시
+    document.getElementById('pagination-container').innerHTML = `
+        <div style="text-align: center; padding: 16px; font-weight: 600; color: var(--text-primary);">
+            총 <span style="color: var(--accent-primary); font-size: 18px;">${members.length}</span>명의 회원이 등록되어 있습니다.
+        </div>
+    `;
     
     tbody.innerHTML = members.map(member => `
         <tr>
             <td><strong style="color: var(--accent-primary);">${member.memberNumber || '-'}</strong></td>
             <td><a href="#" onclick="openMemberDetail(${member.id}); return false;" style="color: var(--accent-primary);">${member.name}</a></td>
-            <td><span class="badge badge-info">${getGradeText(member.grade)}</span></td>
+            <td><span class="badge badge-${getGradeBadge(member.grade)}">${getGradeText(member.grade)}</span></td>
             <td>${member.phoneNumber}</td>
             <td>${member.school || '-'}</td>
             <td>${member.coach?.name || '-'}</td>
@@ -157,7 +230,7 @@ function renderMembersTable(members) {
             <td>${App.formatDate(member.joinDate || member.createdAt)}</td>
             <td>
                 ${member.latestLessonDate ? App.formatDate(member.latestLessonDate) : '-'}
-                ${member.remainingCount > 0 ? `<br><small style="color: var(--accent-primary);">${member.remainingCount}회 남음</small>` : ''}
+                ${renderMemberProductsRemaining(member)}
             </td>
             <td>${App.formatCurrency(member.totalPayment || 0)}</td>
             <td style="text-align: center;">
@@ -176,6 +249,22 @@ function getGradeText(grade) {
     return App.MemberGrade.getText(grade);
 }
 
+// 회원 등급별 배지 색상
+function getGradeBadge(grade) {
+    switch(grade) {
+        case 'ELITE_ELEMENTARY':
+            return 'elite-elementary';  // 초등: 밝은 녹색
+        case 'ELITE_MIDDLE':
+            return 'elite-middle';      // 중등: 밝은 파란색
+        case 'ELITE_HIGH':
+            return 'elite-high';        // 고등: 밝은 주황색
+        case 'SOCIAL':
+            return 'secondary';         // 일반: 회색
+        default:
+            return 'info';              // 기본: 하늘색
+    }
+}
+
 // 상태 관련 함수는 common.js의 App.Status.member 사용
 function getStatusBadge(status) {
     return App.Status.member.getBadge(status);
@@ -183,6 +272,55 @@ function getStatusBadge(status) {
 
 function getStatusText(status) {
     return App.Status.member.getText(status);
+}
+
+// 남은 횟수에 따른 색상 반환
+function getRemainingCountColor(count) {
+    if (count >= 1 && count <= 2) {
+        return '#dc3545'; // 빨간색 (1~2회)
+    } else if (count >= 3 && count <= 5) {
+        return '#fd7e14'; // 주황색 (3~5회)
+    } else {
+        return '#28a745'; // 초록색 (6회 이상)
+    }
+}
+
+// 회원의 상품별 남은 횟수 표시
+function renderMemberProductsRemaining(member) {
+    let html = '';
+    
+    // 횟수권 상품들 표시
+    if (member.memberProducts && member.memberProducts.length > 0) {
+        const countPassProducts = member.memberProducts.filter(mp => 
+            mp.product && mp.product.type === 'COUNT_PASS' && 
+            mp.status === 'ACTIVE'
+        );
+        
+        if (countPassProducts.length > 0) {
+            const productLines = countPassProducts.map(mp => {
+                const productName = mp.product.name || '상품';
+                
+                // remainingCount가 null이면 totalCount 또는 product.usageCount 사용
+                let remaining = mp.remainingCount;
+                if (remaining === null || remaining === undefined) {
+                    remaining = mp.totalCount || mp.product.usageCount || 10;
+                }
+                
+                const color = getRemainingCountColor(remaining);
+                const weight = remaining <= 5 ? '700' : '600';
+                return `<span style="color: ${color}; font-weight: ${weight};">${productName}: ${remaining}회</span>`;
+            }).join('<br>');
+            
+            html += `<br><small>${productLines}</small>`;
+        }
+    }
+    
+    // 기간권 표시
+    if (member.periodPassEndDate) {
+        html += `<br><small style="color: var(--accent-success);">${formatPeriodPass(member.periodPassStartDate, member.periodPassEndDate)}</small>`;
+    }
+    
+    return html;
 }
 
 function handleSearch(e) {
@@ -219,6 +357,10 @@ function openMemberModal(id = null) {
     } else {
         title.textContent = '회원 등록';
         form.reset();
+        // 회원 ID와 회원번호를 명시적으로 빈 값으로 설정 (덮어쓰기 방지)
+        document.getElementById('member-id').value = '';
+        document.getElementById('member-number').value = '';
+        console.log('회원 등록 모달 열림 - ID 및 회원번호 초기화 완료');
         // 신규 등록 시 회원번호 필드 비우기
         document.getElementById('member-number').value = '';
     }
@@ -255,6 +397,10 @@ async function loadMemberData(id) {
         // 주소 및 소속
         document.getElementById('member-address').value = member.address || '';
         document.getElementById('member-school').value = member.school || '';
+        // 야구 기록
+        document.getElementById('member-swing-speed').value = member.swingSpeed || '';
+        document.getElementById('member-exit-velocity').value = member.exitVelocity || '';
+        document.getElementById('member-pitching-speed').value = member.pitchingSpeed || '';
         // 가입일
         document.getElementById('member-join-date').value = member.joinDate || '';
         // 등록일시 (소급 등록)
@@ -459,7 +605,7 @@ async function loadMemberProducts(memberId) {
     }
 }
 
-async function saveMember() {
+async function saveMember(allowDuplicatePhone = false) {
     const form = document.getElementById('member-form');
     const memberId = document.getElementById('member-id').value;
     const isNewMember = !memberId;
@@ -468,10 +614,42 @@ async function saveMember() {
     const birthDateValue = document.getElementById('member-birth').value;
     const heightValue = document.getElementById('member-height').value;
     const weightValue = document.getElementById('member-weight').value;
+    const phoneNumber = document.getElementById('member-phone').value.trim();
+    
+    // 전화번호 중복 체크 (신규 등록이고 아직 확인하지 않은 경우)
+    if (!memberId && !allowDuplicatePhone && phoneNumber) {
+        try {
+            const existingMembers = await App.api.get(`/members/search?phoneNumber=${encodeURIComponent(phoneNumber)}`);
+            
+            if (existingMembers && existingMembers.length > 0) {
+                // 중복된 전화번호가 있음
+                const memberNames = existingMembers.map(m => m.name).join(', ');
+                const confirmed = confirm(
+                    `전화번호 '${phoneNumber}'은(는) 이미 등록되어 있습니다.\n` +
+                    `등록된 회원: ${memberNames}\n\n` +
+                    `형제 또는 가족으로 같은 전화번호를 사용하시겠습니까?\n\n` +
+                    `[확인]: 같은 전화번호로 등록\n` +
+                    `[취소]: 전화번호 수정`
+                );
+                
+                if (!confirmed) {
+                    App.showNotification('전화번호를 다시 확인해주세요.', 'warning');
+                    return;
+                }
+                
+                // 사용자가 확인했으므로 중복 허용
+                return saveMember(true);
+            }
+        } catch (error) {
+            console.warn('전화번호 중복 체크 실패:', error);
+            // 체크 실패해도 저장은 시도
+        }
+    }
     
     const data = {
         name: document.getElementById('member-name').value,
-        phoneNumber: document.getElementById('member-phone').value,
+        phoneNumber: phoneNumber,
+        allowDuplicatePhone: allowDuplicatePhone, // 중복 허용 플래그
         memberNumber: memberNumber || null, // 회원번호가 있으면 설정, 없으면 null (자동 생성)
         birthDate: birthDateValue || null,
         gender: document.getElementById('member-gender').value,
@@ -481,6 +659,9 @@ async function saveMember() {
         status: document.getElementById('member-status').value,
         address: document.getElementById('member-address').value,
         school: document.getElementById('member-school').value,
+        swingSpeed: document.getElementById('member-swing-speed').value ? parseFloat(document.getElementById('member-swing-speed').value) : null,
+        exitVelocity: document.getElementById('member-exit-velocity').value ? parseFloat(document.getElementById('member-exit-velocity').value) : null,
+        pitchingSpeed: document.getElementById('member-pitching-speed').value ? parseFloat(document.getElementById('member-pitching-speed').value) : null,
         guardianName: document.getElementById('member-guardian-name').value || null,
         guardianPhone: document.getElementById('member-guardian-phone').value || null,
         memo: document.getElementById('member-memo').value || null,
@@ -521,9 +702,13 @@ async function saveMember() {
         let savedMember;
         
         if (id) {
+            // 수정 모드
             savedMember = await App.api.put(`/members/${id}`, data);
             App.showNotification('회원이 수정되었습니다.', 'success');
         } else {
+            // 등록 모드 - data 객체에 id가 있으면 제거 (덮어쓰기 방지)
+            delete data.id;
+            console.log('회원 등록 요청 - ID 없음 확인:', data);
             savedMember = await App.api.post('/members', data);
             App.showNotification('회원이 등록되었습니다.', 'success');
         }
@@ -701,9 +886,11 @@ async function loadMemberProductsForDetail(memberId) {
         return;
     }
     try {
-        const products = await App.api.get(`/members/${memberId}/products`);
+        const products = await App.api.get(`/member-products?memberId=${memberId}`);
+        console.log('이용권 목록 로드:', products);
         content.innerHTML = renderProductsList(products);
     } catch (error) {
+        console.error('이용권 로드 실패:', error);
         content.innerHTML = '<p style="color: var(--text-muted);">이용권 내역을 불러올 수 없습니다.</p>';
     }
 }
@@ -723,13 +910,29 @@ function renderProductsList(products) {
                 const status = p.status || 'UNKNOWN';
                 const productId = p.id;
                 const isCountPass = product.type === 'COUNT_PASS';
+                const isMonthlyPass = product.type === 'MONTHLY_PASS';
+                const startDate = p.purchaseDate ? App.formatDate(p.purchaseDate.split('T')[0]) : '-';
+                
+                // 패키지 항목별 잔여 횟수 표시
+                let remainingDisplay = '';
+                if (p.packageItemsRemaining) {
+                    try {
+                        const packageItems = JSON.parse(p.packageItemsRemaining);
+                        const itemsText = packageItems.map(item => `${item.name} ${item.remaining}회`).join(', ');
+                        remainingDisplay = `<strong style="color: var(--accent-primary);">[패키지]</strong> ${itemsText}`;
+                    } catch (e) {
+                        remainingDisplay = `잔여: ${remaining}/${total}`;
+                    }
+                } else {
+                    remainingDisplay = `잔여: ${remaining}/${total}`;
+                }
                 
                 return `
                 <div class="product-item" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid var(--border-color);">
                     <div class="product-info" style="flex: 1;">
                         <div class="product-name" style="font-weight: 600; margin-bottom: 4px;">${productName}</div>
                         <div class="product-detail" style="font-size: 14px; color: var(--text-secondary);">
-                            잔여: ${remaining}/${total} | 유효기간: ${expiryDate}
+                            ${remainingDisplay} | ${isMonthlyPass ? `시작일: ${startDate} | ` : ''}유효기간: ${expiryDate}
                         </div>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
@@ -737,6 +940,11 @@ function renderProductsList(products) {
                         ${isCountPass ? `
                             <button class="btn btn-sm btn-secondary" onclick="openAdjustCountModal(${productId}, ${remaining})" title="횟수 조정">
                                 조정
+                            </button>
+                        ` : ''}
+                        ${isMonthlyPass ? `
+                            <button class="btn btn-sm btn-secondary" onclick="openEditPeriodPassModal(${productId}, '${p.purchaseDate?.split('T')[0] || ''}', '${p.expiryDate || ''}')" title="기간 수정">
+                                기간 수정
                             </button>
                         ` : ''}
                     </div>
@@ -759,22 +967,44 @@ async function openAdjustCountModal(productId, currentRemaining) {
 async function processAdjustCount() {
     const productId = document.getElementById('adjust-product-id').value;
     const amountInput = document.getElementById('adjust-amount').value;
+    const adjustMode = document.querySelector('input[name="adjust-mode"]:checked').value;
+    const currentCount = parseInt(document.getElementById('adjust-current-count').textContent.replace(/[^0-9]/g, '')) || 0;
     
     if (!amountInput || amountInput.trim() === '') {
-        App.showNotification('조정할 횟수를 입력해주세요.', 'warning');
+        App.showNotification('횟수를 입력해주세요.', 'warning');
         return;
     }
     
-    const amount = parseInt(amountInput);
-    if (isNaN(amount) || amount === 0) {
-        App.showNotification('유효한 숫자를 입력해주세요. (양수: 추가, 음수: 차감)', 'warning');
+    const inputValue = parseInt(amountInput);
+    if (isNaN(inputValue)) {
+        App.showNotification('유효한 숫자를 입력해주세요.', 'warning');
         return;
     }
     
     try {
-        const result = await App.api.put(`/member-products/${productId}/adjust-count`, {
-            amount: amount
-        });
+        let result;
+        
+        if (adjustMode === 'absolute') {
+            // 절대값 설정 모드: 직접 입력한 값으로 설정
+            if (inputValue < 0) {
+                App.showNotification('직접 설정 모드에서는 0 이상의 값을 입력해주세요.', 'warning');
+                return;
+            }
+            
+            result = await App.api.put(`/member-products/${productId}/set-count`, {
+                count: inputValue
+            });
+        } else {
+            // 상대 조정 모드: +/- 방식
+            if (inputValue === 0) {
+                App.showNotification('0이 아닌 값을 입력해주세요. (양수: 추가, 음수: 차감)', 'warning');
+                return;
+            }
+            
+            result = await App.api.put(`/member-products/${productId}/adjust-count`, {
+                amount: inputValue
+            });
+        }
         
         App.showNotification(result.message || '횟수가 조정되었습니다.', 'success');
         App.Modal.close('adjust-count-modal');
@@ -783,8 +1013,135 @@ async function processAdjustCount() {
         if (currentMemberDetail && currentMemberDetail.id) {
             loadMemberProductsForDetail(currentMemberDetail.id);
         }
+        
+        // 회원 목록도 새로고침 (잔여 횟수 업데이트)
+        loadMembers();
     } catch (error) {
         App.showNotification('횟수 조정에 실패했습니다.', 'danger');
+    }
+}
+
+// 종료일 자동 계산 함수 (시작일 + 30일)
+function autoCalculateEndDate() {
+    const startDateInput = document.getElementById('edit-period-start-date');
+    const endDateInput = document.getElementById('edit-period-end-date');
+    
+    if (!startDateInput || !endDateInput) {
+        console.log('입력 필드를 찾을 수 없습니다.');
+        return;
+    }
+    
+    const value = startDateInput.value;
+    console.log('시작일 변경됨:', value);
+    
+    // 유효한 날짜가 입력되었는지 확인
+    if (value && value.length >= 10) {
+        try {
+            const start = new Date(value);
+            // 유효한 날짜인지 확인
+            if (!isNaN(start.getTime())) {
+                const end = new Date(start);
+                end.setDate(end.getDate() + 30); // 30일 추가
+                
+                // YYYY-MM-DD 형식으로 변환
+                const endDateStr = end.toISOString().split('T')[0];
+                endDateInput.value = endDateStr;
+                console.log('종료일 자동 설정:', endDateStr);
+            } else {
+                console.log('유효하지 않은 날짜');
+            }
+        } catch (e) {
+            console.error('날짜 파싱 오류:', e);
+        }
+    }
+}
+
+// 기간권 기간 수정 모달 열기
+async function openEditPeriodPassModal(productId, startDate, endDate) {
+    document.getElementById('edit-period-product-id').value = productId;
+    document.getElementById('edit-period-start-date').value = startDate || '';
+    document.getElementById('edit-period-end-date').value = endDate || '';
+    
+    App.Modal.open('edit-period-pass-modal');
+    
+    // 모달이 열린 후 이벤트 리스너 추가 및 초기 계산
+    setTimeout(() => {
+        const startDateInput = document.getElementById('edit-period-start-date');
+        if (startDateInput) {
+            console.log('시작일 input에 이벤트 리스너 추가');
+            
+            // 기존 이벤트 제거 후 새로 추가
+            startDateInput.onchange = null;
+            startDateInput.oninput = null;
+            
+            startDateInput.addEventListener('change', function() {
+                console.log('change 이벤트 발생');
+                autoCalculateEndDate();
+            });
+            
+            startDateInput.addEventListener('input', function() {
+                console.log('input 이벤트 발생');
+                autoCalculateEndDate();
+            });
+            
+            // 캘린더를 클릭할 때마다 계산 (이미 선택된 날짜를 다시 클릭해도)
+            startDateInput.addEventListener('click', function() {
+                console.log('시작일 필드 클릭됨');
+                // 약간의 지연 후 계산 (캘린더에서 날짜 선택 완료 후)
+                setTimeout(() => {
+                    if (this.value) {
+                        console.log('클릭 후 값 있음, 종료일 계산');
+                        autoCalculateEndDate();
+                    }
+                }, 50);
+            });
+            
+            // 모달 열릴 때 시작일이 이미 있으면 즉시 종료일 계산
+            if (startDateInput.value) {
+                console.log('모달 열릴 때 시작일 있음, 즉시 종료일 계산');
+                autoCalculateEndDate();
+            }
+        } else {
+            console.error('시작일 input을 찾을 수 없음');
+        }
+    }, 100);
+}
+
+// 기간권 기간 수정 처리
+async function processEditPeriodPass() {
+    const productId = document.getElementById('edit-period-product-id').value;
+    const startDate = document.getElementById('edit-period-start-date').value;
+    const endDate = document.getElementById('edit-period-end-date').value;
+    
+    if (!startDate || !endDate) {
+        App.showNotification('시작일과 종료일을 모두 입력해주세요.', 'warning');
+        return;
+    }
+    
+    // 시작일이 종료일보다 늦으면 안됨
+    if (new Date(startDate) > new Date(endDate)) {
+        App.showNotification('시작일은 종료일보다 늦을 수 없습니다.', 'warning');
+        return;
+    }
+    
+    try {
+        const result = await App.api.put(`/member-products/${productId}/update-period`, {
+            startDate: startDate,
+            endDate: endDate
+        });
+        
+        App.showNotification(result.message || '기간이 수정되었습니다.', 'success');
+        App.Modal.close('edit-period-pass-modal');
+        
+        // 이용권 목록 새로고침
+        if (currentMemberDetail && currentMemberDetail.id) {
+            loadMemberProductsForDetail(currentMemberDetail.id);
+        }
+        
+        // 회원 목록도 새로고침
+        loadMembers();
+    } catch (error) {
+        App.showNotification('기간 수정에 실패했습니다.', 'danger');
     }
 }
 
@@ -1065,7 +1422,7 @@ async function openExtendProductModal(memberId) {
     
     try {
         // 회원의 보유 상품/이용권 목록 가져오기 (기존 구매한 것들)
-        const memberProducts = await App.api.get(`/members/${memberId}/products`);
+        const memberProducts = await App.api.get(`/member-products?memberId=${memberId}`);
         
         // 새로 구매 가능한 모든 상품 목록 가져오기 (할인 상품 포함)
         const allProducts = await App.api.get('/products');
@@ -1306,7 +1663,7 @@ async function processExtendProduct() {
             const totalCount = parseInt(selectedOption.dataset.totalCount) || 10;
             
             // 먼저 같은 Product ID를 가진 기존 MemberProduct가 있는지 확인
-            const memberProducts = await App.api.get(`/members/${memberId}/products`);
+            const memberProducts = await App.api.get(`/member-products?memberId=${memberId}`);
             const existingMemberProduct = memberProducts.find(mp => {
                 const mpProductId = mp.product?.id || mp.productId;
                 return mpProductId != null && parseInt(mpProductId) === productId;

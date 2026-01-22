@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <title>사하점 - 야구 예약 - AFBS 센터</title>
+    <title>사하점 - 트레이닝+필라테스 예약 - AFBS 센터</title>
     <link rel="stylesheet" href="/css/common.css">
     <link rel="stylesheet" href="/css/bookings.css">
 </head>
@@ -29,8 +29,8 @@
                     
                     <!-- 사하점 -->
                     <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
-                    <a href="/bookings.html" class="menu-item active" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
-                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item active" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
@@ -55,7 +55,7 @@
         <main class="main-content">
             <header class="topbar">
                 <div class="topbar-left">
-                    <h1 class="page-title">📍 사하점 - ⚾ 야구 예약</h1>
+                    <h1 class="page-title">📍 사하점 - 💪 트레이닝+필라테스 예약</h1>
                     <div class="search-box">
                         <input type="text" placeholder="검색..." id="global-search">
                     </div>
@@ -425,13 +425,11 @@
         // 페이지별 설정
         window.BOOKING_PAGE_CONFIG = {
             branch: 'SAHA',
-            facilityType: 'BASEBALL',
+            facilityType: 'TRAINING_FITNESS',
             allowedCoaches: [
                 '서정민',
-                '조장우',
-                '최성훈',
-                '김우경',
-                '이원준',
+                '김가영',
+                '조혜진',
                 '박준현'
             ]
         };

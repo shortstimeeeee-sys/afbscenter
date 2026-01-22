@@ -3,7 +3,7 @@
    ======================================== */
 
 :root {
-    /* 다크모드 색상 팔레트 */
+    /* 다크모드 색상 팔레트 (기본) */
     --bg-primary: #0F1117;
     --bg-secondary: #151924;
     --bg-tertiary: #1C2130;
@@ -32,6 +32,34 @@
     --radius-sm: 6px;
     --radius-md: 8px;
     --radius-lg: 12px;
+}
+
+/* 라이트 모드 색상 팔레트 */
+body.light-mode {
+    --bg-primary: #FFFFFF;
+    --bg-secondary: #F8F9FA;
+    --bg-tertiary: #F1F3F5;
+    --bg-hover: #E9ECEF;
+    
+    --border-color: #DEE2E6;
+    --border-hover: #CED4DA;
+    
+    --text-primary: #212529;
+    --text-secondary: #495057;
+    --text-muted: #6C757D;
+    
+    --accent-primary: #5E6AD2;
+    --accent-hover: #4C56B8;
+    --accent-light: #7B87E8;
+    
+    --success: #28A745;
+    --warning: #FFC107;
+    --danger: #DC3545;
+    --info: #17A2B8;
+    
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.12);
 }
 
 * {
@@ -363,6 +391,67 @@ body {
     color: var(--text-muted);
 }
 
+/* 비활성화된 시설 드롭다운 스타일 - 선택된 값이 명확하게 보이도록 */
+#booking-facility:disabled,
+#booking-facility.facility-fixed {
+    background-color: transparent !important;
+    color: transparent !important;
+    font-weight: 700 !important;
+    font-size: 15px !important;
+    opacity: 1 !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    appearance: none !important;
+    cursor: not-allowed !important;
+    border: 2px solid transparent !important;
+    padding: 12px 40px 12px 16px !important;
+    min-height: 44px !important;
+    line-height: 1.5 !important;
+    /* 선택된 텍스트 강조 */
+    -webkit-text-fill-color: transparent !important;
+    text-shadow: none !important;
+    /* 화살표 아이콘 제거 */
+    background-image: none !important;
+}
+
+/* 비활성화된 select의 옵션 스타일 */
+#booking-facility:disabled option,
+#booking-facility.facility-fixed option {
+    color: var(--text-primary) !important;
+    background-color: var(--bg-secondary) !important;
+    font-weight: 500;
+    padding: 10px 12px;
+}
+
+/* 선택된 옵션 강조 */
+#booking-facility:disabled option:checked,
+#booking-facility.facility-fixed option:checked {
+    color: var(--text-primary) !important;
+    background-color: var(--accent-primary) !important;
+    font-weight: 700 !important;
+}
+
+/* IE/Edge용 화살표 제거 */
+#booking-facility:disabled::-ms-expand,
+#booking-facility.facility-fixed::-ms-expand {
+    display: none !important;
+}
+
+/* Firefox용 화살표 제거 */
+#booking-facility:disabled::-moz-focus-inner,
+#booking-facility.facility-fixed::-moz-focus-inner {
+    border: 0;
+}
+
+/* Chrome/Safari용 화살표 제거 */
+#booking-facility:disabled::-webkit-inner-spin-button,
+#booking-facility:disabled::-webkit-outer-spin-button,
+#booking-facility.facility-fixed::-webkit-inner-spin-button,
+#booking-facility.facility-fixed::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
 /* 테이블 */
 .table-container {
     max-height: 600px;
@@ -433,6 +522,41 @@ body {
 .badge-info {
     background-color: rgba(52, 152, 219, 0.2);
     color: var(--info);
+}
+
+.badge-primary {
+    background-color: rgba(74, 144, 226, 0.2);
+    color: #4a90e2;
+}
+
+.badge-secondary {
+    background-color: rgba(149, 165, 166, 0.2);
+    color: #95a5a6;
+}
+
+/* 엘리트 등급별 배지 */
+.badge-elite-elementary {
+    background-color: rgba(155, 89, 182, 0.25);
+    color: #8e44ad;
+    font-weight: 600;
+}
+
+.badge-elite-middle {
+    background-color: rgba(52, 152, 219, 0.25);
+    color: #2980b9;
+    font-weight: 600;
+}
+
+.badge-elite-high {
+    background-color: rgba(241, 196, 15, 0.25);
+    color: #f39c12;
+    font-weight: 600;
+}
+
+.badge-social {
+    background-color: rgba(108, 117, 125, 0.9);
+    color: #ffffff;
+    font-weight: 600;
 }
 
 /* KPI 카드 */

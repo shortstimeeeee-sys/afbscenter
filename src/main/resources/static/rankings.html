@@ -27,14 +27,28 @@
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
-                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">📅</span><span>예약/대관 관리</span></a>
-                    <a href="/attendance.html" class="menu-item" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                    
+                    <!-- 사하점 -->
+                    <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    
+                    <!-- 연산점 -->
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
+                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    
+                    <!-- 대관 -->
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
+                    <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
+                    
+                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
-                    <div class="menu-section-title">기록/분석</div>
+                    <div class="menu-section-title">훈련 관리</div>
                     <a href="/training-logs.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
                     <a href="/rankings.html" class="menu-item active" data-role="Coach"><span class="menu-item-icon">🏆</span><span>훈련 랭킹</span></a>
-                    <a href="/analytics.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
+                    <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">상품/결제</div>
@@ -58,10 +72,10 @@
             </header>
 
             <div class="content-area">
-                <!-- 기간 선택 -->
+                <!-- 기간 선택 (훈련 횟수만 기간 필터 적용) -->
                 <div class="card">
                     <div class="card-header">
-                        <h2 class="card-title">조회 기간</h2>
+                        <h2 class="card-title">조회 기간 (훈련 횟수 기준)</h2>
                     </div>
                     <div class="card-body">
                         <div class="period-selector">
@@ -80,25 +94,43 @@
                                 <select id="grade-filter" class="form-control" style="width: auto;">
                                     <option value="ALL">전체</option>
                                     <option value="SOCIAL">사회인</option>
-                                    <option value="ELITE">엘리트</option>
+                                    <option value="ELITE_ELEMENTARY">엘리트 (초)</option>
+                                    <option value="ELITE_MIDDLE">엘리트 (중)</option>
+                                    <option value="ELITE_HIGH">엘리트 (고)</option>
                                     <option value="YOUTH">유소년</option>
                                 </select>
                             </div>
                         </div>
                         <div id="period-info" style="margin-top: 12px; font-size: 13px; color: var(--text-secondary);"></div>
+                        <div style="margin-top: 8px; font-size: 12px; color: var(--text-muted);">
+                            ※ 스윙속도, 타구속도, 구속은 회원 등록 시 입력한 기록이며 기간 필터가 적용되지 않습니다.
+                        </div>
                     </div>
                 </div>
 
                 <!-- 랭킹 카드들 -->
                 <div class="rankings-grid">
+                    <!-- 스윙 속도 랭킹 -->
+                    <div class="card ranking-card">
+                        <div class="card-header">
+                            <h3 class="card-title">💥 스윙 속도 랭킹</h3>
+                            <span class="ranking-subtitle">회원 기록 기준</span>
+                        </div>
+                        <div class="card-body">
+                            <div id="swing-speed-ranking" class="ranking-list">
+                                <p style="color: var(--text-muted); text-align: center;">데이터 로딩 중...</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- 타구속도 랭킹 -->
                     <div class="card ranking-card">
                         <div class="card-header">
-                            <h3 class="card-title">⚡ 타구속도 랭킹</h3>
-                            <span class="ranking-subtitle">최고 타구 속도 기준</span>
+                            <h3 class="card-title">⚡ 타구 속도 랭킹</h3>
+                            <span class="ranking-subtitle">회원 기록 기준</span>
                         </div>
                         <div class="card-body">
-                            <div id="ball-speed-ranking" class="ranking-list">
+                            <div id="exit-velocity-ranking" class="ranking-list">
                                 <p style="color: var(--text-muted); text-align: center;">데이터 로딩 중...</p>
                             </div>
                         </div>
@@ -108,36 +140,10 @@
                     <div class="card ranking-card">
                         <div class="card-header">
                             <h3 class="card-title">🔥 구속 랭킹</h3>
-                            <span class="ranking-subtitle">최고 구속 기준</span>
+                            <span class="ranking-subtitle">회원 기록 기준</span>
                         </div>
                         <div class="card-body">
-                            <div id="pitch-speed-ranking" class="ranking-list">
-                                <p style="color: var(--text-muted); text-align: center;">데이터 로딩 중...</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 컨택률 랭킹 -->
-                    <div class="card ranking-card">
-                        <div class="card-header">
-                            <h3 class="card-title">🎯 컨택률 랭킹</h3>
-                            <span class="ranking-subtitle">최고 컨택률 기준</span>
-                        </div>
-                        <div class="card-body">
-                            <div id="contact-rate-ranking" class="ranking-list">
-                                <p style="color: var(--text-muted); text-align: center;">데이터 로딩 중...</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 스트라이크율 랭킹 -->
-                    <div class="card ranking-card">
-                        <div class="card-header">
-                            <h3 class="card-title">🎲 스트라이크율 랭킹</h3>
-                            <span class="ranking-subtitle">최고 스트라이크율 기준</span>
-                        </div>
-                        <div class="card-body">
-                            <div id="strike-rate-ranking" class="ranking-list">
+                            <div id="pitching-speed-ranking" class="ranking-list">
                                 <p style="color: var(--text-muted); text-align: center;">데이터 로딩 중...</p>
                             </div>
                         </div>
@@ -147,10 +153,10 @@
                     <div class="card ranking-card">
                         <div class="card-header">
                             <h3 class="card-title">💪 훈련 횟수 랭킹</h3>
-                            <span class="ranking-subtitle">총 훈련 기록 수 기준</span>
+                            <span class="ranking-subtitle">출석 기록 기준</span>
                         </div>
                         <div class="card-body">
-                            <div id="record-count-ranking" class="ranking-list">
+                            <div id="attendance-count-ranking" class="ranking-list">
                                 <p style="color: var(--text-muted); text-align: center;">데이터 로딩 중...</p>
                             </div>
                         </div>

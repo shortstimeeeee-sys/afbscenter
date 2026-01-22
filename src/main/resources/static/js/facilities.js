@@ -18,14 +18,38 @@ function renderFacilitiesTable(facilities) {
     const tbody = document.getElementById('facilities-table-body');
     
     if (!facilities || facilities.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">시설이 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">시설이 없습니다.</td></tr>';
         return;
     }
+    
+    // 지점 한글 변환
+    const getBranchText = (branch) => {
+        if (!branch) return '-';
+        switch(branch.toUpperCase()) {
+            case 'SAHA': return '사하점';
+            case 'YEONSAN': return '연산점';
+            case 'RENTAL': return '대관';
+            default: return branch;
+        }
+    };
+    
+    // 시설 타입 한글 변환
+    const getFacilityTypeText = (type) => {
+        if (!type) return '-';
+        switch(type.toUpperCase()) {
+            case 'BASEBALL': return '야구';
+            case 'TRAINING_FITNESS': return '트레이닝+필라테스';
+            case 'RENTAL': return '대관';
+            default: return type;
+        }
+    };
     
     tbody.innerHTML = facilities.map(facility => `
         <tr>
             <td>${facility.id}</td>
-            <td>${facility.name}</td>
+            <td><strong>${facility.name}</strong></td>
+            <td>${getBranchText(facility.branch)}</td>
+            <td>${getFacilityTypeText(facility.facilityType)}</td>
             <td>${facility.location || '-'}</td>
             <td>${facility.capacity || '-'}${facility.capacity ? '명' : ''}</td>
             <td>${facility.hourlyRate ? App.formatCurrency(facility.hourlyRate) : '-'}</td>
@@ -119,6 +143,8 @@ async function loadFacilityData(id) {
         document.getElementById('facility-id-display').style.display = 'block';
         document.getElementById('facility-name').value = facility.name;
         document.getElementById('facility-location').value = facility.location || '';
+        document.getElementById('facility-branch').value = facility.branch || 'SAHA';
+        document.getElementById('facility-type').value = facility.facilityType || 'BASEBALL';
         document.getElementById('facility-capacity').value = facility.capacity || '';
         document.getElementById('facility-price').value = facility.hourlyRate || '';
         document.getElementById('facility-open-time').value = facility.openTime || '';
@@ -160,6 +186,8 @@ async function saveFacility() {
     const data = {
         name: name,
         location: location || null,
+        branch: document.getElementById('facility-branch').value,
+        facilityType: document.getElementById('facility-type').value,
         capacity: capacityValue ? parseInt(capacityValue) : null,
         hourlyRate: priceValue ? parseInt(priceValue) : null,
         openTime: openTimeValue || null,

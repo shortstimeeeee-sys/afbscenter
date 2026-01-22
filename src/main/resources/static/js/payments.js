@@ -44,7 +44,7 @@ function renderPaymentsTable(payments) {
     tbody.innerHTML = payments.map(payment => `
         <tr>
             <td>${payment.id}</td>
-            <td>${App.formatDateTime(payment.paidAt || payment.paymentDate)}</td>
+            <td>${App.formatDateTime(payment.paidAt)}</td>
             <td>${payment.member ? payment.member.name : (payment.memberName || '비회원')}</td>
             <td>${payment.coach ? payment.coach.name : '-'}</td>
             <td>${getCategoryText(payment.category || payment.paymentCategory)}</td>

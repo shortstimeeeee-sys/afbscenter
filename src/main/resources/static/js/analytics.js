@@ -643,11 +643,11 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
                                 />
                                 ` : ''}
                                 
-                                <!-- 성장률 표시 -->
+                                <!-- 성장률 표시 (최고 표시가 있으면 더 위로) -->
                                 ${index > 0 && growthRate !== 0 ? `
                                 <text 
                                     x="${x + barWidth/2}%" 
-                                    y="${y - 12}" 
+                                    y="${isMax ? (y - 20) : (y - 12)}" 
                                     text-anchor="middle" 
                                     font-size="8" 
                                     fill="${growthRate > 0 ? 'var(--success)' : 'var(--danger)'}"
@@ -831,12 +831,12 @@ function renderDetailModal(title, data, chartType) {
         modal.id = modalId;
         modal.className = 'modal-overlay';
         modal.innerHTML = `
-            <div class="modal" style="max-width: 900px; max-height: 80vh;">
+            <div class="modal" style="max-width: 1400px; max-height: 85vh; width: 95%;">
                 <div class="modal-header">
                     <h2 class="modal-title" id="analytics-detail-title">${title}</h2>
                     <button class="modal-close" onclick="App.Modal.close('${modalId}')">×</button>
                 </div>
-                <div class="modal-body" id="analytics-detail-content" style="overflow-y: auto; max-height: 60vh;">
+                <div class="modal-body" id="analytics-detail-content" style="overflow-y: auto; max-height: 70vh; overflow-x: auto;">
                 </div>
             </div>
         `;
@@ -852,32 +852,32 @@ function renderDetailModal(title, data, chartType) {
         if (chartType === 'category-revenue-chart' || chartType === 'revenue-trend-chart') {
             // 결제 내역 테이블
             content.innerHTML = `
-                <div class="table-container">
-                    <table class="table">
+                <div class="table-container" style="overflow-x: auto;">
+                    <table class="table" style="min-width: 1000px; width: 100%;">
                         <thead>
                             <tr>
-                                <th>결제일시</th>
-                                <th>회원</th>
-                                <th>상품명</th>
-                                <th>코치</th>
-                                <th>결제방법</th>
-                                <th>금액</th>
-                                <th>메모</th>
+                                <th style="min-width: 150px;">결제일시</th>
+                                <th style="min-width: 80px;">회원</th>
+                                <th style="min-width: 200px;">상품명</th>
+                                <th style="min-width: 100px;">코치</th>
+                                <th style="min-width: 100px;">결제방법</th>
+                                <th style="min-width: 120px;">금액</th>
+                                <th style="min-width: 250px;">메모</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${data.map(p => `
                                 <tr>
-                                    <td>${p.paidAt ? App.formatDateTime(p.paidAt) : '-'}</td>
+                                    <td style="white-space: nowrap;">${p.paidAt ? App.formatDateTime(p.paidAt) : '-'}</td>
                                     <td>${p.member ? p.member.name : '비회원'}</td>
                                     <td>${p.product ? p.product.name : '-'}</td>
                                     <td>${p.coach ? p.coach.name : '-'}</td>
                                     <td>${getPaymentMethodText(p.paymentMethod)}</td>
-                                    <td style="font-weight: 600; color: var(--accent-primary);">
+                                    <td style="font-weight: 600; color: var(--accent-primary); white-space: nowrap;">
                                         ${App.formatCurrency(p.amount || 0)}
                                         ${p.refundAmount > 0 ? `<br><small style="color: var(--danger);">환불: ${App.formatCurrency(p.refundAmount)}</small>` : ''}
                                     </td>
-                                    <td>${p.memo || '-'}</td>
+                                    <td style="word-break: break-word; max-width: 300px;">${p.memo || '-'}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -887,17 +887,17 @@ function renderDetailModal(title, data, chartType) {
         } else if (chartType === 'member-trend-chart') {
             // 회원 내역 테이블
             content.innerHTML = `
-                <div class="table-container">
-                    <table class="table">
+                <div class="table-container" style="overflow-x: auto;">
+                    <table class="table" style="min-width: 900px; width: 100%;">
                         <thead>
                             <tr>
-                                <th>회원번호</th>
-                                <th>이름</th>
-                                <th>전화번호</th>
-                                <th>등급</th>
-                                <th>학교/소속</th>
-                                <th>담당 코치</th>
-                                <th>가입일</th>
+                                <th style="min-width: 120px;">회원번호</th>
+                                <th style="min-width: 80px;">이름</th>
+                                <th style="min-width: 120px;">전화번호</th>
+                                <th style="min-width: 100px;">등급</th>
+                                <th style="min-width: 150px;">학교/소속</th>
+                                <th style="min-width: 100px;">담당 코치</th>
+                                <th style="min-width: 150px;">가입일</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -905,11 +905,11 @@ function renderDetailModal(title, data, chartType) {
                                 <tr>
                                     <td>${m.memberNumber || '-'}</td>
                                     <td>${m.name || '-'}</td>
-                                    <td>${m.phoneNumber || '-'}</td>
+                                    <td style="white-space: nowrap;">${m.phoneNumber || '-'}</td>
                                     <td>${m.grade || '-'}</td>
                                     <td>${m.school || '-'}</td>
                                     <td>${m.coach ? m.coach.name : '-'}</td>
-                                    <td>${m.createdAt ? App.formatDateTime(m.createdAt) : '-'}</td>
+                                    <td style="white-space: nowrap;">${m.createdAt ? App.formatDateTime(m.createdAt) : '-'}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -932,12 +932,12 @@ function renderOperationalDetailModal(title, details) {
         modal.id = modalId;
         modal.className = 'modal-overlay';
         modal.innerHTML = `
-            <div class="modal" style="max-width: 900px; max-height: 80vh;">
+            <div class="modal" style="max-width: 1400px; max-height: 85vh; width: 95%;">
                 <div class="modal-header">
                     <h2 class="modal-title" id="analytics-detail-title">${title}</h2>
                     <button class="modal-close" onclick="App.Modal.close('${modalId}')">×</button>
                 </div>
-                <div class="modal-body" id="analytics-detail-content" style="overflow-y: auto; max-height: 60vh;">
+                <div class="modal-body" id="analytics-detail-content" style="overflow-y: auto; max-height: 70vh; overflow-x: auto;">
                 </div>
             </div>
         `;

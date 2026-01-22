@@ -26,13 +26,28 @@
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
-                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">📅</span><span>예약/대관 관리</span></a>
-                    <a href="/attendance.html" class="menu-item" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                    
+                    <!-- 사하점 -->
+                    <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    
+                    <!-- 연산점 -->
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
+                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    
+                    <!-- 대관 -->
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
+                    <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
+                    
+                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
-                    <div class="menu-section-title">기록/분석</div>
+                    <div class="menu-section-title">훈련 관리</div>
                     <a href="/training-logs.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
-                    <a href="/analytics.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
+                    <a href="/rankings.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">🏆</span><span>훈련 랭킹</span></a>
+                    <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">상품/결제</div>
@@ -63,12 +78,12 @@
                         <button class="btn btn-primary" onclick="openProductModal()">상품 추가</button>
                     </div>
                     <div class="filter-group" style="margin-bottom: 20px;">
-                        <select class="form-control" id="filter-type" style="width: 200px;">
+                        <select class="form-control" id="filter-type" style="width: 200px;" onchange="applyFilters()">
                             <option value="">전체 유형</option>
-                            <option value="SINGLE_RENTAL">단건 대관</option>
+                            <option value="SINGLE_USE">단건 대관</option>
                             <option value="TIME_PASS">시간권</option>
-                            <option value="SESSION_PASS">회차권</option>
-                            <option value="MONTHLY">월정기</option>
+                            <option value="COUNT_PASS">회차권</option>
+                            <option value="MONTHLY_PASS">월정기</option>
                             <option value="TEAM_PACKAGE">팀 대관 패키지</option>
                         </select>
                         <button class="btn btn-secondary" onclick="applyFilters()">필터 적용</button>
@@ -79,6 +94,7 @@
                                 <tr>
                                     <th>상품명</th>
                                     <th>유형</th>
+                                    <th>카테고리</th>
                                     <th>가격</th>
                                     <th>유효기간</th>
                                     <th>사용 조건</th>
@@ -118,6 +134,19 @@
                             <option value="TEAM_PACKAGE">팀 대관 패키지</option>
                         </select>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">카테고리</label>
+                        <select class="form-control" id="product-category">
+                            <option value="">선택 안 함</option>
+                            <option value="BASEBALL">야구</option>
+                            <option value="TRAINING_FITNESS">트레이닝+필라테스</option>
+                            <option value="RENTAL">대관</option>
+                            <option value="GENERAL">일반/공통</option>
+                        </select>
+                        <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                            예약 시 이용권 보유 회원 필터링에 사용됩니다. (야구/트레이닝+필라테스)
+                        </small>
+                    </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">가격 *</label>
@@ -129,8 +158,16 @@
                         </div>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">사용 조건</label>
-                        <textarea class="form-control" id="product-conditions" rows="3" placeholder="예: 평일만 사용 가능, 피크타임 제외 등"></textarea>
+                        <label class="form-label">패키지 구성 (선택사항)</label>
+                        <small style="color: var(--text-muted); display: block; margin-bottom: 8px;">패키지 상품인 경우 포함된 시설/항목과 횟수를 입력하세요.</small>
+                        <div id="package-items-container">
+                            <!-- 동적으로 추가되는 패키지 항목들 -->
+                        </div>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="addPackageItem()" style="margin-top: 8px;">+ 항목 추가</button>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">사용 조건 (추가 안내사항)</label>
+                        <textarea class="form-control" id="product-conditions" rows="2" placeholder="예: 평일만 사용 가능, 피크타임 제외 등"></textarea>
                     </div>
                     <div class="form-group">
                         <label class="form-label">환불 규정</label>

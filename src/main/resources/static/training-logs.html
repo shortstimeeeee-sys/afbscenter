@@ -26,14 +26,28 @@
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
-                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">📅</span><span>예약/대관 관리</span></a>
-                    <a href="/attendance.html" class="menu-item" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                    
+                    <!-- 사하점 -->
+                    <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    
+                    <!-- 연산점 -->
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
+                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    
+                    <!-- 대관 -->
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
+                    <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
+                    
+                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
-                    <div class="menu-section-title">기록/분석</div>
+                    <div class="menu-section-title">훈련 관리</div>
                     <a href="/training-logs.html" class="menu-item active" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
                     <a href="/rankings.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">🏆</span><span>훈련 랭킹</span></a>
-                    <a href="/analytics.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
+                    <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">상품/결제</div>
@@ -75,9 +89,9 @@
                                     <th>날짜</th>
                                     <th>회원</th>
                                     <th>타입</th>
+                                    <th>스윙속도</th>
                                     <th>타구속도</th>
                                     <th>구속</th>
-                                    <th>컨택률</th>
                                     <th>상세 정보</th>
                                     <th>작업</th>
                                 </tr>
@@ -165,7 +179,7 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">회원 *</label>
-                            <select class="form-control" id="log-member" required>
+                            <select class="form-control" id="log-member" required onchange="onMemberSelected()">
                                 <option value="">회원 선택...</option>
                             </select>
                         </div>
@@ -175,86 +189,43 @@
                         </div>
                     </div>
                     
-                    <!-- 타격 기록 -->
-                    <div class="form-section">
-                        <h3 style="margin-bottom: 16px; color: var(--text-primary);">타격 기록</h3>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label class="form-label">스윙수</label>
-                                <input type="number" class="form-control" id="log-swings" min="0">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">타구속도 (km/h)</label>
-                                <input type="number" class="form-control" id="log-bat-speed" min="0" step="0.1">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">발사각</label>
-                                <input type="number" class="form-control" id="log-launch-angle" min="0" step="0.1">
-                            </div>
+                    <!-- 기록 타입 선택 -->
+                    <div class="form-group" id="record-type-section" style="display: none; margin-bottom: 20px;">
+                        <label class="form-label">기록 타입 선택 *</label>
+                        <div style="display: flex; gap: 12px;">
+                            <label style="display: flex; align-items: center; cursor: pointer; padding: 12px 20px; border: 2px solid var(--border-color); border-radius: 8px; background: var(--bg-primary);">
+                                <input type="radio" name="record-type" value="BATTER" onchange="onRecordTypeChanged()" style="margin-right: 8px;">
+                                <span>⚾ 타자 기록</span>
+                            </label>
+                            <label style="display: flex; align-items: center; cursor: pointer; padding: 12px 20px; border: 2px solid var(--border-color); border-radius: 8px; background: var(--bg-primary);">
+                                <input type="radio" name="record-type" value="PITCHER" onchange="onRecordTypeChanged()" style="margin-right: 8px;">
+                                <span>🎯 투수 기록</span>
+                            </label>
                         </div>
+                    </div>
+                    
+                    <!-- 타자 기록 -->
+                    <div class="form-section" id="batter-section" style="display: none;">
+                        <h3 style="margin-bottom: 16px; color: var(--text-primary);">⚾ 타자 기록</h3>
                         <div class="form-row">
                             <div class="form-group">
-                                <label class="form-label">타구방향</label>
-                                <select class="form-control" id="log-hit-direction">
-                                    <option value="">선택...</option>
-                                    <option value="LEFT">좌측</option>
-                                    <option value="CENTER">중앙</option>
-                                    <option value="RIGHT">우측</option>
-                                </select>
+                                <label class="form-label">스윙속도 (mph)</label>
+                                <input type="number" class="form-control" id="log-swing-speed" min="0" step="0.1">
                             </div>
                             <div class="form-group">
-                                <label class="form-label">컨택률 (%)</label>
-                                <input type="number" class="form-control" id="log-contact-rate" min="0" max="100" step="0.1">
+                                <label class="form-label">타구속도 (mph)</label>
+                                <input type="number" class="form-control" id="log-bat-speed" min="0" step="0.1">
                             </div>
                         </div>
                     </div>
                     
-                    <!-- 투구 기록 -->
-                    <div class="form-section">
-                        <h3 style="margin-bottom: 16px; color: var(--text-primary);">투구 기록</h3>
+                    <!-- 투수 기록 -->
+                    <div class="form-section" id="pitcher-section" style="display: none;">
+                        <h3 style="margin-bottom: 16px; color: var(--text-primary);">🎯 투수 기록</h3>
                         <div class="form-row">
                             <div class="form-group">
                                 <label class="form-label">구속 (km/h)</label>
                                 <input type="number" class="form-control" id="log-pitch-speed" min="0" step="0.1">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">회전수 (rpm)</label>
-                                <input type="number" class="form-control" id="log-spin-rate" min="0">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">구종</label>
-                                <select class="form-control" id="log-pitch-type">
-                                    <option value="">선택...</option>
-                                    <option value="FASTBALL">직구</option>
-                                    <option value="CURVEBALL">커브</option>
-                                    <option value="SLIDER">슬라이더</option>
-                                    <option value="CHANGEUP">체인지업</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">스트라이크율 (%)</label>
-                            <input type="number" class="form-control" id="log-strike-rate" min="0" max="100" step="0.1">
-                        </div>
-                    </div>
-                    
-                    <!-- 체력 기록 -->
-                    <div class="form-section">
-                        <h3 style="margin-bottom: 16px; color: var(--text-primary);">체력 기록</h3>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label class="form-label">러닝 (km)</label>
-                                <input type="number" class="form-control" id="log-running" min="0" step="0.1">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">컨디션</label>
-                                <select class="form-control" id="log-condition">
-                                    <option value="">선택...</option>
-                                    <option value="EXCELLENT">우수</option>
-                                    <option value="GOOD">양호</option>
-                                    <option value="NORMAL">보통</option>
-                                    <option value="POOR">불량</option>
-                                </select>
                             </div>
                         </div>
                     </div>

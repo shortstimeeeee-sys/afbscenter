@@ -1,7 +1,12 @@
-// 대시보드 페이지 JavaScript
+﻿// 대시보드 페이지 JavaScript
+
+let memberChart = null;
+let revenueChart = null;
 
 document.addEventListener('DOMContentLoaded', async function() {
     await loadDashboardData();
+    await initCharts();
+    await loadExpiringMembers();
 });
 
 async function loadDashboardData() {
@@ -60,6 +65,10 @@ async function loadDashboardData() {
         // 방문 수는 숨김 처리되어 있지만 데이터는 유지
         document.getElementById('kpi-visits').textContent = kpiData.visits || 0;
         
+        // 추가 KPI 데이터
+        document.getElementById('kpi-today-attendance').textContent = kpiData.todayAttendance || 0;
+        document.getElementById('kpi-active-members').textContent = kpiData.activeMembers || 0;
+        
         // 오늘 일정 로드
         const schedule = await App.api.get('/dashboard/today-schedule');
         renderTodaySchedule(schedule);
@@ -82,6 +91,8 @@ async function loadDashboardData() {
         document.getElementById('kpi-revenue').textContent = '₩0';
         document.getElementById('kpi-monthly-revenue').textContent = '₩0';
         document.getElementById('kpi-visits').textContent = '0';
+        document.getElementById('kpi-today-attendance').textContent = '0';
+        document.getElementById('kpi-active-members').textContent = '0';
     }
 }
 
@@ -340,4 +351,226 @@ function showAnnouncementDetail(id) {
             console.error('공지사항 상세 조회 실패:', error);
             App.showNotification('공지사항을 불러오는데 실패했습니다.', 'danger');
         });
+}
+
+// ========================================
+// 차트 초기화
+// ========================================
+
+async function initCharts() {
+    try {
+        // 회원 증가 추이 데이터 (최근 6개월)
+        const members = await App.api.get('/members');
+        const memberGrowthData = calculateMonthlyGrowth(members);
+        
+        // 매출 데이터 (최근 6개월)
+        const payments = await App.api.get('/payments');
+        const revenueData = calculateMonthlyRevenue(payments);
+        
+        // 회원 증가 추이 차트
+        createMemberChart(memberGrowthData);
+        
+        // 월별 매출 차트
+        createRevenueChart(revenueData);
+        
+    } catch (error) {
+        console.error('차트 초기화 실패:', error);
+    }
+}
+
+// 월별 회원 증가 계산
+function calculateMonthlyGrowth(members) {
+    const labels = [];
+    const data = [];
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    
+    for (let i = 5; i >= 0; i--) {
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        
+        // 연도가 현재와 다르면 연도 표시
+        if (date.getFullYear() !== currentYear) {
+            labels.push(`${date.getFullYear()}년 ${date.getMonth() + 1}월`);
+        } else {
+            labels.push(`${date.getMonth() + 1}월`);
+        }
+        
+        const count = members.filter(m => {
+            if (!m.joinDate) return false;
+            const joinMonth = m.joinDate.substring(0, 7);
+            return joinMonth === monthStr;
+        }).length;
+        
+        data.push(count);
+    }
+    
+    return { labels, data };
+}
+
+// 월별 매출 계산
+function calculateMonthlyRevenue(payments) {
+    const labels = [];
+    const data = [];
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    
+    for (let i = 5; i >= 0; i--) {
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        
+        // 연도가 현재와 다르면 연도 표시
+        if (date.getFullYear() !== currentYear) {
+            labels.push(`${date.getFullYear()}년 ${date.getMonth() + 1}월`);
+        } else {
+            labels.push(`${date.getMonth() + 1}월`);
+        }
+        
+        const revenue = payments
+            .filter(p => {
+                if (!p.paidAt || p.status !== 'COMPLETED') return false;
+                // paidAt은 "2026-01-17T21:35:00" 형식
+                const payMonth = p.paidAt.substring(0, 7);
+                return payMonth === monthStr;
+            })
+            .reduce((sum, p) => sum + (p.amount || 0), 0);
+        
+        data.push(revenue);
+    }
+    
+    return { labels, data };
+}
+
+// 회원 증가 추이 차트 생성
+function createMemberChart(data) {
+    const ctx = document.getElementById('memberChart');
+    if (!ctx) return;
+    
+    if (memberChart) {
+        memberChart.destroy();
+    }
+    
+    const isDark = !document.body.classList.contains('light-mode');
+    
+    memberChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: data.labels,
+            datasets: [{
+                label: '신규 가입',
+                data: data.data,
+                borderColor: '#5E6AD2',
+                backgroundColor: 'rgba(94, 106, 210, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    backgroundColor: isDark ? '#1C2130' : '#FFFFFF',
+                    titleColor: isDark ? '#E6E8EB' : '#212529',
+                    bodyColor: isDark ? '#A1A6B3' : '#495057',
+                    borderColor: isDark ? '#2D3441' : '#DEE2E6',
+                    borderWidth: 1
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        color: isDark ? '#6B7280' : '#6C757D',
+                        stepSize: 1
+                    },
+                    grid: {
+                        color: isDark ? '#2D3441' : '#DEE2E6'
+                    }
+                },
+                x: {
+                    ticks: {
+                        color: isDark ? '#6B7280' : '#6C757D'
+                    },
+                    grid: {
+                        color: isDark ? '#2D3441' : '#DEE2E6'
+                    }
+                }
+            }
+        }
+    });
+}
+
+// 월별 매출 차트 생성
+function createRevenueChart(data) {
+    const ctx = document.getElementById('revenueChart');
+    if (!ctx) return;
+    
+    if (revenueChart) {
+        revenueChart.destroy();
+    }
+    
+    const isDark = !document.body.classList.contains('light-mode');
+    
+    revenueChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: data.labels,
+            datasets: [{
+                label: '매출',
+                data: data.data,
+                backgroundColor: 'rgba(94, 106, 210, 0.8)',
+                borderColor: '#5E6AD2',
+                borderWidth: 1,
+                borderRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    backgroundColor: isDark ? '#1C2130' : '#FFFFFF',
+                    titleColor: isDark ? '#E6E8EB' : '#212529',
+                    bodyColor: isDark ? '#A1A6B3' : '#495057',
+                    borderColor: isDark ? '#2D3441' : '#DEE2E6',
+                    borderWidth: 1,
+                    callbacks: {
+                        label: function(context) {
+                            return '매출: ₩' + context.parsed.y.toLocaleString();
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        color: isDark ? '#6B7280' : '#6C757D',
+                        callback: function(value) {
+                            return '₩' + (value / 10000).toFixed(0) + '만';
+                        }
+                    },
+                    grid: {
+                        color: isDark ? '#2D3441' : '#DEE2E6'
+                    }
+                },
+                x: {
+                    ticks: {
+                        color: isDark ? '#6B7280' : '#6C757D'
+                    },
+                    grid: {
+                        display: false
+                    }
+                }
+            }
+        }
+    });
 }

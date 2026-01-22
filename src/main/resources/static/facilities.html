@@ -26,8 +26,28 @@
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
-                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">📅</span><span>예약/대관 관리</span></a>
-                    <a href="/attendance.html" class="menu-item" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                    
+                    <!-- 사하점 -->
+                    <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    
+                    <!-- 연산점 -->
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
+                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    
+                    <!-- 대관 -->
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
+                    <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
+                    
+                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">훈련 관리</div>
+                    <a href="/training-logs.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
+                    <a href="/rankings.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">🏆</span><span>훈련 랭킹</span></a>
+                    <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">시설 관리</div>
@@ -59,6 +79,8 @@
                                 <tr>
                                     <th>ID</th>
                                     <th>시설명</th>
+                                    <th>지점</th>
+                                    <th>시설 타입</th>
                                     <th>위치</th>
                                     <th>수용 인원</th>
                                     <th>시간당 단가</th>
@@ -109,6 +131,22 @@
                         <label class="form-label">위치</label>
                         <input type="text" class="form-control" id="facility-location">
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">소속 지점 *</label>
+                        <select class="form-control" id="facility-branch" required>
+                            <option value="SAHA">사하점</option>
+                            <option value="YEONSAN">연산점</option>
+                            <option value="RENTAL">대관 (공용)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">시설 타입 *</label>
+                        <select class="form-control" id="facility-type" required>
+                            <option value="BASEBALL">야구</option>
+                            <option value="TRAINING_FITNESS">트레이닝+필라테스</option>
+                            <option value="RENTAL">대관</option>
+                        </select>
+                    </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">수용 인원 *</label>
@@ -122,9 +160,9 @@
                     <div class="form-group">
                         <label class="form-label">운영시간</label>
                         <div class="form-row">
-                            <input type="time" class="form-control" id="facility-open-time">
+                            <input type="text" class="form-control" id="facility-open-time" placeholder="09:00" pattern="([01]?[0-9]|2[0-3]):[0-5][0-9]" maxlength="5">
                             <span style="align-self: center;">~</span>
-                            <input type="time" class="form-control" id="facility-close-time">
+                            <input type="text" class="form-control" id="facility-close-time" placeholder="22:00" pattern="([01]?[0-9]|2[0-3]):[0-5][0-9]" maxlength="5">
                         </div>
                     </div>
                     <div class="form-group">
