@@ -1,15 +1,28 @@
 package com.afbscenter.config;
 
+import com.afbscenter.model.Facility;
+import com.afbscenter.model.Member;
+import com.afbscenter.model.MemberProduct;
+import com.afbscenter.model.Payment;
+import com.afbscenter.model.Product;
+import com.afbscenter.repository.FacilityRepository;
+import com.afbscenter.repository.MemberProductRepository;
+import com.afbscenter.repository.MemberRepository;
+import com.afbscenter.repository.PaymentRepository;
+import com.afbscenter.repository.ProductRepository;
 import com.afbscenter.service.MemberService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 
@@ -29,10 +42,86 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    
+    @Autowired
+    private FacilityRepository facilityRepository;
+    
+    @Autowired
+    private MemberRepository memberRepository;
+    
+    @Autowired
+    private MemberProductRepository memberProductRepository;
+    
+    @Autowired
+    private PaymentRepository paymentRepository;
+    
+    @Autowired
+    private ProductRepository productRepository;
+    
+    // 시설 초기화 데이터 (application.properties에서 주입)
+    @Value("${facility.init.saha.name:사하점}")
+    private String sahaFacilityName;
+    
+    @Value("${facility.init.saha.location:부산}")
+    private String sahaFacilityLocation;
+    
+    @Value("${facility.init.saha.open-time:08:00}")
+    private String sahaFacilityOpenTime;
+    
+    @Value("${facility.init.saha.close-time:00:00}")
+    private String sahaFacilityCloseTime;
+    
+    @Value("${facility.init.saha.hourly-rate:0}")
+    private Integer sahaFacilityHourlyRate;
+    
+    @Value("${facility.init.yeonsan.name:연산점}")
+    private String yeonsanFacilityName;
+    
+    @Value("${facility.init.yeonsan.location:부산}")
+    private String yeonsanFacilityLocation;
+    
+    @Value("${facility.init.yeonsan.open-time:08:00}")
+    private String yeonsanFacilityOpenTime;
+    
+    @Value("${facility.init.yeonsan.close-time:00:00}")
+    private String yeonsanFacilityCloseTime;
+    
+    @Value("${facility.init.yeonsan.hourly-rate:0}")
+    private Integer yeonsanFacilityHourlyRate;
 
     @Override
     public void onApplicationEvent(ApplicationReadyEvent event) {
         if (!migrationExecuted) {
+            // ⚠️⚠️⚠️ 주의: 회원 데이터 자동 삭제 기능 ⚠️⚠️⚠️
+            // 이 옵션은 개발 환경에서만 사용해야 하며, 프로덕션 환경에서는 절대 true로 설정하지 마세요!
+            // true로 설정하면 서버 시작 시마다 모든 회원 데이터가 삭제됩니다!
+            // 현재 설정: false (삭제 안함) - 이 값을 변경하지 마세요!
+            // ⚠️⚠️⚠️ 이 값을 true로 변경하면 모든 회원 데이터가 영구적으로 삭제됩니다! ⚠️⚠️⚠️
+            final boolean deleteAllMembers = false; // ⚠️ 절대 true로 변경하지 마세요! 회원 데이터가 모두 삭제됩니다!
+            
+            // 회원 데이터 삭제 기능은 완전히 비활성화됨
+            // 필요시 아래 주석을 해제하고 deleteAllMembers를 true로 변경해야 함
+            // 하지만 프로덕션 환경에서는 절대 사용하지 마세요!
+            /*
+            if (deleteAllMembers) {
+                try {
+                    logger.error("⚠️⚠️⚠️ 경고: 회원(Member) 테이블 데이터 삭제 모드가 활성화되어 있습니다! ⚠️⚠️⚠️");
+                    logger.error("⚠️⚠️⚠️ 모든 회원 데이터가 삭제됩니다! ⚠️⚠️⚠️");
+                    logger.warn("⚠️ 회원(Member) 테이블 데이터 삭제 모드 활성화 - Member 테이블만 삭제합니다!");
+                    deleteAllMemberData();
+                    logger.info("회원(Member) 테이블 데이터 삭제 완료");
+                } catch (Exception e) {
+                    logger.error("회원(Member) 테이블 데이터 삭제 중 오류 발생", e);
+                }
+            } else {
+                logger.debug("회원 데이터 자동 삭제 기능 비활성화됨 (deleteAllMembers = false)");
+            }
+            */
+            
+            // 회원 데이터 삭제 기능이 비활성화되어 있음을 명확히 로그에 기록
+            logger.info("✅ 회원 데이터 자동 삭제 기능: 비활성화됨 (deleteAllMembers = false)");
+            logger.info("✅ 회원 데이터는 서버 시작 시 삭제되지 않습니다.");
+            
             try {
                 logger.info("애플리케이션 시작 시 회원 등급 마이그레이션 실행");
                 memberService.migrateMemberGradesInSeparateTransaction();
@@ -57,10 +146,320 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                 logger.warn("announcements 테이블 CHECK 제약 조건 제거 중 오류 (무시): {}", e.getMessage());
             }
             
+            try {
+                logger.info("애플리케이션 시작 시 Products 테이블 coach_id 컬럼 마이그레이션 실행");
+                migrateProductsTableCoachColumn();
+                logger.info("Products 테이블 coach_id 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("Products 테이블 coach_id 컬럼 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+            
+            try {
+                logger.info("애플리케이션 시작 시 시설 데이터 초기화 실행");
+                initializeFacilities();
+                logger.info("시설 데이터 초기화 완료");
+            } catch (Exception e) {
+                logger.warn("시설 데이터 초기화 중 오류 (무시): {}", e.getMessage());
+            }
+            
+            try {
+                logger.info("애플리케이션 시작 시 Members 테이블 컬럼명 마이그레이션 실행");
+                migrateMembersTableColumnNames();
+                logger.info("Members 테이블 컬럼명 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("Members 테이블 컬럼명 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+            
+            try {
+                logger.info("애플리케이션 시작 시 누락된 결제(Payment) 자동 생성 실행");
+                createMissingPayments();
+                logger.info("누락된 결제(Payment) 자동 생성 완료");
+            } catch (Exception e) {
+                logger.warn("누락된 결제(Payment) 자동 생성 중 오류 (무시): {}", e.getMessage());
+            }
+            
             migrationExecuted = true;
         }
     }
 
+    /**
+     * Member 테이블의 데이터만 삭제
+     * 외래키 제약 조건을 일시적으로 비활성화하여 Member만 삭제합니다.
+     */
+    private void deleteAllMemberData() {
+        try {
+            logger.info("회원(Member) 테이블 데이터 삭제 시작...");
+            
+            // H2에서 외래키 제약 조건 일시적으로 비활성화
+            jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY FALSE");
+            
+            try {
+                // Member 테이블만 삭제
+                int memberCount = jdbcTemplate.update("DELETE FROM members");
+                logger.info("Member 삭제 완료: {} 건", memberCount);
+            } finally {
+                // 외래키 제약 조건 다시 활성화
+                jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY TRUE");
+            }
+            
+            logger.info("회원(Member) 테이블 데이터 삭제 완료");
+        } catch (Exception e) {
+            logger.error("회원(Member) 테이블 데이터 삭제 중 오류 발생", e);
+            // 오류 발생 시에도 외래키 제약 조건 다시 활성화 시도
+            try {
+                jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY TRUE");
+            } catch (Exception ex) {
+                logger.warn("외래키 제약 조건 재활성화 실패: {}", ex.getMessage());
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Products 테이블에 coach_id 컬럼 추가 마이그레이션
+     * 상품별 코치 배정 기능을 위한 컬럼 추가
+     */
+    private void migrateProductsTableCoachColumn() {
+        try {
+            // Products 테이블 존재 여부 확인
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES " +
+                "WHERE TABLE_NAME = 'PRODUCTS'"
+            );
+            
+            if (!tables.isEmpty()) {
+                // coach_id 컬럼 존재 여부 확인
+                List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE TABLE_NAME = 'PRODUCTS' AND COLUMN_NAME = 'COACH_ID'"
+                );
+                
+                if (columns.isEmpty()) {
+                    logger.info("Products 테이블에 coach_id 컬럼이 없습니다. 컬럼을 추가합니다.");
+                    
+                    // H2 데이터베이스에서 컬럼 추가
+                    try {
+                        jdbcTemplate.execute("ALTER TABLE products ADD COLUMN coach_id BIGINT");
+                        logger.info("Products 테이블에 coach_id 컬럼 추가 완료");
+                        
+                        // 외래키 제약 조건 추가 (선택사항, 에러 발생 시 무시)
+                        try {
+                            jdbcTemplate.execute(
+                                "ALTER TABLE products ADD CONSTRAINT fk_products_coach " +
+                                "FOREIGN KEY (coach_id) REFERENCES coaches(id)"
+                            );
+                            logger.info("Products 테이블에 coach 외래키 제약 조건 추가 완료");
+                        } catch (Exception e) {
+                            logger.debug("외래키 제약 조건 추가 실패 (무시): {}", e.getMessage());
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Products 테이블에 coach_id 컬럼 추가 실패: {}", e.getMessage());
+                        // 컬럼이 이미 존재하거나 다른 이유로 실패할 수 있음
+                    }
+                } else {
+                    logger.debug("Products 테이블에 coach_id 컬럼이 이미 존재합니다.");
+                }
+            } else {
+                logger.debug("Products 테이블이 존재하지 않습니다 - Hibernate가 자동으로 생성합니다.");
+            }
+        } catch (Exception e) {
+            logger.warn("Products 테이블 coach_id 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+            // 마이그레이션 실패해도 애플리케이션은 계속 실행되도록 함
+        }
+    }
+
+    /**
+     * 시설 데이터 초기화
+     * 사하점을 ID 1번, 연산점을 ID 2번으로 설정
+     */
+    private void initializeFacilities() {
+        try {
+            // 기존 시설 데이터 확인
+            List<Facility> existingFacilities = facilityRepository.findAll();
+            
+            // 사하점과 연산점이 이미 올바른 ID로 존재하는지 확인
+            boolean hasSaha = false;
+            boolean hasYeonsan = false;
+            Long sahaId = null;
+            Long yeonsanId = null;
+            
+            for (Facility facility : existingFacilities) {
+                if (facility.getBranch() == Facility.Branch.SAHA && facility.getName().contains("사하")) {
+                    hasSaha = true;
+                    sahaId = facility.getId();
+                }
+                if (facility.getBranch() == Facility.Branch.YEONSAN && facility.getName().contains("연산")) {
+                    hasYeonsan = true;
+                    yeonsanId = facility.getId();
+                }
+            }
+            
+            // 모든 시설 삭제 후 재생성
+            if (!existingFacilities.isEmpty()) {
+                logger.info("기존 시설 데이터 삭제 중... ({} 건)", existingFacilities.size());
+                
+                // 외래키 제약 조건 일시적으로 비활성화
+                jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY FALSE");
+                try {
+                    // bookings 테이블의 facility_id를 NULL로 설정
+                    jdbcTemplate.update("UPDATE bookings SET facility_id = NULL");
+                    // 시설 삭제
+                    facilityRepository.deleteAll();
+                    // ID 시퀀스 리셋
+                    jdbcTemplate.execute("ALTER TABLE facilities ALTER COLUMN id RESTART WITH 1");
+                } finally {
+                    jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY TRUE");
+                }
+                logger.info("기존 시설 데이터 삭제 완료");
+            }
+            
+            // 사하점 생성 (ID 1번) - application.properties에서 설정값 사용
+            Facility sahaFacility = new Facility();
+            sahaFacility.setName(sahaFacilityName);
+            sahaFacility.setLocation(sahaFacilityLocation);
+            sahaFacility.setBranch(Facility.Branch.SAHA);
+            sahaFacility.setFacilityType(Facility.FacilityType.ALL);
+            sahaFacility.setHourlyRate(sahaFacilityHourlyRate);
+            sahaFacility.setOpenTime(LocalTime.parse(sahaFacilityOpenTime));
+            sahaFacility.setCloseTime(LocalTime.parse(sahaFacilityCloseTime));
+            sahaFacility.setActive(true);
+            Facility savedSaha = facilityRepository.save(sahaFacility);
+            logger.info("사하점 생성 완료: ID={}", savedSaha.getId());
+            
+            // ID가 1번이 아니면 수정
+            if (savedSaha.getId() != 1L) {
+                jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY FALSE");
+                try {
+                    jdbcTemplate.update("UPDATE facilities SET id = 1 WHERE id = ?", savedSaha.getId());
+                    jdbcTemplate.execute("ALTER TABLE facilities ALTER COLUMN id RESTART WITH 2");
+                } finally {
+                    jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY TRUE");
+                }
+                logger.info("사하점 ID를 1번으로 수정 완료");
+            }
+            
+            // 연산점 생성 (ID 2번) - application.properties에서 설정값 사용
+            Facility yeonsanFacility = new Facility();
+            yeonsanFacility.setName(yeonsanFacilityName);
+            yeonsanFacility.setLocation(yeonsanFacilityLocation);
+            yeonsanFacility.setBranch(Facility.Branch.YEONSAN);
+            yeonsanFacility.setFacilityType(Facility.FacilityType.ALL);
+            yeonsanFacility.setHourlyRate(yeonsanFacilityHourlyRate);
+            yeonsanFacility.setOpenTime(LocalTime.parse(yeonsanFacilityOpenTime));
+            yeonsanFacility.setCloseTime(LocalTime.parse(yeonsanFacilityCloseTime));
+            yeonsanFacility.setActive(true);
+            Facility savedYeonsan = facilityRepository.save(yeonsanFacility);
+            logger.info("연산점 생성 완료: ID={}", savedYeonsan.getId());
+            
+            // ID가 2번이 아니면 수정
+            if (savedYeonsan.getId() != 2L) {
+                jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY FALSE");
+                try {
+                    jdbcTemplate.update("UPDATE facilities SET id = 2 WHERE id = ?", savedYeonsan.getId());
+                    jdbcTemplate.execute("ALTER TABLE facilities ALTER COLUMN id RESTART WITH 3");
+                } finally {
+                    jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY TRUE");
+                }
+                logger.info("연산점 ID를 2번으로 수정 완료");
+            }
+            
+        } catch (Exception e) {
+            logger.error("시설 데이터 초기화 중 오류 발생", e);
+            throw e;
+        }
+    }
+    
+    /**
+     * Members 테이블의 guardian_name, guardian_phone 컬럼을 student_name, student_phone으로 변경
+     * 보호자 정보 필드를 수강생 정보 필드로 용도 변경
+     */
+    private void migrateMembersTableColumnNames() {
+        try {
+            // Members 테이블 존재 여부 확인
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES " +
+                "WHERE TABLE_NAME = 'MEMBERS'"
+            );
+            
+            if (!tables.isEmpty()) {
+                // guardian_name 컬럼 존재 여부 확인
+                List<Map<String, Object>> guardianNameColumns = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE TABLE_NAME = 'MEMBERS' AND COLUMN_NAME = 'GUARDIAN_NAME'"
+                );
+                
+                // student_name 컬럼 존재 여부 확인
+                List<Map<String, Object>> studentNameColumns = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE TABLE_NAME = 'MEMBERS' AND COLUMN_NAME = 'STUDENT_NAME'"
+                );
+                
+                // guardian_name이 있고 student_name이 없으면 컬럼명 변경
+                if (!guardianNameColumns.isEmpty() && studentNameColumns.isEmpty()) {
+                    logger.info("Members 테이블의 guardian_name 컬럼을 student_name으로 변경합니다.");
+                    try {
+                        // H2에서 컬럼명 변경 (데이터 유지)
+                        // H2는 기본적으로 대문자로 저장하므로 소문자로 명시
+                        jdbcTemplate.execute("ALTER TABLE MEMBERS ALTER COLUMN GUARDIAN_NAME RENAME TO STUDENT_NAME");
+                        logger.info("Members 테이블의 guardian_name 컬럼을 student_name으로 변경 완료");
+                    } catch (Exception e) {
+                        // 대문자로 실패하면 소문자로 시도
+                        try {
+                            jdbcTemplate.execute("ALTER TABLE members ALTER COLUMN guardian_name RENAME TO student_name");
+                            logger.info("Members 테이블의 guardian_name 컬럼을 student_name으로 변경 완료 (소문자)");
+                        } catch (Exception e2) {
+                            logger.warn("guardian_name 컬럼명 변경 실패: {} / {}", e.getMessage(), e2.getMessage());
+                        }
+                    }
+                } else if (!studentNameColumns.isEmpty()) {
+                    logger.debug("Members 테이블에 student_name 컬럼이 이미 존재합니다.");
+                } else {
+                    logger.debug("Members 테이블에 guardian_name 컬럼이 없습니다 - Hibernate가 자동으로 생성합니다.");
+                }
+                
+                // guardian_phone 컬럼 존재 여부 확인
+                List<Map<String, Object>> guardianPhoneColumns = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE TABLE_NAME = 'MEMBERS' AND COLUMN_NAME = 'GUARDIAN_PHONE'"
+                );
+                
+                // student_phone 컬럼 존재 여부 확인
+                List<Map<String, Object>> studentPhoneColumns = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE TABLE_NAME = 'MEMBERS' AND COLUMN_NAME = 'STUDENT_PHONE'"
+                );
+                
+                // guardian_phone이 있고 student_phone이 없으면 컬럼명 변경
+                if (!guardianPhoneColumns.isEmpty() && studentPhoneColumns.isEmpty()) {
+                    logger.info("Members 테이블의 guardian_phone 컬럼을 student_phone으로 변경합니다.");
+                    try {
+                        // H2에서 컬럼명 변경 (데이터 유지)
+                        // H2는 기본적으로 대문자로 저장하므로 대문자로 명시
+                        jdbcTemplate.execute("ALTER TABLE MEMBERS ALTER COLUMN GUARDIAN_PHONE RENAME TO STUDENT_PHONE");
+                        logger.info("Members 테이블의 guardian_phone 컬럼을 student_phone으로 변경 완료");
+                    } catch (Exception e) {
+                        // 대문자로 실패하면 소문자로 시도
+                        try {
+                            jdbcTemplate.execute("ALTER TABLE members ALTER COLUMN guardian_phone RENAME TO student_phone");
+                            logger.info("Members 테이블의 guardian_phone 컬럼을 student_phone으로 변경 완료 (소문자)");
+                        } catch (Exception e2) {
+                            logger.warn("guardian_phone 컬럼명 변경 실패: {} / {}", e.getMessage(), e2.getMessage());
+                        }
+                    }
+                } else if (!studentPhoneColumns.isEmpty()) {
+                    logger.debug("Members 테이블에 student_phone 컬럼이 이미 존재합니다.");
+                } else {
+                    logger.debug("Members 테이블에 guardian_phone 컬럼이 없습니다 - Hibernate가 자동으로 생성합니다.");
+                }
+            } else {
+                logger.debug("Members 테이블이 존재하지 않습니다 - Hibernate가 자동으로 생성합니다.");
+            }
+        } catch (Exception e) {
+            logger.warn("Members 테이블 컬럼명 마이그레이션 중 오류: {}", e.getMessage());
+            // 마이그레이션 실패해도 애플리케이션은 계속 실행되도록 함
+        }
+    }
+    
     private void removeAnnouncementsCheckConstraints() {
         try {
             // 가능한 제약 조건 이름들 시도
@@ -100,6 +499,94 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             }
         } catch (Exception e) {
             logger.warn("announcements 테이블 CHECK 제약 조건 제거 중 오류: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * 누락된 결제(Payment) 자동 생성
+     * MemberProduct가 있지만 Payment가 없는 경우 자동으로 Payment를 생성합니다.
+     */
+    private void createMissingPayments() {
+        try {
+            logger.info("누락된 결제 자동 생성 시작");
+            
+            int totalCreated = 0;
+            int totalSkipped = 0;
+            int totalErrors = 0;
+            
+            // 모든 회원 조회
+            List<Member> allMembers = memberRepository.findAll();
+            logger.info("총 {}명의 회원에 대해 누락된 결제 확인 시작", allMembers.size());
+            
+            for (Member member : allMembers) {
+                try {
+                    // 회원의 모든 MemberProduct 조회
+                    List<MemberProduct> memberProducts = memberProductRepository.findByMemberId(member.getId());
+                    
+                    for (MemberProduct memberProduct : memberProducts) {
+                        try {
+                            // Product 정보 확인
+                            Product product = memberProduct.getProduct();
+                            if (product == null || product.getPrice() == null || product.getPrice() <= 0) {
+                                continue;
+                            }
+                            
+                            Long productId = product.getId();
+                            
+                            // 이미 결제가 있는지 확인
+                            List<Payment> existingPayments = paymentRepository.findActiveProductPaymentsByMemberAndProduct(
+                                member.getId(), productId);
+                            
+                            if (!existingPayments.isEmpty()) {
+                                // 이미 결제가 있으면 건너뜀
+                                totalSkipped++;
+                                continue;
+                            }
+                            
+                            // 결제 생성
+                            Payment payment = new Payment();
+                            payment.setMember(member);
+                            payment.setProduct(product);
+                            payment.setAmount(product.getPrice());
+                            payment.setPaymentMethod(com.afbscenter.constants.PaymentDefaults.DEFAULT_PAYMENT_METHOD);
+                            payment.setStatus(com.afbscenter.constants.PaymentDefaults.DEFAULT_PAYMENT_STATUS);
+                            payment.setCategory(com.afbscenter.constants.PaymentDefaults.DEFAULT_PAYMENT_CATEGORY);
+                            String productName = product.getName() != null ? 
+                                product.getName() : "상품 ID: " + productId;
+                            payment.setMemo("상품 할당 (자동 생성): " + productName);
+                            
+                            // paidAt과 createdAt 설정
+                            LocalDateTime purchaseDate = memberProduct.getPurchaseDate();
+                            if (purchaseDate == null) {
+                                purchaseDate = LocalDateTime.now();
+                            }
+                            payment.setPaidAt(purchaseDate);
+                            payment.setCreatedAt(LocalDateTime.now());
+                            
+                            // Payment 저장
+                            paymentRepository.save(payment);
+                            paymentRepository.flush();
+                            totalCreated++;
+                            
+                            logger.debug("누락된 결제 생성 완료: Payment ID={}, 회원 ID={}, 상품 ID={}, 금액={}", 
+                                payment.getId(), member.getId(), productId, product.getPrice());
+                        } catch (Exception e) {
+                            logger.debug("MemberProduct 처리 중 오류: MemberProduct ID={}, 오류: {}", 
+                                memberProduct.getId(), e.getMessage());
+                            totalErrors++;
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("회원 ID={}의 결제 생성 중 오류: {}", member.getId(), e.getMessage());
+                    totalErrors++;
+                }
+            }
+            
+            logger.info("누락된 결제 자동 생성 완료: 총 생성={}건, 건너뜀={}건, 오류={}건", 
+                totalCreated, totalSkipped, totalErrors);
+        } catch (Exception e) {
+            logger.error("누락된 결제 자동 생성 중 오류 발생: {}", e.getMessage(), e);
+            throw e;
         }
     }
 }

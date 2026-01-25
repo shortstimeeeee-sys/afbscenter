@@ -71,7 +71,10 @@
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">체크인 미처리 현황</h2>
-                        <button class="btn btn-secondary" onclick="loadUncheckedBookings()">새로고침</button>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-secondary" onclick="loadUncheckedBookings()">새로고침</button>
+                            <button class="btn btn-primary" onclick="checkinAllUncheckedBookings()">✅ 전체 체크인 완료</button>
+                        </div>
                     </div>
                     <div class="table-container">
                         <table class="table">
@@ -81,6 +84,7 @@
                                     <th>시간</th>
                                     <th>시설</th>
                                     <th>회원</th>
+                                    <th>레슨 카테고리</th>
                                     <th>인원</th>
                                     <th>상태</th>
                                     <th>작업</th>
@@ -92,19 +96,20 @@
                     </div>
                 </div>
                 
-                <!-- 예약 목록 (날짜 선택) -->
+                <!-- 예약 목록 -->
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">예약 목록</h2>
-                        <input type="date" class="form-control" id="attendance-date" style="width: 200px;" onchange="loadTodayBookings()">
                     </div>
                     <div class="table-container">
                         <table class="table">
                             <thead>
                                 <tr>
+                                    <th>날짜</th>
                                     <th>시간</th>
                                     <th>시설</th>
                                     <th>회원</th>
+                                    <th>레슨 카테고리</th>
                                     <th>인원</th>
                                     <th>상태</th>
                                     <th>작업</th>
@@ -120,10 +125,11 @@
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">출석 기록</h2>
-                        <div class="filter-group">
+                        <div class="filter-group" style="display: flex; gap: 10px; align-items: center;">
                             <input type="date" class="form-control" id="filter-date-start" style="width: 150px;">
                             <input type="date" class="form-control" id="filter-date-end" style="width: 150px;">
                             <button class="btn btn-secondary" onclick="loadAttendanceRecords()">조회</button>
+                            <button class="btn btn-danger" onclick="resetIncompleteAttendances()">이용중 기록 모두 리셋</button>
                         </div>
                     </div>
                     <div class="table-container">

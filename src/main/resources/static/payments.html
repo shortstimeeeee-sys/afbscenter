@@ -84,16 +84,22 @@
                         <div class="kpi-value" id="kpi-month-revenue">-</div>
                         <div class="kpi-change">전월 대비</div>
                     </div>
-                    <div class="kpi-card">
+                    <div class="kpi-card" style="cursor: pointer;" onclick="showUnpaidDetails()">
                         <div class="kpi-label">미수금</div>
                         <div class="kpi-value" id="kpi-unpaid">-</div>
-                        <div class="kpi-change negative">주의 필요</div>
+                        <div class="kpi-change negative">주의 필요 (클릭하여 상세보기)</div>
                     </div>
                     <div class="kpi-card">
                         <div class="kpi-label">환불 대기</div>
                         <div class="kpi-value" id="kpi-refund-pending">-</div>
                         <div class="kpi-change">건</div>
                     </div>
+                </div>
+                
+                <!-- 결제 방법별 통계 -->
+                <div class="card" style="margin-bottom: 24px;">
+                    <h3 style="margin-bottom: 16px;">결제 방법별 통계</h3>
+                    <div id="payment-method-statistics"></div>
                 </div>
                 
                 <!-- 필터 -->
@@ -122,6 +128,7 @@
                         <input type="date" class="form-control" id="filter-date-end" style="width: 150px;">
                         <button class="btn btn-secondary" onclick="applyFilters()">적용</button>
                         <button class="btn btn-secondary" onclick="exportReport()">정산 리포트</button>
+                        <button class="btn btn-primary" onclick="createMissingPayments()" style="margin-left: 10px;">📝 기존 상품 할당 결제 생성</button>
                     </div>
                 </div>
                 
@@ -131,13 +138,13 @@
                         <table class="table">
                             <thead>
                                 <tr>
-                                    <th>결제번호</th>
-                                    <th>날짜/시간</th>
-                                    <th>회원</th>
+                                    <th onclick="sortPayments('id')" style="cursor: pointer;">결제번호 <span id="sort-id-indicator"></span></th>
+                                    <th onclick="sortPayments('date')" style="cursor: pointer;">날짜/시간 <span id="sort-date-indicator"></span></th>
+                                    <th onclick="sortPayments('member')" style="cursor: pointer;">회원 <span id="sort-member-indicator"></span></th>
                                     <th>코치</th>
                                     <th>분류</th>
                                     <th>결제수단</th>
-                                    <th>금액</th>
+                                    <th onclick="sortPayments('amount')" style="cursor: pointer;">금액 <span id="sort-amount-indicator"></span></th>
                                     <th>상태</th>
                                     <th>작업</th>
                                 </tr>
@@ -228,6 +235,38 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="App.Modal.close('refund-modal')">취소</button>
                 <button class="btn btn-danger" onclick="processRefund()">환불 처리</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 결제 상세 정보 모달 -->
+    <div class="modal-overlay" id="payment-detail-modal">
+        <div class="modal" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2 class="modal-title">결제 상세 정보</h2>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="payment-detail-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('payment-detail-modal')">닫기</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 미수금 상세 내역 모달 -->
+    <div class="modal-overlay" id="unpaid-details-modal">
+        <div class="modal" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2 class="modal-title">미수금 상세 내역</h2>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="unpaid-details-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('unpaid-details-modal')">닫기</button>
             </div>
         </div>
     </div>

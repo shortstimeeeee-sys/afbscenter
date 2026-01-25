@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -15,20 +16,60 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/facilities")
-@CrossOrigin(origins = "http://localhost:8080")
 public class FacilityController {
 
     private static final Logger logger = LoggerFactory.getLogger(FacilityController.class);
 
-    @Autowired
-    private FacilityRepository facilityRepository;
+    private final FacilityRepository facilityRepository;
+
+    public FacilityController(FacilityRepository facilityRepository) {
+        this.facilityRepository = facilityRepository;
+    }
 
     @GetMapping
-    public ResponseEntity<List<Facility>> getAllFacilities() {
-        return ResponseEntity.ok(facilityRepository.findAll());
+    @Transactional(readOnly = true)
+    public ResponseEntity<List<Facility>> getAllFacilities(
+            @RequestParam(required = false) String branch,
+            @RequestParam(required = false) String facilityType) {
+        try {
+            List<Facility> facilities;
+            
+            // 지점 필터링
+            if (branch != null && !branch.trim().isEmpty()) {
+                try {
+                    Facility.Branch branchEnum = Facility.Branch.valueOf(branch.toUpperCase());
+                    facilities = facilityRepository.findByBranchAndActiveTrue(branchEnum);
+                    logger.info("지점별 시설 조회: {} - {}건", branchEnum, facilities.size());
+                } catch (IllegalArgumentException e) {
+                    logger.warn("잘못된 지점 파라미터: {}, 모든 시설 반환", branch);
+                    facilities = facilityRepository.findByActiveTrue();
+                }
+            } else {
+                facilities = facilityRepository.findByActiveTrue();
+            }
+            
+            // 시설 타입 필터링
+            if (facilityType != null && !facilityType.trim().isEmpty()) {
+                try {
+                    Facility.FacilityType typeEnum = Facility.FacilityType.valueOf(facilityType.toUpperCase());
+                    facilities = facilities.stream()
+                            .filter(f -> f.getFacilityType() == typeEnum || f.getFacilityType() == Facility.FacilityType.ALL)
+                            .collect(java.util.stream.Collectors.toList());
+                    logger.info("시설 타입 필터링 완료: {} - {}건", typeEnum, facilities.size());
+                } catch (IllegalArgumentException e) {
+                    logger.warn("잘못된 시설 타입 파라미터: {}", facilityType);
+                }
+            }
+            
+            return ResponseEntity.ok(facilities);
+        } catch (Exception e) {
+            logger.error("시설 목록 조회 중 오류 발생", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
 
     @GetMapping("/{id}")
+    @Transactional(readOnly = true)
     public ResponseEntity<Facility> getFacilityById(@PathVariable Long id) {
         return facilityRepository.findById(id)
                 .map(ResponseEntity::ok)
@@ -36,6 +77,7 @@ public class FacilityController {
     }
 
     @PostMapping
+    @Transactional
     public ResponseEntity<Facility> createFacility(@Valid @RequestBody Facility facility) {
         try {
             // active 기본값 설정
@@ -52,6 +94,7 @@ public class FacilityController {
     }
 
     @PutMapping("/{id}")
+    @Transactional
     public ResponseEntity<Facility> updateFacility(@PathVariable Long id, @Valid @RequestBody Facility facility) {
         try {
             Facility existingFacility = facilityRepository.findById(id)
@@ -64,6 +107,7 @@ public class FacilityController {
             existingFacility.setOpenTime(facility.getOpenTime());
             existingFacility.setCloseTime(facility.getCloseTime());
             existingFacility.setEquipment(facility.getEquipment());
+            existingFacility.setFacilityType(facility.getFacilityType());
             existingFacility.setActive(facility.getActive());
             
             return ResponseEntity.ok(facilityRepository.save(existingFacility));
@@ -77,6 +121,7 @@ public class FacilityController {
     }
 
     @DeleteMapping("/{id}")
+    @Transactional
     public ResponseEntity<Void> deleteFacility(@PathVariable Long id) {
         try {
             if (!facilityRepository.existsById(id)) {

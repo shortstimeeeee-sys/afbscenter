@@ -2,7 +2,43 @@
 
 document.addEventListener('DOMContentLoaded', function() {
     loadFacilities();
+    
+    // 시설 타입 체크박스 변경 이벤트 리스너
+    const facilityTypeCheckboxes = document.querySelectorAll('#facility-type-group input[type="checkbox"]');
+    facilityTypeCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', updateFacilityType);
+    });
 });
+
+// 시설 타입 체크박스 변경 시 호출되는 함수
+function updateFacilityType() {
+    const checkboxes = document.querySelectorAll('#facility-type-group input[type="checkbox"]:checked');
+    const hiddenInput = document.getElementById('facility-type');
+    
+    if (checkboxes.length === 0) {
+        hiddenInput.value = '';
+        return;
+    }
+    
+    // 모두 선택되면 "ALL"
+    if (checkboxes.length === 3) {
+        hiddenInput.value = 'ALL';
+    } else {
+        // 하나만 선택된 경우
+        if (checkboxes.length === 1) {
+            const value = checkboxes[0].value;
+            // 필라테스나 트레이닝은 TRAINING_FITNESS로 매핑
+            if (value === 'PILATES' || value === 'TRAINING') {
+                hiddenInput.value = 'TRAINING_FITNESS';
+            } else {
+                hiddenInput.value = value;
+            }
+        } else {
+            // 여러 개 선택된 경우 (2개) - ALL로 처리
+            hiddenInput.value = 'ALL';
+        }
+    }
+}
 
 async function loadFacilities() {
     try {
@@ -18,7 +54,7 @@ function renderFacilitiesTable(facilities) {
     const tbody = document.getElementById('facilities-table-body');
     
     if (!facilities || facilities.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">시설이 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">시설이 없습니다.</td></tr>';
         return;
     }
     
@@ -40,6 +76,7 @@ function renderFacilitiesTable(facilities) {
             case 'BASEBALL': return '야구';
             case 'TRAINING_FITNESS': return '트레이닝+필라테스';
             case 'RENTAL': return '대관';
+            case 'ALL': return '전체';
             default: return type;
         }
     };
@@ -51,7 +88,6 @@ function renderFacilitiesTable(facilities) {
             <td>${getBranchText(facility.branch)}</td>
             <td>${getFacilityTypeText(facility.facilityType)}</td>
             <td>${facility.location || '-'}</td>
-            <td>${facility.capacity || '-'}${facility.capacity ? '명' : ''}</td>
             <td>${facility.hourlyRate ? App.formatCurrency(facility.hourlyRate) : '-'}</td>
             <td>${facility.openTime || '-'} ~ ${facility.closeTime || '-'}</td>
             <td>
@@ -126,6 +162,11 @@ function openFacilityModal(id = null) {
         if (idDisplay) {
             idDisplay.style.display = 'none';
         }
+        // 체크박스 초기화
+        document.querySelectorAll('#facility-type-group input[type="checkbox"]').forEach(cb => cb.checked = false);
+        document.getElementById('facility-type').value = '';
+        // 소속 지점 초기화 (시설명 입력 시 자동 설정됨)
+        document.getElementById('facility-branch').value = 'SAHA';
     }
     
     App.Modal.open('facility-modal');
@@ -143,20 +184,36 @@ async function loadFacilityData(id) {
         document.getElementById('facility-id-display').style.display = 'block';
         document.getElementById('facility-name').value = facility.name;
         document.getElementById('facility-location').value = facility.location || '';
-        document.getElementById('facility-branch').value = facility.branch || 'SAHA';
-        document.getElementById('facility-type').value = facility.facilityType || 'BASEBALL';
-        document.getElementById('facility-capacity').value = facility.capacity || '';
+        // 소속 지점은 시설명 기반으로 자동 설정 (변경 불가)
+        const branch = determineBranchFromName(facility.name);
+        document.getElementById('facility-branch').value = branch;
+        
+        // 시설 타입 체크박스 설정
+        const facilityType = facility.facilityType || 'BASEBALL';
+        const checkboxes = document.querySelectorAll('#facility-type-group input[type="checkbox"]');
+        checkboxes.forEach(cb => cb.checked = false);
+        
+        if (facilityType === 'ALL') {
+            // 모두 선택
+            checkboxes.forEach(cb => cb.checked = true);
+            document.getElementById('facility-type').value = 'ALL';
+        } else if (facilityType === 'BASEBALL') {
+            document.querySelector('#facility-type-group input[value="BASEBALL"]').checked = true;
+            document.getElementById('facility-type').value = 'BASEBALL';
+        } else if (facilityType === 'TRAINING_FITNESS') {
+            // 필라테스와 트레이닝 모두 체크
+            document.querySelector('#facility-type-group input[value="PILATES"]').checked = true;
+            document.querySelector('#facility-type-group input[value="TRAINING"]').checked = true;
+            document.getElementById('facility-type').value = 'TRAINING_FITNESS';
+        } else {
+            // 기본값
+            document.querySelector('#facility-type-group input[value="BASEBALL"]').checked = true;
+            document.getElementById('facility-type').value = 'BASEBALL';
+        }
+        
         document.getElementById('facility-price').value = facility.hourlyRate || '';
         document.getElementById('facility-open-time').value = facility.openTime || '';
         document.getElementById('facility-close-time').value = facility.closeTime || '';
-        
-        // 장비 체크박스 설정
-        if (facility.equipment) {
-            const equipmentList = facility.equipment.split(',').map(e => e.trim());
-            document.querySelectorAll('#facility-form input[type="checkbox"]').forEach(cb => {
-                cb.checked = equipmentList.includes(cb.value);
-            });
-        }
         
         // 수정 모달 제목에 ID와 이름 표시
         const title = document.getElementById('facility-modal-title');
@@ -169,10 +226,30 @@ async function loadFacilityData(id) {
     }
 }
 
+// 시설명 기반으로 지점 자동 결정
+function determineBranchFromName(name) {
+    if (!name) return 'SAHA';
+    const nameUpper = name.toUpperCase();
+    if (nameUpper.includes('연산')) {
+        return 'YEONSAN';
+    } else if (nameUpper.includes('사하')) {
+        return 'SAHA';
+    } else {
+        // 기본값은 사하점
+        return 'SAHA';
+    }
+}
+
+// 시설명 변경 시 지점 자동 업데이트
+function updateBranchFromName() {
+    const name = document.getElementById('facility-name').value;
+    const branch = determineBranchFromName(name);
+    document.getElementById('facility-branch').value = branch;
+}
+
 async function saveFacility() {
     const name = document.getElementById('facility-name').value;
     const location = document.getElementById('facility-location').value;
-    const capacityValue = document.getElementById('facility-capacity').value;
     const priceValue = document.getElementById('facility-price').value;
     const openTimeValue = document.getElementById('facility-open-time').value;
     const closeTimeValue = document.getElementById('facility-close-time').value;
@@ -183,18 +260,25 @@ async function saveFacility() {
         return;
     }
     
+    // 시설 타입 검증
+    const facilityType = document.getElementById('facility-type').value;
+    if (!facilityType) {
+        App.showNotification('시설 타입을 최소 1개 이상 선택해주세요.', 'danger');
+        return;
+    }
+    
+    // 소속 지점은 시설명 기반으로 자동 결정 (변경 불가)
+    const branch = determineBranchFromName(name);
+    document.getElementById('facility-branch').value = branch;
+    
     const data = {
         name: name,
         location: location || null,
-        branch: document.getElementById('facility-branch').value,
-        facilityType: document.getElementById('facility-type').value,
-        capacity: capacityValue ? parseInt(capacityValue) : null,
+        branch: branch,
+        facilityType: facilityType,
         hourlyRate: priceValue ? parseInt(priceValue) : null,
         openTime: openTimeValue || null,
         closeTime: closeTimeValue || null,
-        equipment: Array.from(document.querySelectorAll('#facility-form input[type="checkbox"]:checked'))
-            .map(cb => cb.value)
-            .join(', ') || null,
         active: true
     };
     

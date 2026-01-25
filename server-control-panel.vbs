@@ -32,7 +32,8 @@ psCommand = "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -NoProfi
 
 ' 창을 표시하고 포커스를 주기 위해 0 사용 (Hidden 창)
 ' False = 비동기 실행 (바로 반환)
-WshShell.Run psCommand, 0, False
+Dim result
+result = WshShell.Run(psCommand, 0, False)
 
 ' 잠시 대기 (GUI가 표시될 시간을 줌)
 WScript.Sleep 500

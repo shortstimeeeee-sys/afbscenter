@@ -7,9 +7,9 @@ import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.service.MemberService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -18,22 +18,24 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/training-logs")
-@CrossOrigin(origins = "http://localhost:8080")
 public class TrainingLogController {
 
     private static final Logger logger = LoggerFactory.getLogger(TrainingLogController.class);
 
-    @Autowired
-    private TrainingLogRepository trainingLogRepository;
+    private final TrainingLogRepository trainingLogRepository;
+    private final MemberRepository memberRepository;
+    private final MemberService memberService;
 
-    @Autowired
-    private MemberRepository memberRepository;
-    
-    @Autowired
-    private MemberService memberService;
+    public TrainingLogController(TrainingLogRepository trainingLogRepository,
+                                 MemberRepository memberRepository,
+                                 MemberService memberService) {
+        this.trainingLogRepository = trainingLogRepository;
+        this.memberRepository = memberRepository;
+        this.memberService = memberService;
+    }
 
     @GetMapping
-    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    @Transactional(readOnly = true)
     public ResponseEntity<List<java.util.Map<String, Object>>> getAllTrainingLogs(
             @RequestParam(required = false) Long memberId,
             @RequestParam(required = false) String startDate,
@@ -111,7 +113,7 @@ public class TrainingLogController {
     }
 
     @GetMapping("/{id}")
-    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    @Transactional(readOnly = true)
     public ResponseEntity<java.util.Map<String, Object>> getTrainingLogById(@PathVariable Long id) {
         try {
             TrainingLog log = trainingLogRepository.findById(id)
@@ -174,6 +176,7 @@ public class TrainingLogController {
     }
 
     @PostMapping
+    @Transactional
     public ResponseEntity<java.util.Map<String, Object>> createTrainingLog(@RequestBody java.util.Map<String, Object> data) {
         try {
             // Member ID 추출
@@ -439,7 +442,7 @@ public class TrainingLogController {
     }
 
     @PutMapping("/{id}")
-    @org.springframework.transaction.annotation.Transactional
+    @Transactional
     public ResponseEntity<java.util.Map<String, Object>> updateTrainingLog(@PathVariable Long id, @RequestBody java.util.Map<String, Object> data) {
         try {
             TrainingLog log = trainingLogRepository.findById(id)
@@ -691,6 +694,7 @@ public class TrainingLogController {
     }
 
     @DeleteMapping("/{id}")
+    @Transactional
     public ResponseEntity<Void> deleteTrainingLog(@PathVariable Long id) {
         try {
             if (!trainingLogRepository.existsById(id)) {
@@ -706,7 +710,7 @@ public class TrainingLogController {
     
     // 회원별 훈련 기록 랭킹 조회
     @GetMapping("/rankings")
-    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getRankings(
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate,

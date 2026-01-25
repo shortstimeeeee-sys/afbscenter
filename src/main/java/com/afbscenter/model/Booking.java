@@ -2,6 +2,9 @@ package com.afbscenter.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -19,6 +22,7 @@ public class Booking {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @NotNull(message = "시설은 필수입니다")
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "facility_id", nullable = false)
     private Facility facility;
@@ -37,21 +41,28 @@ public class Booking {
     @com.fasterxml.jackson.annotation.JsonIgnore
     private com.afbscenter.model.MemberProduct memberProduct; // 사용한 상품/이용권 (선택사항)
 
+    @Size(max = 255, message = "비회원 이름은 255자 이하여야 합니다")
     @Column(name = "non_member_name")
     private String nonMemberName; // 비회원 이름
 
+    @Size(max = 20, message = "비회원 전화번호는 20자 이하여야 합니다")
     @Column(name = "non_member_phone")
     private String nonMemberPhone; // 비회원 전화번호
 
+    @NotNull(message = "시작 시간은 필수입니다")
     @Column(name = "start_time", nullable = false)
     private LocalDateTime startTime;
 
+    @NotNull(message = "종료 시간은 필수입니다")
     @Column(name = "end_time", nullable = false)
     private LocalDateTime endTime;
 
+    @NotNull(message = "인원은 필수입니다")
+    @Positive(message = "인원은 1명 이상이어야 합니다")
     @Column(nullable = false)
     private Integer participants = 1; // 인원
 
+    @NotNull(message = "목적은 필수입니다")
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private BookingPurpose purpose;
@@ -64,16 +75,24 @@ public class Booking {
     @Column(nullable = false)
     private BookingStatus status = BookingStatus.PENDING;
 
+    @NotNull(message = "지점은 필수입니다")
+    @Enumerated(EnumType.STRING)
+    @Column(name = "branch", nullable = false)
+    private Branch branch = Branch.SAHA; // 지점 구분 (기본값: 사하점)
+
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_method")
     private PaymentMethod paymentMethod;
 
+    @jakarta.validation.constraints.Min(value = 0, message = "할인 금액은 0 이상이어야 합니다")
     @Column(name = "discount_amount")
     private Integer discountAmount = 0; // 할인 금액
 
+    @Size(max = 50, message = "쿠폰 코드는 50자 이하여야 합니다")
     @Column(name = "coupon_code")
     private String couponCode; // 쿠폰 코드
 
+    @Size(max = 1000, message = "메모는 1000자 이하여야 합니다")
     @Column(length = 1000)
     private String memo;
 
@@ -114,5 +133,11 @@ public class Booking {
         PREPAID,        // 선결제
         ON_SITE,        // 현장
         POSTPAID        // 후불
+    }
+
+    public enum Branch {
+        SAHA,           // 사하점
+        YEONSAN,        // 연산점
+        RENTAL          // 대관 (독립 운영)
     }
 }

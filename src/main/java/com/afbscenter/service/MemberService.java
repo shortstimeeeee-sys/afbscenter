@@ -1,22 +1,31 @@
 package com.afbscenter.service;
 
+import com.afbscenter.dto.MemberResponseDTO;
 import com.afbscenter.model.Coach;
 import com.afbscenter.model.Member;
 import com.afbscenter.model.Member.MemberGrade;
 import com.afbscenter.model.Member.MemberStatus;
+import com.afbscenter.model.MemberProduct;
+import com.afbscenter.model.Product;
+import com.afbscenter.repository.AttendanceRepository;
+import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.CoachRepository;
+import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.MemberRepository;
+import com.afbscenter.repository.PaymentRepository;
+import com.afbscenter.repository.ProductRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -26,12 +35,29 @@ public class MemberService {
 
     private final MemberRepository memberRepository;
     private final CoachRepository coachRepository;
+    private final PaymentRepository paymentRepository;
+    private final BookingRepository bookingRepository;
+    private final AttendanceRepository attendanceRepository;
+    private final MemberProductRepository memberProductRepository;
+    private final ProductRepository productRepository;
     private final JdbcTemplate jdbcTemplate;
 
-    @Autowired
-    public MemberService(MemberRepository memberRepository, CoachRepository coachRepository, JdbcTemplate jdbcTemplate) {
+    // 생성자 주입 (Spring 4.3+에서는 @Autowired 불필요)
+    public MemberService(MemberRepository memberRepository, 
+                        CoachRepository coachRepository,
+                        PaymentRepository paymentRepository,
+                        BookingRepository bookingRepository,
+                        AttendanceRepository attendanceRepository,
+                        MemberProductRepository memberProductRepository,
+                        ProductRepository productRepository,
+                        JdbcTemplate jdbcTemplate) {
         this.memberRepository = memberRepository;
         this.coachRepository = coachRepository;
+        this.paymentRepository = paymentRepository;
+        this.bookingRepository = bookingRepository;
+        this.attendanceRepository = attendanceRepository;
+        this.memberProductRepository = memberProductRepository;
+        this.productRepository = productRepository;
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -53,25 +79,9 @@ public class MemberService {
                 throw new IllegalArgumentException("성별은 필수입니다.");
             }
             
-            // 전화번호 중복 체크 (JdbcTemplate 사용하여 enum 변환 오류 방지)
-            try {
-                Integer count = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM members WHERE phone_number = ?", 
-                    Integer.class, 
-                    member.getPhoneNumber()
-                );
-                if (count != null && count > 0) {
-                    throw new IllegalArgumentException("이미 등록된 전화번호입니다.");
-                }
-            } catch (IllegalArgumentException e) {
-                throw e;
-            } catch (Exception e) {
-                logger.warn("전화번호 중복 체크 실패 (JPA로 재시도): {}", e.getMessage());
-                // JPA로 재시도
-                if (memberRepository.findByPhoneNumber(member.getPhoneNumber()).isPresent()) {
-                    throw new IllegalArgumentException("이미 등록된 전화번호입니다.");
-                }
-            }
+            // 전화번호 중복 허용 (형제/가족이 같은 번호 사용 가능)
+            // 프론트엔드에서 이미 확인 다이얼로그를 통해 사용자에게 경고함
+            logger.debug("전화번호 중복 체크 생략 (형제/가족 등록 지원)");
             
             // 등록 일자 및 시간 자동 설정
             if (member.getJoinDate() == null) {
@@ -115,35 +125,27 @@ public class MemberService {
                     String memberNumber = generateMemberNumber(member);
                     logger.debug("생성된 회원번호: {}", memberNumber);
                     
-                    // 회원번호 중복 체크 (최대 10회 재시도)
-                    int retryCount = 0;
-                    while (retryCount < 10) {
-                        try {
-                            // JdbcTemplate으로 중복 체크 (enum 변환 오류 방지)
-                            Integer count = jdbcTemplate.queryForObject(
-                                "SELECT COUNT(*) FROM members WHERE member_number = ?", 
-                                Integer.class, 
-                                memberNumber
+                    // 회원번호 중복 체크
+                    try {
+                        // JdbcTemplate으로 중복 체크 (enum 변환 오류 방지)
+                        Integer count = jdbcTemplate.queryForObject(
+                            "SELECT COUNT(*) FROM members WHERE member_number = ?", 
+                            Integer.class, 
+                            memberNumber
+                        );
+                        if (count != null && count > 0) {
+                            // 중복 발견 시 바로 오류 발생
+                            logger.error("회원번호 중복: {}", memberNumber);
+                            throw new IllegalArgumentException(
+                                String.format("회원번호 '%s'이(가) 이미 사용 중입니다. 시스템 오류일 수 있으니 관리자에게 문의하세요.", memberNumber)
                             );
-                            if (count == null || count == 0) {
-                                // 중복이 없으면 사용
-                                break;
-                            }
-                            logger.warn("회원번호 중복 발견: {}, 재생성 시도 {}", memberNumber, retryCount + 1);
-                            // 순번을 증가시켜서 재생성
-                            long totalMembers = memberRepository.count();
-                            int registrationOrder = (int) (totalMembers + 1 + retryCount + 1);
-                            String phonePart = extractPhonePart(member);
-                            memberNumber = String.format("M%d%s", registrationOrder, phonePart);
-                            retryCount++;
-                        } catch (Exception e) {
-                            logger.warn("회원번호 중복 체크 중 오류 (무시하고 계속): {}", e.getMessage());
-                            break; // 중복 체크 실패 시 생성된 번호 사용
                         }
-                    }
-                    
-                    if (retryCount >= 10) {
-                        throw new IllegalArgumentException("회원번호 생성에 실패했습니다. 중복 회원번호가 너무 많습니다.");
+                        logger.info("회원번호 중복 체크 완료: {}", memberNumber);
+                    } catch (IllegalArgumentException e) {
+                        throw e; // IllegalArgumentException은 그대로 던짐
+                    } catch (Exception e) {
+                        logger.warn("회원번호 중복 체크 중 오류 (계속 진행): {}", e.getMessage());
+                        // 중복 체크 실패 시 그대로 진행 (데이터베이스 제약 조건이 막아줌)
                     }
                     
                     member.setMemberNumber(memberNumber);
@@ -179,6 +181,10 @@ public class MemberService {
                 member.getGrade(), member.getStatus(), member.getJoinDate(), member.getCreatedAt(),
                 member.getBirthDate(), member.getHeight(), member.getWeight());
             
+            // 새 회원 등록이므로 ID를 명시적으로 null로 설정 (덮어쓰기 방지)
+            member.setId(null);
+            logger.info("회원 ID를 null로 설정하여 새 등록 강제");
+            
             try {
                 Member savedMember = memberRepository.save(member);
                 logger.info("회원 저장 성공: ID={}, 회원번호={}", savedMember.getId(), savedMember.getMemberNumber());
@@ -191,22 +197,13 @@ public class MemberService {
                 
                 String errorMessage = e.getMessage() != null ? e.getMessage() : "";
                 if (errorMessage.contains("member_number") || errorMessage.contains("MEMBER_NUMBER")) {
-                    // 회원번호 중복인 경우 재생성 시도
-                    logger.info("회원번호 중복으로 인한 재생성 시도: {}", member.getMemberNumber());
-                    try {
-                        member.setMemberNumber(null);
-                        String newMemberNumber = generateMemberNumber(member);
-                        member.setMemberNumber(newMemberNumber);
-                        logger.info("새 회원번호 생성: {}", newMemberNumber);
-                        return memberRepository.save(member);
-                    } catch (Exception e2) {
-                        logger.error("회원번호 재생성 실패: {}", e2.getMessage(), e2);
-                        throw new IllegalArgumentException("회원번호가 이미 존재합니다. 다시 시도해주세요.");
-                    }
+                    // 회원번호 중복 - 재생성하지 않고 바로 오류
+                    logger.error("회원번호 중복 오류: {}", member.getMemberNumber());
+                    throw new IllegalArgumentException(
+                        String.format("회원번호 '%s'이(가) 이미 사용 중입니다. 시스템 오류일 수 있으니 관리자에게 문의하세요.", member.getMemberNumber())
+                    );
                 }
-                if (errorMessage.contains("phone_number") || errorMessage.contains("PHONE_NUMBER")) {
-                    throw new IllegalArgumentException("이미 등록된 전화번호입니다.");
-                }
+                // 전화번호 중복은 허용 (형제/가족 등록)
                 throw new IllegalArgumentException("데이터 저장 중 오류가 발생했습니다: " + errorMessage);
             } catch (Exception e) {
                 logger.error("회원 저장 중 예상치 못한 오류: {}", e.getMessage(), e);
@@ -228,11 +225,11 @@ public class MemberService {
             
             String errorMessage = e.getMessage() != null ? e.getMessage() : "";
             if (errorMessage.contains("member_number") || errorMessage.contains("MEMBER_NUMBER")) {
-                throw new IllegalArgumentException("회원번호가 이미 존재합니다.");
+                throw new IllegalArgumentException(
+                    "회원번호가 이미 사용 중입니다. 시스템 오류일 수 있으니 관리자에게 문의하세요."
+                );
             }
-            if (errorMessage.contains("phone_number") || errorMessage.contains("PHONE_NUMBER")) {
-                throw new IllegalArgumentException("이미 등록된 전화번호입니다.");
-            }
+            // 전화번호 중복은 허용 (형제/가족 등록)
             throw new IllegalArgumentException("데이터 저장 중 오류가 발생했습니다: " + errorMessage);
         } catch (Exception e) {
             logger.error("회원 등록 중 예상치 못한 오류: {}", e.getMessage(), e);
@@ -341,6 +338,353 @@ public class MemberService {
     @Transactional(readOnly = true)
     public List<Member> getAllMembers() {
         return memberRepository.findAllOrderByName();
+    }
+    
+    /**
+     * 필터링된 회원 목록을 DTO로 변환하여 반환
+     * Controller의 비즈니스 로직을 Service로 이동
+     */
+    @Transactional(readOnly = true)
+    public List<MemberResponseDTO> getAllMembersWithFilters(String productCategory, String grade, String status, String branch) {
+        List<Member> members = memberRepository.findAllOrderByName();
+        
+        // 등급별 필터링
+        if (grade != null && !grade.trim().isEmpty()) {
+            try {
+                MemberGrade gradeEnum = MemberGrade.valueOf(grade.toUpperCase());
+                members = members.stream()
+                        .filter(member -> member.getGrade() == gradeEnum)
+                        .collect(Collectors.toList());
+                logger.info("회원 목록 등급 필터링: {} - {}명", gradeEnum, members.size());
+            } catch (IllegalArgumentException e) {
+                logger.warn("잘못된 등급 파라미터: {}", grade);
+            }
+        }
+        
+        // 상태별 필터링
+        if (status != null && !status.trim().isEmpty()) {
+            try {
+                MemberStatus statusEnum = MemberStatus.valueOf(status.toUpperCase());
+                members = members.stream()
+                        .filter(member -> member.getStatus() == statusEnum)
+                        .collect(Collectors.toList());
+                logger.info("회원 목록 상태 필터링: {} - {}명", statusEnum, members.size());
+            } catch (IllegalArgumentException e) {
+                logger.warn("잘못된 상태 파라미터: {}", status);
+            }
+        }
+        
+        // 각 회원을 DTO로 변환
+        List<MemberResponseDTO> memberDTOs = new java.util.ArrayList<>();
+        for (Member member : members) {
+            try {
+                // 누적 결제 금액 계산
+                // 1. 먼저 Payment 테이블에서 계산
+                Integer totalPayment = null;
+                try {
+                    totalPayment = paymentRepository.sumTotalAmountByMemberId(member.getId());
+                    if (totalPayment == null) {
+                        totalPayment = 0;
+                    }
+                } catch (Exception e) {
+                    logger.warn("결제 금액 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage(), e);
+                    totalPayment = 0;
+                }
+                
+                // 2. Payment가 0이거나 없으면 MemberProduct를 기반으로 자동 계산
+                // (누락된 결제가 있는 경우를 대비)
+                if (totalPayment == null || totalPayment == 0) {
+                    try {
+                        List<MemberProduct> memberProducts = memberProductRepository.findByMemberIdWithProduct(member.getId());
+                        if (memberProducts != null && !memberProducts.isEmpty()) {
+                            int calculatedTotal = 0;
+                            for (MemberProduct mp : memberProducts) {
+                                if (mp.getProduct() != null && mp.getProduct().getPrice() != null) {
+                                    Integer price = mp.getProduct().getPrice();
+                                    if (price > 0) {
+                                        calculatedTotal += price;
+                                    }
+                                }
+                            }
+                            if (calculatedTotal > 0) {
+                                logger.debug("Payment가 없어 MemberProduct 기반으로 누적 결제 금액 계산: Member ID={}, 계산된 금액={}", 
+                                    member.getId(), calculatedTotal);
+                                totalPayment = calculatedTotal;
+                            }
+                        }
+                    } catch (Exception e) {
+                        logger.warn("MemberProduct 기반 결제 금액 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
+                    }
+                }
+                
+                logger.debug("회원 누적 결제 금액 계산 완료: Member ID={}, Total Payment={}", member.getId(), totalPayment);
+                
+                // 최근 레슨 날짜 계산
+                LocalDate latestLessonDate = null;
+                try {
+                    List<com.afbscenter.model.Booking> latestLessons = bookingRepository.findLatestLessonByMemberId(member.getId());
+                    if (latestLessons != null && !latestLessons.isEmpty()) {
+                        latestLessonDate = latestLessons.get(0).getStartTime().toLocalDate();
+                    }
+                } catch (Exception e) {
+                    logger.warn("최근 레슨 날짜 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
+                }
+                
+                // 회원 상품 정보 (lazy loading 방지를 위해 JOIN FETCH 사용) - 먼저 조회
+                List<MemberProduct> allMemberProducts = null;
+                try {
+                    allMemberProducts = memberProductRepository.findByMemberIdWithProduct(member.getId());
+                } catch (Exception e) {
+                    logger.warn("회원 상품 조회 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
+                    allMemberProducts = new java.util.ArrayList<>();
+                }
+                
+                // 횟수권 남은 횟수 계산 (allMemberProducts 사용)
+                int remainingCount = 0;
+                try {
+                    // allMemberProducts에서 횟수권 필터링 (이미 product가 로드되어 있음)
+                    if (allMemberProducts != null) {
+                        for (MemberProduct mp : allMemberProducts) {
+                            try {
+                                // 횟수권인지 확인
+                                if (mp.getProduct() == null || 
+                                    mp.getProduct().getType() != Product.ProductType.COUNT_PASS ||
+                                    mp.getStatus() != MemberProduct.Status.ACTIVE) {
+                                    continue;
+                                }
+                                
+                                Integer mpRemainingCount = mp.getRemainingCount();
+                                
+                                // remainingCount가 null이거나 0인 경우 재계산
+                                // (0인 경우도 재계산하여 실제 사용 횟수 기반으로 정확한 값 확인)
+                                if (mpRemainingCount == null || mpRemainingCount == 0) {
+                                    Integer totalCount = mp.getTotalCount();
+                                    if (totalCount == null || totalCount <= 0) {
+                                        try {
+                                            if (mp.getProduct() != null) {
+                                                totalCount = mp.getProduct().getUsageCount();
+                                            }
+                                        } catch (Exception e) {
+                                            logger.warn("Product 정보 로드 실패 (MemberProduct ID: {}): {}", 
+                                                mp.getId(), e.getMessage());
+                                        }
+                                        if (totalCount == null || totalCount <= 0) {
+                                            totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                                        }
+                                    }
+                                    
+                                    // 체크인된 출석 기록 수 (가장 정확한 데이터)
+                                    Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(member.getId(), mp.getId());
+                                    if (usedCountByAttendance == null) {
+                                        usedCountByAttendance = 0L;
+                                    }
+                                    
+                                    // 체크인된 예약 수 (출석 기록이 없는 경우를 대비)
+                                    // 주의: countConfirmedBookingsByMemberProductId는 이제 체크인된 예약만 카운트하므로
+                                    // 출석 기록과 중복될 수 있음. 출석 기록을 우선 사용
+                                    Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
+                                    if (usedCountByBooking == null) {
+                                        usedCountByBooking = 0L;
+                                    }
+                                    
+                                    // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용 (중복 방지)
+                                    Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
+                                    mpRemainingCount = totalCount - actualUsedCount.intValue();
+                                    if (mpRemainingCount < 0) {
+                                        mpRemainingCount = 0;
+                                    }
+                                    
+                                    // 계산된 값을 MemberProduct 객체에 반영 (DTO에 전달되도록)
+                                    mp.setRemainingCount(mpRemainingCount);
+                                    if (mp.getTotalCount() == null || mp.getTotalCount() <= 0) {
+                                        mp.setTotalCount(totalCount);
+                                    }
+                                }
+                                
+                                if (mpRemainingCount < 0) {
+                                    mpRemainingCount = 0;
+                                }
+                                
+                                remainingCount += mpRemainingCount;
+                            } catch (Exception e) {
+                                logger.warn("회원 상품 잔여 횟수 계산 실패 (Member ID: {}, MemberProduct ID: {}): {}", 
+                                        member.getId(), mp != null ? mp.getId() : "null", e.getMessage());
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("횟수권 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
+                }
+                
+                // 기간권 정보
+                MemberProduct activePeriodPass = null;
+                try {
+                    // allMemberProducts에서 기간권 필터링 (이미 product가 로드되어 있음)
+                    if (allMemberProducts != null) {
+                        activePeriodPass = allMemberProducts.stream()
+                            .filter(mp -> {
+                                try {
+                                    return mp.getProduct() != null && 
+                                           mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS &&
+                                           mp.getStatus() == MemberProduct.Status.ACTIVE && 
+                                           mp.getExpiryDate() != null;
+                                } catch (Exception e) {
+                                    logger.warn("기간권 필터링 중 오류 (MemberProduct ID: {}): {}", 
+                                        mp != null ? mp.getId() : "null", e.getMessage());
+                                    return false;
+                                }
+                            })
+                            .filter(mp -> {
+                                try {
+                                    return mp.getExpiryDate().isAfter(LocalDate.now()) || 
+                                           mp.getExpiryDate().isEqual(LocalDate.now());
+                                } catch (Exception e) {
+                                    return false;
+                                }
+                            })
+                            .findFirst()
+                            .orElse(null);
+                    }
+                } catch (Exception e) {
+                    logger.warn("기간권 조회 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
+                }
+                
+                MemberResponseDTO dto = MemberResponseDTO.fromMember(member, totalPayment, latestLessonDate, 
+                        remainingCount, allMemberProducts, activePeriodPass);
+                memberDTOs.add(dto);
+            } catch (Exception e) {
+                logger.error("회원 DTO 변환 실패 (Member ID: {}): {}", 
+                    member != null ? member.getId() : "null", e.getMessage(), e);
+                // 개별 회원 변환 실패해도 계속 진행
+            }
+        }
+        
+        // 상품 카테고리별 필터링
+        if (productCategory != null && !productCategory.trim().isEmpty()) {
+            try {
+                Product.ProductCategory categoryEnum = Product.ProductCategory.valueOf(productCategory.toUpperCase());
+                
+                memberDTOs = memberDTOs.stream()
+                    .filter(memberDTO -> {
+                        List<MemberResponseDTO.MemberProductInfo> memberProducts = memberDTO.getMemberProducts();
+                        
+                        if (memberProducts == null || memberProducts.isEmpty()) {
+                            return false;
+                        }
+                        
+                        return memberProducts.stream().anyMatch(mp -> {
+                            if (!"ACTIVE".equals(mp.getStatus())) return false;
+                            
+                            MemberResponseDTO.ProductInfo product = mp.getProduct();
+                            if (product == null) return false;
+                            
+                            String productCategoryStr = product.getCategory();
+                            if (productCategoryStr == null || "GENERAL".equals(productCategoryStr)) return true;
+                            
+                            // 정확히 일치하는 경우
+                            if (categoryEnum.name().equals(productCategoryStr)) {
+                                return true;
+                            }
+                            
+                            // TRAINING_FITNESS 요청 시: TRAINING_FITNESS, TRAINING, PILATES 모두 포함
+                            if (categoryEnum == Product.ProductCategory.TRAINING_FITNESS) {
+                                return "TRAINING_FITNESS".equals(productCategoryStr) ||
+                                       "TRAINING".equals(productCategoryStr) ||
+                                       "PILATES".equals(productCategoryStr);
+                            }
+                            
+                            return false;
+                        });
+                    })
+                    .collect(Collectors.toList());
+                
+                logger.info("회원 목록 카테고리 필터링: {} - {}명", categoryEnum, memberDTOs.size());
+            } catch (IllegalArgumentException e) {
+                logger.warn("잘못된 상품 카테고리 파라미터: {}", productCategory);
+            }
+        }
+        
+        // 지점별 필터링 (코치의 배정 지점 기준)
+        // 야구(BASEBALL)는 모든 지점에서 가능하므로 필터링하지 않음
+        // 트레이닝+필라테스(TRAINING_FITNESS)만 지점별로 필터링
+        if (branch != null && !branch.trim().isEmpty() && 
+            productCategory != null && !productCategory.trim().isEmpty() &&
+            !productCategory.toUpperCase().equals("BASEBALL")) {
+            try {
+                String branchUpper = branch.trim().toUpperCase();
+                memberDTOs = memberDTOs.stream()
+                    .filter(memberDTO -> {
+                        // 회원의 담당 코치 확인
+                        if (memberDTO.getCoach() != null && memberDTO.getCoach().getId() != null) {
+                            try {
+                                Optional<Coach> coachOpt = coachRepository.findById(memberDTO.getCoach().getId());
+                                if (coachOpt.isPresent()) {
+                                    Coach coach = coachOpt.get();
+                                    if (coach.getAvailableBranches() != null) {
+                                        String[] branches = coach.getAvailableBranches().split(",");
+                                        for (String b : branches) {
+                                            if (b.trim().toUpperCase().equals(branchUpper)) {
+                                                return true; // 회원의 담당 코치가 해당 지점에 배정됨
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (Exception e) {
+                                logger.warn("코치 정보 조회 실패 (Coach ID: {}): {}", 
+                                    memberDTO.getCoach().getId(), e.getMessage());
+                            }
+                        }
+                        
+                        // 회원의 활성 상품의 담당 코치 확인 (트레이닝+필라테스 관련 상품만)
+                        List<MemberResponseDTO.MemberProductInfo> memberProducts = memberDTO.getMemberProducts();
+                        if (memberProducts != null && !memberProducts.isEmpty()) {
+                            for (MemberResponseDTO.MemberProductInfo mp : memberProducts) {
+                                if (!"ACTIVE".equals(mp.getStatus())) continue;
+                                
+                                MemberResponseDTO.ProductInfo product = mp.getProduct();
+                                if (product == null) continue;
+                                
+                                // 트레이닝+필라테스 관련 상품만 확인 (BASEBALL 제외)
+                                String productCategoryStr = product.getCategory();
+                                if (productCategoryStr != null && 
+                                    ("BASEBALL".equals(productCategoryStr) || "RENTAL".equals(productCategoryStr))) {
+                                    continue; // 야구/대관 상품은 지점 필터링 대상 아님
+                                }
+                                
+                                // 상품의 담당 코치 확인
+                                if (product.getCoach() != null && product.getCoach().getId() != null) {
+                                    try {
+                                        Optional<Coach> coachOpt = coachRepository.findById(product.getCoach().getId());
+                                        if (coachOpt.isPresent()) {
+                                            Coach coach = coachOpt.get();
+                                            if (coach.getAvailableBranches() != null) {
+                                                String[] branches = coach.getAvailableBranches().split(",");
+                                                for (String b : branches) {
+                                                    if (b.trim().toUpperCase().equals(branchUpper)) {
+                                                        return true; // 상품의 담당 코치가 해당 지점에 배정됨
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } catch (Exception e) {
+                                        logger.warn("상품 코치 정보 조회 실패 (Coach ID: {}): {}", 
+                                            product.getCoach().getId(), e.getMessage());
+                                    }
+                                }
+                            }
+                        }
+                        
+                        return false; // 해당 지점에 배정된 코치가 없음
+                    })
+                    .collect(Collectors.toList());
+                
+                logger.info("회원 목록 지점 필터링: {} (카테고리: {}) - {}명", branchUpper, productCategory, memberDTOs.size());
+            } catch (Exception e) {
+                logger.warn("지점 필터링 실패: {}", e.getMessage());
+            }
+        }
+        
+        return memberDTOs;
     }
     
     // 회원 등급 마이그레이션 (별도 트랜잭션으로 실행)
@@ -551,13 +895,8 @@ public class MemberService {
         boolean guardianPhoneChanged = (member.getGuardianPhone() == null && updatedMember.getGuardianPhone() != null) ||
                                       (member.getGuardianPhone() != null && !member.getGuardianPhone().equals(updatedMember.getGuardianPhone()));
         
-        // 전화번호 변경 시 중복 체크
-        if (phoneNumberChanged && updatedMember.getPhoneNumber() != null) {
-            Optional<Member> existingMember = memberRepository.findByPhoneNumber(updatedMember.getPhoneNumber());
-            if (existingMember.isPresent() && !existingMember.get().getId().equals(id)) {
-                throw new IllegalArgumentException("이미 등록된 전화번호입니다.");
-            }
-        }
+        // 전화번호 중복 체크 제거 (형제/가족이 같은 번호 사용 가능)
+        logger.debug("전화번호 중복 체크 생략 (형제/가족 등록 지원)");
         
         // 소급 등록 여부 확인: 가입일/등록일시만 변경하고 전화번호는 변경하지 않은 경우
         boolean isBackdateOnly = (updatedMember.getJoinDate() != null || updatedMember.getCreatedAt() != null) &&
@@ -603,6 +942,10 @@ public class MemberService {
         if (updatedMember.getSchool() != null) {
             member.setSchool(updatedMember.getSchool());
         }
+        // 훈련 기록 (야구 기록)
+        member.setSwingSpeed(updatedMember.getSwingSpeed());
+        member.setExitVelocity(updatedMember.getExitVelocity());
+        member.setPitchingSpeed(updatedMember.getPitchingSpeed());
         // 코치 설정
         if (updatedMember.getCoach() != null && updatedMember.getCoach().getId() != null) {
             Coach coach = coachRepository.findById(updatedMember.getCoach().getId())
@@ -817,4 +1160,68 @@ public class MemberService {
     // - 회원2 등록: ID=2, 회원번호=M212345678
     // - 회원1 삭제 후 회원3 등록: ID=3, 회원번호=M312345678
     //   (ID는 3이지만, 회원번호의 순번은 3번째 등록을 의미)
+    
+    /**
+     * 모든 회원 삭제 (위험한 작업 - 주의 필요)
+     * 관련된 모든 데이터도 함께 삭제됩니다.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteAllMembers() {
+        try {
+            logger.warn("⚠️ 회원 전체 삭제 시작");
+            
+            // H2에서 외래키 제약 조건 일시적으로 비활성화
+            jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY FALSE");
+            
+            try {
+                // 관련 데이터 삭제 순서 (외래키 제약 조건 고려)
+                // 1. Payments
+                int paymentsDeleted = jdbcTemplate.update("DELETE FROM payments");
+                logger.info("Payment 삭제 완료: {} 건", paymentsDeleted);
+                
+                // 2. Attendances
+                int attendancesDeleted = jdbcTemplate.update("DELETE FROM attendances");
+                logger.info("Attendance 삭제 완료: {} 건", attendancesDeleted);
+                
+                // 3. Bookings
+                int bookingsDeleted = jdbcTemplate.update("DELETE FROM bookings");
+                logger.info("Booking 삭제 완료: {} 건", bookingsDeleted);
+                
+                // 4. TrainingLogs
+                int trainingLogsDeleted = jdbcTemplate.update("DELETE FROM training_logs");
+                logger.info("TrainingLog 삭제 완료: {} 건", trainingLogsDeleted);
+                
+                // 5. BaseballRecords
+                int baseballRecordsDeleted = jdbcTemplate.update("DELETE FROM baseball_records");
+                logger.info("BaseballRecord 삭제 완료: {} 건", baseballRecordsDeleted);
+                
+                // 6. MemberProducts
+                int memberProductsDeleted = jdbcTemplate.update("DELETE FROM member_products");
+                logger.info("MemberProduct 삭제 완료: {} 건", memberProductsDeleted);
+                
+                // 7. Messages
+                int messagesDeleted = jdbcTemplate.update("DELETE FROM messages");
+                logger.info("Message 삭제 완료: {} 건", messagesDeleted);
+                
+                // 8. 마지막으로 Members 삭제
+                int membersDeleted = jdbcTemplate.update("DELETE FROM members");
+                logger.warn("⚠️ Member 삭제 완료: {} 건", membersDeleted);
+                
+            } finally {
+                // 외래키 제약 조건 다시 활성화
+                jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY TRUE");
+            }
+            
+            logger.warn("⚠️ 회원 전체 삭제 완료");
+        } catch (Exception e) {
+            logger.error("회원 전체 삭제 중 오류 발생: {}", e.getMessage(), e);
+            // 오류 발생 시에도 외래키 제약 조건 다시 활성화 시도
+            try {
+                jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY TRUE");
+            } catch (Exception ex) {
+                logger.warn("외래키 제약 조건 재활성화 실패: {}", ex.getMessage());
+            }
+            throw new RuntimeException("회원 전체 삭제 중 오류가 발생했습니다: " + e.getMessage(), e);
+        }
+    }
 }

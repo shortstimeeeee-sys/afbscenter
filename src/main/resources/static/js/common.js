@@ -352,9 +352,10 @@ App.Pagination = {
 // ========================================
 App.CoachColors = {
     // 확장된 색상 팔레트 (중복 방지)
+    // 빨간색(#F44336) 제거 - 고정 색상과 충돌 방지
     default: [
         '#5E6AD2', '#4CAF50', '#FF9800', '#E91E63', '#00BCD4', 
-        '#9C27B0', '#F44336', '#795548', '#2196F3', '#FF5722',
+        '#9C27B0', '#795548', '#2196F3', '#FF5722',
         '#009688', '#FFC107', '#673AB7', '#CDDC39', '#FF4081',
         '#3F51B5', '#8BC34A', '#FF6B6B', '#4ECDC4', '#45B7D1'
     ],
@@ -391,7 +392,7 @@ App.CoachColors = {
         // 사하점 강사
         '김가영 [강사]': '#795548',          // 9. 브라운
         '김가영': '#795548',
-        '김소연 [강사]': '#009688',          // 10. 틸
+        '김소연 [강사]': '#009688',          // 10. 틸 (이원준 청록과 구분되는 색상)
         '김소연': '#009688',
         '조혜진 [강사]': '#673AB7',          // 11. 진보라
         '조혜진': '#673AB7'
@@ -404,16 +405,45 @@ App.CoachColors = {
     getColor: function(coach) {
         if (!coach) return null;
         const coachId = coach.id || coach;
-        const coachName = coach.name || '';
+        let coachName = coach.name || '';
         
-        // 고정 색상이 있으면 우선 사용
-        if (this.fixedColors[coachName]) {
+        // 고정 색상이 있으면 우선 사용 (캐시 완전히 무시하고 항상 고정 색상 사용)
+        // 먼저 정확한 이름으로 찾기
+        if (coachName && this.fixedColors[coachName]) {
             const fixedColor = this.fixedColors[coachName];
+            // 고정 색상은 항상 캐시에 저장하여 일관성 유지 (기존 캐시 덮어쓰기)
             this.colorCache[coachId] = fixedColor;
             return fixedColor;
         }
         
-        // 캐시에 있으면 반환
+        // 이름에 공백이나 특수문자가 있을 수 있으므로 trim 처리
+        const trimmedName = coachName.trim();
+        if (trimmedName && this.fixedColors[trimmedName]) {
+            const fixedColor = this.fixedColors[trimmedName];
+            // 고정 색상은 항상 캐시에 저장하여 일관성 유지 (기존 캐시 덮어쓰기)
+            this.colorCache[coachId] = fixedColor;
+            return fixedColor;
+        }
+        
+        // 부분 일치 검색 (예: "김소연 [강사]"에서 "김소연" 추출)
+        if (trimmedName) {
+            // 대괄호 앞의 이름만 추출
+            const nameWithoutTitle = trimmedName.split(' [')[0].trim();
+            if (nameWithoutTitle && this.fixedColors[nameWithoutTitle]) {
+                const fixedColor = this.fixedColors[nameWithoutTitle];
+                this.colorCache[coachId] = fixedColor;
+                return fixedColor;
+            }
+            
+            // 대괄호 포함 전체 이름도 확인
+            if (this.fixedColors[trimmedName]) {
+                const fixedColor = this.fixedColors[trimmedName];
+                this.colorCache[coachId] = fixedColor;
+                return fixedColor;
+            }
+        }
+        
+        // 고정 색상이 없을 때만 캐시 확인
         if (this.colorCache[coachId]) {
             return this.colorCache[coachId];
         }
@@ -455,8 +485,24 @@ App.CoachColors = {
     // 색상 캐시 초기화
     resetCache: function() {
         this.colorCache = {};
+    },
+    
+    // 고정 색상 강제 적용 (캐시 무시)
+    forceFixedColor: function(coachName) {
+        if (!coachName) return null;
+        const trimmedName = coachName.trim();
+        return this.fixedColors[trimmedName] || null;
     }
 };
+
+// 페이지 로드 시 색상 캐시 초기화 (고정 색상 우선 적용 보장)
+if (typeof document !== 'undefined') {
+    document.addEventListener('DOMContentLoaded', function() {
+        if (App.CoachColors) {
+            App.CoachColors.resetCache();
+        }
+    });
+}
 
 // ========================================
 // 상태 관리 유틸리티

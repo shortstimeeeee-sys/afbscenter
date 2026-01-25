@@ -4,14 +4,16 @@ import com.afbscenter.model.Booking;
 import com.afbscenter.model.Facility;
 import com.afbscenter.model.Member;
 import com.afbscenter.model.Payment;
+import com.afbscenter.model.Settings;
 import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.FacilityRepository;
 import com.afbscenter.repository.MemberRepository;
+import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.PaymentRepository;
+import com.afbscenter.repository.SettingsRepository;
 import com.afbscenter.service.MemberService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,25 +27,51 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/analytics")
-@CrossOrigin(origins = "http://localhost:8080")
 public class AnalyticsController {
 
     private static final Logger logger = LoggerFactory.getLogger(AnalyticsController.class);
 
-    @Autowired
-    private BookingRepository bookingRepository;
+    private final BookingRepository bookingRepository;
+    private final PaymentRepository paymentRepository;
+    private final MemberRepository memberRepository;
+    private final MemberProductRepository memberProductRepository;
+    private final FacilityRepository facilityRepository;
+    private final MemberService memberService;
+    private final SettingsRepository settingsRepository;
 
-    @Autowired
-    private PaymentRepository paymentRepository;
-
-    @Autowired
-    private MemberRepository memberRepository;
-
-    @Autowired
-    private FacilityRepository facilityRepository;
-
-    @Autowired
-    private MemberService memberService;
+    public AnalyticsController(BookingRepository bookingRepository,
+                               PaymentRepository paymentRepository,
+                               MemberRepository memberRepository,
+                               MemberProductRepository memberProductRepository,
+                               FacilityRepository facilityRepository,
+                               MemberService memberService,
+                               SettingsRepository settingsRepository) {
+        this.bookingRepository = bookingRepository;
+        this.paymentRepository = paymentRepository;
+        this.memberRepository = memberRepository;
+        this.memberProductRepository = memberProductRepository;
+        this.facilityRepository = facilityRepository;
+        this.memberService = memberService;
+        this.settingsRepository = settingsRepository;
+    }
+    
+    /**
+     * Settings에서 기본 세션 시간을 가져옵니다. 없으면 상수 기본값을 사용합니다.
+     */
+    private int getDefaultSessionDuration() {
+        try {
+            List<Settings> settingsList = settingsRepository.findAll();
+            if (!settingsList.isEmpty()) {
+                Settings settings = settingsList.get(0);
+                if (settings.getDefaultSessionDuration() != null && settings.getDefaultSessionDuration() > 0) {
+                    return settings.getDefaultSessionDuration();
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Settings에서 기본 세션 시간 조회 실패, 상수 기본값 사용: {}", e.getMessage());
+        }
+        return com.afbscenter.constants.BookingDefaults.DEFAULT_BOOKING_MINUTES;
+    }
 
     // 카테고리별 결제 세부 내역 조회
     @GetMapping("/revenue/category/{category}")
@@ -537,7 +565,8 @@ public class AnalyticsController {
             LocalDateTime startDateTime = start.atStartOfDay();
             LocalDateTime endDateTime = end.atTime(LocalTime.MAX);
             
-            logger.info("Analytics 조회 - 기간: {} ~ {}, period: {}", start, end, period);
+            logger.info("Analytics 조회 - 기간: {} ~ {}, period: {}, startDateTime: {}, endDateTime: {}", 
+                start, end, period, startDateTime, endDateTime);
             
             // 예약 데이터 조회
             List<Booking> bookings = bookingRepository.findByDateRange(startDateTime, endDateTime);
@@ -560,11 +589,58 @@ public class AnalyticsController {
             }
             
             // 결제 데이터 조회 (코치 정보 포함)
-            List<Payment> payments = paymentRepository.findAllWithCoach().stream()
-                    .filter(p -> p.getPaidAt() != null && 
-                               !p.getPaidAt().isBefore(startDateTime) && 
-                               !p.getPaidAt().isAfter(endDateTime))
+            List<Payment> allPayments = paymentRepository.findAllWithCoach();
+            logger.info("전체 결제 데이터 조회 완료 - 총 {}건", allPayments.size());
+            
+            // 전체 결제 데이터 상세 로그 (처음 10개)
+            if (!allPayments.isEmpty()) {
+                logger.info("전체 결제 데이터 샘플 (처음 10개):");
+                for (int i = 0; i < Math.min(10, allPayments.size()); i++) {
+                    Payment p = allPayments.get(i);
+                    logger.info("  결제 #{}: ID={}, Amount={}, Category={}, Status={}, PaidAt={}, Product={}, Booking={}, Member={}", 
+                        i + 1, p.getId(), p.getAmount(), p.getCategory(), p.getStatus(), 
+                        p.getPaidAt(), p.getProduct() != null ? p.getProduct().getId() : null,
+                        p.getBooking() != null ? p.getBooking().getId() : null,
+                        p.getMember() != null ? p.getMember().getId() : null);
+                }
+            }
+            
+            // 필터링 적용
+            List<Payment> payments = allPayments.stream()
+                    .filter(p -> {
+                        boolean hasPaidAt = p.getPaidAt() != null;
+                        boolean inDateRange = hasPaidAt && 
+                                           !p.getPaidAt().isBefore(startDateTime) && 
+                                           !p.getPaidAt().isAfter(endDateTime);
+                        boolean isCompleted = p.getStatus() == null || p.getStatus() == Payment.PaymentStatus.COMPLETED;
+                        
+                        if (!hasPaidAt) {
+                            logger.debug("결제 필터링 제외 (paidAt null): Payment ID={}", p.getId());
+                        } else if (!inDateRange) {
+                            logger.debug("결제 필터링 제외 (날짜 범위 밖): Payment ID={}, PaidAt={}, 기간: {} ~ {}", 
+                                p.getId(), p.getPaidAt(), startDateTime, endDateTime);
+                        } else if (!isCompleted) {
+                            logger.debug("결제 필터링 제외 (상태): Payment ID={}, Status={}", p.getId(), p.getStatus());
+                        }
+                        
+                        return hasPaidAt && inDateRange && isCompleted;
+                    })
                     .collect(Collectors.toList());
+            
+            logger.info("Analytics 결제 데이터 조회 - 기간: {} ~ {} ({} ~ {}), 필터링 후 결제 수: {}건", 
+                start, end, startDateTime, endDateTime, payments.size());
+            
+            // 필터링된 결제 데이터 상세 로그 (처음 5개만)
+            if (!payments.isEmpty()) {
+                logger.info("필터링된 결제 데이터 샘플 (처음 5개):");
+                for (int i = 0; i < Math.min(5, payments.size()); i++) {
+                    Payment p = payments.get(i);
+                    logger.info("  결제 #{}: ID={}, Amount={}, Category={}, Status={}, PaidAt={}, Product={}, Booking={}", 
+                        i + 1, p.getId(), p.getAmount(), p.getCategory(), p.getStatus(), 
+                        p.getPaidAt(), p.getProduct() != null ? p.getProduct().getId() : null,
+                        p.getBooking() != null ? p.getBooking().getId() : null);
+                }
+            }
             
             // 회원 데이터 조회
             List<Member> members = memberRepository.findAll();
@@ -635,7 +711,7 @@ public class AnalyticsController {
         logger.info("시설별 가동률 계산 시작 - 시설 수: {}, 예약 수: {}", facilities.size(), bookings.size());
         
         for (Facility facility : facilities) {
-            // 해당 시설의 확정/완료 예약만 필터링
+            // 해당 시설의 예약 필터링 (확정/완료/대기 상태 모두 포함, 취소/노쇼 제외)
             List<Booking> facilityBookings = bookings.stream()
                     .filter(b -> {
                         try {
@@ -644,7 +720,8 @@ public class AnalyticsController {
                             Long facilityId = b.getFacility().getId();
                             boolean matches = facilityId != null && facilityId.equals(facility.getId()) &&
                                            (b.getStatus() == Booking.BookingStatus.CONFIRMED || 
-                                            b.getStatus() == Booking.BookingStatus.COMPLETED);
+                                            b.getStatus() == Booking.BookingStatus.COMPLETED ||
+                                            b.getStatus() == Booking.BookingStatus.PENDING);
                             return matches;
                         } catch (Exception e) {
                             logger.warn("예약 필터링 중 오류 (Booking ID: {}): {}", b.getId(), e.getMessage());
@@ -667,11 +744,12 @@ public class AnalyticsController {
                         logger.info("  예약 ID {}: 시작={}, 종료={}, 시간(분)={}", 
                             booking.getId(), booking.getStartTime(), booking.getEndTime(), minutes);
                         
-                        // 예약 시간이 0이거나 음수인 경우 기본값 60분(1시간) 사용
+                        // 예약 시간이 0이거나 음수인 경우 기본값 사용
                         if (minutes <= 0) {
-                            logger.warn("예약 시간이 0이거나 음수입니다 - Booking ID: {}, 시작: {}, 종료: {}, 계산된 분: {}. 기본값 60분 사용", 
-                                booking.getId(), booking.getStartTime(), booking.getEndTime(), minutes);
-                            minutes = 60; // 기본값 1시간
+                            int defaultMinutes = getDefaultSessionDuration();
+                            logger.warn("예약 시간이 0이거나 음수입니다 - Booking ID: {}, 시작: {}, 종료: {}, 계산된 분: {}. 기본값 {}분 사용", 
+                                booking.getId(), booking.getStartTime(), booking.getEndTime(), minutes, defaultMinutes);
+                            minutes = defaultMinutes;
                         }
                         totalBookedMinutes += minutes;
                         
@@ -680,13 +758,15 @@ public class AnalyticsController {
                         hourlyBookingCount.put(startHour, hourlyBookingCount.getOrDefault(startHour, 0L) + 1);
                         hourlyBookingMinutes.put(startHour, hourlyBookingMinutes.getOrDefault(startHour, 0L) + minutes);
                     } else {
-                        logger.warn("예약 시간 정보 없음 - Booking ID: {}, 시작: {}, 종료: {}. 기본값 60분 사용", 
-                            booking.getId(), booking.getStartTime(), booking.getEndTime());
-                        totalBookedMinutes += 60; // 기본값 1시간
+                        int defaultMinutes = getDefaultSessionDuration();
+                        logger.warn("예약 시간 정보 없음 - Booking ID: {}, 시작: {}, 종료: {}. 기본값 {}분 사용", 
+                            booking.getId(), booking.getStartTime(), booking.getEndTime(), defaultMinutes);
+                        totalBookedMinutes += defaultMinutes;
                     }
                 } catch (Exception e) {
-                    logger.warn("예약 시간 계산 중 오류 (Booking ID: {}): {}. 기본값 60분 사용", booking.getId(), e.getMessage(), e);
-                    totalBookedMinutes += 60; // 기본값 1시간
+                    int defaultMinutes = getDefaultSessionDuration();
+                    logger.warn("예약 시간 계산 중 오류 (Booking ID: {}): {}. 기본값 {}분 사용", booking.getId(), e.getMessage(), e, defaultMinutes);
+                    totalBookedMinutes += defaultMinutes;
                 }
             }
             
@@ -723,11 +803,12 @@ public class AnalyticsController {
                 logger.info("시설 {} - 운영 시간: {} ~ {}, 일수: {}, 일일 운영 시간(분): {}, 총 운영 시간(분): {}", 
                     facility.getName(), openTime, closeTime, totalDaysInPeriod, dailyMinutes, totalAvailableMinutes);
             } else {
-                // 운영 시간이 설정되지 않은 경우, 기본값으로 24시간 사용
-                dailyMinutes = 24 * 60; // 하루 24시간 = 1440분
+                // 운영 시간이 설정되지 않은 경우, 기본값 사용
+                int defaultOperatingHours = com.afbscenter.constants.BookingDefaults.DEFAULT_OPERATING_HOURS;
+                dailyMinutes = defaultOperatingHours * 60; // 하루 기본 시간 = 분
                 totalAvailableMinutes = dailyMinutes * totalDaysInPeriod;
-                logger.info("시설 {} - 운영 시간 미설정, 기본값 24시간 사용, 일수: {}, 총 운영 시간(분): {}", 
-                    facility.getName(), totalDaysInPeriod, totalAvailableMinutes);
+                logger.info("시설 {} - 운영 시간 미설정, 기본값 {}시간 사용, 일수: {}, 총 운영 시간(분): {}", 
+                    facility.getName(), defaultOperatingHours, totalDaysInPeriod, totalAvailableMinutes);
             }
             
             // 가동률 계산 (%)
@@ -840,6 +921,10 @@ public class AnalyticsController {
         // 기간 일수 계산
         long periodDays = java.time.temporal.ChronoUnit.DAYS.between(start, end) + 1;
         
+        // LocalDateTime 변환
+        LocalDateTime startDateTime = start.atStartOfDay();
+        LocalDateTime endDateTime = end.atTime(LocalTime.MAX);
+        
         // 전월 동일 기간 계산
         LocalDate prevStart = start.minusMonths(1);
         LocalDate prevEnd = end.minusMonths(1);
@@ -856,14 +941,39 @@ public class AnalyticsController {
         // 전월 카테고리별 매출 계산
         Map<String, Integer> prevByCategory = new HashMap<>();
         for (Payment payment : prevPayments) {
+            int amount = payment.getAmount() != null ? payment.getAmount() : 0;
+            int refund = payment.getRefundAmount() != null ? payment.getRefundAmount() : 0;
+            int netAmount = amount - refund;
+            
+            // 카테고리 결정: 명시적으로 설정된 경우 우선, 없으면 자동 판단
+            String category = null;
             if (payment.getCategory() != null) {
-                String category = payment.getCategory().name();
-                int amount = payment.getAmount() != null ? payment.getAmount() : 0;
-                int refund = payment.getRefundAmount() != null ? payment.getRefundAmount() : 0;
-                int netAmount = amount - refund;
+                category = payment.getCategory().name();
+            } else {
+                // 카테고리 자동 판단
+                if (payment.getBooking() != null) {
+                    try {
+                        com.afbscenter.model.Booking booking = payment.getBooking();
+                        if (booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.RENTAL) {
+                            category = "RENTAL";
+                        } else if (booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.LESSON) {
+                            category = "LESSON";
+                        }
+                    } catch (Exception e) {
+                        logger.debug("예약 정보 로드 실패: Payment ID={}", payment.getId(), e);
+                    }
+                }
                 
-                prevByCategory.put(category, prevByCategory.getOrDefault(category, 0) + netAmount);
+                if (category == null && payment.getProduct() != null) {
+                    category = "PRODUCT_SALE";
+                }
+                
+                if (category == null) {
+                    category = "OTHER";
+                }
             }
+            
+            prevByCategory.put(category, prevByCategory.getOrDefault(category, 0) + netAmount);
         }
         
         // 카테고리별 매출
@@ -871,45 +981,123 @@ public class AnalyticsController {
         Map<String, Map<String, Integer>> categoryCoachRevenue = new HashMap<>(); // 카테고리별 코치별 매출
         Map<LocalDate, Integer> dailyRevenue = new HashMap<>(); // 일별 매출 (최고 매출일 찾기용)
         
+        logger.info("매출 지표 계산 시작 - 결제 수: {}건, 기간: {} ~ {}", payments.size(), start, end);
+        
         for (Payment payment : payments) {
+            int amount = payment.getAmount() != null ? payment.getAmount() : 0;
+            int refund = payment.getRefundAmount() != null ? payment.getRefundAmount() : 0;
+            int netAmount = amount - refund;
+            
+            // 카테고리 결정: 명시적으로 설정된 경우 우선, 없으면 자동 판단
+            String category = null;
+            String productCategory = null; // 상품 카테고리 (야구, 필라테스, 트레이닝 등)
+            
             if (payment.getCategory() != null) {
-                String category = payment.getCategory().name();
-                int amount = payment.getAmount() != null ? payment.getAmount() : 0;
-                int refund = payment.getRefundAmount() != null ? payment.getRefundAmount() : 0;
-                int netAmount = amount - refund;
-                
-                byCategory.put(category, byCategory.getOrDefault(category, 0) + netAmount);
-                
-                // 코치별 매출 집계 (카테고리별)
-                com.afbscenter.model.Coach coach = null;
-                try {
-                    if (payment.getBooking() != null && payment.getBooking().getCoach() != null) {
-                        coach = payment.getBooking().getCoach();
-                    } else if (payment.getMember() != null && payment.getMember().getCoach() != null) {
-                        coach = payment.getMember().getCoach();
+                category = payment.getCategory().name();
+            } else {
+                // 카테고리 자동 판단
+                if (payment.getBooking() != null) {
+                    // 예약이 있으면 목적에 따라 판단
+                    try {
+                        com.afbscenter.model.Booking booking = payment.getBooking();
+                        if (booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.RENTAL) {
+                            category = "RENTAL";
+                        } else if (booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.LESSON) {
+                            category = "LESSON";
+                        }
+                    } catch (Exception e) {
+                        logger.debug("예약 정보 로드 실패: Payment ID={}", payment.getId(), e);
                     }
-                } catch (Exception e) {
-                    logger.debug("코치 정보 로드 실패: Payment ID={}", payment.getId(), e);
                 }
                 
-                String coachName = (coach != null && coach.getName() != null) ? coach.getName() : "미지정";
-                if (!categoryCoachRevenue.containsKey(category)) {
-                    categoryCoachRevenue.put(category, new HashMap<>());
+                // Product가 있으면 상품판매로 판단
+                if (category == null && payment.getProduct() != null) {
+                    category = "PRODUCT_SALE";
+                    try {
+                        com.afbscenter.model.Product product = payment.getProduct();
+                        if (product.getCategory() != null) {
+                            productCategory = product.getCategory().name();
+                        }
+                    } catch (Exception e) {
+                        logger.debug("상품 정보 로드 실패: Payment ID={}", payment.getId(), e);
+                    }
                 }
-                categoryCoachRevenue.get(category).put(coachName, 
-                    categoryCoachRevenue.get(category).getOrDefault(coachName, 0) + netAmount);
                 
-                // 일별 매출 집계
-                if (payment.getPaidAt() != null) {
-                    LocalDate date = payment.getPaidAt().toLocalDate();
-                    dailyRevenue.put(date, dailyRevenue.getOrDefault(date, 0) + netAmount);
+                // 여전히 null이면 기타로 처리
+                if (category == null) {
+                    category = "OTHER";
                 }
             }
+            
+            // 상품 카테고리가 있으면 "상품판매 - {상품카테고리}" 형식으로 저장
+            String finalCategory = category;
+            if (category.equals("PRODUCT_SALE") && productCategory != null) {
+                finalCategory = "PRODUCT_SALE_" + productCategory;
+            }
+            
+            byCategory.put(finalCategory, byCategory.getOrDefault(finalCategory, 0) + netAmount);
+            
+            logger.debug("결제 카테고리 분류 - Payment ID: {}, Category: {}, Amount: {}, NetAmount: {}", 
+                payment.getId(), category, amount, netAmount);
+            
+            // 코치별 매출 집계 (카테고리별)
+            com.afbscenter.model.Coach coach = null;
+            try {
+                if (payment.getBooking() != null && payment.getBooking().getCoach() != null) {
+                    coach = payment.getBooking().getCoach();
+                } else if (payment.getMember() != null && payment.getMember().getCoach() != null) {
+                    coach = payment.getMember().getCoach();
+                }
+            } catch (Exception e) {
+                logger.debug("코치 정보 로드 실패: Payment ID={}", payment.getId(), e);
+            }
+            
+            String coachName = (coach != null && coach.getName() != null) ? coach.getName() : "미지정";
+            if (!categoryCoachRevenue.containsKey(finalCategory)) {
+                categoryCoachRevenue.put(finalCategory, new HashMap<>());
+            }
+            categoryCoachRevenue.get(finalCategory).put(coachName, 
+                categoryCoachRevenue.get(finalCategory).getOrDefault(coachName, 0) + netAmount);
+            
+            // 일별 매출 집계
+            if (payment.getPaidAt() != null) {
+                LocalDate date = payment.getPaidAt().toLocalDate();
+                dailyRevenue.put(date, dailyRevenue.getOrDefault(date, 0) + netAmount);
+            }
         }
+        
+        // 상품 카테고리 한글 변환 함수 (먼저 정의)
+        java.util.function.Function<String, String> getProductCategoryKorean = (productCategory) -> {
+            if (productCategory == null) return "일반";
+            switch (productCategory) {
+                case "BASEBALL":
+                    return "야구";
+                case "TRAINING":
+                    return "트레이닝";
+                case "PILATES":
+                    return "필라테스";
+                case "TRAINING_FITNESS":
+                    return "트레이닝+필라테스";
+                case "GENERAL":
+                    return "일반";
+                case "RENTAL":
+                    return "대관";
+                default:
+                    return productCategory;
+            }
+        };
         
         // 카테고리 한글 변환 함수
         java.util.function.Function<String, String> getCategoryKorean = (category) -> {
             if (category == null) return "기타";
+            
+            // 상품판매 + 상품 카테고리 조합 처리
+            if (category.startsWith("PRODUCT_SALE_")) {
+                String productCategory = category.substring("PRODUCT_SALE_".length());
+                String productCategoryKorean = getProductCategoryKorean.apply(productCategory);
+                return "상품판매 - " + productCategoryKorean;
+            }
+            
             switch (category) {
                 case "RENTAL":
                     return "대관";
@@ -917,6 +1105,8 @@ public class AnalyticsController {
                     return "레슨";
                 case "PRODUCT_SALE":
                     return "상품판매";
+                case "OTHER":
+                    return "기타";
                 default:
                     return category;
             }
@@ -985,12 +1175,198 @@ public class AnalyticsController {
             byCategoryList.add(item);
         }
         
+        // 매출 금액 기준으로 내림차순 정렬 (많이 판 카테고리가 위쪽)
+        byCategoryList.sort((a, b) -> {
+            Integer amountA = (Integer) a.get("value");
+            Integer amountB = (Integer) b.get("value");
+            if (amountA == null) amountA = 0;
+            if (amountB == null) amountB = 0;
+            return Integer.compare(amountB, amountA); // 내림차순
+        });
+        
+        // Payment 데이터가 없으면 MemberProduct 기반으로 매출 계산
+        if (byCategoryList.isEmpty() && payments.isEmpty()) {
+            logger.warn("Payment 데이터가 없습니다. MemberProduct 기반으로 매출 계산 시작. 기간: {} ~ {}", start, end);
+            
+            try {
+                // 기간 내의 모든 MemberProduct 조회
+                List<com.afbscenter.model.MemberProduct> memberProducts = memberProductRepository.findAll().stream()
+                        .filter(mp -> {
+                            if (mp.getPurchaseDate() == null) return false;
+                            LocalDateTime purchaseDateTime = mp.getPurchaseDate();
+                            return !purchaseDateTime.isBefore(startDateTime) && !purchaseDateTime.isAfter(endDateTime);
+                        })
+                        .collect(Collectors.toList());
+                
+                logger.info("MemberProduct 기반 매출 계산 - 기간 내 MemberProduct 수: {}건", memberProducts.size());
+                
+                // MemberProduct 기반으로 카테고리별 매출 계산
+                Map<String, Integer> memberProductByCategory = new HashMap<>();
+                Map<LocalDate, Integer> memberProductDailyRevenue = new HashMap<>();
+                
+                for (com.afbscenter.model.MemberProduct mp : memberProducts) {
+                    try {
+                        com.afbscenter.model.Product product = mp.getProduct();
+                        if (product == null || product.getPrice() == null || product.getPrice() <= 0) {
+                            continue;
+                        }
+                        
+                        int amount = product.getPrice();
+                        String category = "PRODUCT_SALE"; // MemberProduct는 모두 상품판매
+                        
+                        // 상품 카테고리가 있으면 "PRODUCT_SALE_{상품카테고리}" 형식으로 저장
+                        String finalCategory = category;
+                        if (product.getCategory() != null) {
+                            finalCategory = "PRODUCT_SALE_" + product.getCategory().name();
+                        }
+                        
+                        memberProductByCategory.put(finalCategory, 
+                            memberProductByCategory.getOrDefault(finalCategory, 0) + amount);
+                        
+                        // 일별 매출 집계
+                        if (mp.getPurchaseDate() != null) {
+                            LocalDate date = mp.getPurchaseDate().toLocalDate();
+                            memberProductDailyRevenue.put(date, 
+                                memberProductDailyRevenue.getOrDefault(date, 0) + amount);
+                        }
+                    } catch (Exception e) {
+                        logger.debug("MemberProduct 처리 중 오류: MemberProduct ID={}, 오류: {}", 
+                            mp.getId(), e.getMessage());
+                    }
+                }
+                
+                // 전월 MemberProduct 기반 매출 계산
+                Map<String, Integer> prevMemberProductByCategory = new HashMap<>();
+                List<com.afbscenter.model.MemberProduct> prevMemberProducts = memberProductRepository.findAll().stream()
+                        .filter(mp -> {
+                            if (mp.getPurchaseDate() == null) return false;
+                            LocalDateTime purchaseDateTime = mp.getPurchaseDate();
+                            return !purchaseDateTime.isBefore(prevStartDateTime) && 
+                                   !purchaseDateTime.isAfter(prevEndDateTime);
+                        })
+                        .collect(Collectors.toList());
+                
+                for (com.afbscenter.model.MemberProduct mp : prevMemberProducts) {
+                    try {
+                        com.afbscenter.model.Product product = mp.getProduct();
+                        if (product == null || product.getPrice() == null || product.getPrice() <= 0) {
+                            continue;
+                        }
+                        String category = "PRODUCT_SALE";
+                        
+                        // 상품 카테고리가 있으면 "PRODUCT_SALE_{상품카테고리}" 형식으로 저장
+                        String finalCategory = category;
+                        if (product.getCategory() != null) {
+                            finalCategory = "PRODUCT_SALE_" + product.getCategory().name();
+                        }
+                        
+                        prevMemberProductByCategory.put(finalCategory, 
+                            prevMemberProductByCategory.getOrDefault(finalCategory, 0) + product.getPrice());
+                    } catch (Exception e) {
+                        // 무시
+                    }
+                }
+                
+                // MemberProduct 기반 매출을 byCategoryList에 추가
+                int memberProductTotalRevenue = memberProductByCategory.values().stream()
+                        .mapToInt(Integer::intValue).sum();
+                
+                for (Map.Entry<String, Integer> entry : memberProductByCategory.entrySet()) {
+                    String category = entry.getKey();
+                    int currentAmount = entry.getValue();
+                    int prevAmount = prevMemberProductByCategory.getOrDefault(category, 0);
+                    
+                    // 전월 대비 증감률 계산
+                    double changeRate = 0.0;
+                    int changeAmount = currentAmount - prevAmount;
+                    if (prevAmount > 0) {
+                        changeRate = ((double) changeAmount / prevAmount) * 100.0;
+                    } else if (currentAmount > 0) {
+                        changeRate = 100.0;
+                    }
+                    
+                    // 카테고리별 평균 일일 매출
+                    double categoryAvgDaily = periodDays > 0 ? (double) currentAmount / periodDays : 0.0;
+                    
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("label", getCategoryKorean.apply(category));
+                    item.put("value", currentAmount);
+                    item.put("percentage", memberProductTotalRevenue > 0 ? 
+                        (currentAmount * 100.0 / memberProductTotalRevenue) : 0.0);
+                    item.put("prevAmount", prevAmount);
+                    item.put("changeRate", changeRate);
+                    item.put("changeAmount", changeAmount);
+                    item.put("avgDailyRevenue", categoryAvgDaily);
+                    item.put("topCoaches", new ArrayList<>()); // MemberProduct에는 코치 정보가 없으므로 빈 리스트
+                    byCategoryList.add(item);
+                }
+                
+                // 매출 금액 기준으로 내림차순 정렬 (많이 판 카테고리가 위쪽)
+                byCategoryList.sort((a, b) -> {
+                    Integer amountA = (Integer) a.get("value");
+                    Integer amountB = (Integer) b.get("value");
+                    if (amountA == null) amountA = 0;
+                    if (amountB == null) amountB = 0;
+                    return Integer.compare(amountB, amountA); // 내림차순
+                });
+                
+                // 일별 매출 업데이트
+                for (Map.Entry<LocalDate, Integer> entry : memberProductDailyRevenue.entrySet()) {
+                    LocalDate date = entry.getKey();
+                    int amount = entry.getValue();
+                    dailyRevenue.put(date, dailyRevenue.getOrDefault(date, 0) + amount);
+                }
+                
+                // 총 매출 업데이트
+                totalRevenue = memberProductTotalRevenue;
+                
+                // 최고 매출일 업데이트
+                for (Map.Entry<LocalDate, Integer> entry : dailyRevenue.entrySet()) {
+                    if (entry.getValue() > bestRevenueAmount) {
+                        bestRevenueAmount = entry.getValue();
+                        bestRevenueDate = entry.getKey();
+                    }
+                }
+                
+                // 평균 일일 매출 업데이트
+                avgDailyRevenue = periodDays > 0 ? (double) totalRevenue / periodDays : 0.0;
+                
+                logger.info("✅ MemberProduct 기반 카테고리별 매출 집계 완료 - 총 {}개 카테고리, 총 매출: {}", 
+                    byCategoryList.size(), totalRevenue);
+                for (Map<String, Object> item : byCategoryList) {
+                    logger.info("  - {}: {}", item.get("label"), item.get("value"));
+                }
+            } catch (Exception e) {
+                logger.error("MemberProduct 기반 매출 계산 중 오류 발생: {}", e.getMessage(), e);
+            }
+        } else if (byCategoryList.isEmpty() && !payments.isEmpty()) {
+            logger.error("⚠️ 결제 데이터는 있지만 카테고리별 매출이 없습니다! 결제 수: {}건", payments.size());
+            logger.error("⚠️ byCategory 맵 내용: {}", byCategory);
+            for (Payment p : payments) {
+                logger.error("⚠️ 결제 정보 - ID: {}, Amount: {}, Category: {}, Status: {}, Booking: {}, Product: {}, PaidAt: {}", 
+                    p.getId(), p.getAmount(), p.getCategory(), p.getStatus(),
+                    p.getBooking() != null ? p.getBooking().getId() : null,
+                    p.getProduct() != null ? p.getProduct().getId() : null,
+                    p.getPaidAt());
+            }
+        } else {
+            logger.info("✅ 카테고리별 매출 집계 완료 - 총 {}개 카테고리, 총 매출: {}", byCategoryList.size(), totalRevenue);
+            for (Map<String, Object> item : byCategoryList) {
+                logger.info("  - {}: {}", item.get("label"), item.get("value"));
+            }
+        }
+        
         revenue.put("byCategory", byCategoryList);
         revenue.put("totalRevenue", totalRevenue);
         revenue.put("avgDailyRevenue", avgDailyRevenue);
         revenue.put("bestRevenueDate", bestRevenueDate != null ? bestRevenueDate.toString() : null);
         revenue.put("bestRevenueAmount", bestRevenueAmount);
         revenue.put("periodDays", periodDays);
+        
+        logger.info("매출 지표 계산 완료 - 총 매출: {}, 카테고리 수: {}, 카테고리별 매출: {}", 
+            totalRevenue, byCategoryList.size(), byCategoryList.stream()
+                .map(item -> item.get("label") + "=" + item.get("value"))
+                .collect(Collectors.joining(", ")));
         
         // 코치별 매출
         Map<String, Integer> byCoach = new HashMap<>();
@@ -1254,12 +1630,145 @@ public class AnalyticsController {
     private Map<String, Object> calculateMemberMetrics(List<Member> members, LocalDate start, LocalDate end) {
         Map<String, Object> metrics = new HashMap<>();
         
+        // 총 회원 수
+        long totalCount = members.size();
+        metrics.put("totalCount", totalCount);
+        
         // 활성 회원 수
         long activeCount = members.stream()
                 .filter(m -> m != null && m.getStatus() == Member.MemberStatus.ACTIVE)
                 .count();
-        
         metrics.put("activeCount", activeCount);
+        
+        // 휴면 회원 수
+        long inactiveCount = members.stream()
+                .filter(m -> m != null && m.getStatus() == Member.MemberStatus.INACTIVE)
+                .count();
+        metrics.put("inactiveCount", inactiveCount);
+        
+        // 이탈 회원 수
+        long withdrawnCount = members.stream()
+                .filter(m -> m != null && m.getStatus() == Member.MemberStatus.WITHDRAWN)
+                .count();
+        metrics.put("withdrawnCount", withdrawnCount);
+        
+        // 기간 내 신규 회원 수
+        long newMembersInPeriod = members.stream()
+                .filter(m -> m != null && m.getJoinDate() != null)
+                .filter(m -> {
+                    LocalDate joinDate = m.getJoinDate();
+                    return !joinDate.isBefore(start) && !joinDate.isAfter(end);
+                })
+                .count();
+        metrics.put("newMembersInPeriod", newMembersInPeriod);
+        
+        // 기간 내 이탈 회원 수
+        long withdrawnInPeriod = members.stream()
+                .filter(m -> m != null && m.getStatus() == Member.MemberStatus.WITHDRAWN && m.getUpdatedAt() != null)
+                .filter(m -> {
+                    LocalDate withdrawnDate = m.getUpdatedAt().toLocalDate();
+                    return !withdrawnDate.isBefore(start) && !withdrawnDate.isAfter(end);
+                })
+                .count();
+        metrics.put("withdrawnInPeriod", withdrawnInPeriod);
+        
+        // 순증감 (신규 - 이탈)
+        long netChange = newMembersInPeriod - withdrawnInPeriod;
+        metrics.put("netChange", netChange);
+        
+        // 최근 방문 회원 수 계산용 날짜 (30일 전) - 등급별 통계에서도 사용
+        LocalDate thirtyDaysAgo = LocalDate.now().minusDays(30);
+        
+        // 등급별 회원 분포
+        Map<String, Long> gradeDistribution = new HashMap<>();
+        Map<String, Map<String, Long>> gradeStatusDistribution = new HashMap<>(); // 등급별 상태 분포
+        Map<String, Long> gradeActiveCount = new HashMap<>(); // 등급별 활성 회원 수
+        Map<String, Long> gradeRecentVisitors = new HashMap<>(); // 등급별 최근 방문 회원 수
+        
+        for (Member member : members) {
+            if (member == null || member.getGrade() == null) continue;
+            String grade = member.getGrade().name();
+            gradeDistribution.put(grade, gradeDistribution.getOrDefault(grade, 0L) + 1);
+            
+            // 등급별 상태 분포
+            if (!gradeStatusDistribution.containsKey(grade)) {
+                gradeStatusDistribution.put(grade, new HashMap<>());
+            }
+            String status = member.getStatus() != null ? member.getStatus().name() : "UNKNOWN";
+            gradeStatusDistribution.get(grade).put(status, 
+                gradeStatusDistribution.get(grade).getOrDefault(status, 0L) + 1);
+            
+            // 등급별 활성 회원 수
+            if (member.getStatus() == Member.MemberStatus.ACTIVE) {
+                gradeActiveCount.put(grade, gradeActiveCount.getOrDefault(grade, 0L) + 1);
+            }
+            
+            // 등급별 최근 방문 회원 수
+            if (member.getLastVisitDate() != null && !member.getLastVisitDate().isBefore(thirtyDaysAgo)) {
+                gradeRecentVisitors.put(grade, gradeRecentVisitors.getOrDefault(grade, 0L) + 1);
+            }
+        }
+        metrics.put("gradeDistribution", gradeDistribution);
+        metrics.put("gradeStatusDistribution", gradeStatusDistribution);
+        metrics.put("gradeActiveCount", gradeActiveCount);
+        metrics.put("gradeRecentVisitors", gradeRecentVisitors);
+        
+        // 카테고리별 회원 통계 (활성 이용권 기준)
+        Map<String, Long> categoryMemberCount = new HashMap<>(); // 카테고리별 회원 수
+        Map<String, Long> categoryActiveProducts = new HashMap<>(); // 카테고리별 활성 이용권 수
+        try {
+            List<com.afbscenter.model.MemberProduct> allMemberProducts = memberProductRepository.findAll();
+            Set<Long> categoryMemberIds = new HashSet<>();
+            
+            for (com.afbscenter.model.MemberProduct mp : allMemberProducts) {
+                if (mp.getMember() == null || mp.getProduct() == null || 
+                    mp.getStatus() != com.afbscenter.model.MemberProduct.Status.ACTIVE) {
+                    continue;
+                }
+                
+                com.afbscenter.model.Product.ProductCategory category = mp.getProduct().getCategory();
+                if (category == null) continue;
+                
+                String categoryName = category.name();
+                Long memberId = mp.getMember().getId();
+                
+                // 카테고리별 회원 수 (중복 제거)
+                if (!categoryMemberIds.contains(memberId)) {
+                    categoryMemberCount.put(categoryName, categoryMemberCount.getOrDefault(categoryName, 0L) + 1);
+                    categoryMemberIds.add(memberId);
+                }
+                
+                // 카테고리별 활성 이용권 수
+                categoryActiveProducts.put(categoryName, 
+                    categoryActiveProducts.getOrDefault(categoryName, 0L) + 1);
+            }
+        } catch (Exception e) {
+            logger.warn("카테고리별 회원 통계 계산 실패: {}", e.getMessage());
+        }
+        metrics.put("categoryMemberCount", categoryMemberCount);
+        metrics.put("categoryActiveProducts", categoryActiveProducts);
+        
+        // 평균 회원당 이용권 수
+        long totalMemberProducts = 0L;
+        long membersWithProducts = 0L;
+        try {
+            List<com.afbscenter.model.MemberProduct> allMemberProducts = memberProductRepository.findAll();
+            Map<Long, Long> memberProductCount = new HashMap<>();
+            for (com.afbscenter.model.MemberProduct mp : allMemberProducts) {
+                if (mp.getMember() != null && mp.getStatus() == com.afbscenter.model.MemberProduct.Status.ACTIVE) {
+                    Long memberId = mp.getMember().getId();
+                    memberProductCount.put(memberId, memberProductCount.getOrDefault(memberId, 0L) + 1);
+                }
+            }
+            totalMemberProducts = memberProductCount.values().stream().mapToLong(Long::longValue).sum();
+            membersWithProducts = memberProductCount.size();
+        } catch (Exception e) {
+            logger.warn("이용권 통계 계산 실패: {}", e.getMessage());
+        }
+        double avgProductsPerMember = activeCount > 0 ? (double) totalMemberProducts / activeCount : 0.0;
+        metrics.put("avgProductsPerMember", Math.round(avgProductsPerMember * 10.0) / 10.0);
+        metrics.put("totalActiveProducts", totalMemberProducts);
+        metrics.put("membersWithProducts", membersWithProducts);
         
         // 회원 추이 (가입일 기준 신규, updatedAt 기준 이탈)
         Map<LocalDate, Long> dailyNewMembers = new HashMap<>();
@@ -1303,15 +1812,15 @@ public class AnalyticsController {
         List<Map<String, Object>> trend = new ArrayList<>();
         for (LocalDate date : sortedDates) {
             long newCount = dailyNewMembers.getOrDefault(date, 0L);
-            long withdrawnCount = dailyWithdrawnMembers.getOrDefault(date, 0L);
+            long dailyWithdrawnCount = dailyWithdrawnMembers.getOrDefault(date, 0L);
             
             // 신규나 이탈이 있는 날짜만 표시
-            if (newCount > 0 || withdrawnCount > 0) {
+            if (newCount > 0 || dailyWithdrawnCount > 0) {
                 Map<String, Object> item = new HashMap<>();
                 item.put("label", date.toString());
                 item.put("newCount", newCount);
-                item.put("withdrawnCount", withdrawnCount);
-                item.put("netChange", newCount - withdrawnCount); // 순증감
+                item.put("withdrawnCount", dailyWithdrawnCount);
+                item.put("netChange", newCount - dailyWithdrawnCount); // 순증감
                 trend.add(item);
             }
         }

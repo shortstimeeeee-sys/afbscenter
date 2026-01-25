@@ -137,6 +137,18 @@
     color: var(--text-primary);
 }
 
+.branch-label {
+    font-size: 9px;
+    padding: 2px 4px;
+    background-color: var(--accent-primary);
+    color: white;
+    border-radius: 3px;
+    font-weight: 500;
+    white-space: nowrap;
+    display: inline-block;
+    line-height: 1.2;
+}
+
 .calendar-day-header-wrapper {
     display: flex;
     justify-content: space-between;

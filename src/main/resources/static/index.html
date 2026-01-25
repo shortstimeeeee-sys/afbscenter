@@ -172,16 +172,6 @@
                         <div class="kpi-change positive">이번 달</div>
                     </div>
                     <div class="kpi-card">
-                        <div class="kpi-label">오늘 출석 수</div>
-                        <div class="kpi-value" id="kpi-today-attendance">-</div>
-                        <div class="kpi-change positive">출석</div>
-                    </div>
-                    <div class="kpi-card">
-                        <div class="kpi-label">활성 회원</div>
-                        <div class="kpi-value" id="kpi-active-members">-</div>
-                        <div class="kpi-change positive">ACTIVE</div>
-                    </div>
-                    <div class="kpi-card">
                         <div class="kpi-label">오늘 가입 수</div>
                         <div class="kpi-value" id="kpi-new-members">-</div>
                         <div class="kpi-change positive">신규 회원</div>
@@ -201,11 +191,15 @@
                         <div class="kpi-value" id="kpi-monthly-revenue">-</div>
                         <div class="kpi-change positive">이번 달</div>
                     </div>
-                    <!-- 방문 수 카드 숨김 처리 -->
-                    <div class="kpi-card" style="display: none;">
-                        <div class="kpi-label">오늘 방문 수</div>
-                        <div class="kpi-value" id="kpi-visits">-</div>
-                        <div class="kpi-change positive">+8% 어제 대비</div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">평균 회원당 매출</div>
+                        <div class="kpi-value" id="kpi-avg-revenue-per-member">-</div>
+                        <div class="kpi-change positive">회원당 평균</div>
+                    </div>
+                    <div class="kpi-card" style="cursor: pointer;" onclick="openExpiringMembersModal()" title="클릭하여 만료 임박 회원 확인">
+                        <div class="kpi-label">⚠️ 만료 임박</div>
+                        <div class="kpi-value" id="kpi-expiring-members">-</div>
+                        <div class="kpi-change" style="color: var(--warning-color, #F59E0B);">확인 필요</div>
                     </div>
                 </div>
                 
@@ -230,7 +224,7 @@
                 </div>
                 
                 <!-- 빠른 작업 -->
-                <div class="card">
+                <div class="card" style="display: none;">
                     <div class="card-header">
                         <h2 class="card-title">빠른 작업</h2>
                     </div>
@@ -260,17 +254,6 @@
                     </div>
                 </div>
                 
-                <!-- 만료 임박 회원 -->
-                <div class="card">
-                    <div class="card-header">
-                        <h2 class="card-title">⚠️ 만료 임박 회원</h2>
-                        <span style="font-size: 13px; color: var(--text-secondary);">횟수 5회 이하 또는 기간 7일 이하</span>
-                    </div>
-                    <div id="expiring-members">
-                        <p style="color: var(--text-muted);">로딩 중...</p>
-                    </div>
-                </div>
-                
                 <!-- 미처리 알림 -->
                 <div class="card">
                     <div class="card-header">
@@ -284,9 +267,27 @@
         </main>
     </div>
     
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- 만료 임박 회원 목록 모달 -->
+    <div id="expiringMembersModal" class="modal-overlay" style="display: none;">
+        <div class="modal" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2 class="modal-title">⚠️ 만료 임박 회원</h2>
+                <button class="modal-close" onclick="closeExpiringMembersModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="expiring-members-list" style="max-height: 500px; overflow-y: auto;">
+                    <p style="text-align: center; color: var(--text-muted);">로딩 중...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeExpiringMembersModal()">닫기</button>
+                <button class="btn btn-primary" onclick="location.href='/members.html'">회원 관리로 이동</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/js/common.js"></script>
     <script src="/js/dashboard.js"></script>
-    <script src="/js/expiring-members.js"></script>
 </body>
 </html>

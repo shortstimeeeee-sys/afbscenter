@@ -8,19 +8,27 @@ document.addEventListener('DOMContentLoaded', function() {
 async function loadSettings() {
     try {
         const settings = await App.api.get('/settings');
-        document.getElementById('setting-center-name').value = settings.centerName || '';
-        document.getElementById('setting-phone').value = settings.phoneNumber || '';
-        document.getElementById('setting-address').value = settings.address || '';
-        document.getElementById('setting-open-time').value = settings.openTime || '';
-        document.getElementById('setting-close-time').value = settings.closeTime || '';
+        // 지점별 센터명
+        document.getElementById('setting-center-name-saha').value = settings.centerNameSaha || '';
+        document.getElementById('setting-center-name-yeonsan').value = settings.centerNameYeonsan || '';
+        // 지점별 연락처
+        document.getElementById('setting-phone-saha').value = settings.phoneNumberSaha || '';
+        document.getElementById('setting-phone-yeonsan').value = settings.phoneNumberYeonsan || '';
+        // 지점별 주소
+        document.getElementById('setting-address-saha').value = settings.addressSaha || '';
+        document.getElementById('setting-address-yeonsan').value = settings.addressYeonsan || '';
+        // 운영시간 (한 줄)
+        document.getElementById('setting-operating-hours').value = settings.operatingHours || '';
     } catch (error) {
         console.error('설정 로드 실패:', error);
         // 에러 발생 시 기본값 설정
-        document.getElementById('setting-center-name').value = 'AFBS 야구센터';
-        document.getElementById('setting-phone').value = '';
-        document.getElementById('setting-address').value = '';
-        document.getElementById('setting-open-time').value = '09:00';
-        document.getElementById('setting-close-time').value = '22:00';
+        document.getElementById('setting-center-name-saha').value = '';
+        document.getElementById('setting-center-name-yeonsan').value = '';
+        document.getElementById('setting-phone-saha').value = '';
+        document.getElementById('setting-phone-yeonsan').value = '';
+        document.getElementById('setting-address-saha').value = '';
+        document.getElementById('setting-address-yeonsan').value = '';
+        document.getElementById('setting-operating-hours').value = '';
         
         // 알림은 표시하지 않음 (개발 중이므로)
         console.warn('설정을 불러올 수 없어 기본값을 사용합니다.');
@@ -29,11 +37,13 @@ async function loadSettings() {
 
 async function saveSettings() {
     const data = {
-        centerName: document.getElementById('setting-center-name').value,
-        phoneNumber: document.getElementById('setting-phone').value,
-        address: document.getElementById('setting-address').value,
-        openTime: document.getElementById('setting-open-time').value,
-        closeTime: document.getElementById('setting-close-time').value
+        centerNameSaha: document.getElementById('setting-center-name-saha').value,
+        centerNameYeonsan: document.getElementById('setting-center-name-yeonsan').value,
+        phoneNumberSaha: document.getElementById('setting-phone-saha').value,
+        phoneNumberYeonsan: document.getElementById('setting-phone-yeonsan').value,
+        addressSaha: document.getElementById('setting-address-saha').value,
+        addressYeonsan: document.getElementById('setting-address-yeonsan').value,
+        operatingHours: document.getElementById('setting-operating-hours').value
     };
     
     try {

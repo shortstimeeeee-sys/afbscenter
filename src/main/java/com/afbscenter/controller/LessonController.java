@@ -18,13 +18,15 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/lessons")
-@CrossOrigin(origins = "http://localhost:8080")
 public class LessonController {
 
     private static final Logger logger = LoggerFactory.getLogger(LessonController.class);
 
-    @Autowired
-    private BookingRepository bookingRepository;
+    private final BookingRepository bookingRepository;
+
+    public LessonController(BookingRepository bookingRepository) {
+        this.bookingRepository = bookingRepository;
+    }
 
     @GetMapping
     @Transactional(readOnly = true)

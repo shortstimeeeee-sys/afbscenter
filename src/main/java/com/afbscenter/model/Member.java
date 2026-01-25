@@ -38,8 +38,8 @@ public class Member {
 
     @NotBlank(message = "전화번호는 필수입니다")
     @Size(max = 20, message = "전화번호는 20자 이하여야 합니다")
-    @Column(nullable = false, unique = true)
-    private String phoneNumber;
+    @Column(nullable = false)
+    private String phoneNumber; // 형제/가족이 같은 전화번호 사용 가능
 
     @Past(message = "생년월일은 과거 날짜여야 합니다")
     @Column(name = "birth_date", nullable = true)
@@ -81,14 +81,23 @@ public class Member {
     @Column(name = "coach_memo", length = 2000)
     private String coachMemo; // 코치 메모
 
-    @Column(name = "guardian_name")
-    private String guardianName; // 보호자 이름 (유소년)
+    @Column(name = "student_name")
+    private String guardianName; // 수강생 이름 (유소년의 경우 실제 수강생 이름)
 
-    @Column(name = "guardian_phone")
-    private String guardianPhone; // 보호자 전화번호
+    @Column(name = "student_phone")
+    private String guardianPhone; // 수강생 연락처 (유소년의 경우 실제 수강생 연락처)
 
     @Column(name = "school", length = 200)
     private String school; // 학교/소속
+
+    @Column(name = "swing_speed")
+    private Double swingSpeed; // 스윙 속도 (km/h) - 소수점 한자리
+
+    @Column(name = "exit_velocity")
+    private Double exitVelocity; // 타구 속도 (km/h) - 소수점 한자리
+
+    @Column(name = "pitching_speed")
+    private Double pitchingSpeed; // 구속 (km/h) - 소수점 한자리
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "coach_id")
@@ -131,9 +140,11 @@ public class Member {
     }
 
     public enum MemberGrade {
-        SOCIAL,  // 사회인
-        ELITE,   // 엘리트
-        YOUTH    // 유소년
+        SOCIAL,            // 사회인
+        ELITE_ELEMENTARY,  // 엘리트 (초)
+        ELITE_MIDDLE,      // 엘리트 (중)
+        ELITE_HIGH,        // 엘리트 (고)
+        YOUTH              // 유소년
     }
 
     public enum MemberStatus {

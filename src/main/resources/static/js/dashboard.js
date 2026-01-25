@@ -1,4 +1,4 @@
-﻿// 대시보드 페이지 JavaScript
+// 대시보드 페이지 JavaScript
 
 let memberChart = null;
 let revenueChart = null;
@@ -6,7 +6,7 @@ let revenueChart = null;
 document.addEventListener('DOMContentLoaded', async function() {
     await loadDashboardData();
     await initCharts();
-    await loadExpiringMembers();
+    // loadExpiringMembers() 함수는 expiring-members.js 파일이 삭제되어 제거됨
 });
 
 async function loadDashboardData() {
@@ -62,12 +62,18 @@ async function loadDashboardData() {
         }
         
         document.getElementById('kpi-monthly-revenue').textContent = App.formatCurrency(kpiData.monthlyRevenue || 0);
-        // 방문 수는 숨김 처리되어 있지만 데이터는 유지
-        document.getElementById('kpi-visits').textContent = kpiData.visits || 0;
         
-        // 추가 KPI 데이터
-        document.getElementById('kpi-today-attendance').textContent = kpiData.todayAttendance || 0;
-        document.getElementById('kpi-active-members').textContent = kpiData.activeMembers || 0;
+        // 평균 회원당 매출
+        const avgRevenuePerMember = kpiData.avgRevenuePerMember || 0;
+        document.getElementById('kpi-avg-revenue-per-member').textContent = App.formatCurrency(avgRevenuePerMember);
+        
+        // 만료 임박 회원 수
+        const expiringMembers = kpiData.expiringMembers || 0;
+        document.getElementById('kpi-expiring-members').textContent = expiringMembers;
+        if (expiringMembers > 0) {
+            const expiringCard = document.getElementById('kpi-expiring-members').parentElement;
+            expiringCard.style.borderLeft = '3px solid var(--warning-color, #F59E0B)';
+        }
         
         // 오늘 일정 로드
         const schedule = await App.api.get('/dashboard/today-schedule');
@@ -90,9 +96,8 @@ async function loadDashboardData() {
         document.getElementById('kpi-bookings').textContent = '0';
         document.getElementById('kpi-revenue').textContent = '₩0';
         document.getElementById('kpi-monthly-revenue').textContent = '₩0';
-        document.getElementById('kpi-visits').textContent = '0';
-        document.getElementById('kpi-today-attendance').textContent = '0';
-        document.getElementById('kpi-active-members').textContent = '0';
+        document.getElementById('kpi-avg-revenue-per-member').textContent = '₩0';
+        document.getElementById('kpi-expiring-members').textContent = '0';
     }
 }
 
@@ -364,8 +369,21 @@ async function initCharts() {
         const memberGrowthData = calculateMonthlyGrowth(members);
         
         // 매출 데이터 (최근 6개월)
-        const payments = await App.api.get('/payments');
-        const revenueData = calculateMonthlyRevenue(payments);
+        let payments = [];
+        try {
+            payments = await App.api.get('/payments');
+        } catch (error) {
+            console.warn('Payment 데이터 조회 실패:', error);
+        }
+        
+        // Payment 데이터가 없거나 비어있으면 MemberProduct 기반으로 계산
+        let revenueData;
+        if (!payments || payments.length === 0) {
+            console.log('Payment 데이터가 없어 MemberProduct 기반으로 월별 매출 계산');
+            revenueData = await calculateMonthlyRevenueFromMemberProducts();
+        } else {
+            revenueData = calculateMonthlyRevenue(payments);
+        }
         
         // 회원 증가 추이 차트
         createMemberChart(memberGrowthData);
@@ -377,6 +395,77 @@ async function initCharts() {
         console.error('차트 초기화 실패:', error);
     }
 }
+
+// 매출 지표 렌더링 함수는 제거됨 (통계/분석 페이지로 이동)
+
+// 만료 임박 회원 모달 열기
+async function openExpiringMembersModal() {
+    const modal = document.getElementById('expiringMembersModal');
+    const listContainer = document.getElementById('expiring-members-list');
+    
+    modal.style.display = 'flex';
+    listContainer.innerHTML = '<p style="text-align: center; color: var(--text-muted);">로딩 중...</p>';
+    
+    try {
+        const members = await App.api.get('/dashboard/expiring-members');
+        
+        if (!members || members.length === 0) {
+            listContainer.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px;">만료 임박 회원이 없습니다.</p>';
+            return;
+        }
+        
+        listContainer.innerHTML = members.map(member => {
+            const expiringProducts = member.expiringProducts || [];
+            const productsHtml = expiringProducts.map(product => {
+                return `
+                    <div style="padding: 8px; margin: 4px 0; background-color: var(--bg-secondary); border-radius: 4px; border-left: 3px solid var(--warning, #F59E0B);">
+                        <div style="font-weight: 600; color: var(--text-primary);">${product.productName || '알 수 없음'}</div>
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">${product.expiryReason || ''}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            return `
+                <div style="padding: 16px; margin-bottom: 12px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; border-left: 4px solid var(--warning, #F59E0B);">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                        <div>
+                            <div style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">
+                                ${member.name || '이름 없음'} (${member.memberNumber || '-'})
+                            </div>
+                            <div style="font-size: 13px; color: var(--text-secondary);">
+                                ${member.phoneNumber || '-'} | ${member.grade || '-'} | ${member.school || '-'}
+                            </div>
+                        </div>
+                        <button class="btn btn-sm btn-primary" onclick="location.href='/members.html?id=${member.id}'" style="margin-left: 12px;">
+                            상세보기
+                        </button>
+                    </div>
+                    <div style="margin-top: 12px;">
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600;">만료 임박 이용권:</div>
+                        ${productsHtml || '<div style="color: var(--text-muted); font-size: 12px;">이용권 정보 없음</div>'}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('만료 임박 회원 목록 로드 실패:', error);
+        listContainer.innerHTML = '<p style="text-align: center; color: var(--danger, #E74C3C); padding: 40px;">데이터를 불러오는 중 오류가 발생했습니다.</p>';
+    }
+}
+
+// 만료 임박 회원 모달 닫기
+function closeExpiringMembersModal() {
+    const modal = document.getElementById('expiringMembersModal');
+    modal.style.display = 'none';
+}
+
+// 모달 외부 클릭 시 닫기 (기존 window.onclick이 있을 수 있으므로 이벤트 리스너로 추가)
+document.addEventListener('click', function(event) {
+    const modal = document.getElementById('expiringMembersModal');
+    if (event.target === modal) {
+        closeExpiringMembersModal();
+    }
+});
 
 // 월별 회원 증가 계산
 function calculateMonthlyGrowth(members) {
@@ -573,4 +662,66 @@ function createRevenueChart(data) {
             }
         }
     });
+}
+
+// MemberProduct 기반 월별 매출 계산
+async function calculateMonthlyRevenueFromMemberProducts() {
+    const labels = [];
+    const data = [];
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    
+    try {
+        // 모든 회원 조회
+        const members = await App.api.get('/members');
+        
+        // 각 회원의 MemberProduct 정보를 가져와서 월별 매출 계산
+        const monthlyRevenueMap = new Map();
+        
+        for (let i = 5; i >= 0; i--) {
+            const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const monthStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            
+            // 연도가 현재와 다르면 연도 표시
+            if (date.getFullYear() !== currentYear) {
+                labels.push(`${date.getFullYear()}년 ${date.getMonth() + 1}월`);
+            } else {
+                labels.push(`${date.getMonth() + 1}월`);
+            }
+            
+            monthlyRevenueMap.set(monthStr, 0);
+        }
+        
+        // 각 회원의 MemberProduct에서 월별 매출 계산
+        for (const member of members) {
+            if (member.memberProducts && Array.isArray(member.memberProducts)) {
+                for (const mp of member.memberProducts) {
+                    if (mp.purchaseDate && mp.product && mp.product.price) {
+                        // purchaseDate는 "2026-01-24T13:00:00" 형식
+                        const purchaseMonth = mp.purchaseDate.substring(0, 7);
+                        if (monthlyRevenueMap.has(purchaseMonth)) {
+                            const currentRevenue = monthlyRevenueMap.get(purchaseMonth);
+                            monthlyRevenueMap.set(purchaseMonth, currentRevenue + (mp.product.price || 0));
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 월별 매출 데이터 생성
+        for (let i = 5; i >= 0; i--) {
+            const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const monthStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            data.push(monthlyRevenueMap.get(monthStr) || 0);
+        }
+        
+    } catch (error) {
+        console.error('MemberProduct 기반 월별 매출 계산 실패:', error);
+        // 오류 시 빈 데이터 반환
+        for (let i = 5; i >= 0; i--) {
+            data.push(0);
+        }
+    }
+    
+    return { labels, data };
 }

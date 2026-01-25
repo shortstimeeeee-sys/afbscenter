@@ -16,10 +16,19 @@ public interface MemberProductRepository extends JpaRepository<MemberProduct, Lo
     @Query("SELECT mp FROM MemberProduct mp JOIN mp.product p WHERE mp.member.id = :memberId AND mp.status = 'ACTIVE' AND p.type = 'COUNT_PASS'")
     List<MemberProduct> findActiveCountPassByMemberId(@Param("memberId") Long memberId);
     
+    // 특정 타입의 상품 조회 (기간권 등)
+    @Query("SELECT mp FROM MemberProduct mp JOIN mp.product p WHERE mp.member.id = :memberId AND p.type = :productType ORDER BY mp.purchaseDate DESC")
+    List<MemberProduct> findByMemberIdAndProductType(@Param("memberId") Long memberId, @Param("productType") com.afbscenter.model.Product.ProductType productType);
+    
     // 회원의 모든 상품을 product와 함께 로드 (lazy loading 방지)
     // member는 이미 조회 중이므로 JOIN FETCH하지 않음 (순환 참조 방지)
     // DISTINCT 제거: 같은 상품을 여러 번 구매한 경우 모두 표시해야 함
-    @Query("SELECT mp FROM MemberProduct mp LEFT JOIN FETCH mp.product WHERE mp.member.id = :memberId ORDER BY mp.purchaseDate DESC")
+    // 코치 정보도 함께 로드 (MemberProduct.coach, Product.coach)
+    @Query("SELECT DISTINCT mp FROM MemberProduct mp " +
+           "LEFT JOIN FETCH mp.product p " +
+           "LEFT JOIN FETCH mp.coach " +
+           "LEFT JOIN FETCH p.coach " +
+           "WHERE mp.member.id = :memberId ORDER BY mp.purchaseDate DESC")
     List<MemberProduct> findByMemberIdWithProduct(@Param("memberId") Long memberId);
     
     // MemberProduct를 member와 함께 로드 (상품 설정 시 사용)

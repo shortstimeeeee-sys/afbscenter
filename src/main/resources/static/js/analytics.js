@@ -1,11 +1,19 @@
 // 통계/분석 페이지 JavaScript
 
+// 매출 추이 필터 기간 (기본값: 일주일)
+window.revenueTrendPeriod = 'week';
+
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('analytics-period').addEventListener('change', function() {
         const isCustom = this.value === 'custom';
         document.getElementById('analytics-start-date').disabled = !isCustom;
         document.getElementById('analytics-end-date').disabled = !isCustom;
     });
+    
+    // 매출 추이 필터 버튼 초기 상태 설정 (약간의 지연 후)
+    setTimeout(() => {
+        updateRevenueTrendFilterButtons();
+    }, 100);
     
     loadAnalytics();
 });
@@ -26,10 +34,15 @@ async function loadAnalytics() {
         
         const analytics = await App.api.get(`/analytics?${params}`);
         
+        console.log('Analytics 데이터 로드:', analytics);
+        console.log('매출 지표 데이터:', analytics.revenue);
+        console.log('카테고리별 매출:', analytics.revenue?.byCategory);
+        
         // 기간 정보 저장 (전역 변수로)
         window.currentAnalyticsPeriod = period;
         window.currentAnalyticsData = analytics;
         
+        // 매출 추이 차트는 독립적으로 유지 (페이지 필터 변경 시에도 덮어쓰지 않음)
         renderAnalytics(analytics);
     } catch (error) {
         console.error('통계 데이터 로드 실패:', error);
@@ -97,15 +110,71 @@ function renderAnalytics(data) {
     renderFacilityUtilizationChart('facility-utilization-chart', data.operational?.facilityUtilization || [], data.operational?.periodDays || 0, periodLabel, monthLabel);
     
     // 매출 지표 렌더링 (상세 정보 포함)
+    console.log('매출 지표 렌더링 - byCategory:', data.revenue?.byCategory);
+    console.log('매출 지표 렌더링 - byProduct:', data.revenue?.byProduct);
+    console.log('매출 지표 렌더링 - trend:', data.revenue?.trend);
+    
     renderRevenueChart('category-revenue-chart', data.revenue?.byCategory || [], data.revenue?.byProduct || [], data.revenue?.byCoach || [], monthLabel, data.revenue || {});
-    renderSimpleChart('revenue-trend-chart', data.revenue?.trend || [], data.revenue || {});
+    
+    // 매출 추이 차트는 별도 기간으로 로드 (초기 로드 시에만, 또는 필터 버튼 클릭 시)
+    // 페이지 전체 기간 필터가 변경되어도 매출 추이 차트는 독립적으로 유지
+    if (!window.revenueTrendChartLoaded) {
+        loadRevenueTrendChart();
+        window.revenueTrendChartLoaded = true;
+    }
     
     // 회원 지표
-    document.getElementById('active-members').textContent = 
-        data.members?.activeCount || 0;
-    renderMemberTrendChart('member-trend-chart', data.members?.trend || []);
+    const memberMetrics = data.members || {};
     
-    // 활동 회원 수 클릭 가능하게
+    // 회원 KPI
+    document.getElementById('total-members').textContent = memberMetrics.totalCount || 0;
+    document.getElementById('active-members').textContent = memberMetrics.activeCount || 0;
+    document.getElementById('new-members-period').textContent = memberMetrics.newMembersInPeriod || 0;
+    
+    // 순증감 표시 (색상 적용)
+    const netChange = memberMetrics.netChange || 0;
+    const netChangeEl = document.getElementById('net-change-members');
+    netChangeEl.textContent = netChange >= 0 ? `+${netChange}` : `${netChange}`;
+    netChangeEl.style.color = netChange >= 0 ? 'var(--success)' : 'var(--danger)';
+    
+    // 카테고리별 회원 통계
+    renderCategoryMemberChart('category-member-chart', {
+        memberCount: memberMetrics.categoryMemberCount || {},
+        activeProducts: memberMetrics.categoryActiveProducts || {}
+    });
+    
+    // 등급별 분포 차트
+    renderGradeDistributionChart('grade-distribution-chart', memberMetrics.gradeDistribution || {});
+    
+    // 등급별 상세 통계
+    renderGradeDetailChart('grade-detail-chart', {
+        gradeStatusDistribution: memberMetrics.gradeStatusDistribution || {},
+        gradeActiveCount: memberMetrics.gradeActiveCount || {},
+        gradeRecentVisitors: memberMetrics.gradeRecentVisitors || {}
+    });
+    
+    // 회원 상태 차트
+    renderMemberStatusChart('member-status-chart', {
+        active: memberMetrics.activeCount || 0,
+        inactive: memberMetrics.inactiveCount || 0,
+        withdrawn: memberMetrics.withdrawnCount || 0
+    });
+    
+    // 이용권 통계
+    renderMemberProductStats('member-product-stats', {
+        avgProductsPerMember: memberMetrics.avgProductsPerMember || 0,
+        totalActiveProducts: memberMetrics.totalActiveProducts || 0,
+        membersWithProducts: memberMetrics.membersWithProducts || 0,
+        activeCount: memberMetrics.activeCount || 0
+    });
+    
+    // 최근 방문 회원
+    document.getElementById('recent-visitors').textContent = memberMetrics.recentVisitors || 0;
+    
+    // 신규/이탈 추이 차트
+    renderMemberTrendChart('member-trend-chart', memberMetrics.trend || []);
+    
+    // 클릭 가능하게 설정
     const activeMembersEl = document.getElementById('active-members');
     activeMembersEl.style.cursor = 'pointer';
     activeMembersEl.onclick = () => openDetailModal('member-trend-chart', -1, '');
@@ -234,8 +303,20 @@ function renderFacilityUtilizationChart(containerId, data, periodDays, periodLab
                             ${Array.from({length: 24}, (_, hour) => {
                                 const hourData = hourlyStats.find(h => h.hour === hour);
                                 const minutes = hourData ? (hourData.minutes || 0) : 0;
-                                const height = maxMinutes > 0 ? (minutes / maxMinutes * 100) : 0;
                                 const count = hourData ? (hourData.count || 0) : 0;
+                                
+                                // 높이 계산: maxMinutes가 0보다 크면 비율 계산, 아니면 count 기준으로 최소 높이 보장
+                                let height = 0;
+                                if (maxMinutes > 0) {
+                                    height = (minutes / maxMinutes * 100);
+                                } else if (count > 0) {
+                                    // maxMinutes가 0이지만 count가 있으면 최소 높이 보장
+                                    height = 10; // 최소 10%
+                                }
+                                
+                                // 최소 높이 보장 (데이터가 있으면 최소 8px)
+                                const minHeightPx = (count > 0 || minutes > 0) ? 8 : 0;
+                                const finalHeight = Math.max(height, minHeightPx > 0 ? (minHeightPx / 90 * 100) : 0);
                                 
                                 return `
                                 <div style="display: flex; flex-direction: column; align-items: center; justify-content: flex-end; position: relative; cursor: pointer;" 
@@ -243,8 +324,9 @@ function renderFacilityUtilizationChart(containerId, data, periodDays, periodLab
                                      onmouseover="this.style.transform='scale(1.2)'; this.style.zIndex='10';"
                                      onmouseout="this.style.transform='scale(1)'; this.style.zIndex='1';"
                                      title="${String(hour).padStart(2, '0')}:00 - ${count}회 예약, ${(minutes/60).toFixed(1)}시간 운영">
-                                    <div style="width: 100%; height: ${height}%; min-height: ${height > 0 ? '4px' : '0'}; background: linear-gradient(180deg, var(--accent-primary) 0%, rgba(var(--accent-primary-rgb), 0.85) 100%); border-radius: 2px 2px 0 0; transition: all 0.2s; position: relative; box-shadow: 0 -1px 3px rgba(0,0,0,0.1);">
-                                        ${height > 30 ? `<div style="position: absolute; top: -22px; left: 50%; transform: translateX(-50%); font-size: 8px; color: var(--text-primary); white-space: nowrap; background-color: var(--bg-primary); padding: 3px 5px; border-radius: 4px; border: 1px solid var(--border-color); opacity: 0; transition: opacity 0.2s; pointer-events: none; box-shadow: 0 2px 4px rgba(0,0,0,0.1); font-weight: 600;" class="hour-tooltip">${count}회</div>` : ''}
+                                    <div style="width: 100%; height: ${finalHeight}%; min-height: ${minHeightPx}px; background: linear-gradient(180deg, var(--accent-primary) 0%, rgba(94, 106, 210, 0.85) 100%); border-radius: 2px 2px 0 0; transition: all 0.2s; position: relative; box-shadow: 0 -1px 3px rgba(0,0,0,0.1);">
+                                        ${finalHeight > 15 ? `<div style="position: absolute; top: -22px; left: 50%; transform: translateX(-50%); font-size: 8px; color: var(--text-primary); white-space: nowrap; background-color: var(--bg-primary); padding: 3px 5px; border-radius: 4px; border: 1px solid var(--border-color); opacity: 0; transition: opacity 0.2s; pointer-events: none; box-shadow: 0 2px 4px rgba(0,0,0,0.1); font-weight: 600;" class="hour-tooltip">${count}회</div>` : ''}
+                                        ${count > 0 && finalHeight <= 15 ? `<div style="position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 7px; color: var(--accent-primary); white-space: nowrap; font-weight: 700; pointer-events: none;">${count}회</div>` : ''}
                                     </div>
                                     <div style="font-size: 8px; color: var(--text-muted); margin-top: 4px; font-weight: 600;">${String(hour).padStart(2, '0')}</div>
                                 </div>
@@ -545,7 +627,17 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
                     
                     ${data.map((item, index) => {
                         const x = (index / Math.max(data.length - 1, 1)) * 100;
-                        const barWidth = Math.max(100 / data.length - 2, 3);
+                        // 데이터 개수에 따라 막대 폭 조정 (일주일일 때 더 좁게)
+                        // 일주일 필터는 8일 데이터를 반환하므로 (오늘 포함 7일 전부터)
+                        const isWeekView = window.revenueTrendPeriod === 'week' || data.length <= 8;
+                        let barWidth;
+                        if (isWeekView) {
+                            // 일주일 이하: 더 좁은 막대 (약 4-5%)
+                            barWidth = Math.max(100 / data.length - 8, 4);
+                        } else {
+                            // 한달 이상: 기존 방식 유지
+                            barWidth = Math.max(100 / data.length - 2, 3);
+                        }
                         const value = item.value || 0;
                         const prevValue = item.prevValue || 0;
                         const cumulative = item.cumulative || 0;
@@ -710,6 +802,222 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
             </div>
         `;
     }
+}
+
+// 카테고리별 회원 통계 렌더링
+function renderCategoryMemberChart(containerId, categoryData) {
+    const container = document.getElementById(containerId);
+    const { memberCount, activeProducts } = categoryData;
+    
+    if (!memberCount || Object.keys(memberCount).length === 0) {
+        container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">데이터가 없습니다.</p>';
+        return;
+    }
+    
+    const categoryLabels = {
+        'BASEBALL': '야구',
+        'TRAINING': '트레이닝',
+        'TRAINING_FITNESS': '트레이닝+필라테스',
+        'PILATES': '필라테스',
+        'GENERAL': '일반',
+        'RENTAL': '대관'
+    };
+    
+    const sortedCategories = Object.entries(memberCount)
+        .sort((a, b) => b[1] - a[1]);
+    
+    container.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            ${sortedCategories.map(([category, count]) => {
+                const label = categoryLabels[category] || category;
+                const products = activeProducts[category] || 0;
+                const avgProducts = count > 0 ? (products / count).toFixed(1) : '0.0';
+                
+                return `
+                    <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--accent-primary);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);">${label}</div>
+                            <div style="font-size: 18px; font-weight: 800; color: var(--accent-primary);">${count}명</div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-secondary);">
+                            <span>활성 이용권: ${products}개</span>
+                            <span>평균: ${avgProducts}개/명</span>
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
+// 등급별 상세 통계 렌더링
+function renderGradeDetailChart(containerId, gradeData) {
+    const container = document.getElementById(containerId);
+    const { gradeStatusDistribution, gradeActiveCount, gradeRecentVisitors } = gradeData;
+    
+    if (!gradeStatusDistribution || Object.keys(gradeStatusDistribution).length === 0) {
+        container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">데이터가 없습니다.</p>';
+        return;
+    }
+    
+    const gradeLabels = {
+        'SOCIAL': '사회인',
+        'ELITE_ELEMENTARY': '엘리트 (초)',
+        'ELITE_MIDDLE': '엘리트 (중)',
+        'ELITE_HIGH': '엘리트 (고)',
+        'YOUTH': '유소년'
+    };
+    
+    const sortedGrades = Object.entries(gradeStatusDistribution)
+        .sort((a, b) => {
+            const totalA = Object.values(a[1]).reduce((sum, val) => sum + val, 0);
+            const totalB = Object.values(b[1]).reduce((sum, val) => sum + val, 0);
+            return totalB - totalA;
+        });
+    
+    container.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+            ${sortedGrades.map(([grade, statusMap]) => {
+                const label = gradeLabels[grade] || grade;
+                const active = statusMap['ACTIVE'] || 0;
+                const inactive = statusMap['INACTIVE'] || 0;
+                const withdrawn = statusMap['WITHDRAWN'] || 0;
+                const total = active + inactive + withdrawn;
+                const recentVisitors = gradeRecentVisitors[grade] || 0;
+                
+                return `
+                    <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--accent-primary);">
+                        <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">${label}</div>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 11px;">
+                            <div>
+                                <div style="color: var(--text-secondary);">활성</div>
+                                <div style="font-weight: 700; color: var(--accent-primary);">${active}</div>
+                            </div>
+                            <div>
+                                <div style="color: var(--text-secondary);">휴면</div>
+                                <div style="font-weight: 700; color: var(--warning);">${inactive}</div>
+                            </div>
+                            <div>
+                                <div style="color: var(--text-secondary);">이탈</div>
+                                <div style="font-weight: 700; color: var(--danger);">${withdrawn}</div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-color); font-size: 10px; color: var(--text-secondary);">
+                            최근 방문: <span style="font-weight: 600; color: var(--info);">${recentVisitors}명</span> (30일 내)
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
+// 등급별 분포 차트 렌더링
+function renderGradeDistributionChart(containerId, gradeDistribution) {
+    const container = document.getElementById(containerId);
+    if (!gradeDistribution || Object.keys(gradeDistribution).length === 0) {
+        container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">데이터가 없습니다.</p>';
+        return;
+    }
+    
+    const gradeLabels = {
+        'SOCIAL': '사회인',
+        'ELITE_ELEMENTARY': '엘리트 (초)',
+        'ELITE_MIDDLE': '엘리트 (중)',
+        'ELITE_HIGH': '엘리트 (고)',
+        'YOUTH': '유소년'
+    };
+    
+    const total = Object.values(gradeDistribution).reduce((sum, count) => sum + count, 0);
+    const sortedGrades = Object.entries(gradeDistribution)
+        .sort((a, b) => b[1] - a[1]);
+    
+    container.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+            ${sortedGrades.map(([grade, count]) => {
+                const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+                const label = gradeLabels[grade] || grade;
+                return `
+                    <div style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 4px; background: var(--bg-secondary);">
+                        <div style="min-width: 90px; font-size: 11px; color: var(--text-primary); font-weight: 600;">${label}</div>
+                        <div style="flex: 1; height: 18px; background-color: var(--bg-hover); border-radius: 4px; overflow: hidden;">
+                            <div style="height: 100%; width: ${percentage}%; background-color: var(--accent-primary); transition: width 0.3s;"></div>
+                        </div>
+                        <div style="min-width: 55px; text-align: right;">
+                            <span style="font-weight: 700; color: var(--text-primary); font-size: 12px;">${count}</span>
+                            <span style="font-size: 10px; color: var(--text-secondary); margin-left: 3px;">(${percentage}%)</span>
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
+// 회원 상태 차트 렌더링
+function renderMemberStatusChart(containerId, statusData) {
+    const container = document.getElementById(containerId);
+    const { active, inactive, withdrawn } = statusData;
+    const total = active + inactive + withdrawn;
+    
+    if (total === 0) {
+        container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">데이터가 없습니다.</p>';
+        return;
+    }
+    
+    container.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--accent-primary);">
+                <div>
+                    <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 3px;">활성</div>
+                    <div style="font-size: 18px; font-weight: 700; color: var(--accent-primary);">${active}</div>
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary);">${total > 0 ? ((active / total) * 100).toFixed(1) : 0}%</div>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--warning);">
+                <div>
+                    <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 3px;">휴면</div>
+                    <div style="font-size: 18px; font-weight: 700; color: var(--warning);">${inactive}</div>
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary);">${total > 0 ? ((inactive / total) * 100).toFixed(1) : 0}%</div>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--danger);">
+                <div>
+                    <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 3px;">이탈</div>
+                    <div style="font-size: 18px; font-weight: 700; color: var(--danger);">${withdrawn}</div>
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary);">${total > 0 ? ((withdrawn / total) * 100).toFixed(1) : 0}%</div>
+            </div>
+        </div>
+    `;
+}
+
+// 이용권 통계 렌더링
+function renderMemberProductStats(containerId, stats) {
+    const container = document.getElementById(containerId);
+    const { avgProductsPerMember, totalActiveProducts, membersWithProducts, activeCount } = stats;
+    
+    container.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--accent-primary);">
+                <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">평균 이용권 수</div>
+                <div style="font-size: 20px; font-weight: 800; color: var(--accent-primary);">${avgProductsPerMember.toFixed(1)}</div>
+                <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">회원당 평균</div>
+            </div>
+            <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--info);">
+                <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">활성 이용권</div>
+                <div style="font-size: 20px; font-weight: 800; color: var(--info);">${totalActiveProducts || 0}</div>
+                <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">${membersWithProducts || 0}명 보유</div>
+            </div>
+            <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--success);">
+                <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">이용권 보유율</div>
+                <div style="font-size: 20px; font-weight: 800; color: var(--success);">
+                    ${activeCount > 0 ? ((membersWithProducts / activeCount) * 100).toFixed(1) : 0}%
+                </div>
+                <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">활성 회원 중 보유</div>
+            </div>
+        </div>
+    `;
 }
 
 function renderMemberTrendChart(containerId, data) {
@@ -1012,4 +1320,71 @@ function getPaymentMethodText(method) {
         'EASY_PAY': '간편결제'
     };
     return map[method] || method;
+}
+
+// 매출 추이 차트 필터 기간 설정
+function setRevenueTrendPeriod(period) {
+    console.log('매출 추이 필터 변경:', period);
+    window.revenueTrendPeriod = period;
+    updateRevenueTrendFilterButtons();
+    loadRevenueTrendChart();
+}
+
+// 매출 추이 필터 버튼 상태 업데이트
+function updateRevenueTrendFilterButtons() {
+    const weekBtn = document.getElementById('revenue-trend-filter-week');
+    const monthBtn = document.getElementById('revenue-trend-filter-month');
+    
+    if (weekBtn && monthBtn) {
+        const period = window.revenueTrendPeriod || 'week';
+        if (period === 'week') {
+            weekBtn.className = 'btn btn-sm btn-primary';
+            monthBtn.className = 'btn btn-sm btn-secondary';
+        } else {
+            weekBtn.className = 'btn btn-sm btn-secondary';
+            monthBtn.className = 'btn btn-sm btn-primary';
+        }
+    } else {
+        console.warn('매출 추이 필터 버튼을 찾을 수 없습니다.');
+    }
+}
+
+// 매출 추이 차트만 별도로 로드
+async function loadRevenueTrendChart() {
+    try {
+        const period = window.revenueTrendPeriod || 'week';
+        const params = new URLSearchParams();
+        
+        // 일주일 또는 한달 기간 계산
+        const today = new Date();
+        const endDate = new Date(today);
+        endDate.setHours(23, 59, 59, 999);
+        
+        let startDate = new Date(today);
+        if (period === 'week') {
+            // 최근 7일
+            startDate.setDate(today.getDate() - 6);
+        } else {
+            // 최근 30일
+            startDate.setDate(today.getDate() - 29);
+        }
+        startDate.setHours(0, 0, 0, 0);
+        
+        // 백엔드가 startDate/endDate를 인식하도록 period=custom 추가
+        params.append('period', 'custom');
+        params.append('startDate', startDate.toISOString().split('T')[0]);
+        params.append('endDate', endDate.toISOString().split('T')[0]);
+        
+        console.log('매출 추이 차트 로드:', period, startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]);
+        
+        const analytics = await App.api.get(`/analytics?${params}`);
+        
+        // 매출 추이 차트만 렌더링
+        if (analytics.revenue) {
+            console.log('매출 추이 데이터:', analytics.revenue.trend?.length, '일');
+            renderSimpleChart('revenue-trend-chart', analytics.revenue.trend || [], analytics.revenue || {});
+        }
+    } catch (error) {
+        console.error('매출 추이 차트 로드 실패:', error);
+    }
 }

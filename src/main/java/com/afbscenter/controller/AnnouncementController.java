@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -18,23 +19,20 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/announcements")
-@CrossOrigin(origins = "http://localhost:8080")
 public class AnnouncementController {
 
     private static final Logger logger = LoggerFactory.getLogger(AnnouncementController.class);
 
-    @Autowired
-    private AnnouncementRepository announcementRepository;
+    private final AnnouncementRepository announcementRepository;
+
+    public AnnouncementController(AnnouncementRepository announcementRepository) {
+        this.announcementRepository = announcementRepository;
+    }
 
     @GetMapping
+    @Transactional(readOnly = true)
     public ResponseEntity<List<Map<String, Object>>> getAllAnnouncements() {
         try {
-            // Repository null 체크
-            if (announcementRepository == null) {
-                logger.error("AnnouncementRepository가 주입되지 않았습니다!");
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-            }
-            
             List<Announcement> announcements = announcementRepository.findAllOrderByCreatedAtDesc();
             List<Map<String, Object>> result = new ArrayList<>();
             LocalDate currentDate = LocalDate.now();
@@ -70,6 +68,7 @@ public class AnnouncementController {
     }
 
     @GetMapping("/{id}")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getAnnouncementById(@PathVariable Long id) {
         try {
             Announcement announcement = announcementRepository.findById(id)
@@ -109,16 +108,9 @@ public class AnnouncementController {
     }
 
     @PostMapping
+    @Transactional
     public ResponseEntity<Map<String, Object>> createAnnouncement(@RequestBody Map<String, Object> announcementData) {
         logger.info("공지 생성 요청 수신: {}", announcementData);
-        
-        // Repository null 체크
-        if (announcementRepository == null) {
-            logger.error("AnnouncementRepository가 주입되지 않았습니다!");
-            Map<String, Object> error = new HashMap<>();
-            error.put("error", "서버 설정 오류: Repository가 초기화되지 않았습니다.");
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
-        }
         
         try {
             // 필수 필드 검증
@@ -262,6 +254,7 @@ public class AnnouncementController {
     }
 
     @PutMapping("/{id}")
+    @Transactional
     public ResponseEntity<Map<String, Object>> updateAnnouncement(@PathVariable Long id, @RequestBody Map<String, Object> announcementData) {
         try {
             Announcement announcement = announcementRepository.findById(id)
@@ -333,6 +326,7 @@ public class AnnouncementController {
     }
 
     @DeleteMapping("/{id}")
+    @Transactional
     public ResponseEntity<Void> deleteAnnouncement(@PathVariable Long id) {
         try {
             if (!announcementRepository.existsById(id)) {

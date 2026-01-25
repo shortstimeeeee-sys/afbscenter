@@ -124,7 +124,13 @@
                             </div>
                         </div>
                         <div class="metric-card">
-                            <div class="metric-label">매출 추이</div>
+                            <div class="metric-label" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <span>매출 추이</span>
+                                <div style="display: flex; gap: 4px;">
+                                    <button id="revenue-trend-filter-week" class="btn btn-sm" style="padding: 4px 12px; font-size: 11px; min-width: 60px;" onclick="setRevenueTrendPeriod('week')">일주일</button>
+                                    <button id="revenue-trend-filter-month" class="btn btn-sm btn-secondary" style="padding: 4px 12px; font-size: 11px; min-width: 60px;" onclick="setRevenueTrendPeriod('month')">한달</button>
+                                </div>
+                            </div>
                             <div id="revenue-trend-chart" class="chart-container">
                                 <p style="color: var(--text-muted);">차트 준비 중...</p>
                             </div>
@@ -137,16 +143,75 @@
                     <div class="card-header">
                         <h2 class="card-title">회원 지표</h2>
                     </div>
-                    <div class="metrics-grid">
-                        <div class="metric-card">
-                            <div class="metric-label">신규/이탈 추이</div>
-                            <div id="member-trend-chart" class="chart-container">
+                    <div class="metrics-grid" style="grid-template-columns: repeat(3, 1fr);">
+                        <!-- 회원 KPI (상단 3열) -->
+                        <div class="metric-card" style="min-height: auto; padding: 16px;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; text-transform: uppercase;">총 회원 수</div>
+                            <div style="font-size: 32px; font-weight: 800; color: var(--text-primary);" id="total-members">-</div>
+                        </div>
+                        <div class="metric-card" style="min-height: auto; padding: 16px;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; text-transform: uppercase;">활성 회원</div>
+                            <div style="font-size: 32px; font-weight: 800; color: var(--accent-primary);" id="active-members">-</div>
+                        </div>
+                        <div class="metric-card" style="min-height: auto; padding: 16px;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; text-transform: uppercase;">기간 내 신규</div>
+                            <div style="font-size: 32px; font-weight: 800; color: var(--info);" id="new-members-period">-</div>
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;" id="net-change-text">순증감: <span id="net-change-members">-</span></div>
+                        </div>
+                        
+                        <!-- 카테고리별 회원 통계 -->
+                        <div class="metric-card" style="min-height: auto;">
+                            <div class="metric-label">카테고리별 회원</div>
+                            <div id="category-member-chart" class="chart-container" style="min-height: 150px;">
                                 <p style="color: var(--text-muted);">차트 준비 중...</p>
                             </div>
                         </div>
-                        <div class="metric-card">
-                            <div class="metric-label">활동 회원 수</div>
-                            <div class="metric-value" id="active-members">-</div>
+                        
+                        <!-- 등급별 분포 -->
+                        <div class="metric-card" style="min-height: auto;">
+                            <div class="metric-label">등급별 분포</div>
+                            <div id="grade-distribution-chart" class="chart-container" style="min-height: 150px;">
+                                <p style="color: var(--text-muted);">차트 준비 중...</p>
+                            </div>
+                        </div>
+                        
+                        <!-- 등급별 상세 통계 -->
+                        <div class="metric-card" style="min-height: auto;">
+                            <div class="metric-label">등급별 상세</div>
+                            <div id="grade-detail-chart" class="chart-container" style="min-height: 150px;">
+                                <p style="color: var(--text-muted);">차트 준비 중...</p>
+                            </div>
+                        </div>
+                        
+                        <!-- 회원 상태 -->
+                        <div class="metric-card" style="min-height: auto;">
+                            <div class="metric-label">회원 상태</div>
+                            <div id="member-status-chart" class="chart-container" style="min-height: 120px;">
+                                <p style="color: var(--text-muted);">차트 준비 중...</p>
+                            </div>
+                        </div>
+                        
+                        <!-- 이용권 통계 -->
+                        <div class="metric-card" style="min-height: auto;">
+                            <div class="metric-label">이용권 통계</div>
+                            <div id="member-product-stats" style="padding: 12px;">
+                                <p style="color: var(--text-muted);">데이터 준비 중...</p>
+                            </div>
+                        </div>
+                        
+                        <!-- 최근 방문 회원 -->
+                        <div class="metric-card" style="min-height: auto; padding: 16px;">
+                            <div class="metric-label">최근 방문 회원</div>
+                            <div style="font-size: 36px; font-weight: 800; color: var(--accent-primary); margin-top: 8px;" id="recent-visitors">-</div>
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">최근 30일 내 방문</div>
+                        </div>
+                        
+                        <!-- 신규/이탈 추이 -->
+                        <div class="metric-card" style="grid-column: 1 / -1; min-height: auto;">
+                            <div class="metric-label">신규/이탈 추이</div>
+                            <div id="member-trend-chart" class="chart-container" style="min-height: 200px;">
+                                <p style="color: var(--text-muted);">차트 준비 중...</p>
+                            </div>
                         </div>
                     </div>
                 </div>

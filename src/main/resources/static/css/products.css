@@ -1,1 +1,38 @@
 /* 상품/이용권 페이지 스타일 */
+
+/* 카테고리별 색상 강화 - 야구, 필라테스, 트레이닝 */
+#products-table-body .badge-primary {
+    background-color: rgba(94, 106, 210, 0.25) !important;
+    color: #6E7AE8 !important;
+    border: 1px solid rgba(94, 106, 210, 0.4) !important;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    display: inline-block;
+    min-width: 90px;
+    text-align: center;
+}
+
+#products-table-body .badge-success {
+    background-color: rgba(46, 204, 113, 0.25) !important;
+    color: #2ECC71 !important;
+    border: 1px solid rgba(46, 204, 113, 0.4) !important;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    display: inline-block;
+    min-width: 90px;
+    text-align: center;
+}
+
+#products-table-body .badge-info {
+    background-color: rgba(52, 152, 219, 0.25) !important;
+    color: #5DADE2 !important;
+    border: 1px solid rgba(52, 152, 219, 0.4) !important;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    display: inline-block;
+    min-width: 90px;
+    text-align: center;
+}

@@ -17,6 +17,7 @@ import java.util.List;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Facility {
 
     @Id
@@ -46,10 +47,31 @@ public class Facility {
     @Column(length = 1000)
     private String equipment; // 사용 가능 장비 (쉼표로 구분)
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "branch", nullable = false)
+    private Branch branch = Branch.SAHA; // 소속 지점 (기본값: 사하점)
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "facility_type", nullable = false)
+    private FacilityType facilityType = FacilityType.BASEBALL; // 시설 타입 (기본값: 야구)
+
     @Column(nullable = false)
     private Boolean active = true;
 
     @OneToMany(mappedBy = "facility", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<Booking> bookings = new ArrayList<>();
+
+    public enum Branch {
+        SAHA,       // 사하점
+        YEONSAN,    // 연산점
+        RENTAL      // 대관 (공용)
+    }
+
+    public enum FacilityType {
+        BASEBALL,           // 야구 (배팅케이지, 피칭머신존 등)
+        TRAINING_FITNESS,   // 트레이닝+필라테스 (트레이닝룸, 필라테스룸 등)
+        RENTAL,             // 대관 (실내구장 등)
+        ALL                 // 전체 (야구, 필라테스, 트레이닝 모두)
+    }
 }

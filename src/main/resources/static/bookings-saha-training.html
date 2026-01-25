@@ -78,24 +78,27 @@
                 
                 <!-- 필터 -->
                 <div class="card">
-                    <div class="filter-group">
-                        <select class="form-control" id="filter-facility" style="width: 200px;">
-                            <option value="">전체 시설</option>
-                            <option value="1">배팅케이지</option>
-                            <option value="2">피칭머신존</option>
-                            <option value="3">실내구장</option>
-                            <option value="4">레슨룸</option>
-                        </select>
-                        <select class="form-control" id="filter-status" style="width: 150px;">
-                            <option value="">전체 상태</option>
-                            <option value="CONFIRMED">확정</option>
-                            <option value="PENDING">대기</option>
-                            <option value="CANCELLED">취소</option>
-                            <option value="COMPLETED">완료</option>
-                        </select>
-                        <input type="date" class="form-control" id="filter-date-start" style="width: 150px;">
-                        <input type="date" class="form-control" id="filter-date-end" style="width: 150px;">
-                        <button class="btn btn-secondary" onclick="applyFilters()">적용</button>
+                    <div class="filter-group" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+                        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                            <select class="form-control" id="filter-facility" style="width: 200px;">
+                                <option value="">전체 시설</option>
+                                <option value="1">배팅케이지</option>
+                                <option value="2">피칭머신존</option>
+                                <option value="3">실내구장</option>
+                                <option value="4">레슨룸</option>
+                            </select>
+                            <select class="form-control" id="filter-status" style="width: 150px;">
+                                <option value="">전체 상태</option>
+                                <option value="CONFIRMED">확정</option>
+                                <option value="PENDING">대기</option>
+                                <option value="CANCELLED">취소</option>
+                                <option value="COMPLETED">완료</option>
+                            </select>
+                            <input type="date" class="form-control" id="filter-date-start" style="width: 150px;">
+                            <input type="date" class="form-control" id="filter-date-end" style="width: 150px;">
+                            <button class="btn btn-secondary" onclick="applyFilters()">적용</button>
+                        </div>
+                        <button class="btn btn-success" id="btn-confirm-all" onclick="confirmAllPendingBookings()" style="display: none;">✅ 전체 확인</button>
                     </div>
                 </div>
                 

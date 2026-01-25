@@ -26,6 +26,9 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.coach WHERE b.id = :id")
     Booking findByIdWithFacilityAndMember(@Param("id") Long id);
     
+    @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.coach LEFT JOIN FETCH b.memberProduct LEFT JOIN FETCH b.memberProduct.product WHERE b.id = :id")
+    Booking findByIdWithAllRelations(@Param("id") Long id);
+    
     @Query("SELECT b FROM Booking b WHERE DATE(b.startTime) = DATE(:date)")
     List<Booking> findByDate(@Param("date") LocalDateTime date);
     
@@ -35,8 +38,10 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     @Query("SELECT b FROM Booking b WHERE b.member.id = :memberId AND b.purpose = 'LESSON' AND b.status = 'CONFIRMED' ORDER BY b.startTime DESC")
     List<Booking> findLatestLessonByMemberId(@Param("memberId") Long memberId);
     
-    // 특정 상품을 사용한 확정된 예약 수 조회 (출석 기록이 없는 예약만, 중복 방지)
-    @Query("SELECT COUNT(b) FROM Booking b WHERE b.memberProduct.id = :memberProductId AND b.status = 'CONFIRMED' AND NOT EXISTS (SELECT 1 FROM Attendance a WHERE a.booking.id = b.id AND a.checkInTime IS NOT NULL)")
+    // 특정 상품을 사용한 확정된 예약 수 조회 (출석 기록이 있는 예약만 카운트, 체크인 시에만 차감되므로)
+    // 주의: 예약 확정 시에는 차감하지 않으므로, 확정된 예약은 카운트하지 않음
+    // 체크인된 예약만 카운트하여 remainingCount 계산에 사용
+    @Query("SELECT COUNT(b) FROM Booking b WHERE b.memberProduct.id = :memberProductId AND EXISTS (SELECT 1 FROM Attendance a WHERE a.booking.id = b.id AND a.checkInTime IS NOT NULL)")
     Long countConfirmedBookingsByMemberProductId(@Param("memberProductId") Long memberProductId);
     
     // 회원의 특정 상품을 사용한 확정된 예약 목록 조회

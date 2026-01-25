@@ -7,6 +7,11 @@ document.addEventListener('DOMContentLoaded', function() {
 async function loadCoaches() {
     try {
         const coaches = await App.api.get('/coaches');
+        console.log('코치 목록 로드:', coaches);
+        // 디버깅: 각 코치의 availableBranches 확인
+        coaches.forEach(coach => {
+            console.log(`코치: ${coach.name}, availableBranches:`, coach.availableBranches);
+        });
         await renderCoachesTable(coaches);
         renderCoachSelect(coaches);
         updateCoachCount(coaches.length);
@@ -158,10 +163,18 @@ async function renderCoachesTable(coaches) {
     
     tbody.innerHTML = coachesWithCount.map(coach => {
         // 배정 지점 표시
-        const branches = coach.availableBranches ? coach.availableBranches.split(',').map(b => {
-            const branchNames = { 'SAHA': '사하', 'YEONSAN': '연산', 'RENTAL': '대관' };
-            return branchNames[b.trim().toUpperCase()] || b;
-        }).join(', ') : '-';
+        let branches = '-';
+        if (coach.availableBranches) {
+            try {
+                const branchArray = coach.availableBranches.split(',').map(b => b.trim().toUpperCase());
+                const branchNames = { 'SAHA': '사하점', 'YEONSAN': '연산점', 'RENTAL': '대관' };
+                const branchDisplayNames = branchArray.map(b => branchNames[b] || b).filter(Boolean);
+                branches = branchDisplayNames.length > 0 ? branchDisplayNames.join(', ') : '-';
+            } catch (e) {
+                console.warn('배정 지점 파싱 오류:', coach.name, coach.availableBranches, e);
+                branches = '-';
+            }
+        }
         
         return `
             <tr>

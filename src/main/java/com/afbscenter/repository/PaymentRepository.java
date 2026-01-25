@@ -29,7 +29,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Query("SELECT p FROM Payment p WHERE p.member.id = :memberId AND p.product.id = :productId AND p.category = 'PRODUCT_SALE' AND p.status = 'COMPLETED' AND (p.refundAmount IS NULL OR p.refundAmount = 0)")
     List<Payment> findActiveProductPaymentsByMemberAndProduct(@Param("memberId") Long memberId, @Param("productId") Long productId);
     
-    @Query("SELECT COALESCE(SUM(p.amount - COALESCE(p.refundAmount, 0)), 0) FROM Payment p WHERE p.paidAt >= :start AND p.paidAt < :end AND (p.status = 'COMPLETED' OR p.status IS NULL)")
+    @Query("SELECT COALESCE(SUM(p.amount - COALESCE(p.refundAmount, 0)), 0) FROM Payment p WHERE p.paidAt >= :start AND p.paidAt <= :end AND (p.status = 'COMPLETED' OR p.status IS NULL)")
     Integer sumAmountByDateRange(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
     
     @Query("SELECT COALESCE(SUM(p.amount - COALESCE(p.refundAmount, 0)), 0) FROM Payment p WHERE p.member.id = :memberId AND (p.status = 'COMPLETED' OR p.status IS NULL)")

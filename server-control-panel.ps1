@@ -1,4 +1,4 @@
-﻿# AFBS 센터 서버 제어판
+# AFBS 센터 서버 제어판
 # 작은 모달 창으로 서버를 제어할 수 있는 GUI
 
 # 오류 처리 설정
@@ -89,7 +89,7 @@ $form.Controls.Add($btnRestart)
 
 # 브라우저 열기 버튼
 $btnBrowser = New-Object System.Windows.Forms.Button
-$btnBrowser.Text = "🌐 브라우저 열기"
+$btnBrowser.Text = "◉ 브라우저 열기"
 $btnBrowser.Size = New-Object System.Drawing.Size(140, 40)
 $btnBrowser.Location = New-Object System.Drawing.Point(180, 170)
 $btnBrowser.Font = New-Object System.Drawing.Font("맑은 고딕", 10)
@@ -244,11 +244,16 @@ try {
     })
     [System.Windows.Forms.Application]::Run($form)
 } catch {
-    $errorMsg = "서버 제어판을 시작하는 중 오류가 발생했습니다.`n`n오류: $($_.Exception.Message)"
+    $errorMsg = "서버 제어판을 시작하는 중 오류가 발생했습니다.`n`n오류 타입: $($_.Exception.GetType().FullName)`n오류 메시지: $($_.Exception.Message)`n`n상세 정보:`n$($_.Exception.ToString())"
     try {
         [System.Windows.Forms.MessageBox]::Show($errorMsg, "오류", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
     } catch {
+        # MessageBox도 실패하면 파일로 저장
+        $logPath = Join-Path $PSScriptRoot "server-panel-error.log"
+        $errorMsg | Out-File -FilePath $logPath -Encoding UTF8
         Write-Host $errorMsg -ForegroundColor Red
+        Write-Host "`n오류 로그가 저장되었습니다: $logPath" -ForegroundColor Yellow
         Read-Host "Press Enter to exit"
     }
+    exit 1
 }

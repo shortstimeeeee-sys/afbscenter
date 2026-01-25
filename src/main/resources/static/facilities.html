@@ -82,7 +82,6 @@
                                     <th>지점</th>
                                     <th>시설 타입</th>
                                     <th>위치</th>
-                                    <th>수용 인원</th>
                                     <th>시간당 단가</th>
                                     <th>운영시간</th>
                                     <th>작업</th>
@@ -124,53 +123,39 @@
                         <div style="padding: 8px; background: var(--bg-tertiary); border-radius: var(--radius-md); color: var(--text-secondary); font-weight: 600;" id="facility-id-value">-</div>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">시설명 *</label>
-                        <input type="text" class="form-control" id="facility-name" required>
+                        <label class="form-label">시설명 <span class="required-asterisk">*</span></label>
+                        <input type="text" class="form-control" id="facility-name" required onchange="updateBranchFromName()">
+                        <small style="color: var(--text-muted); font-size: 12px; margin-top: 4px; display: block;">
+                            💡 시설명에 "사하" 또는 "연산"이 포함되면 소속 지점이 자동으로 설정됩니다.
+                        </small>
                     </div>
                     <div class="form-group">
                         <label class="form-label">위치</label>
                         <input type="text" class="form-control" id="facility-location">
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">소속 지점 *</label>
-                        <select class="form-control" id="facility-branch" required>
-                            <option value="SAHA">사하점</option>
-                            <option value="YEONSAN">연산점</option>
-                            <option value="RENTAL">대관 (공용)</option>
-                        </select>
+                    <div class="form-group" style="display: none;">
+                        <label class="form-label">소속 지점 <span class="required-asterisk">*</span></label>
+                        <input type="hidden" id="facility-branch" required>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">시설 타입 *</label>
-                        <select class="form-control" id="facility-type" required>
-                            <option value="BASEBALL">야구</option>
-                            <option value="TRAINING_FITNESS">트레이닝+필라테스</option>
-                            <option value="RENTAL">대관</option>
-                        </select>
+                        <label class="form-label">시설 타입 <span class="required-asterisk">*</span></label>
+                        <div class="checkbox-group" id="facility-type-group">
+                            <label><input type="checkbox" value="BASEBALL" name="facility-type"> 야구</label>
+                            <label><input type="checkbox" value="PILATES" name="facility-type"> 필라테스</label>
+                            <label><input type="checkbox" value="TRAINING" name="facility-type"> 트레이닝</label>
+                        </div>
+                        <input type="hidden" id="facility-type" required>
                     </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">수용 인원 *</label>
-                            <input type="number" class="form-control" id="facility-capacity" required min="1">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">시간당 단가 *</label>
-                            <input type="number" class="form-control" id="facility-price" required min="0">
-                        </div>
+                    <div class="form-group">
+                        <label class="form-label">시간당 단가 <span class="required-asterisk">*</span></label>
+                        <input type="number" class="form-control" id="facility-price" required min="0">
                     </div>
                     <div class="form-group">
                         <label class="form-label">운영시간</label>
                         <div class="form-row">
-                            <input type="text" class="form-control" id="facility-open-time" placeholder="09:00" pattern="([01]?[0-9]|2[0-3]):[0-5][0-9]" maxlength="5">
-                            <span style="align-self: center;">~</span>
-                            <input type="text" class="form-control" id="facility-close-time" placeholder="22:00" pattern="([01]?[0-9]|2[0-3]):[0-5][0-9]" maxlength="5">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">사용 가능 장비</label>
-                        <div class="checkbox-group">
-                            <label><input type="checkbox" value="PITCHING_MACHINE"> 피칭머신</label>
-                            <label><input type="checkbox" value="RADAR"> 레이다</label>
-                            <label><input type="checkbox" value="BATTING_ANALYZER"> 타격측정기</label>
+                            <input type="text" class="form-control" id="facility-open-time" placeholder="09:00" pattern="([01]?[0-9]|2[0-3]):[0-5][0-9]" maxlength="5" style="width: 100px;">
+                            <span>~</span>
+                            <input type="text" class="form-control" id="facility-close-time" placeholder="22:00" pattern="([01]?[0-9]|2[0-3]):[0-5][0-9]" maxlength="5" style="width: 100px;">
                         </div>
                     </div>
                 </form>

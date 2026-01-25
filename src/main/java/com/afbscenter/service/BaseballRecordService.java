@@ -4,7 +4,6 @@ import com.afbscenter.model.BaseballRecord;
 import com.afbscenter.model.Member;
 import com.afbscenter.repository.BaseballRecordRepository;
 import com.afbscenter.repository.MemberRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,7 +18,7 @@ public class BaseballRecordService {
     private final BaseballRecordRepository baseballRecordRepository;
     private final MemberRepository memberRepository;
 
-    @Autowired
+    // 생성자 주입 (Spring 4.3+에서는 @Autowired 불필요)
     public BaseballRecordService(BaseballRecordRepository baseballRecordRepository, 
                                  MemberRepository memberRepository) {
         this.baseballRecordRepository = baseballRecordRepository;
@@ -32,6 +31,12 @@ public class BaseballRecordService {
                 .orElseThrow(() -> new IllegalArgumentException("회원을 찾을 수 없습니다."));
         record.setMember(member);
         return baseballRecordRepository.save(record);
+    }
+
+    // 전체 기록 조회
+    @Transactional(readOnly = true)
+    public List<BaseballRecord> getAllRecords() {
+        return baseballRecordRepository.findAll();
     }
 
     // 기록 조회 (ID)

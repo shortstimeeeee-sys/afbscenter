@@ -6,6 +6,7 @@ import com.afbscenter.model.Payment;
 import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.ProductRepository;
 import com.afbscenter.repository.PaymentRepository;
+import com.afbscenter.repository.AttendanceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,25 +24,31 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/member-products")
-@CrossOrigin(origins = "http://localhost:8080")
 public class MemberProductController {
 
     private static final Logger logger = LoggerFactory.getLogger(MemberProductController.class);
 
-    @Autowired
-    private MemberProductRepository memberProductRepository;
+    private final MemberProductRepository memberProductRepository;
+    private final ProductRepository productRepository;
+    private final com.afbscenter.repository.BookingRepository bookingRepository;
+    private final PaymentRepository paymentRepository;
+    private final AttendanceRepository attendanceRepository;
 
-    @Autowired
-    private ProductRepository productRepository;
-    
-    @Autowired
-    private com.afbscenter.repository.BookingRepository bookingRepository;
-    
-    @Autowired
-    private PaymentRepository paymentRepository;
+    public MemberProductController(MemberProductRepository memberProductRepository,
+                                   ProductRepository productRepository,
+                                   com.afbscenter.repository.BookingRepository bookingRepository,
+                                   PaymentRepository paymentRepository,
+                                   AttendanceRepository attendanceRepository) {
+        this.memberProductRepository = memberProductRepository;
+        this.productRepository = productRepository;
+        this.bookingRepository = bookingRepository;
+        this.paymentRepository = paymentRepository;
+        this.attendanceRepository = attendanceRepository;
+    }
 
     // 상품권 통계 조회
     @GetMapping("/statistics")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getStatistics() {
         try {
             List<MemberProduct> allProducts = memberProductRepository.findAll();
@@ -109,6 +116,7 @@ public class MemberProductController {
 
     // 상품권 목록 조회 (필터링 가능)
     @GetMapping
+    @Transactional(readOnly = true)
     public ResponseEntity<List<Map<String, Object>>> getAllMemberProducts(
             @RequestParam(required = false) Long memberId,
             @RequestParam(required = false) String status) {
@@ -170,7 +178,21 @@ public class MemberProductController {
                         productMap.put("id", mp.getProduct().getId());
                         productMap.put("name", mp.getProduct().getName());
                         productMap.put("type", mp.getProduct().getType() != null ? mp.getProduct().getType().name() : null);
+                        productMap.put("category", mp.getProduct().getCategory() != null ? mp.getProduct().getCategory().name() : null);
                         productMap.put("price", mp.getProduct().getPrice());
+                        
+                        // Product의 코치 정보
+                        if (mp.getProduct().getCoach() != null) {
+                            try {
+                                Map<String, Object> productCoachMap = new HashMap<>();
+                                productCoachMap.put("id", mp.getProduct().getCoach().getId());
+                                productCoachMap.put("name", mp.getProduct().getCoach().getName());
+                                productMap.put("coach", productCoachMap);
+                            } catch (Exception e) {
+                                logger.warn("Product 코치 로드 실패: MemberProduct ID={}", mp.getId(), e);
+                            }
+                        }
+                        
                         map.put("product", productMap);
                     } catch (Exception e) {
                         logger.warn("Product 로드 실패: MemberProduct ID={}", mp.getId(), e);
@@ -179,6 +201,24 @@ public class MemberProductController {
                 } else {
                     map.put("product", null);
                 }
+                
+                // MemberProduct의 코치 정보 (우선순위: MemberProduct.coach > Product.coach)
+                Map<String, Object> coachMap = null;
+                try {
+                    if (mp.getCoach() != null) {
+                        coachMap = new HashMap<>();
+                        coachMap.put("id", mp.getCoach().getId());
+                        coachMap.put("name", mp.getCoach().getName());
+                    } else if (mp.getProduct() != null && mp.getProduct().getCoach() != null) {
+                        // MemberProduct에 코치가 없으면 Product의 코치 사용
+                        coachMap = new HashMap<>();
+                        coachMap.put("id", mp.getProduct().getCoach().getId());
+                        coachMap.put("name", mp.getProduct().getCoach().getName());
+                    }
+                } catch (Exception e) {
+                    logger.warn("Coach 로드 실패: MemberProduct ID={}", mp.getId(), e);
+                }
+                map.put("coach", coachMap);
                 
                 return map;
             }).collect(Collectors.toList());
@@ -233,7 +273,7 @@ public class MemberProductController {
                 if (totalCount == null || totalCount <= 0) {
                     totalCount = memberProduct.getProduct().getUsageCount();
                     if (totalCount == null || totalCount <= 0) {
-                        totalCount = 10; // 기본값
+                        totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
                     }
                     memberProduct.setTotalCount(totalCount);
                 }
@@ -322,7 +362,7 @@ public class MemberProductController {
                             productTotalCount = totalCount; // MemberProduct의 totalCount 사용
                         }
                         if (productTotalCount == null || productTotalCount <= 0) {
-                            productTotalCount = 10; // 기본값
+                            productTotalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
                         }
                         
                         // 단가 계산 (실제 구매 금액 / 총 횟수)
@@ -341,9 +381,9 @@ public class MemberProductController {
                         payment.setMember(memberProduct.getMember());
                         payment.setProduct(memberProduct.getProduct());
                         payment.setAmount(totalPrice);
-                        payment.setPaymentMethod(Payment.PaymentMethod.CASH); // 기본값: 현금
-                        payment.setStatus(Payment.PaymentStatus.COMPLETED);
-                        payment.setCategory(Payment.PaymentCategory.PRODUCT_SALE);
+                        payment.setPaymentMethod(com.afbscenter.constants.PaymentDefaults.DEFAULT_PAYMENT_METHOD);
+                        payment.setStatus(com.afbscenter.constants.PaymentDefaults.DEFAULT_PAYMENT_STATUS);
+                        payment.setCategory(com.afbscenter.constants.PaymentDefaults.DEFAULT_PAYMENT_CATEGORY);
                         payment.setMemo("이용권 연장: " + memberProduct.getProduct().getName() + " (" + extendDays + "회 추가)");
                         payment.setPaidAt(LocalDateTime.now());
                         payment.setCreatedAt(LocalDateTime.now());
@@ -369,6 +409,22 @@ public class MemberProductController {
                 return ResponseEntity.badRequest().body(error);
             }
             
+            // 코치 정보 유지 확인 및 로깅
+            if (memberProduct.getCoach() != null) {
+                logger.info("이용권 연장 시 코치 정보 유지: MemberProduct ID={}, Coach ID={}, Coach Name={}", 
+                        memberProduct.getId(), 
+                        memberProduct.getCoach().getId(), 
+                        memberProduct.getCoach().getName());
+            } else {
+                logger.debug("이용권 연장 시 코치 정보 없음: MemberProduct ID={}", memberProduct.getId());
+            }
+            
+            // totalCount도 함께 업데이트 (연장된 횟수만큼 총 횟수도 증가)
+            Integer newTotalCount = memberProduct.getTotalCount() + extendDays;
+            memberProduct.setTotalCount(newTotalCount);
+            logger.info("이용권 총 횟수 업데이트: MemberProduct ID={}, 기존 총={}회, 추가={}회, 새 총={}회", 
+                    memberProduct.getId(), memberProduct.getTotalCount() - extendDays, extendDays, newTotalCount);
+            
             MemberProduct saved = memberProductRepository.save(memberProduct);
             
             Map<String, Object> result = new HashMap<>();
@@ -377,12 +433,23 @@ public class MemberProductController {
             result.put("status", saved.getStatus() != null ? saved.getStatus().name() : null);
             result.put("previousRemainingCount", previousRemainingCount);
             result.put("newRemainingCount", saved.getRemainingCount());
+            result.put("previousTotalCount", newTotalCount - extendDays);
+            result.put("newTotalCount", newTotalCount);
+            
+            // 코치 정보도 응답에 포함
+            if (saved.getCoach() != null) {
+                Map<String, Object> coachMap = new HashMap<>();
+                coachMap.put("id", saved.getCoach().getId());
+                coachMap.put("name", saved.getCoach().getName());
+                result.put("coach", coachMap);
+            }
+            
             result.put("message", "남은 횟수가 " + extendDays + "회 추가되었습니다. (이전: " + 
                     (previousRemainingCount != null ? previousRemainingCount : 0) + 
                     "회 → 현재: " + saved.getRemainingCount() + "회)");
             
-            logger.info("횟수권 연장: MemberProduct ID={}, 추가 횟수={}, 새 남은 횟수={}", 
-                    saved.getId(), extendDays, saved.getRemainingCount());
+            logger.info("횟수권 연장 완료: MemberProduct ID={}, 추가 횟수={}, 새 남은 횟수={}, 새 총 횟수={}", 
+                    saved.getId(), extendDays, saved.getRemainingCount(), newTotalCount);
             
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
@@ -400,6 +467,7 @@ public class MemberProductController {
 
     // 상품권 상세 조회
     @GetMapping("/{id}")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getMemberProductById(@PathVariable Long id) {
         try {
             return memberProductRepository.findById(id)
@@ -484,15 +552,26 @@ public class MemberProductController {
             if (totalCount == null || totalCount <= 0) {
                 totalCount = memberProduct.getProduct().getUsageCount();
                 if (totalCount == null || totalCount <= 0) {
-                    totalCount = 10; // 기본값
+                    totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
                 }
             }
             
-            // 실제 사용된 횟수 계산 (확정된 예약 중 해당 상품을 사용한 것)
-            Long usedCount = bookingRepository.countConfirmedBookingsByMemberProductId(id);
-            if (usedCount == null) {
-                usedCount = 0L;
+            // 실제 사용된 횟수 계산
+            // 주의: countConfirmedBookingsByMemberProductId는 이제 체크인된 예약만 카운트함
+            // 출석 기록도 확인하여 더 정확한 계산
+            Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(
+                memberProduct.getMember().getId(), id);
+            if (usedCountByAttendance == null) {
+                usedCountByAttendance = 0L;
             }
+            
+            Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(id);
+            if (usedCountByBooking == null) {
+                usedCountByBooking = 0L;
+            }
+            
+            // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용 (중복 방지)
+            Long usedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
             
             // 잔여 횟수 재계산
             Integer remainingCount = totalCount - usedCount.intValue();
@@ -559,7 +638,7 @@ public class MemberProductController {
                     if (totalCount == null || totalCount <= 0) {
                         totalCount = memberProduct.getProduct().getUsageCount();
                         if (totalCount == null || totalCount <= 0) {
-                            totalCount = 10; // 기본값
+                            totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
                         }
                     }
                     
@@ -609,6 +688,113 @@ public class MemberProductController {
         }
     }
     
+    // 이용권 횟수 직접 설정 (절대값)
+    @PutMapping("/{id}/set-count")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> setRemainingCount(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> setData) {
+        try {
+            logger.info("===== 이용권 횟수 직접 설정 API 호출 =====");
+            logger.info("MemberProduct ID: {}", id);
+            logger.info("요청 데이터: {}", setData);
+            
+            MemberProduct memberProduct = memberProductRepository.findById(id)
+                    .orElseThrow(() -> new IllegalArgumentException("상품권을 찾을 수 없습니다."));
+            
+            logger.info("현재 상태 - 잔여: {}회, 총: {}회", 
+                    memberProduct.getRemainingCount(), memberProduct.getTotalCount());
+            
+            // 횟수권이 아닌 경우
+            if (memberProduct.getProduct() == null || 
+                memberProduct.getProduct().getType() != Product.ProductType.COUNT_PASS) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "횟수권이 아닙니다.");
+                return ResponseEntity.badRequest().body(error);
+            }
+            
+            // 설정할 횟수 추출
+            Integer newCount = null;
+            if (setData.get("count") != null) {
+                if (setData.get("count") instanceof Number) {
+                    newCount = ((Number) setData.get("count")).intValue();
+                } else {
+                    newCount = Integer.parseInt(setData.get("count").toString());
+                }
+            }
+            
+            logger.info("설정할 횟수: {}회", newCount);
+            
+            if (newCount == null || newCount < 0) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "0 이상의 값을 입력해주세요.");
+                return ResponseEntity.badRequest().body(error);
+            }
+            
+            // 현재 잔여 횟수
+            Integer currentRemaining = memberProduct.getRemainingCount();
+            if (currentRemaining == null) {
+                currentRemaining = 0;
+            }
+            
+            // 총 횟수 확인
+            Integer totalCount = memberProduct.getTotalCount();
+            if (totalCount == null || totalCount <= 0) {
+                totalCount = memberProduct.getProduct().getUsageCount();
+                if (totalCount == null || totalCount <= 0) {
+                    totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                }
+            }
+            
+            // 잔여 횟수를 직접 설정할 때는 총 횟수도 함께 업데이트
+            // (수동 조정된 값을 기준으로 새로운 기준선 설정)
+            totalCount = newCount;
+            memberProduct.setTotalCount(totalCount);
+            
+            // 업데이트
+            memberProduct.setRemainingCount(newCount);
+            
+            logger.info("총 횟수도 함께 업데이트: {}회 → {}회", 
+                    memberProduct.getTotalCount(), totalCount);
+            
+            logger.info("저장 전 - 잔여: {}회, 총: {}회", newCount, totalCount);
+            
+            // 상태 업데이트
+            if (newCount == 0) {
+                memberProduct.setStatus(MemberProduct.Status.USED_UP);
+            } else if (memberProduct.getStatus() == MemberProduct.Status.USED_UP) {
+                // 잔여 횟수가 있으면 다시 ACTIVE로 변경
+                memberProduct.setStatus(MemberProduct.Status.ACTIVE);
+            }
+            
+            MemberProduct saved = memberProductRepository.save(memberProduct);
+            
+            logger.info("저장 후 - 잔여: {}회, 총: {}회", saved.getRemainingCount(), saved.getTotalCount());
+            logger.info("===== 이용권 횟수 직접 설정 완료 =====");
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("id", saved.getId());
+            result.put("previousRemainingCount", currentRemaining);
+            result.put("newRemainingCount", saved.getRemainingCount());
+            result.put("totalCount", saved.getTotalCount());
+            result.put("status", saved.getStatus() != null ? saved.getStatus().name() : null);
+            result.put("message", String.format("잔여 횟수가 설정되었습니다. (이전: %d회 → 현재: %d회)", 
+                    currentRemaining, saved.getRemainingCount()));
+            
+            return ResponseEntity.ok(result);
+        } catch (IllegalArgumentException e) {
+            logger.warn("상품권을 찾을 수 없습니다. ID: {}", id, e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+        } catch (Exception e) {
+            logger.error("이용권 횟수 설정 중 오류 발생. ID: {}", id, e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "횟수 설정 중 오류가 발생했습니다: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        }
+    }
+    
     // 이용권 횟수 수동 조정 (+/- 가능)
     @PutMapping("/{id}/adjust-count")
     @Transactional
@@ -616,8 +802,15 @@ public class MemberProductController {
             @PathVariable Long id,
             @RequestBody Map<String, Object> adjustData) {
         try {
+            logger.info("===== 이용권 횟수 상대 조정 API 호출 =====");
+            logger.info("MemberProduct ID: {}", id);
+            logger.info("요청 데이터: {}", adjustData);
+            
             MemberProduct memberProduct = memberProductRepository.findById(id)
                     .orElseThrow(() -> new IllegalArgumentException("상품권을 찾을 수 없습니다."));
+            
+            logger.info("현재 상태 - 잔여: {}회, 총: {}회", 
+                    memberProduct.getRemainingCount(), memberProduct.getTotalCount());
             
             // 횟수권이 아닌 경우
             if (memberProduct.getProduct() == null || 
@@ -637,6 +830,8 @@ public class MemberProductController {
                 }
             }
             
+            logger.info("조정할 횟수: {}회", adjustAmount);
+            
             if (adjustAmount == null) {
                 Map<String, Object> error = new HashMap<>();
                 error.put("error", "조정할 횟수를 입력해주세요. (양수: 추가, 음수: 차감)");
@@ -654,20 +849,27 @@ public class MemberProductController {
             if (totalCount == null || totalCount <= 0) {
                 totalCount = memberProduct.getProduct().getUsageCount();
                 if (totalCount == null || totalCount <= 0) {
-                    totalCount = 10; // 기본값
+                    totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
                 }
             }
             
             // 조정 후 잔여 횟수 계산
             Integer newRemainingCount = currentRemaining + adjustAmount;
+            logger.info("계산: {}회 + {}회 = {}회", currentRemaining, adjustAmount, newRemainingCount);
+            
             if (newRemainingCount < 0) {
+                logger.info("음수 방지: {}회 → 0회", newRemainingCount);
                 newRemainingCount = 0;
             }
             
-            // 총 횟수보다 많아지면 총 횟수로 제한
+            // 잔여 횟수가 총 횟수를 초과하면 총 횟수도 함께 증가
             if (newRemainingCount > totalCount) {
-                newRemainingCount = totalCount;
+                logger.info("이용권 총 횟수 자동 증가: MemberProduct ID={}, 기존 총={}회 → 새 총={}회", 
+                        memberProduct.getId(), totalCount, newRemainingCount);
+                totalCount = newRemainingCount;
             }
+            
+            logger.info("저장 전 - 잔여: {}회, 총: {}회", newRemainingCount, totalCount);
             
             // 업데이트
             memberProduct.setRemainingCount(newRemainingCount);
@@ -683,18 +885,18 @@ public class MemberProductController {
             
             MemberProduct saved = memberProductRepository.save(memberProduct);
             
+            logger.info("저장 후 - 잔여: {}회, 총: {}회", saved.getRemainingCount(), saved.getTotalCount());
+            logger.info("===== 이용권 횟수 상대 조정 완료 =====");
+            
             Map<String, Object> result = new HashMap<>();
             result.put("id", saved.getId());
             result.put("previousRemainingCount", currentRemaining);
             result.put("adjustAmount", adjustAmount);
-            result.put("newRemainingCount", newRemainingCount);
-            result.put("totalCount", totalCount);
+            result.put("newRemainingCount", saved.getRemainingCount());
+            result.put("totalCount", saved.getTotalCount());
             result.put("status", saved.getStatus() != null ? saved.getStatus().name() : null);
             result.put("message", String.format("잔여 횟수가 %s%d회 조정되었습니다. (이전: %d회 → 현재: %d회)", 
-                    adjustAmount >= 0 ? "+" : "", adjustAmount, currentRemaining, newRemainingCount));
-            
-            logger.info("이용권 횟수 수동 조정: MemberProduct ID={}, 조정={}회, 이전={}회, 현재={}회", 
-                    saved.getId(), adjustAmount, currentRemaining, newRemainingCount);
+                    adjustAmount >= 0 ? "+" : "", adjustAmount, currentRemaining, saved.getRemainingCount()));
             
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
@@ -706,6 +908,91 @@ public class MemberProductController {
             logger.error("이용권 횟수 조정 중 오류 발생. ID: {}", id, e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", "횟수 조정 중 오류가 발생했습니다: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        }
+    }
+    
+    // 기간권 기간 수정 (시작일/종료일)
+    @PutMapping("/{id}/update-period")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updatePeriod(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> periodData) {
+        try {
+            logger.info("===== 기간권 기간 수정 API 호출 =====");
+            logger.info("MemberProduct ID: {}", id);
+            logger.info("요청 데이터: {}", periodData);
+            
+            MemberProduct memberProduct = memberProductRepository.findById(id)
+                    .orElseThrow(() -> new IllegalArgumentException("상품권을 찾을 수 없습니다."));
+            
+            logger.info("현재 상태 - 시작: {}, 종료: {}", 
+                    memberProduct.getPurchaseDate(), memberProduct.getExpiryDate());
+            
+            // 시작일 추출
+            String startDateStr = periodData.get("startDate") != null ? periodData.get("startDate").toString() : null;
+            String endDateStr = periodData.get("endDate") != null ? periodData.get("endDate").toString() : null;
+            
+            if (startDateStr == null || endDateStr == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "시작일과 종료일을 모두 입력해주세요.");
+                return ResponseEntity.badRequest().body(error);
+            }
+            
+            java.time.LocalDate startDate = java.time.LocalDate.parse(startDateStr);
+            java.time.LocalDate endDate = java.time.LocalDate.parse(endDateStr);
+            
+            // 시작일이 종료일보다 늦으면 안됨
+            if (startDate.isAfter(endDate)) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "시작일은 종료일보다 늦을 수 없습니다.");
+                return ResponseEntity.badRequest().body(error);
+            }
+            
+            // 기존 시작일/종료일 저장 (로그용)
+            java.time.LocalDateTime oldPurchaseDate = memberProduct.getPurchaseDate();
+            java.time.LocalDate oldExpiryDate = memberProduct.getExpiryDate();
+            
+            // 시작일 업데이트 (purchaseDate를 LocalDate 기준 자정으로 설정)
+            memberProduct.setPurchaseDate(startDate.atStartOfDay());
+            
+            // 종료일 업데이트
+            memberProduct.setExpiryDate(endDate);
+            
+            // 만료 여부 확인 및 상태 업데이트
+            java.time.LocalDate today = java.time.LocalDate.now();
+            if (endDate.isBefore(today)) {
+                memberProduct.setStatus(MemberProduct.Status.EXPIRED);
+            } else if (memberProduct.getStatus() == MemberProduct.Status.EXPIRED) {
+                // 만료된 상품이 종료일 연장으로 다시 활성화
+                memberProduct.setStatus(MemberProduct.Status.ACTIVE);
+            }
+            
+            MemberProduct saved = memberProductRepository.save(memberProduct);
+            
+            logger.info("저장 후 - 시작: {}, 종료: {}", saved.getPurchaseDate(), saved.getExpiryDate());
+            logger.info("===== 기간권 기간 수정 완료 =====");
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("id", saved.getId());
+            result.put("oldStartDate", oldPurchaseDate != null ? oldPurchaseDate.toLocalDate() : null);
+            result.put("oldEndDate", oldExpiryDate);
+            result.put("newStartDate", saved.getPurchaseDate() != null ? saved.getPurchaseDate().toLocalDate() : null);
+            result.put("newEndDate", saved.getExpiryDate());
+            result.put("status", saved.getStatus() != null ? saved.getStatus().name() : null);
+            result.put("message", String.format("기간이 수정되었습니다. (시작: %s, 종료: %s)", 
+                    startDate, endDate));
+            
+            return ResponseEntity.ok(result);
+        } catch (IllegalArgumentException e) {
+            logger.warn("상품권을 찾을 수 없습니다. ID: {}", id, e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+        } catch (Exception e) {
+            logger.error("기간권 기간 수정 중 오류 발생. ID: {}", id, e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "기간 수정 중 오류가 발생했습니다: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
     }

@@ -71,7 +71,7 @@
                 <div class="view-controls">
                     <button class="btn btn-secondary active" data-view="calendar" id="btn-calendar">달력</button>
                     <button class="btn btn-secondary" data-view="list" id="btn-list">목록</button>
-                    <button class="btn btn-secondary" onclick="openBookingModal()" id="btn-booking-new">예약 등록</button>
+                    <button class="btn btn-secondary" onclick="openBookingModal()" id="btn-booking-new">대관 등록</button>
                 </div>
                 <!-- 코치 범례 -->
                 <div id="coach-legend" class="coach-legend"></div>
@@ -117,15 +117,12 @@
                         <table class="table">
                             <thead>
                                 <tr>
-                                    <th>예약번호</th>
+                                    <th>날짜</th>
+                                    <th>시간</th>
                                     <th>시설</th>
-                                    <th>날짜/시간</th>
                                     <th>회원</th>
-                                    <th>목적</th>
-                                    <th>레슨 카테고리</th>
                                     <th>인원</th>
                                     <th>상태</th>
-                                    <th>결제</th>
                                     <th>작업</th>
                                 </tr>
                             </thead>
@@ -178,7 +175,7 @@
     <div class="modal-overlay" id="booking-modal">
         <div class="modal">
             <div class="modal-header">
-                <h2 class="modal-title" id="booking-modal-title">예약 등록</h2>
+                <h2 class="modal-title" id="booking-modal-title">대관 등록</h2>
                 <button class="modal-close">×</button>
             </div>
             <div class="modal-body">
@@ -243,16 +240,16 @@
                         </div>
                     </div>
                     
-                    <!-- 회원 선택 버튼 (회원 정보가 없을 때만 표시) -->
+                    <!-- 대관용 간단한 회원 정보 입력 -->
                     <div id="member-select-section">
                         <div class="form-group">
-                            <label class="form-label">회원 선택 <span style="color: var(--danger);">*</span></label>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="openMemberSelectModal()" style="width: 100%;">회원 선택</button>
-                            <small style="color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px;">회원을 선택하거나 비회원 정보를 입력해주세요</small>
+                            <label class="form-label">예약자 이름 <span style="color: var(--danger);">*</span></label>
+                            <input type="text" class="form-control" id="booking-renter-name" placeholder="예약자 이름 입력" required>
+                            <small style="color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px;">대관 예약자 이름을 입력해주세요</small>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">또는</label>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="selectNonMember()" style="width: 100%;">비회원 예약</button>
+                            <label class="form-label">연락처</label>
+                            <input type="text" class="form-control" id="booking-renter-phone" placeholder="010-0000-0000">
                         </div>
                     </div>
                     <div class="form-group">
@@ -329,7 +326,8 @@
                             <option value="TRAINING">트레이닝</option>
                         </select>
                     </div>
-                    <div class="form-group" id="coach-group">
+                    <!-- 대관에서는 코치 필드 숨김 -->
+                    <div class="form-group" id="coach-group" style="display: none;">
                         <label class="form-label">담당 코치</label>
                         <select class="form-control" id="booking-coach">
                             <option value="">코치 미지정</option>
@@ -357,7 +355,19 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">메모</label>
-                        <textarea class="form-control" id="booking-notes" rows="3"></textarea>
+                        <div style="position: relative;">
+                            <textarea class="form-control" id="booking-notes" rows="3"></textarea>
+                            <div style="position: absolute; top: 4px; right: 4px; display: flex; gap: 4px;">
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="openMemoTemplates()" title="메모 템플릿 관리" style="padding: 4px 8px; font-size: 11px;">템플릿</button>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="copyMemoToClipboard()" title="메모 복사" style="padding: 4px 8px; font-size: 11px;">복사</button>
+                            </div>
+                        </div>
+                        <div id="copied-memo-display" style="margin-top: 8px; padding: 8px; background: var(--bg-tertiary); border-radius: var(--radius-sm); display: none;">
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">복사된 메모:</div>
+                            <div id="copied-memo-content" style="font-size: 13px; color: var(--text-primary); white-space: pre-wrap;"></div>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="pasteCopiedMemo()" style="margin-top: 4px; padding: 2px 8px; font-size: 11px;">붙여넣기</button>
+                            <button type="button" class="btn btn-sm btn-danger" onclick="clearCopiedMemo()" style="margin-top: 4px; margin-left: 4px; padding: 2px 8px; font-size: 11px;">삭제</button>
+                        </div>
                     </div>
                 </form>
             </div>
@@ -373,12 +383,13 @@
     <div class="modal-overlay" id="quick-booking-modal">
         <div class="modal" style="max-width: 500px;">
             <div class="modal-header">
-                <h2 class="modal-title" id="quick-booking-title">빠른 예약</h2>
+                <h2 class="modal-title" id="quick-booking-title">대관 등록</h2>
                 <button class="modal-close">×</button>
             </div>
             <div class="modal-body">
                 <form id="quick-booking-form">
                     <input type="hidden" id="quick-booking-date">
+                    <input type="hidden" id="quick-booking-id">
                     
                     <div class="form-group">
                         <label class="form-label">이름 <span style="color: var(--danger);">*</span></label>
@@ -410,7 +421,7 @@
                         <select class="form-control" id="quick-purpose" required disabled style="background-color: var(--bg-secondary); color: var(--text-muted);">
                             <option value="RENTAL" selected>대관</option>
                         </select>
-                        <small style="color: var(--text-muted); font-size: 11px;">빠른 예약은 대관으로 고정됩니다</small>
+                        <small style="color: var(--text-muted); font-size: 11px;">대관 등록입니다</small>
                     </div>
                     
                     <div class="form-group">
@@ -422,13 +433,10 @@
                         <label class="form-label">메모</label>
                         <textarea class="form-control" id="quick-memo" rows="2" placeholder="예: 2명, 배팅연습"></textarea>
                     </div>
-                    
-                    <div style="margin-top: 16px; padding: 12px; background: var(--bg-tertiary); border-radius: var(--radius-md); font-size: 13px; color: var(--text-secondary);">
-                        💡 팁: 빠른 예약은 대관으로 저장됩니다. 상세 정보는 나중에 수정할 수 있습니다.
-                    </div>
                 </form>
             </div>
             <div class="modal-footer">
+                <button class="btn btn-danger" id="quick-booking-delete-btn" onclick="deleteQuickBooking()" style="display: none; margin-right: auto;">삭제</button>
                 <button class="btn btn-secondary" onclick="App.Modal.close('quick-booking-modal')">취소</button>
                 <button class="btn btn-secondary" onclick="openDetailBookingModal()">상세 입력</button>
                 <button class="btn btn-primary" onclick="saveQuickBooking()">저장</button>
@@ -463,11 +471,11 @@
                     <table class="table">
                         <thead>
                             <tr>
+                                <th>날짜</th>
                                 <th>시간</th>
                                 <th>시설</th>
-                                <th>회원/이름</th>
-                                <th>코치</th>
-                                <th>레슨 종목</th>
+                                <th>회원</th>
+                                <th>인원</th>
                                 <th>상태</th>
                                 <th>작업</th>
                             </tr>
@@ -479,6 +487,22 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="App.Modal.close('day-schedule-modal')">닫기</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 메모 템플릿 관리 모달 -->
+    <div class="modal-overlay" id="memo-templates-modal">
+        <div class="modal" style="max-width: 700px;">
+            <div class="modal-header">
+                <h2 class="modal-title">메모 템플릿 관리</h2>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body" id="memo-templates-modal-body">
+                <!-- 동적으로 내용이 채워짐 -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('memo-templates-modal')">닫기</button>
             </div>
         </div>
     </div>

@@ -63,6 +63,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // 레슨 종목 필터링 (페이지 타입에 따라)
     filterLessonCategoryOptions();
     
+    // 초기 뷰에 따라 전체 확인 버튼 표시/숨김
+    const confirmAllBtn = document.getElementById('btn-confirm-all');
+    if (confirmAllBtn) {
+        confirmAllBtn.style.display = (currentView === 'list') ? 'inline-block' : 'none';
+    }
+    
     // Delete 키로 예약 삭제
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Delete' && selectedBooking) {
@@ -75,6 +81,21 @@ document.addEventListener('DOMContentLoaded', function() {
 // 원본 레슨 종목 옵션 저장
 let originalLessonCategoryOptions = null;
 
+// 원본 레슨 종목 옵션 초기화 (필요시)
+function initializeOriginalLessonCategoryOptions() {
+    const lessonCategorySelect = document.getElementById('booking-lesson-category');
+    if (!lessonCategorySelect) return;
+    
+    // 원본 옵션이 없으면 현재 옵션을 원본으로 저장
+    if (!originalLessonCategoryOptions || originalLessonCategoryOptions.length === 0) {
+        originalLessonCategoryOptions = Array.from(lessonCategorySelect.options).map(opt => ({
+            value: opt.value,
+            text: opt.text
+        }));
+        console.log('[레슨 종목] 원본 옵션 초기화:', originalLessonCategoryOptions);
+    }
+}
+
 // 레슨 종목 옵션 필터링
 function filterLessonCategoryOptions() {
     const config = window.BOOKING_PAGE_CONFIG || {};
@@ -83,12 +104,13 @@ function filterLessonCategoryOptions() {
     
     if (!lessonCategorySelect) return;
     
-    // 원본 옵션 저장 (최초 1회만)
-    if (!originalLessonCategoryOptions) {
-        originalLessonCategoryOptions = Array.from(lessonCategorySelect.options).map(opt => ({
-            value: opt.value,
-            text: opt.text
-        }));
+    // 원본 옵션 초기화 (필요시)
+    initializeOriginalLessonCategoryOptions();
+    
+    // 원본 옵션이 없으면 필터링 불가
+    if (!originalLessonCategoryOptions || originalLessonCategoryOptions.length === 0) {
+        console.warn('[레슨 종목 필터링] 원본 옵션이 없어 필터링 불가');
+        return;
     }
     
     // facilityType에 따라 필터링
@@ -600,7 +622,7 @@ async function loadMemberProducts(memberId) {
         const productInfo = document.getElementById('product-info');
         const productInfoText = document.getElementById('product-info-text');
         
-        if (!select) return;
+        if (!select) return [];
         
         // 페이지별 설정 읽기
         const config = window.BOOKING_PAGE_CONFIG || {};
@@ -617,14 +639,65 @@ async function loadMemberProducts(memberId) {
         // 활성 상태인 상품만 필터링
         let activeProducts = memberProducts.filter(mp => mp.status === 'ACTIVE');
         
+        // 페이지별 허용된 코치 확인
+        const allowedCoaches = config.allowedCoaches || null;
+        let allowedCoachIds = null;
+        
+        // allowedCoaches가 설정되어 있으면 코치 ID 목록 가져오기
+        if (allowedCoaches && allowedCoaches.length > 0) {
+            try {
+                const allCoaches = await App.api.get('/coaches');
+                allowedCoachIds = allCoaches
+                    .filter(c => {
+                        const coachName = c.name || '';
+                        return allowedCoaches.some(allowed => coachName.includes(allowed));
+                    })
+                    .map(c => c.id);
+                console.log('[상품 필터링] 허용된 코치 ID 목록:', allowedCoachIds);
+            } catch (error) {
+                console.error('[상품 필터링] 코치 목록 로드 실패:', error);
+            }
+        }
+        
         // 카테고리별 필터링 (해당 카테고리 또는 GENERAL 또는 null인 이용권만)
         if (productCategory) {
             activeProducts = activeProducts.filter(mp => {
                 const category = mp.product?.category;
                 // category가 null이거나 GENERAL이면 모든 곳에서 사용 가능
                 if (!category || category === 'GENERAL') return true;
-                // 요청한 카테고리와 일치하면 true
-                return category === productCategory;
+                
+                // 정확히 일치하는 경우
+                if (category === productCategory) return true;
+                
+                // TRAINING_FITNESS 요청 시: TRAINING_FITNESS, TRAINING, PILATES 모두 포함
+                if (productCategory === 'TRAINING_FITNESS') {
+                    return category === 'TRAINING_FITNESS' || 
+                           category === 'TRAINING' || 
+                           category === 'PILATES';
+                }
+                
+                return false;
+            });
+        }
+        
+        // 코치 필터링: 해당 강사가 소속되지 않은 지점이면 이용권 제외
+        if (allowedCoachIds && allowedCoachIds.length > 0) {
+            activeProducts = activeProducts.filter(mp => {
+                const product = mp.product;
+                // 상품의 코치 ID 확인 (MemberProduct의 코치 우선, 없으면 상품의 코치)
+                const coachId = (mp.coach && mp.coach.id) || (product.coach && product.coach.id);
+                
+                // 코치가 없는 상품은 표시 (코치 필터링 없음)
+                if (!coachId) {
+                    return true;
+                }
+                
+                // 코치가 있으면 허용된 코치 목록에 포함되어 있는지 확인
+                const isAllowed = allowedCoachIds.includes(coachId);
+                if (!isAllowed) {
+                    console.log(`[상품 필터링] 코치 ID ${coachId}가 허용 목록에 없어 상품 제외:`, product.name);
+                }
+                return isAllowed;
             });
         }
         
@@ -632,7 +705,7 @@ async function loadMemberProducts(memberId) {
         
         if (activeProducts.length === 0) {
             if (productInfo) productInfo.style.display = 'none';
-            return;
+            return activeProducts; // 빈 배열 반환
         }
         
         activeProducts.forEach(mp => {
@@ -660,18 +733,179 @@ async function loadMemberProducts(memberId) {
             
             option.textContent = text;
             option.dataset.productType = product.type;
+            // 상품 카테고리 저장 (레슨 종목 자동 선택용)
+            // product.category가 문자열이면 그대로 사용, 객체면 name 속성 사용
+            let productCategory = null;
+            if (product.category) {
+                if (typeof product.category === 'string') {
+                    productCategory = product.category;
+                } else if (product.category.name) {
+                    productCategory = product.category.name;
+                } else {
+                    productCategory = product.category;
+                }
+            }
+            if (productCategory) {
+                option.dataset.productCategory = productCategory;
+                console.log(`[상품 로드] 상품 "${product.name}" 카테고리: ${productCategory}`);
+            } else {
+                console.warn(`[상품 로드] 상품 "${product.name}" 카테고리 없음`);
+            }
+            // MemberProduct의 코치 ID 저장 (담당 코치 자동 배정용)
+            if (mp.coach && mp.coach.id) {
+                option.dataset.coachId = mp.coach.id;
+            } else if (product.coach && product.coach.id) {
+                // MemberProduct에 코치가 없으면 상품의 코치 사용
+                option.dataset.coachId = product.coach.id;
+            }
             select.appendChild(option);
         });
         
-        // 상품 선택 시 결제 방식 자동 설정 및 정보 표시
-        select.onchange = function() {
+        // 상품 선택 시 결제 방식 자동 설정 및 정보 표시, 레슨 종목 및 코치 자동 설정
+        select.onchange = async function() {
             const selectedOption = this.options[this.selectedIndex];
             const paymentMethodSelect = document.getElementById('booking-payment-method');
+            const lessonCategorySelect = document.getElementById('booking-lesson-category');
+            const coachSelect = document.getElementById('booking-coach');
             
             if (selectedOption.value) {
                 // 상품 선택 시 선결제로 자동 설정
                 if (paymentMethodSelect) {
                     paymentMethodSelect.value = 'PREPAID';
+                }
+                
+                // 담당 코치 ID 먼저 가져오기 (레슨 종목 결정에 사용)
+                const coachId = selectedOption.dataset.coachId;
+                
+                // 상품 카테고리에 따라 레슨 종목 자동 선택
+                const productCategory = selectedOption.dataset.productCategory;
+                console.log('[상품 선택] 상품 카테고리:', productCategory, '코치 ID:', coachId, '선택된 옵션:', selectedOption);
+                
+                let lessonCategory = null;
+                let coachInfo = null;
+                
+                // 방법 1: 상품 카테고리로 레슨 종목 결정
+                if (productCategory) {
+                    // 카테고리 → 레슨 종목 매핑
+                    if (productCategory === 'BASEBALL') {
+                        lessonCategory = 'BASEBALL';
+                    } else if (productCategory === 'TRAINING' || productCategory === 'TRAINING_FITNESS') {
+                        lessonCategory = 'TRAINING';
+                    } else if (productCategory === 'PILATES') {
+                        lessonCategory = 'PILATES';
+                    }
+                    console.log('[상품 선택] 카테고리로 레슨 종목 결정:', lessonCategory);
+                }
+                
+                // 방법 2: 상품 카테고리가 없으면 코치 정보로 레슨 종목 결정
+                if (!lessonCategory && coachId) {
+                    try {
+                        // 코치 정보 가져오기
+                        coachInfo = await App.api.get(`/coaches/${coachId}`);
+                        if (coachInfo && coachInfo.specialties && coachInfo.specialties.length > 0) {
+                            lessonCategory = App.LessonCategory.fromCoachSpecialties(coachInfo.specialties);
+                            console.log('[상품 선택] 코치 정보로 레슨 종목 결정:', lessonCategory, '코치:', coachInfo.name);
+                        }
+                    } catch (error) {
+                        console.error('[상품 선택] 코치 정보 로드 실패:', error);
+                    }
+                }
+                
+                // 레슨 종목 설정
+                if (lessonCategory && lessonCategorySelect) {
+                    // 목적이 레슨이 아니면 먼저 설정 (레슨 종목 필드가 표시되도록)
+                    const purposeEl = document.getElementById('booking-purpose');
+                    if (purposeEl && !purposeEl.value) {
+                        purposeEl.value = 'LESSON';
+                        toggleLessonCategory();
+                        // 레슨 종목 필드가 표시될 때까지 대기
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                    
+                    // 원본 옵션 초기화 (필요시)
+                    initializeOriginalLessonCategoryOptions();
+                    
+                    // 레슨 종목 필터링 먼저 실행 (옵션이 제대로 로드되도록)
+                    filterLessonCategoryOptions();
+                    
+                    // 필터링 완료 대기 (옵션이 추가될 때까지 재시도)
+                    let attempts = 0;
+                    let optionExists = false;
+                    while (attempts < 30) {
+                        optionExists = Array.from(lessonCategorySelect.options).some(
+                            opt => opt.value === lessonCategory
+                        );
+                        if (optionExists) {
+                            break;
+                        }
+                        // 필터링 재실행 (옵션이 제대로 추가되지 않았을 수 있음)
+                        if (attempts % 5 === 0) {
+                            filterLessonCategoryOptions();
+                        }
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                        attempts++;
+                    }
+                    
+                    if (optionExists) {
+                        lessonCategorySelect.value = lessonCategory;
+                        console.log(`[상품 선택] ✅ 레슨 종목 자동 선택: ${lessonCategory} (카테고리: ${productCategory || '없음'}, 코치: ${coachInfo?.name || coachId || '없음'})`);
+                        
+                        // change 이벤트 발생 (다른 로직이 반응하도록)
+                        lessonCategorySelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    } else {
+                        console.warn(`[상품 선택] ❌ 레슨 종목 옵션 없음: ${lessonCategory}`, {
+                            availableOptions: Array.from(lessonCategorySelect.options).map(opt => ({ value: opt.value, text: opt.text })),
+                            productCategory,
+                            lessonCategory,
+                            coachId,
+                            facilityType: config.facilityType,
+                            originalOptions: originalLessonCategoryOptions,
+                            lessonCategorySelectHTML: lessonCategorySelect.innerHTML
+                        });
+                    }
+                } else if (!lessonCategory) {
+                    console.warn('[상품 선택] ⚠️ 레슨 종목을 결정할 수 없음:', {
+                        productCategory,
+                        coachId,
+                        hasCoachSelect: !!coachSelect,
+                        selectedOptionDataset: {
+                            productCategory: selectedOption.dataset.productCategory,
+                            coachId: selectedOption.dataset.coachId
+                        },
+                        product: selectedOption ? {
+                            text: selectedOption.textContent,
+                            value: selectedOption.value
+                        } : null
+                    });
+                }
+                
+                // 담당 코치 자동 배정 (MemberProduct 또는 Product의 코치)
+                if (coachSelect && coachId) {
+                    // 코치 드롭다운이 로드되지 않았으면 먼저 로드
+                    if (coachSelect.options.length <= 1) {
+                        console.log(`[상품 선택] 코치 드롭다운 로드 중...`);
+                        await loadCoachesForBooking();
+                        // 코치 목록이 로드될 때까지 대기 (최대 1초)
+                        let attempts = 0;
+                        while (coachSelect.options.length <= 1 && attempts < 20) {
+                            await new Promise(resolve => setTimeout(resolve, 50));
+                            attempts++;
+                        }
+                    }
+                    
+                    // 코치 드롭다운에서 해당 코치 찾기
+                    const coachOptionExists = Array.from(coachSelect.options).some(
+                        opt => opt.value == coachId || opt.value === String(coachId)
+                    );
+                    if (coachOptionExists) {
+                        coachSelect.value = coachId;
+                        console.log(`[상품 선택] 담당 코치 자동 배정: 코치 ID ${coachId}`);
+                        
+                        // 코치 변경 이벤트 발생 (레슨 종목 자동 선택을 위해)
+                        coachSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    } else {
+                        console.warn(`[상품 선택] 코치 옵션 없음: 코치 ID ${coachId}`);
+                    }
                 }
                 
                 // 상품 정보 표시
@@ -704,12 +938,16 @@ async function loadMemberProducts(memberId) {
             }
         };
         
+        // 상품 목록 반환 (자동 선택을 위해)
+        return activeProducts;
+        
     } catch (error) {
         console.error('회원 상품 목록 로드 실패:', error);
         const select = document.getElementById('booking-member-product');
         if (select) {
             select.innerHTML = '<option value="">상품 미선택 (일반 예약)</option>';
         }
+        return []; // 빈 배열 반환
     }
 }
 
@@ -724,9 +962,18 @@ async function loadCoachLegend() {
         // 페이지별 설정 읽기
         const config = window.BOOKING_PAGE_CONFIG || {};
         const allowedCoaches = config.allowedCoaches || null;
+        const facilityType = config.facilityType;
         
         // 활성 코치만 필터링
         let activeCoaches = coaches.filter(c => c.active !== false);
+        
+        // 야구 페이지에서는 박준현 트레이너 제외
+        if (facilityType === 'BASEBALL') {
+            activeCoaches = activeCoaches.filter(c => {
+                const coachName = c.name || '';
+                return !coachName.includes('박준현');
+            });
+        }
         
         // 페이지별 허용된 코치만 필터링
         if (allowedCoaches && allowedCoaches.length > 0) {
@@ -785,6 +1032,12 @@ function switchView(view) {
     const bookingBtn = document.getElementById('btn-booking-new');
     if (bookingBtn) {
         bookingBtn.classList.remove('active');
+    }
+    
+    // 전체 확인 버튼 표시/숨김 (목록 뷰에서만 표시)
+    const confirmAllBtn = document.getElementById('btn-confirm-all');
+    if (confirmAllBtn) {
+        confirmAllBtn.style.display = (view === 'list') ? 'inline-block' : 'none';
     }
     
     document.querySelectorAll('.view-container').forEach(container => {
@@ -1205,7 +1458,22 @@ async function openDayScheduleModal(dateStr) {
         const startISO = startOfDay.toISOString();
         const endISO = endOfDay.toISOString();
         
-        const bookings = await App.api.get(`/bookings?start=${startISO}&end=${endISO}&branch=YEONSAN`);
+        // 페이지별 설정 읽기
+        const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN', facilityType: 'BASEBALL' };
+        const branch = config.branch || 'YEONSAN';
+        const facilityType = config.facilityType;
+        
+        // API 파라미터 구성
+        const params = new URLSearchParams();
+        params.append('start', startISO);
+        params.append('end', endISO);
+        params.append('branch', branch);
+        if (facilityType) {
+            params.append('facilityType', facilityType);
+        }
+        
+        const bookings = await App.api.get(`/bookings?${params.toString()}`);
+        console.log(`날짜별 스케줄 로드 (${branch}, ${facilityType || '전체'}):`, bookings?.length || 0, '건');
         
         // 코치 목록 로드 (필터용)
         const coaches = await App.api.get('/coaches');
@@ -1329,9 +1597,20 @@ async function loadBookingsList() {
         // 예약 목록 로드 전에 자동으로 날짜/시간 기준으로 예약 번호 재정렬
         await reorderBookingIdsSilent();
         
-        // page 파라미터 제거 (백엔드에서 처리하지 않음)
-        const bookings = await App.api.get(`/bookings?branch=YEONSAN`);
-        console.log('예약 목록 조회 결과:', bookings?.length || 0, '건');
+        // 페이지별 설정 읽기
+        const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN', facilityType: 'BASEBALL' };
+        const branch = config.branch || 'YEONSAN';
+        const facilityType = config.facilityType;
+        
+        // API 파라미터 구성
+        const params = new URLSearchParams();
+        params.append('branch', branch);
+        if (facilityType) {
+            params.append('facilityType', facilityType);
+        }
+        
+        const bookings = await App.api.get(`/bookings?${params.toString()}`);
+        console.log(`예약 목록 조회 결과 (${branch}, ${facilityType || '전체'}):`, bookings?.length || 0, '건');
         renderBookingsTable(bookings);
     } catch (error) {
         console.error('예약 목록 로드 실패:', error);
@@ -1436,6 +1715,7 @@ async function loadMembersForSelect() {
         // 페이지별 설정 읽기
         const config = window.BOOKING_PAGE_CONFIG || {};
         const facilityType = config.facilityType;
+        const branch = config.branch;
         
         // facilityType에 맞는 productCategory 매핑
         let productCategory = null;
@@ -1445,11 +1725,22 @@ async function loadMembersForSelect() {
             productCategory = 'TRAINING_FITNESS';
         }
         
-        // productCategory가 있으면 필터링
-        const url = productCategory ? `/members?productCategory=${productCategory}` : '/members';
+        // API 파라미터 구성
+        // 야구는 모든 지점에서 가능하므로 branch 파라미터 전달 안 함
+        // 트레이닝+필라테스만 지점별 필터링
+        const params = new URLSearchParams();
+        if (productCategory) {
+            params.append('productCategory', productCategory);
+        }
+        // 트레이닝+필라테스만 지점 필터링 적용
+        if (branch && productCategory === 'TRAINING_FITNESS') {
+            params.append('branch', branch);
+        }
+        
+        const url = params.toString() ? `/members?${params.toString()}` : '/members';
         const members = await App.api.get(url);
         renderMemberSelectTable(members);
-        console.log(`회원 ${members.length}명 로드됨 (카테고리: ${productCategory || '전체'})`);
+        console.log(`회원 ${members.length}명 로드됨 (카테고리: ${productCategory || '전체'}, 지점: ${productCategory === 'TRAINING_FITNESS' ? (branch || '전체') : '모든 지점'})`);
     } catch (error) {
         console.error('회원 목록 로드 실패:', error);
         App.showNotification('회원 목록을 불러오는데 실패했습니다.', 'danger');
@@ -1614,8 +1905,37 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
             console.log('예약 날짜 설정 완료:', dateToSet);
         }
         
+        // 시설 로드 및 자동 선택 (모달이 열린 후)
+        const facilitySelect = document.getElementById('booking-facility');
+        if (facilitySelect) {
+            // 시설이 선택되지 않았거나 옵션이 없으면 로드
+            if (!facilitySelect.value || facilitySelect.options.length <= 1) {
+                console.log('[회원 선택] 시설 로드 시작');
+                await loadFacilities();
+                console.log('[회원 선택] 시설 로드 완료');
+            }
+        }
+        
         // 회원의 상품/이용권 목록 로드
-        await loadMemberProducts(member.id);
+        const memberProducts = await loadMemberProducts(member.id);
+        
+        // 해당 페이지에 맞는 첫 번째 상품 자동 선택
+        if (memberProducts && memberProducts.length > 0) {
+            const productSelect = document.getElementById('booking-member-product');
+            if (productSelect && productSelect.options.length > 1) {
+                // 첫 번째 상품 선택 (상품 미선택 옵션 제외)
+                const firstProductOption = productSelect.options[1]; // 인덱스 0은 "상품 미선택"
+                if (firstProductOption && firstProductOption.value) {
+                    productSelect.value = firstProductOption.value;
+                    // 상품 선택 이벤트 발생 (코치, 레슨 종목 자동 설정을 위해)
+                    productSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    console.log('[회원 선택] 첫 번째 상품 자동 선택:', firstProductOption.textContent);
+                    
+                    // 상품 선택 이벤트 처리 대기 (비동기 처리)
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+        }
         
         // 회원의 등급에 따라 기본값 설정
         // 유소년 회원은 기본적으로 레슨으로 설정
@@ -1637,12 +1957,30 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
             paymentMethodSelect.value = '';
         }
         
-        // 코치 정보 저장 및 미리 로드 (모달 열기 전에)
-        const coachIdToSet = member.coach ? (member.coach.id || member.coach) : null;
-        let coachInfo = member.coach;
+        // 상품이 자동 선택되었으면 상품의 코치를 사용, 없으면 회원의 기본 코치 사용
+        let coachIdToSet = null;
+        let coachInfo = null;
+        
+        // 상품이 선택되었는지 확인
+        const productSelect = document.getElementById('booking-member-product');
+        if (productSelect && productSelect.value) {
+            const selectedOption = productSelect.options[productSelect.selectedIndex];
+            const productCoachId = selectedOption.dataset.coachId;
+            if (productCoachId) {
+                coachIdToSet = productCoachId;
+                console.log('[회원 선택] 상품의 코치 사용:', coachIdToSet);
+            }
+        }
+        
+        // 상품에 코치가 없으면 회원의 기본 코치 사용
+        if (!coachIdToSet && member.coach) {
+            coachIdToSet = member.coach.id || member.coach;
+            coachInfo = member.coach;
+            console.log('[회원 선택] 회원의 기본 코치 사용:', coachIdToSet);
+        }
         
         // 코치 상세 정보 미리 가져오기 (필요한 경우)
-        if (coachIdToSet && (!coachInfo.name || !coachInfo.specialties)) {
+        if (coachIdToSet && (!coachInfo || !coachInfo.name || !coachInfo.specialties)) {
             try {
                 coachInfo = await App.api.get(`/coaches/${coachIdToSet}`);
             } catch (error) {
@@ -1710,7 +2048,16 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
                         const purposeEl = document.getElementById('booking-purpose');
                         
                         if (lessonCategoryEl) {
-                            lessonCategoryEl.value = lessonCategory;
+                            // 해당 레슨 종목 옵션이 있는지 확인
+                            const optionExists = Array.from(lessonCategoryEl.options).some(
+                                opt => opt.value === lessonCategory
+                            );
+                            if (optionExists) {
+                                lessonCategoryEl.value = lessonCategory;
+                                console.log(`[코치 선택] 레슨 종목 자동 선택: ${lessonCategory}`);
+                            } else {
+                                console.warn(`[코치 선택] 레슨 종목 옵션 없음: ${lessonCategory}`);
+                            }
                         }
                         
                         if (purposeEl && !purposeEl.value) {
@@ -1730,8 +2077,9 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
         
         // 모달을 먼저 열기
         App.Modal.open('booking-modal');
-    // 모달이 열린 후 레슨 종목 필터링 적용
-    setTimeout(() => filterLessonCategoryOptions(), 100);
+        
+        // 모달이 열린 후 레슨 종목 필터링 적용
+        setTimeout(() => filterLessonCategoryOptions(), 100);
         
         // 모달이 완전히 열린 후 코치 설정
         if (coachIdToSet) {
@@ -1941,12 +2289,24 @@ async function openBookingModal(id = null) {
         }
         
         // 중요: booking-id를 빈 값으로 초기화 (기존 예약 수정 방지) - reset 전에
-        document.getElementById('booking-id').value = '';
+        const bookingIdElement = document.getElementById('booking-id');
+        if (bookingIdElement) {
+            bookingIdElement.value = '';
+        }
+        
+        // 상태 필드를 먼저 PENDING으로 초기화 (reset 전에)
+        const statusSelect = document.getElementById('booking-status');
+        if (statusSelect) {
+            statusSelect.value = 'PENDING';
+            console.log('[예약 모달] reset 전 상태 필드 PENDING으로 설정');
+        }
         
         form.reset();
         
         // reset 후 필수 값들 다시 설정
-        document.getElementById('booking-id').value = '';
+        if (bookingIdElement) {
+            bookingIdElement.value = '';
+        }
         document.getElementById('selected-member-id').value = '';
         document.getElementById('selected-member-number').value = '';
         document.getElementById('booking-date').value = selectedBookingDate || new Date().toISOString().split('T')[0];
@@ -1957,7 +2317,7 @@ async function openBookingModal(id = null) {
             branchInput.value = config.branch;
         }
         
-        console.log('예약 등록 모달 - booking-id 초기화 완료');
+        console.log('[예약 모달] 예약 등록 모달 - booking-id 초기화 완료');
         
         // 목적 필드 활성화
         const purposeSelect = document.getElementById('booking-purpose');
@@ -1974,11 +2334,17 @@ async function openBookingModal(id = null) {
         document.getElementById('non-member-section').style.display = 'none';
         document.getElementById('member-select-section').style.display = 'block';
         
-        // 상태 필드 활성화 (회원/비회원 선택 전까지는 기본 상태)
-        const statusSelect = document.getElementById('booking-status');
+        // 상태 필드 활성화 및 PENDING으로 명시적 설정 (reset 후 다시 설정)
         if (statusSelect) {
             statusSelect.disabled = false;
-            statusSelect.value = 'PENDING';
+            statusSelect.value = 'PENDING'; // 새 예약은 항상 PENDING으로 시작
+            console.log('[예약 모달] reset 후 상태 필드 PENDING으로 재설정, 현재 값:', statusSelect.value);
+            
+            // 추가 확인: 만약 여전히 다른 값이면 강제로 PENDING 설정
+            if (statusSelect.value !== 'PENDING') {
+                console.warn('[예약 모달] 상태 필드가 PENDING이 아님, 강제로 PENDING 설정');
+                statusSelect.value = 'PENDING';
+            }
         }
         
         // form.reset() 후 시설 다시 로드 및 선택 (reset이 시설 드롭다운을 초기화하므로)
@@ -2323,8 +2689,23 @@ async function saveBooking() {
     const startTime = document.getElementById('booking-start-time').value;
     const endTime = document.getElementById('booking-end-time').value;
     
+    // 날짜 검증
+    if (!date || date.trim() === '') {
+        console.warn('[saveBooking] 날짜가 없음');
+        App.showNotification('날짜를 선택해주세요.', 'danger');
+        return;
+    }
+    
+    // 시작 시간 검증
+    if (!startTime || startTime.trim() === '') {
+        console.warn('[saveBooking] 시작 시간이 없음');
+        App.showNotification('시작 시간을 입력해주세요.', 'danger');
+        return;
+    }
+    
     // 종료 시간 검증
     if (!endTime || endTime.trim() === '') {
+        console.warn('[saveBooking] 종료 시간이 없음');
         App.showNotification('종료 시간을 입력해주세요.', 'danger');
         return;
     }
@@ -2409,10 +2790,26 @@ async function saveBooking() {
     
     // 회원 예약은 항상 PENDING 상태로 시작 (확인 후 CONFIRMED로 변경)
     const statusSelect = document.getElementById('booking-status');
+    const bookingIdElement = document.getElementById('booking-id');
+    const bookingId = bookingIdElement ? bookingIdElement.value.trim() : '';
+    
+    // 새 예약인지 확인 (bookingId가 없거나 빈 문자열이면 새 예약)
+    const isNewBooking = !bookingId || bookingId === '';
+    
     let bookingStatus = 'PENDING';
-    if (statusSelect && statusSelect.value) {
-        // 수정 모드인 경우 기존 상태 유지 가능
+    
+    // 수정 모드인 경우에만 기존 상태 유지, 새 예약은 항상 PENDING
+    if (!isNewBooking && statusSelect && statusSelect.value) {
+        // 수정 모드: 기존 상태 유지
         bookingStatus = statusSelect.value;
+        console.log('[예약 저장] 수정 모드 - 상태 유지:', bookingStatus);
+    } else {
+        // 새 예약: 항상 PENDING으로 설정
+        bookingStatus = 'PENDING';
+        if (statusSelect) {
+            statusSelect.value = 'PENDING';
+        }
+        console.log('[예약 저장] 새 예약 - 상태 PENDING으로 설정');
     }
     
     // 시설 선택 시 시설의 지점 정보를 우선적으로 사용
@@ -2433,6 +2830,22 @@ async function saveBooking() {
         }
     }
     
+    // 최종 상태 확인 및 강제 설정 (새 예약인 경우)
+    if (isNewBooking) {
+        bookingStatus = 'PENDING';
+        if (statusSelect) {
+            statusSelect.value = 'PENDING';
+        }
+        console.log('[예약 저장] 최종 확인 - 새 예약이므로 PENDING으로 강제 설정');
+    }
+    
+    console.log('[예약 저장] 최종 상태:', {
+        bookingId: bookingId,
+        isNewBooking: isNewBooking,
+        bookingStatus: bookingStatus,
+        statusSelectValue: statusSelect ? statusSelect.value : 'N/A'
+    });
+    
     const data = {
         facility: { id: parseInt(facilityId) },
         memberNumber: memberNumber || null, // MEMBER_NUMBER 사용
@@ -2446,7 +2859,7 @@ async function saveBooking() {
         participants: parseInt(participants) || 1,
         purpose: purpose,
         lessonCategory: (purpose === 'LESSON' && lessonCategory) ? lessonCategory : null,
-        status: bookingStatus, // 회원 예약은 기본적으로 PENDING
+        status: bookingStatus, // 새 예약은 항상 PENDING
         branch: branchValue, // 시설의 지점 정보 우선 사용
         // paymentMethod 값 변환 (프론트엔드 -> 백엔드 enum 형식)
         paymentMethod: paymentMethod ? (paymentMethod === 'ONSITE' ? 'ON_SITE' : (paymentMethod === 'DEFERRED' ? 'POSTPAID' : paymentMethod)) : null,
@@ -2595,6 +3008,123 @@ async function approveBooking(id) {
     } catch (error) {
         console.error('예약 승인 실패:', error);
         App.showNotification('승인에 실패했습니다.', 'danger');
+    }
+}
+
+// 전체 대기 예약 확인 (한 번에 처리)
+async function confirmAllPendingBookings() {
+    if (!confirm('현재 필터 조건에 맞는 모든 대기 예약을 확정하시겠습니까?')) {
+        return;
+    }
+    
+    try {
+        // 페이지별 설정 읽기
+        const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN', facilityType: 'BASEBALL' };
+        const branch = config.branch || 'YEONSAN';
+        const facilityType = config.facilityType;
+        
+        // 필터 조건 가져오기
+        const filterFacility = document.getElementById('filter-facility')?.value || '';
+        const filterStatus = document.getElementById('filter-status')?.value || '';
+        const filterDateStart = document.getElementById('filter-date-start')?.value || '';
+        const filterDateEnd = document.getElementById('filter-date-end')?.value || '';
+        
+        // API 파라미터 구성
+        const params = new URLSearchParams();
+        params.append('branch', branch);
+        if (facilityType) {
+            params.append('facilityType', facilityType);
+        }
+        
+        // 예약 목록 가져오기
+        let bookings = await App.api.get(`/bookings?${params.toString()}`);
+        
+        // 필터 적용
+        if (filterFacility) {
+            bookings = bookings.filter(b => b.facility && b.facility.id.toString() === filterFacility);
+        }
+        if (filterDateStart) {
+            const startDate = new Date(filterDateStart);
+            bookings = bookings.filter(b => {
+                const bookingDate = new Date(b.startTime);
+                return bookingDate >= startDate;
+            });
+        }
+        if (filterDateEnd) {
+            const endDate = new Date(filterDateEnd);
+            endDate.setHours(23, 59, 59, 999);
+            bookings = bookings.filter(b => {
+                const bookingDate = new Date(b.startTime);
+                return bookingDate <= endDate;
+            });
+        }
+        
+        // PENDING 상태인 예약만 필터링
+        const pendingBookings = bookings.filter(b => b.status === 'PENDING');
+        
+        if (pendingBookings.length === 0) {
+            App.showNotification('확정할 대기 예약이 없습니다.', 'info');
+            return;
+        }
+        
+        // 확인 메시지
+        if (!confirm(`총 ${pendingBookings.length}개의 대기 예약을 확정하시겠습니까?`)) {
+            return;
+        }
+        
+        // 모든 대기 예약을 확정으로 변경
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (const booking of pendingBookings) {
+            try {
+                // 예약 정보 가져오기
+                const fullBooking = await App.api.get(`/bookings/${booking.id}`);
+                
+                // 상태만 업데이트 (기존 데이터 유지)
+                const updateData = {
+                    ...fullBooking,
+                    status: 'CONFIRMED'
+                };
+                
+                // 객체 참조 제거 (순환 참조 방지)
+                if (updateData.facility) {
+                    updateData.facility = { id: updateData.facility.id };
+                }
+                if (updateData.member) {
+                    updateData.member = updateData.member.id ? { id: updateData.member.id } : null;
+                }
+                if (updateData.coach) {
+                    updateData.coach = updateData.coach.id ? { id: updateData.coach.id } : null;
+                }
+                // 컬렉션 필드 제거
+                delete updateData.payments;
+                delete updateData.attendances;
+                
+                await App.api.put(`/bookings/${booking.id}`, updateData);
+                successCount++;
+            } catch (error) {
+                console.error(`예약 ${booking.id} 승인 실패:`, error);
+                failCount++;
+            }
+        }
+        
+        // 결과 알림
+        if (failCount === 0) {
+            App.showNotification(`모든 예약(${successCount}개)이 확정되었습니다.`, 'success');
+        } else {
+            App.showNotification(`${successCount}개 확정 완료, ${failCount}개 실패`, 'warning');
+        }
+        
+        // 뷰에 따라 새로고침
+        if (currentView === 'list') {
+            loadBookingsList();
+        } else {
+            await renderCalendar();
+        }
+    } catch (error) {
+        console.error('전체 확인 실패:', error);
+        App.showNotification('전체 확인 처리에 실패했습니다.', 'danger');
     }
 }
 

@@ -1,9 +1,34 @@
 /* 시설/슬롯 설정 페이지 스타일 */
 
+.form-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: nowrap;
+    width: 100%;
+}
+
+.form-row input {
+    flex: 0 0 100px;
+    min-width: 80px;
+    max-width: 120px;
+}
+
+.form-row span {
+    flex-shrink: 0;
+    white-space: nowrap;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
 .checkbox-group {
     display: flex;
-    gap: 16px;
+    gap: 20px;
     flex-wrap: wrap;
+    padding: 12px;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
 }
 
 .checkbox-group label {
@@ -12,6 +37,19 @@
     gap: 8px;
     color: var(--text-primary);
     cursor: pointer;
+    font-size: 14px;
+    user-select: none;
+}
+
+.checkbox-group label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--primary-accent);
+}
+
+.checkbox-group label:hover {
+    color: var(--primary-accent);
 }
 
 .slot-grid {

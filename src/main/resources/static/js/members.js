@@ -22,10 +22,10 @@ function formatPeriodPass(startDate, endDate) {
 let currentPage = 1;
 let currentFilters = {};
 let currentMemberDetail = null; // 현재 상세 정보 모달에 표시 중인 회원 정보
+let currentEditingMember = null; // 현재 수정 중인 회원 정보 (코치 선택용)
 
 document.addEventListener('DOMContentLoaded', function() {
     loadMembers();
-    loadCoachesForSelect(); // 코치 목록 로드
     loadProductsForSelect(); // 상품 목록 로드
     
     // 검색 이벤트
@@ -39,16 +39,20 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // 상품 선택 시 스타일 적용 (이벤트에 연결)
+    // 상품 선택 시 스타일 적용 및 총 금액 계산 (이벤트에 연결)
     const productSelect = document.getElementById('member-products');
     if (productSelect) {
-        // change 이벤트에 스타일 적용 함수 연결
+        // change 이벤트에 스타일 적용 함수 및 총 금액 계산 함수 연결
         productSelect.addEventListener('change', function() {
             // 즉시 적용
             applySelectedProductStyles();
+            updateTotalPrice();
+            updateProductCoachSelection(); // 코치 선택 UI 업데이트
             // DOM 업데이트 후 다시 적용
             setTimeout(() => {
                 applySelectedProductStyles();
+                updateTotalPrice();
+                updateProductCoachSelection();
             }, 100);
         });
     }
@@ -92,27 +96,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// 코치 목록을 select에 로드
-async function loadCoachesForSelect() {
-    try {
-        const coaches = await App.api.get('/coaches');
-        const select = document.getElementById('member-coach');
-        select.innerHTML = '<option value="">코치 미지정</option>';
-        coaches.forEach(coach => {
-            const option = document.createElement('option');
-            option.value = coach.id;
-            option.textContent = coach.name;
-            select.appendChild(option);
-        });
-    } catch (error) {
-        console.error('코치 목록 로드 실패:', error);
-    }
-}
 
 // 상품 목록을 select에 로드
 async function loadProductsForSelect() {
     try {
-        const products = await App.api.get('/products');
         const select = document.getElementById('member-products');
         if (!select) {
             console.warn('loadProductsForSelect: select를 찾을 수 없습니다.');
@@ -122,35 +109,80 @@ async function loadProductsForSelect() {
         // 현재 선택된 값들 저장
         const selectedValues = Array.from(select.selectedOptions).map(opt => String(opt.value));
         
-        // 기존 옵션 제거 (첫 번째 빈 옵션 제외)
+        // 기존 옵션 제거
         while (select.options.length > 0) {
             select.remove(0);
         }
         
-        // 상품 옵션 추가
-        products.forEach(product => {
-            if (product.active !== false) { // 활성 상품만 표시
-                const option = document.createElement('option');
-                option.value = String(product.id);
-                const productText = `${product.name} (${getProductTypeText(product.type)}) - ${App.formatCurrency(product.price)}`;
-                option.textContent = productText;
-                option.dataset.originalText = productText; // 원본 텍스트 저장 (중요!)
-                
-                // 이전에 선택되어 있던 항목 복원
-                if (selectedValues.includes(String(product.id))) {
-                    option.selected = true;
-                }
-                
-                select.appendChild(option);
-            }
-        });
+        // 상품 목록 조회
+        const products = await App.api.get('/products');
         
-        // 상품 목록 로드 후 선택된 항목 스타일 적용
+        if (!products || !Array.isArray(products)) {
+            console.warn('상품 목록이 배열이 아닙니다:', products);
+            return;
+        }
+        
+        console.log('로드된 상품 수:', products.length);
+        
+        // 상품 옵션 추가
+        if (products.length === 0) {
+            // 상품이 없을 때 안내 메시지
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = '등록된 상품이 없습니다';
+            option.disabled = true;
+            select.appendChild(option);
+        } else {
+            products.forEach(product => {
+                if (product && product.active !== false) { // 활성 상품만 표시
+                    const option = document.createElement('option');
+                    option.value = String(product.id);
+                    const productText = `${product.name || '상품명 없음'} (${getProductTypeText(product.type)}) - ${App.formatCurrency(product.price || 0)}`;
+                    option.textContent = productText;
+                    option.dataset.originalText = productText; // 원본 텍스트 저장 (중요!)
+                    option.dataset.price = product.price || 0; // 가격 정보 저장
+                    
+                    // 상품의 코치 정보 저장 (필터링용)
+                    if (product.coach && product.coach.id) {
+                        option.dataset.coachId = String(product.coach.id);
+                    } else if (product.coachId) {
+                        option.dataset.coachId = String(product.coachId);
+                    }
+                    
+                    // 상품의 카테고리 저장 (필터링용)
+                    if (product.category) {
+                        option.dataset.category = product.category;
+                    }
+                    
+                    // 이전에 선택되어 있던 항목 복원
+                    if (selectedValues.includes(String(product.id))) {
+                        option.selected = true;
+                    }
+                    
+                    select.appendChild(option);
+                }
+            });
+        }
+        
+        // 상품 목록 로드 후 선택된 항목 스타일 적용 및 총 금액 계산
         setTimeout(() => {
             applySelectedProductStyles();
+            updateTotalPrice();
         }, 100);
     } catch (error) {
         console.error('상품 목록 로드 실패:', error);
+        const select = document.getElementById('member-products');
+        if (select) {
+            // 에러 발생 시 안내 메시지
+            while (select.options.length > 0) {
+                select.remove(0);
+            }
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = '상품 목록을 불러올 수 없습니다';
+            option.disabled = true;
+            select.appendChild(option);
+        }
     }
 }
 
@@ -218,30 +250,44 @@ function renderMembersTable(members) {
         </div>
     `;
     
-    tbody.innerHTML = members.map(member => `
-        <tr>
+    tbody.innerHTML = members.map(member => {
+        const isExpiring = checkMemberExpiring(member);
+        const expiringBadge = isExpiring ? '<span class="badge badge-warning" style="margin-left: 4px; font-size: 11px;">⚠️ 만료 임박</span>' : '';
+        
+        // 디버깅: 만료 임박 회원 확인
+        if (isExpiring) {
+            console.log('만료 임박 회원 발견:', {
+                id: member.id,
+                name: member.name,
+                memberProducts: member.memberProducts
+            });
+        }
+        
+        return `
+        <tr ${isExpiring ? 'style="background-color: rgba(245, 158, 11, 0.05); border-left: 3px solid #F59E0B;"' : ''}>
             <td><strong style="color: var(--accent-primary);">${member.memberNumber || '-'}</strong></td>
-            <td><a href="#" onclick="openMemberDetail(${member.id}); return false;" style="color: var(--accent-primary);">${member.name}</a></td>
+            <td>
+                <div>
+                    <a href="#" onclick="openMemberDetail(${member.id}); return false;" style="color: var(--accent-primary); display: block;">${member.name}</a>
+                    ${expiringBadge ? `<div style="margin-top: 4px;">${expiringBadge}</div>` : ''}
+                </div>
+            </td>
             <td><span class="badge badge-${getGradeBadge(member.grade)}">${getGradeText(member.grade)}</span></td>
-            <td>${member.phoneNumber}</td>
+            <td style="display: none;">${member.phoneNumber}</td>
             <td>${member.school || '-'}</td>
-            <td>${member.coach?.name || '-'}</td>
+            <td style="white-space: pre-line; line-height: 1.6;">${renderCoachNamesWithColors(member)}</td>
+            <td style="white-space: pre-line; line-height: 1.6; font-size: 13px;">${renderMemberProducts(member)}</td>
             <td><span class="badge badge-${getStatusBadge(member.status)}">${getStatusText(member.status)}</span></td>
-            <td>${App.formatDate(member.joinDate || member.createdAt)}</td>
-            <td>
-                ${member.latestLessonDate ? App.formatDate(member.latestLessonDate) : '-'}
-                ${renderMemberProductsRemaining(member)}
-            </td>
+            <td>${member.latestLessonDate ? App.formatDate(member.latestLessonDate) : '-'}</td>
             <td>${App.formatCurrency(member.totalPayment || 0)}</td>
-            <td style="text-align: center;">
-                <button class="btn btn-sm btn-primary" onclick="openExtendProductModal(${member.id})">연장</button>
-            </td>
             <td>
+                <button class="btn btn-sm btn-primary" onclick="openExtendProductModal(${member.id})" title="이용권 연장" style="margin-right: 4px;">연장</button>
                 <button class="btn btn-sm btn-secondary" onclick="editMember(${member.id})">수정</button>
                 <button class="btn btn-sm btn-danger" onclick="deleteMember(${member.id})">삭제</button>
             </td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
 }
 
 // 회원 등급 텍스트는 common.js의 App.MemberGrade 사용
@@ -323,6 +369,313 @@ function renderMemberProductsRemaining(member) {
     return html;
 }
 
+// 코치명에 색상 적용하여 표시
+function renderCoachNamesWithColors(member) {
+    if (!member.coachNames && !member.coach?.name) {
+        return '-';
+    }
+    
+    const coachNames = member.coachNames || member.coach?.name || '';
+    if (!coachNames) {
+        return '-';
+    }
+    
+    // 줄바꿈으로 구분된 코치명들을 각각 색상 적용
+    const coachNameList = coachNames.split('\n').filter(name => name.trim());
+    
+    if (coachNameList.length === 0) {
+        return '-';
+    }
+    
+    const coloredNames = coachNameList.map(coachName => {
+        const trimmedName = coachName.trim();
+        if (!trimmedName) return '';
+        
+        // 코치 색상 가져오기 (고정 색상 우선 적용)
+        let coachColor = App.CoachColors.getColor({ name: trimmedName });
+        
+        // 고정 색상이 없으면 기본 색상 사용
+        if (!coachColor) {
+            coachColor = 'var(--text-primary)';
+        }
+        
+        return `<span style="color: ${coachColor}; font-weight: 600;">${trimmedName}</span>`;
+    }).filter(name => name).join('<br>');
+    
+    return coloredNames || '-';
+}
+
+// 회원이 만료 임박인지 확인
+function checkMemberExpiring(member) {
+    if (!member || !member.memberProducts || member.memberProducts.length === 0) {
+        return false;
+    }
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const expiryThreshold = new Date(today);
+    expiryThreshold.setDate(expiryThreshold.getDate() + 7); // 7일 이내
+    
+    // 활성 상태인 상품만 확인
+    const activeProducts = member.memberProducts.filter(mp => mp && mp.status === 'ACTIVE');
+    
+    if (activeProducts.length === 0) {
+        return false;
+    }
+    
+    for (const mp of activeProducts) {
+        try {
+            const product = mp.product || {};
+            const productType = product ? product.type : null;
+            
+            if (!productType) {
+                continue;
+            }
+            
+            // 횟수권: 남은 횟수 5회 이하
+            if (productType === 'COUNT_PASS') {
+                let remainingCount = mp.remainingCount;
+                // remainingCount가 null/undefined인 경우 totalCount 사용
+                if (remainingCount === null || remainingCount === undefined) {
+                    remainingCount = mp.totalCount;
+                }
+                // remainingCount가 여전히 null이면 계산 불가능하므로 건너뜀
+                if (remainingCount !== null && remainingCount !== undefined && 
+                    remainingCount <= 5 && remainingCount > 0) {
+                    console.debug('만료 임박 (횟수권):', {
+                        memberId: member.id,
+                        memberName: member.name,
+                        productName: product.name,
+                        remainingCount: remainingCount
+                    });
+                    return true;
+                }
+            }
+            
+            // 기간권: 만료일이 7일 이내
+            if (productType === 'MONTHLY_PASS' && mp.expiryDate) {
+                let expiryDate;
+                // expiryDate가 문자열인 경우 Date 객체로 변환
+                if (typeof mp.expiryDate === 'string') {
+                    expiryDate = new Date(mp.expiryDate);
+                } else {
+                    expiryDate = new Date(mp.expiryDate);
+                }
+                
+                // 유효하지 않은 날짜인 경우 건너뜀
+                if (isNaN(expiryDate.getTime())) {
+                    continue;
+                }
+                
+                expiryDate.setHours(0, 0, 0, 0);
+                
+                // 만료일이 오늘 이후이고 7일 이내인 경우
+                if (expiryDate >= today && expiryDate <= expiryThreshold) {
+                    const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+                    console.debug('만료 임박 (기간권):', {
+                        memberId: member.id,
+                        memberName: member.name,
+                        productName: product.name,
+                        expiryDate: mp.expiryDate,
+                        daysUntilExpiry: daysUntilExpiry
+                    });
+                    return true;
+                }
+            }
+        } catch (e) {
+            // 개별 상품 확인 실패해도 계속 진행
+            console.debug('만료 임박 확인 중 오류:', e, member);
+            continue;
+        }
+    }
+    
+    return false;
+}
+
+// 만료일까지 남은 일수에 따른 색상 반환
+function getExpiryDateColor(expiryDate) {
+    if (!expiryDate) {
+        return 'var(--text-secondary)';
+    }
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    let expiry;
+    if (typeof expiryDate === 'string') {
+        expiry = new Date(expiryDate);
+    } else {
+        expiry = new Date(expiryDate);
+    }
+    
+    if (isNaN(expiry.getTime())) {
+        return 'var(--text-secondary)';
+    }
+    
+    expiry.setHours(0, 0, 0, 0);
+    const daysUntilExpiry = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+    
+    if (daysUntilExpiry < 0) {
+        return '#DC3545'; // 빨간색 (이미 만료)
+    } else if (daysUntilExpiry <= 2) {
+        return '#DC3545'; // 빨간색 (2일 이내)
+    } else if (daysUntilExpiry <= 5) {
+        return '#FD7E14'; // 주황색 (3~5일)
+    } else if (daysUntilExpiry <= 7) {
+        return '#F59E0B'; // 노란색 (6~7일)
+    } else {
+        return 'var(--accent-primary)'; // 기본 색상 (7일 초과)
+    }
+}
+
+// 회원의 모든 상품/이용권 표시 (상품/이용권 컬럼용)
+function renderMemberProducts(member) {
+    if (!member.memberProducts || member.memberProducts.length === 0) {
+        return '<span style="color: var(--text-muted);">-</span>';
+    }
+    
+    // 활성 상태인 상품만 필터링
+    let activeProducts = member.memberProducts.filter(mp => mp.status === 'ACTIVE');
+    
+    if (activeProducts.length === 0) {
+        return '<span style="color: var(--text-muted);">-</span>';
+    }
+    
+    // 카테고리별로 정렬 (야구 > 트레이닝 > 필라테스 > 기타)
+    activeProducts.sort((a, b) => {
+        const categoryA = (a.product && a.product.category) || '';
+        const categoryB = (b.product && b.product.category) || '';
+        const nameA = (a.product && a.product.name) || '';
+        const nameB = (b.product && b.product.name) || '';
+        
+        // 카테고리 우선순위 함수
+        const getCategoryPriority = (category, productName) => {
+            const nameLower = (productName || '').toLowerCase();
+            if (category === 'BASEBALL' || nameLower.includes('야구') || nameLower.includes('baseball')) {
+                return 1; // 야구
+            } else if (category === 'TRAINING' || category === 'TRAINING_FITNESS' || 
+                      nameLower.includes('트레이닝') || nameLower.includes('training')) {
+                return 2; // 트레이닝
+            } else if (category === 'PILATES' || nameLower.includes('필라테스') || nameLower.includes('pilates')) {
+                return 3; // 필라테스
+            }
+            return 4; // 기타
+        };
+        
+        const priorityA = getCategoryPriority(categoryA, nameA);
+        const priorityB = getCategoryPriority(categoryB, nameB);
+        
+        // 우선순위로 정렬
+        if (priorityA !== priorityB) {
+            return priorityA - priorityB;
+        }
+        
+        // 같은 우선순위면 상품명으로 정렬
+        return nameA.localeCompare(nameB);
+    });
+    
+    // 각 상품별로 표시: 횟수권은 "상품명 : 남은 횟수", 기간권은 "상품명 : 시작일 ~ 종료일"
+    const productLines = activeProducts.map(mp => {
+        const product = mp.product || {};
+        const productName = product.name || '상품';
+        const productType = product.type || '';
+        
+        // 이용권 이름은 초록색으로 통일
+        const productNameColor = '#4CAF50'; // 초록색
+        
+        // 기간권(MONTHLY_PASS)인 경우: 구매일로부터 30일 계산된 날짜 표시
+        if (productType === 'MONTHLY_PASS') {
+            let expiryDate = null;
+            
+            // expiryDate가 있으면 그대로 사용 (구매일 + 30일로 이미 계산된 값)
+            if (mp.expiryDate) {
+                expiryDate = mp.expiryDate;
+            } else if (mp.purchaseDate) {
+                // expiryDate가 없으면 purchaseDate + 30일 계산
+                let purchaseDate = null;
+                if (typeof mp.purchaseDate === 'string') {
+                    // ISO 문자열인 경우
+                    purchaseDate = mp.purchaseDate.includes('T') ? mp.purchaseDate.split('T')[0] : mp.purchaseDate;
+                } else {
+                    purchaseDate = mp.purchaseDate;
+                }
+                
+                if (purchaseDate) {
+                    const purchase = new Date(purchaseDate);
+                    const expiry = new Date(purchase);
+                    // 상품의 validDays가 있으면 사용, 없으면 기본 30일
+                    const validDays = (product.validDays && product.validDays > 0) ? product.validDays : 30;
+                    expiry.setDate(expiry.getDate() + validDays);
+                    expiryDate = expiry;
+                }
+            }
+            
+            let periodText = '';
+            let periodColor = 'var(--accent-primary)';
+            
+            if (expiryDate) {
+                const endDateStr = App.formatDate(expiryDate);
+                periodText = `~ ${endDateStr}`;
+                // 만료일까지 남은 일수에 따라 색상 결정
+                periodColor = getExpiryDateColor(expiryDate);
+            } else {
+                periodText = '기간 정보 없음';
+            }
+            
+            const displayText = `<span style="color: ${productNameColor}; font-weight: 600;">${productName}</span> : <span style="color: ${periodColor}; font-weight: 600;">${periodText}</span>`;
+            return displayText;
+        }
+        
+        // 횟수권(COUNT_PASS)인 경우: 남은 횟수 표시
+        // 남은 횟수 계산 (renderMemberProductsRemaining과 동일한 로직)
+        // remainingCount가 null/undefined인 경우에만 totalCount나 usageCount 사용
+        let remaining = mp.remainingCount;
+        if (remaining === null || remaining === undefined) {
+            remaining = mp.totalCount || product.usageCount || 10;
+        }
+        
+        // 상품에 지정된 코치 찾기 (MemberProductInfo.coachName 사용)
+        let assignedCoachName = mp.coachName || null;
+        
+        // coachName이 없으면 담당 코치 목록에서 해당 상품 카테고리에 맞는 코치 찾기
+        if (!assignedCoachName && member.coachNames) {
+            const coachNamesList = member.coachNames.split('\n').filter(name => name.trim());
+            const productCategory = product.category || '';
+            const productNameLower = productName.toLowerCase();
+            
+            // 상품 카테고리나 상품명으로 코치 매칭 시도
+            if (productCategory === 'BASEBALL' || productNameLower.includes('야구') || productNameLower.includes('baseball')) {
+                // 야구 관련 코치 찾기
+                assignedCoachName = coachNamesList.find(name => 
+                    name.includes('서정민') || name.includes('김우경') || name.includes('이원준')
+                ) || coachNamesList[0];
+            } else if (productCategory === 'PILATES' || productNameLower.includes('필라테스') || productNameLower.includes('pilates')) {
+                // 필라테스 관련 코치 찾기
+                assignedCoachName = coachNamesList.find(name => 
+                    name.includes('김소연') || name.includes('이서현') || name.includes('이소연')
+                ) || coachNamesList[0];
+            } else if (productCategory === 'TRAINING' || productNameLower.includes('트레이닝') || productNameLower.includes('training')) {
+                // 트레이닝 관련 코치 찾기
+                assignedCoachName = coachNamesList.find(name => 
+                    name.includes('박준현')
+                ) || coachNamesList[0];
+            } else if (coachNamesList.length > 0) {
+                assignedCoachName = coachNamesList[0];
+            }
+        }
+        
+        // 항상 "상품명 : 남은 횟수" 형식으로 표시
+        // 남은 횟수에 따라 색상 적용 (이미 getRemainingCountColor 함수 사용)
+        const remainingColor = getRemainingCountColor(remaining);
+        const weight = remaining <= 5 ? '700' : '600';
+        const displayText = `<span style="color: ${productNameColor}; font-weight: 600;">${productName}</span> : <span style="color: ${remainingColor}; font-weight: ${weight};">${remaining}회</span>`;
+        
+        return displayText;
+    }).join('<br>');
+    
+    return `<div style="line-height: 1.6;">${productLines}</div>`;
+}
+
 function handleSearch(e) {
     const query = e.target.value;
     if (query) {
@@ -347,6 +700,18 @@ function applyFilters() {
 }
 
 function openMemberModal(id = null) {
+    // 모달 열 때 총 금액 초기화
+    const totalPriceElement = document.getElementById('member-total-price');
+    if (totalPriceElement) {
+        totalPriceElement.textContent = '₩0';
+    }
+    
+    // 코치 선택 UI 초기화
+    const coachSelectionContainer = document.getElementById('product-coach-selection');
+    if (coachSelectionContainer) {
+        coachSelectionContainer.innerHTML = '';
+    }
+    
     const modal = document.getElementById('member-modal');
     const title = document.getElementById('member-modal-title');
     const form = document.getElementById('member-form');
@@ -363,6 +728,8 @@ function openMemberModal(id = null) {
         console.log('회원 등록 모달 열림 - ID 및 회원번호 초기화 완료');
         // 신규 등록 시 회원번호 필드 비우기
         document.getElementById('member-number').value = '';
+        // 신규 등록 시 현재 수정 중인 회원 정보 초기화
+        currentEditingMember = null;
     }
     
     App.Modal.open('member-modal');
@@ -372,6 +739,7 @@ function openMemberModal(id = null) {
     if (id) {
         setTimeout(() => {
             applySelectedProductStyles();
+            updateProductCoachSelection();
         }, 800);
     }
 }
@@ -383,6 +751,8 @@ function editMember(id) {
 async function loadMemberData(id) {
     try {
         const member = await App.api.get(`/members/${id}`);
+        // 현재 수정 중인 회원 정보 저장 (코치 선택용)
+        currentEditingMember = member;
         // 기본 정보
         document.getElementById('member-id').value = member.id;
         document.getElementById('member-number').value = member.memberNumber || '';
@@ -413,8 +783,6 @@ async function loadMemberData(id) {
             const minutes = String(createdAt.getMinutes()).padStart(2, '0');
             document.getElementById('member-created-at').value = `${year}-${month}-${day}T${hours}:${minutes}`;
         }
-        // 코치
-        document.getElementById('member-coach').value = member.coach?.id || '';
         // 보호자 정보
         document.getElementById('member-guardian-name').value = member.guardianName || '';
         document.getElementById('member-guardian-phone').value = member.guardianPhone || '';
@@ -423,6 +791,7 @@ async function loadMemberData(id) {
         document.getElementById('member-coach-memo').value = member.coachMemo || '';
         
         // 상품 정보 로드 (회원이 보유한 상품)
+        // loadMemberProducts 내부에서 updateProductCoachSelection을 호출하므로 여기서는 호출하지 않음
         await loadMemberProducts(id);
     } catch (error) {
         console.error('회원 정보 로드 실패:', error);
@@ -533,6 +902,339 @@ function applySelectedProductStyles() {
     }
 }
 
+// 선택된 상품들의 총 금액 계산 및 표시
+function updateTotalPrice() {
+    try {
+        const productSelect = document.getElementById('member-products');
+        const totalPriceElement = document.getElementById('member-total-price');
+        
+        if (!productSelect || !totalPriceElement) {
+            return;
+        }
+        
+        const selectedOptions = Array.from(productSelect.selectedOptions);
+        let totalPrice = 0;
+        
+        selectedOptions.forEach(option => {
+            if (option.value && option.value !== '') {
+                const price = parseFloat(option.dataset.price) || 0;
+                totalPrice += price;
+            }
+        });
+        
+        totalPriceElement.textContent = App.formatCurrency(totalPrice);
+    } catch (error) {
+        console.error('총 금액 계산 오류:', error);
+    }
+}
+
+// 선택된 상품별 코치 선택 UI 업데이트
+async function updateProductCoachSelection() {
+    console.log('[updateProductCoachSelection] 시작');
+    console.log('[updateProductCoachSelection] currentEditingMember:', currentEditingMember);
+    
+    const container = document.getElementById('product-coach-selection');
+    if (!container) {
+        console.warn('[updateProductCoachSelection] container를 찾을 수 없습니다.');
+        return;
+    }
+    
+    const productSelect = document.getElementById('member-products');
+    if (!productSelect) {
+        console.warn('[updateProductCoachSelection] productSelect를 찾을 수 없습니다.');
+        return;
+    }
+    
+    const selectedOptions = Array.from(productSelect.selectedOptions).filter(opt => opt.value && opt.value !== '');
+    console.log('[updateProductCoachSelection] 선택된 상품 개수:', selectedOptions.length);
+    
+    // 기존 내용 제거
+    container.innerHTML = '';
+    
+    if (selectedOptions.length === 0) {
+        console.log('[updateProductCoachSelection] 선택된 상품이 없어 종료');
+        return;
+    }
+    
+    // 코치 목록 로드
+    let allCoaches = [];
+    try {
+        allCoaches = await App.api.get('/coaches');
+        allCoaches = allCoaches.filter(c => c.active !== false);
+    } catch (error) {
+        console.error('코치 목록 로드 실패:', error);
+        return;
+    }
+    
+    // 선택된 상품들의 카테고리 수집 (필터링용)
+    const selectedProductCategories = new Set();
+    selectedOptions.forEach(option => {
+        const category = option.dataset.category;
+        if (category) {
+            selectedProductCategories.add(category);
+        }
+    });
+    
+    console.log(`[updateProductCoachSelection] 선택된 상품들의 카테고리:`, Array.from(selectedProductCategories));
+    
+    // 각 선택된 상품에 대해 코치 선택 드롭다운 생성
+    selectedOptions.forEach((option, index) => {
+        const productId = option.value;
+        const productName = option.textContent.replace(/^✓ /, '').trim();
+        const productCategory = option.dataset.category; // 이 상품의 카테고리
+        
+        // 현재 수정 중인 회원의 상품에서 해당 상품의 코치 찾기
+        let selectedCoachId = '';
+        
+        // 방법 1: currentEditingMember에서 찾기
+        if (currentEditingMember && currentEditingMember.memberProducts) {
+            const memberProduct = currentEditingMember.memberProducts.find(mp => {
+                // 여러 방법으로 productId 비교
+                const mpProductId1 = mp.product?.id ? String(mp.product.id) : '';
+                const mpProductId2 = mp.productId ? String(mp.productId) : '';
+                const targetProductId = String(productId);
+                return mpProductId1 === targetProductId || mpProductId2 === targetProductId;
+            });
+            
+            if (memberProduct) {
+                // coachName이 있으면 사용 (가장 우선)
+                let coachNameToFind = null;
+                if (memberProduct.coachName) {
+                    // 공백 정규화 (여러 공백을 하나로)
+                    coachNameToFind = String(memberProduct.coachName).replace(/\s+/g, ' ').trim();
+                    console.log(`[방법1-1] coachName에서 찾음: "${coachNameToFind}"`);
+                } 
+                // coachName이 없으면 product.coach에서 찾기
+                else if (memberProduct.product && memberProduct.product.coach) {
+                    const productCoach = memberProduct.product.coach;
+                    if (typeof productCoach === 'object' && productCoach.name) {
+                        coachNameToFind = String(productCoach.name).trim();
+                    } else if (typeof productCoach === 'string') {
+                        coachNameToFind = productCoach.trim();
+                    }
+                    console.log(`[방법1-2] product.coach에서 찾음: "${coachNameToFind}"`);
+                }
+                // memberProduct.coach에서 직접 찾기
+                else if (memberProduct.coach) {
+                    const mpCoach = memberProduct.coach;
+                    if (typeof mpCoach === 'object' && mpCoach.name) {
+                        coachNameToFind = String(mpCoach.name).trim();
+                    } else if (typeof mpCoach === 'string') {
+                        coachNameToFind = mpCoach.trim();
+                    }
+                    console.log(`[방법1-3] memberProduct.coach에서 찾음: "${coachNameToFind}"`);
+                }
+                
+                if (coachNameToFind) {
+                    console.log(`[방법1] 상품 ID ${productId}의 코치 찾기: "${coachNameToFind}"`);
+                    
+                    // 코치명으로 코치 ID 찾기 (정확한 매칭 또는 부분 매칭)
+                    const coach = allCoaches.find(c => {
+                        // 공백 정규화 (여러 공백을 하나로)
+                        const coachName = String(c.name || '').replace(/\s+/g, ' ').trim();
+                        const searchName = coachNameToFind.replace(/\s+/g, ' ').trim();
+                        
+                        // 정확한 매칭
+                        if (coachName === searchName) return true;
+                        
+                        // 부분 매칭 (예: "서정민 [대표]" vs "서정민")
+                        if (coachName.includes(searchName) || searchName.includes(coachName)) return true;
+                        
+                        // 대괄호 제거 후 비교
+                        const coachNameWithoutBracket = coachName.replace(/\s*\[.*?\]\s*/g, '').trim();
+                        const searchNameWithoutBracket = searchName.replace(/\s*\[.*?\]\s*/g, '').trim();
+                        if (coachNameWithoutBracket === searchNameWithoutBracket) return true;
+                        
+                        // 공백 제거 후 비교
+                        const coachNameNoSpace = coachName.replace(/\s+/g, '');
+                        const searchNameNoSpace = searchName.replace(/\s+/g, '');
+                        if (coachNameNoSpace === searchNameNoSpace) return true;
+                        
+                        return false;
+                    });
+                    
+                    if (coach) {
+                        selectedCoachId = String(coach.id);
+                        console.log(`[방법1] 코치 찾음: ${coach.name} (ID: ${coach.id}), selectedCoachId: "${selectedCoachId}"`);
+                    } else {
+                        console.warn(`[방법1] 코치를 찾을 수 없음: "${coachNameToFind}"`);
+                        console.warn(`[방법1] 사용 가능한 코치 목록:`, allCoaches.map(c => c.name));
+                    }
+                } else {
+                    console.warn(`[방법1] 상품 ID ${productId}에 코치 정보가 없음 (coachName, product.coach, coach 모두 없음)`);
+                    console.warn(`[방법1] memberProduct 전체:`, memberProduct);
+                }
+            }
+        }
+        
+        // 방법 2: option의 data-coachName 속성에서 찾기 (fallback)
+        if (!selectedCoachId && option.dataset.coachName) {
+            // 공백 정규화 (여러 공백을 하나로)
+            const coachNameToFind = String(option.dataset.coachName).replace(/\s+/g, ' ').trim();
+            console.log(`[방법2] 상품 ID ${productId}의 코치 찾기 (data 속성): "${coachNameToFind}"`);
+            
+            const coach = allCoaches.find(c => {
+                // 공백 정규화
+                const coachName = String(c.name || '').replace(/\s+/g, ' ').trim();
+                const searchName = coachNameToFind.replace(/\s+/g, ' ').trim();
+                
+                // 정확한 매칭
+                if (coachName === searchName) return true;
+                
+                // 부분 매칭
+                if (coachName.includes(searchName) || searchName.includes(coachName)) return true;
+                
+                // 대괄호 제거 후 비교
+                const coachNameWithoutBracket = coachName.replace(/\s*\[.*?\]\s*/g, '').trim();
+                const searchNameWithoutBracket = searchName.replace(/\s*\[.*?\]\s*/g, '').trim();
+                if (coachNameWithoutBracket === searchNameWithoutBracket) return true;
+                
+                // 공백 제거 후 비교
+                const coachNameNoSpace = coachName.replace(/\s+/g, '');
+                const searchNameNoSpace = searchName.replace(/\s+/g, '');
+                if (coachNameNoSpace === searchNameNoSpace) return true;
+                
+                return false;
+            });
+            
+            if (coach) {
+                selectedCoachId = String(coach.id);
+                console.log(`[방법2] 코치 찾음: ${coach.name} (ID: ${coach.id}), selectedCoachId: "${selectedCoachId}"`);
+            }
+        }
+        
+        // 디버깅: currentEditingMember 상태 확인
+        if (!selectedCoachId) {
+            console.log(`[디버깅] 상품 ID ${productId}의 코치를 찾지 못함`);
+            console.log(`[디버깅] currentEditingMember:`, currentEditingMember);
+            if (currentEditingMember && currentEditingMember.memberProducts) {
+                console.log(`[디버깅] memberProducts:`, currentEditingMember.memberProducts);
+                const memberProduct = currentEditingMember.memberProducts.find(mp => 
+                    String(mp.product?.id || mp.productId || '') === String(productId)
+                );
+                console.log(`[디버깅] 찾은 memberProduct:`, memberProduct);
+                console.log(`[디버깅] memberProduct.coachName:`, memberProduct?.coachName);
+                console.log(`[디버깅] memberProduct 전체 키:`, memberProduct ? Object.keys(memberProduct) : 'null');
+                // coachName이 없으면 다른 경로로 찾기 시도
+                if (memberProduct && !memberProduct.coachName) {
+                    // product.coach 또는 다른 경로 확인
+                    console.log(`[디버깅] memberProduct.product:`, memberProduct.product);
+                    if (memberProduct.product && memberProduct.product.coach) {
+                        console.log(`[디버깅] product.coach 발견:`, memberProduct.product.coach);
+                    }
+                }
+            }
+        }
+        
+        // selectedCoachId와 coach.id를 문자열로 비교하여 정확하게 매칭
+        const selectedCoachIdStr = String(selectedCoachId || '');
+        console.log(`[드롭다운 생성] 상품 ID ${productId}, selectedCoachId: "${selectedCoachIdStr}"`);
+        
+        const coachGroup = document.createElement('div');
+        coachGroup.className = 'form-group';
+        coachGroup.style.marginBottom = '12px';
+        
+        // Label 생성
+        const label = document.createElement('label');
+        label.className = 'form-label';
+        label.style.fontSize = '13px';
+        label.style.fontWeight = '600';
+        label.style.color = 'var(--text-primary)';
+        label.innerHTML = `${productName} - 담당 코치 <span class="required-asterisk">*</span>`;
+        
+        // Select 생성
+        const select = document.createElement('select');
+        select.className = 'form-control product-coach-select';
+        select.setAttribute('data-product-id', productId);
+        select.required = true;
+        select.style.fontSize = '14px';
+        
+        // 기본 옵션 추가
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = '코치를 선택하세요';
+        select.appendChild(defaultOption);
+        
+        // 코치 필터링: 상품 카테고리에 맞는 코치만 표시
+        let filteredCoaches = allCoaches;
+        
+        // 상품 카테고리와 코치 담당 종목 매핑 함수
+        const matchesCategory = (coach, category) => {
+            if (!coach.specialties || !category) return false;
+            
+            const specialties = coach.specialties.toLowerCase();
+            const categoryLower = category.toLowerCase();
+            
+            // 카테고리별 매핑
+            if (categoryLower === 'baseball') {
+                return specialties.includes('야구') || specialties.includes('baseball');
+            } else if (categoryLower === 'training' || categoryLower === 'training_fitness') {
+                return specialties.includes('트레이닝') || specialties.includes('training');
+            } else if (categoryLower === 'pilates') {
+                return specialties.includes('필라테스') || specialties.includes('pilates');
+            }
+            
+            return false;
+        };
+        
+        // 이 상품의 카테고리에 맞는 코치만 필터링
+        if (productCategory) {
+            filteredCoaches = allCoaches.filter(coach => {
+                return matchesCategory(coach, productCategory);
+            });
+            console.log(`[드롭다운 필터링] 상품 ID ${productId} (카테고리: ${productCategory}): 전체 코치 ${allCoaches.length}명 중 ${filteredCoaches.length}명 필터링됨`);
+        } else {
+            // 상품에 카테고리가 없는 경우 모든 코치 표시
+            console.log(`[드롭다운 필터링] 상품 ID ${productId}: 카테고리가 없어 모든 코치 표시`);
+        }
+        
+        // 필터링된 코치 옵션 추가
+        filteredCoaches.forEach(coach => {
+            const option = document.createElement('option');
+            option.value = String(coach.id || '');
+            option.textContent = coach.name;
+            
+            const coachIdStr = String(coach.id || '');
+            if (coachIdStr === selectedCoachIdStr) {
+                option.selected = true;
+                console.log(`[드롭다운] 상품 ID ${productId}에 코치 "${coach.name}" (ID: ${coach.id}) 선택됨`);
+            }
+            
+            select.appendChild(option);
+        });
+        
+        // DOM에 추가
+        coachGroup.appendChild(label);
+        coachGroup.appendChild(select);
+        container.appendChild(coachGroup);
+        
+        // 선택된 값 명시적으로 설정
+        if (selectedCoachIdStr) {
+            // select.value를 설정하면 브라우저가 자동으로 해당 옵션을 선택함
+            select.value = selectedCoachIdStr;
+            
+            // 선택 확인 (디버깅용)
+            const selectedOption = select.querySelector(`option[value="${selectedCoachIdStr}"]`);
+            if (selectedOption && (selectedOption.selected || select.value === selectedCoachIdStr)) {
+                console.log(`[확인] 상품 ID ${productId}의 드롭다운에서 코치 ID ${selectedCoachIdStr}가 선택됨 (value: "${select.value}")`);
+            } else {
+                console.warn(`[경고] 상품 ID ${productId}의 드롭다운에서 코치 ID ${selectedCoachIdStr}가 선택되지 않음`);
+                console.warn(`[경고] select.value: "${select.value}", selectedIndex: ${select.selectedIndex}`);
+                // 재시도
+                setTimeout(() => {
+                    select.value = selectedCoachIdStr;
+                    console.log(`[재시도] 상품 ID ${productId}의 드롭다운 value를 ${selectedCoachIdStr}로 설정`);
+                }, 10);
+            }
+        }
+        
+        // 드롭다운 변경 이벤트 리스너 추가 (디버깅용)
+        select.addEventListener('change', function() {
+            console.log(`[드롭다운 변경] 상품 ID ${productId}의 코치가 "${this.value}"로 변경됨 (이전: "${selectedCoachIdStr}")`);
+        });
+    });
+}
+
 // 회원이 보유한 상품 목록 로드
 async function loadMemberProducts(memberId) {
     try {
@@ -560,21 +1262,51 @@ async function loadMemberProducts(memberId) {
             return;
         }
         
-        // 회원 상세 정보에서 memberProducts 가져오기
-        const member = await App.api.get(`/members/${memberId}`);
+        // currentEditingMember가 이미 있으면 그것을 사용, 없으면 API 호출
+        let memberProducts = null;
+        if (currentEditingMember && currentEditingMember.memberProducts) {
+            memberProducts = currentEditingMember.memberProducts;
+            console.log('loadMemberProducts - currentEditingMember에서 상품 정보 사용:', memberProducts);
+        } else {
+            // 회원 상세 정보에서 memberProducts 가져오기
+            const member = await App.api.get(`/members/${memberId}`);
+            memberProducts = member.memberProducts || [];
+            
+            // currentEditingMember 업데이트 (코치 정보 포함)
+            if (currentEditingMember) {
+                currentEditingMember.memberProducts = memberProducts;
+            } else {
+                // currentEditingMember가 없으면 새로 설정
+                currentEditingMember = { memberProducts: memberProducts };
+            }
+            console.log('loadMemberProducts - API에서 회원 상품 정보 로드:', memberProducts);
+        }
+        
+        console.log('loadMemberProducts - 최종 currentEditingMember:', currentEditingMember);
         
         // 기존 선택 해제
         Array.from(productSelect.options).forEach(option => {
             option.selected = false;
+            // 기존 코치 정보 제거
+            delete option.dataset.coachName;
         });
         
         // 회원이 보유한 상품 선택
-        if (member.memberProducts && member.memberProducts.length > 0) {
-            member.memberProducts.forEach(mp => {
-                const productId = String(mp.product?.id || mp.productId);
+        if (memberProducts && memberProducts.length > 0) {
+            memberProducts.forEach(mp => {
+                const productId = String(mp.product?.id || mp.productId || '');
                 const option = Array.from(productSelect.options).find(opt => String(opt.value) === productId);
                 if (option) {
                     option.selected = true;
+                    // 코치 정보를 option의 data 속성에 저장
+                    if (mp.coachName) {
+                        option.dataset.coachName = mp.coachName;
+                        console.log(`상품 ID ${productId}에 코치 정보 저장: "${mp.coachName}"`);
+                    } else {
+                        console.warn(`상품 ID ${productId}에 코치 정보가 없음. memberProduct:`, mp);
+                    }
+                } else {
+                    console.warn(`상품 ID ${productId}에 해당하는 option을 찾을 수 없음`);
                 }
             });
         }
@@ -600,6 +1332,11 @@ async function loadMemberProducts(memberId) {
         
         // select에 change 이벤트 발생 (브라우저가 선택 상태를 인식하도록)
         productSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        
+        // 상품 로드 완료 후 코치 선택 UI 업데이트
+        setTimeout(() => {
+            updateProductCoachSelection();
+        }, 200);
     } catch (error) {
         console.error('회원 상품 목록 로드 실패:', error);
     }
@@ -689,13 +1426,8 @@ async function saveMember(allowDuplicatePhone = false) {
         data.createdAt = createdAt + ':00'; // 초 추가
     }
     
-    // 코치 설정
-    const coachId = document.getElementById('member-coach').value;
-    if (coachId) {
-        data.coach = { id: parseInt(coachId) };
-    } else {
-        data.coach = null;
-    }
+    // 코치는 상품 할당 시 자동 배정되므로 null로 설정
+    data.coach = null;
     
     try {
         const id = document.getElementById('member-id').value;
@@ -713,36 +1445,32 @@ async function saveMember(allowDuplicatePhone = false) {
             App.showNotification('회원이 등록되었습니다.', 'success');
         }
         
-        // 선택된 상품 할당 및 결제 생성 (변경된 경우에만)
+        // 선택된 상품 할당 및 결제 생성
         const productSelect = document.getElementById('member-products');
         const selectedProductIds = Array.from(productSelect.selectedOptions)
             .map(option => option.value)
             .filter(id => id && id !== '');
         
-        // 기존 상품과 비교하여 변경된 경우에만 재할당
+        console.log(`[saveMember] 선택된 상품 IDs:`, selectedProductIds);
+        console.log(`[saveMember] 회원 ID:`, savedMember.id);
+        
         if (id) {
-            // 수정 모드: 기존 상품과 비교
-            const member = await App.api.get(`/members/${id}`);
-            const existingProductIds = (member.memberProducts || [])
-                .map(mp => String(mp.product?.id || mp.productId))
-                .filter(id => id && id !== '')
-                .sort();
-            const newProductIds = selectedProductIds.map(id => String(id)).sort();
-            
-            // 상품이 변경된 경우에만 재할당
-            const productsChanged = JSON.stringify(existingProductIds) !== JSON.stringify(newProductIds);
-            if (productsChanged) {
-                if (selectedProductIds.length > 0) {
-                    await assignProductsToMember(savedMember.id, selectedProductIds);
-                } else {
-                    // 상품이 모두 제거된 경우
-                    await App.api.delete(`/members/${savedMember.id}/products`);
-                }
+            // 수정 모드: 상품이 변경되었거나 코치가 변경되었을 수 있으므로 항상 재할당
+            if (selectedProductIds.length > 0) {
+                console.log(`[saveMember] 수정 모드 - 상품 할당 시작 (코치 변경 포함)`);
+                await assignProductsToMember(savedMember.id, selectedProductIds);
+                console.log(`[saveMember] 수정 모드 - 상품 할당 완료`);
+            } else {
+                // 상품이 모두 제거된 경우
+                console.log(`[saveMember] 수정 모드 - 모든 상품 제거`);
+                await App.api.delete(`/members/${savedMember.id}/products`);
             }
         } else {
             // 신규 등록: 상품이 있으면 할당
             if (selectedProductIds.length > 0) {
+                console.log(`[saveMember] 신규 등록 - 상품 할당 시작`);
                 await assignProductsToMember(savedMember.id, selectedProductIds);
+                console.log(`[saveMember] 신규 등록 - 상품 할당 완료`);
             }
         }
         
@@ -755,13 +1483,64 @@ async function saveMember(allowDuplicatePhone = false) {
 
 // 회원에게 상품 할당 및 결제 생성
 async function assignProductsToMember(memberId, productIds) {
+    console.log(`[assignProductsToMember] 시작 - memberId: ${memberId}, productIds:`, productIds);
     try {
         // 기존 상품 할당 제거 후 새로 할당
+        console.log(`[assignProductsToMember] 기존 상품 할당 제거 시작`);
         await App.api.delete(`/members/${memberId}/products`);
+        console.log(`[assignProductsToMember] 기존 상품 할당 제거 완료`);
+        
+        // 선택된 상품별 코치 정보 수집
+        const productCoachMap = {};
+        const coachSelects = document.querySelectorAll('.product-coach-select');
+        console.log(`[assignProductsToMember] 찾은 코치 드롭다운 개수: ${coachSelects.length}`);
+        
+        coachSelects.forEach((select, index) => {
+            const productId = select.dataset.productId;
+            const coachId = select.value;
+            console.log(`[assignProductsToMember] 드롭다운 ${index + 1}: productId="${productId}", coachId="${coachId}", selectedIndex=${select.selectedIndex}`);
+            
+            if (productId && coachId) {
+                productCoachMap[productId] = parseInt(coachId);
+                console.log(`[assignProductsToMember] 상품 ID ${productId}에 코치 ID ${coachId} 매핑됨`);
+            } else {
+                console.warn(`[assignProductsToMember] 상품 ID ${productId}에 코치가 선택되지 않음 (coachId: "${coachId}")`);
+            }
+        });
+        
+        console.log(`[assignProductsToMember] 최종 productCoachMap:`, productCoachMap);
         
         // 새 상품 할당 및 결제 생성
         for (const productId of productIds) {
-            await App.api.post(`/members/${memberId}/products`, { productId: parseInt(productId) });
+            try {
+                const requestData = { productId: parseInt(productId) };
+                // 코치가 선택된 경우 추가
+                if (productCoachMap[productId]) {
+                    requestData.coachId = productCoachMap[productId];
+                    console.log(`[assignProductsToMember] 상품 ID ${productId}에 코치 ID ${productCoachMap[productId]} 포함하여 할당`);
+                } else {
+                    console.warn(`[assignProductsToMember] 상품 ID ${productId}에 코치가 없음`);
+                }
+                console.log(`[assignProductsToMember] 상품 할당 요청:`, requestData);
+                await App.api.post(`/members/${memberId}/products`, requestData);
+                console.log(`[assignProductsToMember] 상품 ID ${productId} 할당 완료`);
+            } catch (error) {
+                // 에러 응답의 상세 정보 로깅
+                if (error.response && error.response.data) {
+                    console.error('상품 할당 실패 상세:', {
+                        productId: productId,
+                        error: error.response.data.error,
+                        message: error.response.data.message,
+                        errorType: error.response.data.errorType,
+                        cause: error.response.data.cause,
+                        memberId: error.response.data.memberId,
+                        productIdFromServer: error.response.data.productId
+                    });
+                } else {
+                    console.error('상품 할당 실패:', error);
+                }
+                throw error; // 상위로 전파하여 전체 프로세스 중단
+            }
         }
     } catch (error) {
         console.error('상품 할당 실패:', error);
@@ -779,6 +1558,31 @@ async function deleteMember(id) {
         loadMembers();
     } catch (error) {
         App.showNotification('삭제에 실패했습니다.', 'danger');
+    }
+}
+
+async function deleteAllMembers() {
+    // 이중 확인 (위험한 작업이므로)
+    const firstConfirm = confirm('⚠️ 경고: 모든 회원 데이터가 삭제됩니다!\n\n이 작업은 되돌릴 수 없습니다.\n\n정말 모든 회원을 삭제하시겠습니까?');
+    if (!firstConfirm) return;
+    
+    const secondConfirm = confirm('⚠️ 최종 확인\n\n모든 회원 정보, 상품 할당, 결제 내역, 예약 내역 등이 영구적으로 삭제됩니다.\n\n정말 진행하시겠습니까?');
+    if (!secondConfirm) return;
+    
+    const finalConfirm = prompt('최종 확인을 위해 "DELETE ALL"을 정확히 입력하세요:');
+    if (finalConfirm !== 'DELETE ALL') {
+        App.showNotification('입력이 일치하지 않아 취소되었습니다.', 'warning');
+        return;
+    }
+    
+    try {
+        App.showNotification('회원 전체 삭제 중...', 'info');
+        await App.api.delete('/members/all');
+        App.showNotification('모든 회원이 삭제되었습니다.', 'success');
+        loadMembers();
+    } catch (error) {
+        console.error('회원 전체 삭제 실패:', error);
+        App.showNotification('회원 전체 삭제에 실패했습니다.', 'danger');
     }
 }
 
@@ -932,7 +1736,7 @@ function renderProductsList(products) {
                     <div class="product-info" style="flex: 1;">
                         <div class="product-name" style="font-weight: 600; margin-bottom: 4px;">${productName}</div>
                         <div class="product-detail" style="font-size: 14px; color: var(--text-secondary);">
-                            ${remainingDisplay} | ${isMonthlyPass ? `시작일: ${startDate} | ` : ''}유효기간: ${expiryDate}
+                            ${remainingDisplay}${isMonthlyPass ? ` | 시작일: ${startDate} | 유효기간: ${expiryDate}` : ''}
                         </div>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
@@ -1158,7 +1962,7 @@ async function loadMemberPayments(memberId) {
 
 function renderPaymentsList(payments) {
     if (!payments || payments.length === 0) {
-        return '<p style="color: var(--text-muted);">결제 내역이 없습니다.</p>';
+        return '<p style="text-align: center; color: var(--text-muted); padding: 40px;">결제 내역이 없습니다.</p>';
     }
     
     function getPaymentMethodText(method) {
@@ -1739,6 +2543,8 @@ async function processExtendProduct() {
         App.showNotification('상품/이용권 연장에 실패했습니다.', 'danger');
     }
 }
+
+// 누락된 결제 생성 함수 제거됨 - 이제 자동으로 계산됩니다
 
 function debounce(func, wait) {
     let timeout;
