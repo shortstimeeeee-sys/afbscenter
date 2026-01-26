@@ -5,12 +5,15 @@ import com.afbscenter.model.Member;
 import com.afbscenter.model.MemberProduct;
 import com.afbscenter.model.Payment;
 import com.afbscenter.model.Product;
+import com.afbscenter.model.User;
 import com.afbscenter.repository.FacilityRepository;
 import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.ProductRepository;
+import com.afbscenter.repository.UserRepository;
 import com.afbscenter.service.MemberService;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,6 +60,12 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
     
     @Autowired
     private ProductRepository productRepository;
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Autowired
+    private PasswordEncoder passwordEncoder;
     
     // 시설 초기화 데이터 (application.properties에서 주입)
     @Value("${facility.init.saha.name:사하점}")
@@ -138,6 +147,13 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                 logger.warn("NULL 허용 컬럼 마이그레이션 실행 중 오류 (무시): {}", e.getMessage());
             }
             
+            // 초기 관리자 계정 생성
+            try {
+                initializeDefaultUsers();
+            } catch (Exception e) {
+                logger.error("초기 사용자 계정 생성 중 오류 발생: {}", e.getMessage(), e);
+            }
+            
             try {
                 logger.info("애플리케이션 시작 시 announcements 테이블 CHECK 제약 조건 제거 실행");
                 removeAnnouncementsCheckConstraints();
@@ -176,6 +192,14 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                 logger.info("누락된 결제(Payment) 자동 생성 완료");
             } catch (Exception e) {
                 logger.warn("누락된 결제(Payment) 자동 생성 중 오류 (무시): {}", e.getMessage());
+            }
+            
+            try {
+                logger.info("애플리케이션 시작 시 Users 테이블 approved 컬럼 마이그레이션 실행");
+                migrateUsersTableApprovedColumn();
+                logger.info("Users 테이블 approved 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("Users 테이블 approved 컬럼 마이그레이션 중 오류 (무시): {}", e.getMessage());
             }
             
             migrationExecuted = true;
@@ -587,6 +611,115 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
         } catch (Exception e) {
             logger.error("누락된 결제 자동 생성 중 오류 발생: {}", e.getMessage(), e);
             throw e;
+        }
+    }
+
+    /**
+     * Users 테이블에 approved 컬럼 추가 마이그레이션
+     * 회원가입 승인 기능을 위한 컬럼 추가
+     */
+    private void migrateUsersTableApprovedColumn() {
+        try {
+            // Users 테이블 존재 여부 확인
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES " +
+                "WHERE TABLE_NAME = 'USERS'"
+            );
+            
+            if (!tables.isEmpty()) {
+                // approved 컬럼 존재 여부 확인 (대소문자 모두 확인)
+                boolean columnExists = false;
+                try {
+                    List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                        "WHERE UPPER(TABLE_NAME) = 'USERS' AND UPPER(COLUMN_NAME) = 'APPROVED'"
+                    );
+                    columnExists = !columns.isEmpty();
+                } catch (Exception e) {
+                    logger.debug("컬럼 존재 여부 확인 중 오류 (무시): {}", e.getMessage());
+                }
+                
+                if (!columnExists) {
+                    logger.info("Users 테이블에 approved 컬럼이 없습니다. 컬럼을 추가합니다.");
+                    
+                    // H2 데이터베이스에서 컬럼 추가
+                    try {
+                        jdbcTemplate.execute("ALTER TABLE users ADD COLUMN approved BOOLEAN DEFAULT TRUE");
+                        logger.info("Users 테이블에 approved 컬럼 추가 완료");
+                        
+                        // 기존 사용자들은 모두 승인된 것으로 설정 (NULL 값만 업데이트)
+                        // approved = FALSE인 신규 가입자는 업데이트하지 않음
+                        jdbcTemplate.update("UPDATE users SET approved = TRUE WHERE approved IS NULL");
+                        logger.info("기존 사용자들을 승인 상태로 업데이트 완료 (NULL 값만 업데이트)");
+                    } catch (Exception e) {
+                        // 컬럼이 이미 존재하는 경우 무시
+                        if (e.getMessage() != null && (e.getMessage().contains("Duplicate column") || 
+                            e.getMessage().contains("already exists"))) {
+                            logger.info("Users 테이블에 approved 컬럼이 이미 존재합니다. (중복 컬럼 오류 무시)");
+                            columnExists = true; // 컬럼이 존재하는 것으로 표시
+                        } else {
+                            logger.warn("Users 테이블에 approved 컬럼 추가 실패: {}", e.getMessage());
+                        }
+                    }
+                }
+                
+                // 컬럼이 존재하는 경우 기존 사용자들의 approved 값 업데이트
+                if (columnExists) {
+                    logger.info("Users 테이블에 approved 컬럼이 이미 존재합니다.");
+                    // 기존 사용자 중 approved가 NULL인 경우만 TRUE로 설정
+                    // approved = FALSE인 사용자(승인 대기 중인 신규 가입자)는 업데이트하지 않음
+                    try {
+                        int updated = jdbcTemplate.update("UPDATE users SET approved = TRUE WHERE approved IS NULL");
+                        if (updated > 0) {
+                            logger.info("기존 사용자 {}명을 승인 상태로 업데이트했습니다. (NULL 값만 업데이트)", updated);
+                        }
+                    } catch (Exception e) {
+                        logger.debug("기존 사용자 승인 상태 업데이트 중 오류 (무시): {}", e.getMessage());
+                    }
+                }
+            } else {
+                logger.debug("Users 테이블이 존재하지 않습니다 - Hibernate가 자동으로 생성합니다.");
+            }
+        } catch (Exception e) {
+            logger.warn("Users 테이블 approved 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+            // 마이그레이션 실패해도 애플리케이션은 계속 실행되도록 함
+        }
+    }
+
+    /**
+     * 초기 관리자 계정 생성
+     * 애플리케이션 시작 시 기본 관리자 계정이 없으면 생성합니다.
+     */
+    private void initializeDefaultUsers() {
+        try {
+            // 기본 관리자 계정 생성
+            if (!userRepository.existsByUsername("admin")) {
+                User admin = new User();
+                admin.setUsername("admin");
+                String encodedPassword = passwordEncoder.encode("admin123");
+                admin.setPassword(encodedPassword); // 기본 비밀번호: admin123
+                admin.setRole(User.Role.ADMIN);
+                admin.setName("관리자");
+                admin.setActive(true);
+                admin.setApproved(true); // 관리자는 자동 승인
+                userRepository.save(admin);
+                logger.info("✅ 기본 관리자 계정 생성 완료: username=admin, password=admin123");
+                logger.info("암호화된 비밀번호 길이: {}", encodedPassword.length());
+            } else {
+                logger.info("기본 관리자 계정이 이미 존재합니다.");
+                // 기존 계정 확인 및 approved 설정
+                userRepository.findByUsername("admin").ifPresent(user -> {
+                    if (user.getApproved() == null || !user.getApproved()) {
+                        user.setApproved(true);
+                        userRepository.save(user);
+                        logger.info("기존 관리자 계정을 승인 상태로 업데이트했습니다.");
+                    }
+                    logger.info("기존 관리자 계정 정보: username={}, role={}, active={}, approved={}", 
+                        user.getUsername(), user.getRole(), user.getActive(), user.getApproved());
+                });
+            }
+        } catch (Exception e) {
+            logger.error("초기 사용자 계정 생성 중 오류 발생: {}", e.getMessage(), e);
         }
     }
 }

@@ -137,12 +137,87 @@ public class MemberProductController {
             }
             
             // Map으로 변환하여 반환 (순환 참조 방지)
+            // 회차권인 경우 실제 사용 기록 기반으로 remainingCount 재계산
             List<Map<String, Object>> result = memberProducts.stream().map(mp -> {
                 Map<String, Object> map = new HashMap<>();
                 map.put("id", mp.getId());
                 map.put("purchaseDate", mp.getPurchaseDate());
                 map.put("expiryDate", mp.getExpiryDate());
-                map.put("remainingCount", mp.getRemainingCount());
+                
+                // 회차권인 경우 remainingCount 재계산
+                Integer remainingCount = mp.getRemainingCount();
+                if (mp.getProduct() != null && mp.getProduct().getType() == com.afbscenter.model.Product.ProductType.COUNT_PASS) {
+                    // 총 횟수 계산
+                    Integer totalCount = mp.getTotalCount();
+                    if (totalCount == null || totalCount <= 0) {
+                        totalCount = mp.getProduct().getUsageCount();
+                        if (totalCount == null || totalCount <= 0) {
+                            totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                        }
+                    }
+                    
+                    // memberId 가져오기 (파라미터 또는 Member 객체에서)
+                    Long actualMemberId = memberId;
+                    if (actualMemberId == null && mp.getMember() != null) {
+                        try {
+                            actualMemberId = mp.getMember().getId();
+                        } catch (Exception e) {
+                            logger.warn("Member ID 가져오기 실패: MemberProduct ID={}", mp.getId());
+                        }
+                    }
+                    
+                    // 실제 사용된 횟수 계산
+                    Long usedCountByAttendance = 0L;
+                    Long usedCountByBooking = 0L;
+                    try {
+                        if (actualMemberId != null) {
+                            usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(actualMemberId, mp.getId());
+                            if (usedCountByAttendance == null) {
+                                usedCountByAttendance = 0L;
+                            }
+                        }
+                        usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
+                        if (usedCountByBooking == null) {
+                            usedCountByBooking = 0L;
+                        }
+                    } catch (Exception e) {
+                        logger.warn("사용 횟수 계산 실패: MemberProduct ID={}, 오류={}", mp.getId(), e.getMessage());
+                    }
+                    
+                    // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용
+                    Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
+                    
+                    // remainingCount가 null이거나 0인 경우 재계산
+                    // 새로 구매한 상품의 경우 remainingCount가 0으로 저장될 수 있으므로, 사용 기록이 없으면 totalCount로 설정
+                    if (remainingCount == null || remainingCount == 0) {
+                        if (actualUsedCount == 0) {
+                            // 사용 기록이 없으면 totalCount로 설정 (새로 구매한 상품)
+                            remainingCount = totalCount;
+                            logger.debug("remainingCount 재계산: MemberProduct ID={}, totalCount={}, usedCount=0, 최종 remainingCount={}", 
+                                    mp.getId(), totalCount, remainingCount);
+                        } else {
+                            // 사용 기록이 있으면 재계산
+                            remainingCount = Math.max(0, totalCount - actualUsedCount.intValue());
+                            logger.debug("remainingCount 재계산: MemberProduct ID={}, totalCount={}, usedCount={}, 최종 remainingCount={}", 
+                                    mp.getId(), totalCount, actualUsedCount, remainingCount);
+                        }
+                    } else {
+                        // remainingCount가 이미 있으면 실제 사용 기록과 비교하여 검증
+                        Integer calculatedRemaining = Math.max(0, totalCount - actualUsedCount.intValue());
+                        if (remainingCount != calculatedRemaining) {
+                            logger.warn("remainingCount 불일치: MemberProduct ID={}, DB값={}, 계산값={}, totalCount={}, usedCount={}", 
+                                    mp.getId(), remainingCount, calculatedRemaining, totalCount, actualUsedCount);
+                            // DB 값이 잘못된 경우 계산값으로 덮어쓰기
+                            if (actualUsedCount == 0 && remainingCount == 0) {
+                                // 사용 기록이 없는데 remainingCount가 0이면 totalCount로 수정
+                                remainingCount = totalCount;
+                                logger.info("remainingCount 수정: MemberProduct ID={}, 0 -> {}", mp.getId(), remainingCount);
+                            }
+                        }
+                    }
+                }
+                
+                map.put("remainingCount", remainingCount);
                 map.put("totalCount", mp.getTotalCount());
                 map.put("status", mp.getStatus() != null ? mp.getStatus().name() : null);
                 
@@ -180,6 +255,7 @@ public class MemberProductController {
                         productMap.put("type", mp.getProduct().getType() != null ? mp.getProduct().getType().name() : null);
                         productMap.put("category", mp.getProduct().getCategory() != null ? mp.getProduct().getCategory().name() : null);
                         productMap.put("price", mp.getProduct().getPrice());
+                        productMap.put("usageCount", mp.getProduct().getUsageCount()); // 상품의 usageCount 추가
                         
                         // Product의 코치 정보
                         if (mp.getProduct().getCoach() != null) {
@@ -993,6 +1069,65 @@ public class MemberProductController {
             logger.error("기간권 기간 수정 중 오류 발생. ID: {}", id, e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", "기간 수정 중 오류가 발생했습니다: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        }
+    }
+    
+    // 개별 이용권 삭제
+    @DeleteMapping("/{id}")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> deleteMemberProduct(@PathVariable Long id) {
+        try {
+            if (id == null) {
+                return ResponseEntity.badRequest().build();
+            }
+            
+            MemberProduct memberProduct = memberProductRepository.findById(id)
+                    .orElse(null);
+            
+            if (memberProduct == null) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            Long memberId = memberProduct.getMember() != null ? memberProduct.getMember().getId() : null;
+            Long productId = memberProduct.getProduct() != null ? memberProduct.getProduct().getId() : null;
+            
+            // 관련 Booking의 memberProduct 참조를 null로 설정
+            List<com.afbscenter.model.Booking> bookings = bookingRepository.findAllBookingsByMemberProductId(id);
+            for (com.afbscenter.model.Booking booking : bookings) {
+                booking.setMemberProduct(null);
+                bookingRepository.save(booking);
+            }
+            
+            // 해당 상품에 대한 PRODUCT_SALE 결제 제거 (상품 할당과 함께 제거)
+            if (memberId != null && productId != null) {
+                List<Payment> productPayments = paymentRepository.findActiveProductPaymentsByMemberAndProduct(
+                    memberId, productId);
+                
+                for (Payment payment : productPayments) {
+                    if (payment != null) {
+                        paymentRepository.delete(payment);
+                        logger.debug("이용권 삭제 시 결제도 함께 제거: Payment ID={}, Member ID={}, Product ID={}", 
+                            payment.getId(), memberId, productId);
+                    }
+                }
+            }
+            
+            // MemberProduct 삭제
+            memberProductRepository.delete(memberProduct);
+            
+            logger.info("이용권 삭제 완료: MemberProduct ID={}, Member ID={}, Product ID={}", 
+                id, memberId, productId);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "이용권이 삭제되었습니다.");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("이용권 삭제 중 오류 발생. ID: {}", id, e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("success", false);
+            error.put("error", "이용권 삭제 중 오류가 발생했습니다: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
     }

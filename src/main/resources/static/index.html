@@ -7,6 +7,7 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="stylesheet" href="/css/common.css">
     <link rel="stylesheet" href="/css/dashboard.css">
+    <link rel="stylesheet" href="/css/members.css">
 </head>
 <body>
     <div class="app-container">
@@ -20,7 +21,7 @@
             <nav class="sidebar-menu">
                 <div class="menu-section">
                     <div class="menu-section-title">주요 메뉴</div>
-                    <a href="/" class="menu-item active" data-role="Front">
+                    <a href="/" class="menu-item active" data-role="Front" data-permission="dashboardView">
                         <span class="menu-item-icon">📊</span>
                         <span>대시보드</span>
                     </a>
@@ -28,11 +29,11 @@
                 
                 <div class="menu-section">
                     <div class="menu-section-title">회원 관리</div>
-                    <a href="/members.html" class="menu-item" data-role="Front">
+                    <a href="/members.html" class="menu-item" data-role="Front" data-permission="memberView">
                         <span class="menu-item-icon">👥</span>
                         <span>회원 관리</span>
                     </a>
-                    <a href="/coaches.html" class="menu-item" data-role="Manager">
+                    <a href="/coaches.html" class="menu-item" data-role="Manager" data-permission="coachView">
                         <span class="menu-item-icon">🏃</span>
                         <span>코치/레슨 관리</span>
                     </a>
@@ -43,34 +44,34 @@
                     
                     <!-- 사하점 -->
                     <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
-                    <a href="/bookings.html" class="menu-item" data-role="Front">
+                    <a href="/bookings.html" class="menu-item" data-role="Front" data-permission="bookingView">
                         <span class="menu-item-icon">⚾</span>
                         <span>야구</span>
                     </a>
-                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front">
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front" data-permission="bookingView">
                         <span class="menu-item-icon">💪</span>
                         <span>트레이닝+필라테스</span>
                     </a>
                     
                     <!-- 연산점 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
-                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front">
+                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front" data-permission="bookingView">
                         <span class="menu-item-icon">⚾</span>
                         <span>야구</span>
                     </a>
-                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front">
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front" data-permission="bookingView">
                         <span class="menu-item-icon">💪</span>
                         <span>트레이닝+필라테스</span>
                     </a>
                     
                     <!-- 대관 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
-                    <a href="/rentals.html" class="menu-item" data-role="Front">
+                    <a href="/rentals.html" class="menu-item" data-role="Front" data-permission="bookingView">
                         <span class="menu-item-icon">🏟️</span>
                         <span>대관 관리</span>
                     </a>
                     
-                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;">
+                    <a href="/attendance.html" class="menu-item" data-role="Front" data-permission="attendanceView" style="margin-top: 12px;">
                         <span class="menu-item-icon">✓</span>
                         <span>출석/이용 기록</span>
                     </a>
@@ -78,15 +79,15 @@
                 
                 <div class="menu-section">
                     <div class="menu-section-title">훈련 관리</div>
-                    <a href="/training-logs.html" class="menu-item" data-role="Coach">
+                    <a href="/training-logs.html" class="menu-item" data-role="Coach" data-permission="trainingLogView">
                         <span class="menu-item-icon">📝</span>
                         <span>훈련 기록</span>
                     </a>
-                    <a href="/rankings.html" class="menu-item" data-role="Coach">
+                    <a href="/rankings.html" class="menu-item" data-role="Coach" data-permission="trainingLogView">
                         <span class="menu-item-icon">🏆</span>
                         <span>훈련 랭킹</span>
                     </a>
-                    <a href="/training-stats.html" class="menu-item" data-role="Coach">
+                    <a href="/training-stats.html" class="menu-item" data-role="Coach" data-permission="trainingLogView">
                         <span class="menu-item-icon">📈</span>
                         <span>훈련 통계</span>
                     </a>
@@ -94,11 +95,11 @@
                 
                 <div class="menu-section">
                     <div class="menu-section-title">상품/결제</div>
-                    <a href="/products.html" class="menu-item" data-role="Manager">
+                    <a href="/products.html" class="menu-item" data-role="Manager" data-permission="productView">
                         <span class="menu-item-icon">🎁</span>
                         <span>상품/이용권</span>
                     </a>
-                    <a href="/payments.html" class="menu-item" data-role="Manager">
+                    <a href="/payments.html" class="menu-item" data-role="Manager" data-permission="paymentView">
                         <span class="menu-item-icon">💳</span>
                         <span>결제/정산</span>
                     </a>
@@ -106,7 +107,7 @@
                 
                 <div class="menu-section">
                     <div class="menu-section-title">시설 관리</div>
-                    <a href="/facilities.html" class="menu-item" data-role="Manager">
+                    <a href="/facilities.html" class="menu-item" data-role="Manager" data-permission="settingsView">
                         <span class="menu-item-icon">🏟️</span>
                         <span>시설/슬롯 설정</span>
                     </a>
@@ -114,15 +115,23 @@
                 
                 <div class="menu-section" data-role="Admin">
                     <div class="menu-section-title">관리자</div>
-                    <a href="/analytics.html" class="menu-item" data-role="Manager">
+                    <a href="/analytics.html" class="menu-item" data-role="Manager" data-permission="analyticsView">
                         <span class="menu-item-icon">📈</span>
                         <span>통계/분석</span>
                     </a>
-                    <a href="/announcements.html" class="menu-item" data-role="Manager">
+                    <a href="/announcements.html" class="menu-item" data-role="Manager" data-permission="announcementView">
                         <span class="menu-item-icon">📢</span>
                         <span>공지/메시지</span>
                     </a>
-                    <a href="/settings.html" class="menu-item" data-role="Admin">
+                    <a href="/users.html" class="menu-item" data-role="Admin" data-permission="userView">
+                        <span class="menu-item-icon">👤</span>
+                        <span>사용자 관리</span>
+                    </a>
+                    <a href="/permissions.html" class="menu-item" data-role="Admin" data-permission="userView">
+                        <span class="menu-item-icon">🔐</span>
+                        <span>권한 관리</span>
+                    </a>
+                    <a href="/settings.html" class="menu-item" data-role="Admin" data-permission="settingsView">
                         <span class="menu-item-icon">⚙️</span>
                         <span>설정</span>
                     </a>
@@ -196,8 +205,8 @@
                         <div class="kpi-value" id="kpi-avg-revenue-per-member">-</div>
                         <div class="kpi-change positive">회원당 평균</div>
                     </div>
-                    <div class="kpi-card" style="cursor: pointer;" onclick="openExpiringMembersModal()" title="클릭하여 만료 임박 회원 확인">
-                        <div class="kpi-label">⚠️ 만료 임박</div>
+                    <div class="kpi-card" style="cursor: pointer;" id="expiring-members-card" title="클릭하여 만료 임박 및 종료 회원 확인">
+                        <div class="kpi-label">⚠️ 만료 임박 및 종료 회원</div>
                         <div class="kpi-value" id="kpi-expiring-members">-</div>
                         <div class="kpi-change" style="color: var(--warning-color, #F59E0B);">확인 필요</div>
                     </div>
@@ -268,14 +277,23 @@
     </div>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <!-- 만료 임박 회원 목록 모달 -->
+    <!-- 만료 임박 및 종료 회원 목록 모달 -->
     <div id="expiringMembersModal" class="modal-overlay" style="display: none;">
-        <div class="modal" style="max-width: 800px;">
+        <div class="modal" style="max-width: 900px;">
             <div class="modal-header">
-                <h2 class="modal-title">⚠️ 만료 임박 회원</h2>
+                <h2 class="modal-title">⚠️ 만료 임박 및 종료 회원</h2>
                 <button class="modal-close" onclick="closeExpiringMembersModal()">×</button>
             </div>
             <div class="modal-body">
+                <!-- 탭 메뉴 -->
+                <div style="display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 2px solid var(--border-color);">
+                    <button id="tab-expiring" class="tab-button active" onclick="switchTab('expiring')" style="padding: 12px 24px; background: none; border: none; border-bottom: 3px solid var(--accent-primary); color: var(--accent-primary); font-weight: 600; cursor: pointer;">
+                        만료 임박
+                    </button>
+                    <button id="tab-expired" class="tab-button" onclick="switchTab('expired')" style="padding: 12px 24px; background: none; border: none; border-bottom: 3px solid transparent; color: var(--text-secondary); font-weight: 600; cursor: pointer;">
+                        종료 회원
+                    </button>
+                </div>
                 <div id="expiring-members-list" style="max-height: 500px; overflow-y: auto;">
                     <p style="text-align: center; color: var(--text-muted);">로딩 중...</p>
                 </div>
@@ -287,7 +305,81 @@
         </div>
     </div>
 
+    <!-- 연장/재구매 모달 -->
+    <div id="extendRepurchaseModal" class="modal-overlay" style="display: none;">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="extend-repurchase-title">상품 연장/재구매</h2>
+                <button class="modal-close" onclick="closeExtendRepurchaseModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="extend-repurchase-content">
+                    <p style="text-align: center; color: var(--text-muted);">로딩 중...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeExtendRepurchaseModal()">취소</button>
+                <button class="btn btn-primary" id="extend-repurchase-submit-btn" onclick="submitExtendRepurchase()">확인</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 추가 상품 구매 모달 -->
+    <div id="newProductPurchaseModal" class="modal-overlay" style="display: none;">
+        <div class="modal" style="max-width: 700px;">
+            <div class="modal-header">
+                <h2 class="modal-title">추가 상품 구매</h2>
+                <button class="modal-close" onclick="closeNewProductPurchaseModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="new-product-purchase-form">
+                    <input type="hidden" id="new-product-member-id">
+                    <div class="form-group">
+                        <label class="form-label">상품/이용권 선택 * <span style="color: #dc3545;">(필수)</span></label>
+                        <select class="form-control" id="new-product-select" multiple style="min-height: 150px;" required>
+                            <option value="">로딩 중...</option>
+                        </select>
+                        <small style="color: var(--text-muted); font-size: 12px;">Ctrl(또는 Cmd) 키를 누른 채로 여러 개 선택할 수 있습니다</small>
+                    </div>
+                    <div id="new-product-coach-selection" style="margin-top: 15px;">
+                        <!-- 선택된 각 상품에 대한 코치 선택 드롭다운이 여기에 동적으로 생성됩니다 -->
+                    </div>
+                    <div class="form-group" style="margin-top: 15px;">
+                        <label class="form-label">총 금액</label>
+                        <div class="form-control" style="background: var(--bg-tertiary); font-weight: 600; color: var(--accent-primary); font-size: 18px;" id="new-product-total-price">₩0</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeNewProductPurchaseModal()">취소</button>
+                <button class="btn btn-primary" onclick="submitNewProductPurchase()">구매하기</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 회원 상세 모달 (대시보드에서 사용) -->
+    <div class="modal-overlay" id="member-detail-modal" style="display: none;">
+        <div class="modal" style="max-width: 1400px; width: 95%;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="member-detail-title">회원 상세</h2>
+                <button class="modal-close" onclick="closeMemberDetailModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="detail-tabs">
+                    <button class="tab-btn active" data-tab="info">기본 정보</button>
+                    <button class="tab-btn" data-tab="products">이용권</button>
+                    <button class="tab-btn" data-tab="payments">결제 내역</button>
+                    <button class="tab-btn" data-tab="bookings">예약 내역</button>
+                    <button class="tab-btn" data-tab="attendance">출석 내역</button>
+                    <button class="tab-btn" data-tab="memo">코치 메모</button>
+                </div>
+                <div id="detail-tab-content"></div>
+            </div>
+        </div>
+    </div>
+
     <script src="/js/common.js"></script>
+    <script src="/js/members.js"></script>
     <script src="/js/dashboard.js"></script>
 </body>
 </html>

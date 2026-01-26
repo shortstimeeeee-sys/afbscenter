@@ -687,11 +687,18 @@ async function loadMemberProducts(memberId) {
             // 잔여 횟수는 dataset에만 저장 (표시는 하지 않음)
             if (product.type === 'COUNT_PASS') {
                 // 백엔드에서 계산된 remainingCount 사용 (실제 예약 데이터 기반)
-                const remaining = mp.remainingCount !== null && mp.remainingCount !== undefined 
-                    ? mp.remainingCount 
-                    : (mp.totalCount !== null && mp.totalCount !== undefined 
-                        ? mp.totalCount 
-                        : (product.usageCount || 10));
+                // remainingCount가 있으면 사용, 없으면 totalCount 사용, 그것도 없으면 product.usageCount 사용
+                let remaining;
+                if (mp.remainingCount !== null && mp.remainingCount !== undefined) {
+                    remaining = mp.remainingCount;
+                } else if (mp.totalCount !== null && mp.totalCount !== undefined) {
+                    remaining = mp.totalCount;
+                } else if (product.usageCount !== null && product.usageCount !== undefined) {
+                    remaining = product.usageCount;
+                } else {
+                    // 모든 값이 없을 때만 기본값 10 사용
+                    remaining = 10;
+                }
                 option.dataset.remainingCount = remaining;
             } else {
                 option.dataset.remainingCount = 0;

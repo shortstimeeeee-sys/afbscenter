@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>권한 관리 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/permissions.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
+                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
+                    <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
+                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">훈련 관리</div>
+                    <a href="/training-logs.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
+                    <a href="/rankings.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">🏆</span><span>훈련 랭킹</span></a>
+                    <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">상품/결제</div>
+                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>상품/이용권</span></a>
+                    <a href="/payments.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">시설 관리</div>
+                    <a href="/facilities.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏟️</span><span>시설/슬롯 설정</span></a>
+                </div>
+                <div class="menu-section" data-role="Admin">
+                    <div class="menu-section-title">관리자</div>
+                    <a href="/analytics.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
+                    <a href="/announcements.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📢</span><span>공지/메시지</span></a>
+                    <a href="/users.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">👤</span><span>사용자 관리</span></a>
+                    <a href="/permissions.html" class="menu-item active" data-role="Admin"><span class="menu-item-icon">🔐</span><span>권한 관리</span></a>
+                    <a href="/settings.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚙️</span><span>설정</span></a>
+                </div>
+            </nav>
+        </aside>
+        
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">권한 관리</h1>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn" id="notification-btn">🔔</button>
+                    <button class="user-menu-btn" id="user-menu-btn">👤</button>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">역할별 권한 설정</h2>
+                        <p class="card-subtitle">각 역할(관리자, 매니저, 코치, 데스크)별로 세부 권한을 설정할 수 있습니다.</p>
+                    </div>
+                    
+                    <div class="permissions-container">
+                        <!-- 역할별 탭 -->
+                        <div class="role-tabs">
+                            <button class="role-tab active" data-role="ADMIN" onclick="switchRole('ADMIN')">
+                                <span class="role-badge badge-danger">관리자</span>
+                            </button>
+                            <button class="role-tab" data-role="MANAGER" onclick="switchRole('MANAGER')">
+                                <span class="role-badge badge-warning">매니저</span>
+                            </button>
+                            <button class="role-tab" data-role="COACH" onclick="switchRole('COACH')">
+                                <span class="role-badge badge-info">코치</span>
+                            </button>
+                            <button class="role-tab" data-role="FRONT" onclick="switchRole('FRONT')">
+                                <span class="role-badge badge-secondary">데스크</span>
+                            </button>
+                        </div>
+                        
+                        <!-- 권한 설정 영역 -->
+                        <div id="permissions-content" class="permissions-content">
+                            <!-- 동적으로 생성됨 -->
+                        </div>
+                        
+                        <!-- 저장 버튼 -->
+                        <div class="permissions-actions">
+                            <button class="btn btn-primary" onclick="savePermissions()">권한 저장</button>
+                            <button class="btn btn-secondary" onclick="resetPermissions()">초기화</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="/js/common.js"></script>
+    <script src="/js/permissions.js"></script>
+</body>
+</html>

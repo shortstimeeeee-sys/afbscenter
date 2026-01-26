@@ -5,43 +5,288 @@
 // 전역 변수
 const App = {
     currentUser: null,
-    currentRole: 'Admin', // Admin, Manager, Coach, Front
-    apiBase: '/api'
+    currentRole: null, // Admin, Manager, Coach, Front
+    apiBase: '/api',
+    authToken: null
 };
 
-// 권한 체크
-App.hasPermission = function(requiredRole) {
+// 인증 토큰 관리
+App.setAuthToken = function(token) {
+    this.authToken = token;
+    if (token) {
+        localStorage.setItem('authToken', token);
+    } else {
+        localStorage.removeItem('authToken');
+    }
+};
+
+App.getAuthToken = function() {
+    if (!this.authToken) {
+        this.authToken = localStorage.getItem('authToken');
+    }
+    return this.authToken;
+};
+
+App.clearAuth = function() {
+    this.authToken = null;
+    this.currentUser = null;
+    this.currentRole = null;
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('currentUser');
+    window.location.href = '/login.html';
+};
+
+App.isAuthenticated = function() {
+    return !!this.getAuthToken();
+};
+
+// 페이지 로드 시 인증 정보 복원
+App.restoreAuth = function() {
+    const token = this.getAuthToken();
+    console.log('인증 정보 복원 시도, 토큰 존재:', !!token);
+    
+    if (token) {
+        const userStr = localStorage.getItem('currentUser');
+        console.log('사용자 정보 존재:', !!userStr);
+        
+        if (userStr) {
+            try {
+                this.currentUser = JSON.parse(userStr);
+                this.currentRole = this.currentUser.role;
+                console.log('인증 정보 복원 성공:', {
+                    username: this.currentUser.username,
+                    role: this.currentRole
+                });
+            } catch (e) {
+                console.error('사용자 정보 복원 실패:', e);
+                this.clearAuth();
+            }
+        } else {
+            console.warn('사용자 정보가 localStorage에 없습니다');
+        }
+    } else {
+        console.warn('인증 토큰이 localStorage에 없습니다');
+    }
+};
+
+// 인증 헤더 가져오기
+App.getAuthHeaders = function() {
+    const headers = {
+        'ngrok-skip-browser-warning': 'true'
+    };
+    const token = this.getAuthToken();
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+        console.log('인증 헤더 추가됨, 토큰 길이:', token.length);
+    } else {
+        console.warn('인증 토큰이 없습니다!');
+    }
+    return headers;
+};
+
+// 권한 데이터 캐시
+App.rolePermissions = null;
+
+// 권한 데이터 로드
+App.loadRolePermissions = async function() {
+    try {
+        const response = await this.api.get('/role-permissions');
+        this.rolePermissions = response.permissions || {};
+        console.log('권한 데이터 로드 완료:', this.rolePermissions);
+        return this.rolePermissions;
+    } catch (error) {
+        console.warn('권한 데이터 로드 실패, 기본 역할 계층 사용:', error);
+        this.rolePermissions = null;
+        return null;
+    }
+};
+
+// 세부 권한 체크
+App.hasDetailPermission = function(permissionKey) {
+    if (!App.currentRole || !App.rolePermissions) {
+        return false;
+    }
+    
+    const role = App.currentRole.toUpperCase();
+    const rolePermission = App.rolePermissions[role];
+    
+    if (!rolePermission) {
+        return false;
+    }
+    
+    // 권한 키가 있으면 해당 권한 반환, 없으면 false
+    return rolePermission[permissionKey] === true;
+};
+
+// 권한 체크 (역할 계층 또는 세부 권한)
+App.hasPermission = function(requiredRole, permissionKey) {
+    if (!App.currentRole) {
+        console.warn('권한 체크 실패: currentRole이 없습니다');
+        return false;
+    }
+    
+    // 세부 권한이 지정된 경우 세부 권한 체크
+    if (permissionKey) {
+        return App.hasDetailPermission(permissionKey);
+    }
+    
+    // 역할 계층 체크 (기존 로직)
     const roleHierarchy = {
-        'Front': 1,
-        'Coach': 2,
-        'Manager': 3,
-        'Admin': 4
+        'FRONT': 1,
+        'COACH': 2,
+        'MANAGER': 3,
+        'ADMIN': 4
     };
     
-    return roleHierarchy[App.currentRole] >= roleHierarchy[requiredRole];
+    const currentRoleUpper = App.currentRole.toUpperCase();
+    const requiredRoleUpper = requiredRole ? requiredRole.toUpperCase() : '';
+    
+    // data-role 속성 매핑 (프론트엔드에서 사용하는 값)
+    const roleMapping = {
+        'FRONT': 'FRONT',
+        'COACH': 'COACH',
+        'MANAGER': 'MANAGER',
+        'ADMIN': 'ADMIN',
+        'Front': 'FRONT',
+        'Coach': 'COACH',
+        'Manager': 'MANAGER',
+        'Admin': 'ADMIN'
+    };
+    
+    const mappedCurrentRole = roleMapping[currentRoleUpper] || currentRoleUpper;
+    const mappedRequiredRole = roleMapping[requiredRoleUpper] || requiredRoleUpper;
+    
+    const currentLevel = roleHierarchy[mappedCurrentRole] || 0;
+    const requiredLevel = roleHierarchy[mappedRequiredRole] || 0;
+    
+    const hasPermission = currentLevel >= requiredLevel;
+    
+    return hasPermission;
+};
+
+// 메뉴-권한 매핑 (메뉴 URL과 필요한 권한)
+const menuPermissionMap = {
+    '/': 'dashboardView', // 대시보드
+    '/members.html': 'memberView',
+    '/coaches.html': 'coachView',
+    '/bookings.html': 'bookingView',
+    '/bookings-saha-training.html': 'bookingView',
+    '/bookings-yeonsan.html': 'bookingView',
+    '/bookings-yeonsan-training.html': 'bookingView',
+    '/rentals.html': 'bookingView',
+    '/attendance.html': 'attendanceView',
+    '/training-logs.html': 'trainingLogView',
+    '/rankings.html': 'trainingLogView',
+    '/training-stats.html': 'trainingLogView',
+    '/products.html': 'productView',
+    '/payments.html': 'paymentView',
+    '/facilities.html': 'settingsView',
+    '/analytics.html': 'analyticsView',
+    '/announcements.html': 'announcementView',
+    '/users.html': 'userView',
+    '/permissions.html': 'userView', // 권한 관리도 사용자 관리 권한 필요
+    '/settings.html': 'settingsView'
 };
 
 // 메뉴 필터링 (권한 기반)
-App.filterMenuByRole = function() {
+App.filterMenuByRole = async function() {
+    console.log('메뉴 필터링 시작, 현재 권한:', App.currentRole);
+    
+    // 권한 데이터가 없으면 로드 시도
+    if (!App.rolePermissions) {
+        await App.loadRolePermissions();
+    }
+    
+    // menu-section의 data-role 처리
+    const menuSections = document.querySelectorAll('.menu-section[data-role]');
+    menuSections.forEach(section => {
+        const requiredRole = section.getAttribute('data-role');
+        const hasPermission = App.hasPermission(requiredRole);
+        console.log('메뉴 섹션 권한 체크:', requiredRole, '->', hasPermission);
+        if (!hasPermission) {
+            section.style.display = 'none';
+        } else {
+            section.style.display = ''; // 권한이 있으면 표시
+        }
+    });
+    
+    // menu-item의 data-role 및 data-permission 처리
     const menuItems = document.querySelectorAll('.menu-item[data-role]');
     menuItems.forEach(item => {
         const requiredRole = item.getAttribute('data-role');
-        if (!App.hasPermission(requiredRole)) {
-            item.style.display = 'none';
+        const permissionKey = item.getAttribute('data-permission');
+        const href = item.getAttribute('href');
+        
+        let hasPermission = false;
+        
+        // 권한 데이터가 있는 경우에만 세부 권한 체크
+        if (App.rolePermissions) {
+            // 세부 권한이 지정된 경우 세부 권한 체크
+            if (permissionKey) {
+                hasPermission = App.hasPermission(requiredRole, permissionKey);
+            } 
+            // href 기반으로 권한 매핑 확인
+            else if (href && menuPermissionMap[href]) {
+                const requiredPermission = menuPermissionMap[href];
+                hasPermission = App.hasPermission(requiredRole, requiredPermission);
+            }
+            // 기본 역할 계층 체크
+            else {
+                hasPermission = App.hasPermission(requiredRole);
+            }
+        } else {
+            // 권한 데이터가 없으면 기본 역할 계층만 체크
+            hasPermission = App.hasPermission(requiredRole);
         }
+        
+        if (!hasPermission) {
+            item.style.display = 'none';
+            item.style.pointerEvents = 'none'; // 클릭 비활성화
+            item.style.opacity = '0.5'; // 시각적 표시
+        } else {
+            item.style.display = '';
+            item.style.pointerEvents = '';
+            item.style.opacity = '';
+        }
+        
+        console.log('메뉴 항목 권한 체크:', {
+            href: href,
+            requiredRole: requiredRole,
+            permissionKey: permissionKey,
+            hasPermission: hasPermission,
+            rolePermissionsLoaded: !!App.rolePermissions
+        });
     });
+    
+    console.log('메뉴 필터링 완료');
 };
 
 // API 호출 헬퍼
 App.api = {
     get: async function(url) {
         try {
+            const headers = App.getAuthHeaders();
+            console.log('API GET 요청:', `${App.apiBase}${url}`, '헤더:', headers);
+            
             const response = await fetch(`${App.apiBase}${url}`, {
-                headers: {
-                    'ngrok-skip-browser-warning': 'true'
-                }
+                headers: headers
             });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            
+            console.log('API GET 응답 상태:', response.status, response.statusText);
+            
+            if (response.status === 401) {
+                console.error('401 Unauthorized - 인증 실패');
+                App.clearAuth();
+                throw new Error('인증이 만료되었습니다.');
+            }
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('API GET 오류 응답:', errorText);
+                const error = new Error(`HTTP ${response.status}`);
+                error.response = { status: response.status, data: errorText };
+                throw error;
+            }
             return await response.json();
         } catch (error) {
             console.error('API GET Error:', error);
@@ -51,14 +296,19 @@ App.api = {
     
     post: async function(url, data) {
         try {
+            const headers = App.getAuthHeaders();
+            headers['Content-Type'] = 'application/json';
+            
             const response = await fetch(`${App.apiBase}${url}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'ngrok-skip-browser-warning': 'true'
-                },
+                headers: headers,
                 body: JSON.stringify(data)
             });
+            
+            if (response.status === 401) {
+                App.clearAuth();
+                throw new Error('인증이 만료되었습니다.');
+            }
             
             let responseData = null;
             const contentType = response.headers.get('content-type');
@@ -88,14 +338,20 @@ App.api = {
     
     put: async function(url, data) {
         try {
+            const headers = App.getAuthHeaders();
+            headers['Content-Type'] = 'application/json';
+            
             const response = await fetch(`${App.apiBase}${url}`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'ngrok-skip-browser-warning': 'true'
-                },
+                headers: headers,
                 body: JSON.stringify(data)
             });
+            
+            if (response.status === 401) {
+                App.clearAuth();
+                throw new Error('인증이 만료되었습니다.');
+            }
+            
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return await response.json();
         } catch (error) {
@@ -108,10 +364,14 @@ App.api = {
         try {
             const response = await fetch(`${App.apiBase}${url}`, {
                 method: 'DELETE',
-                headers: {
-                    'ngrok-skip-browser-warning': 'true'
-                }
+                headers: App.getAuthHeaders()
             });
+            
+            if (response.status === 401) {
+                App.clearAuth();
+                throw new Error('인증이 만료되었습니다.');
+            }
+            
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return response.status === 204 ? null : await response.json();
         } catch (error) {
@@ -153,6 +413,8 @@ App.Modal = {
     open: function(modalId) {
         const modal = document.getElementById(modalId);
         if (modal) {
+            // 인라인 스타일 제거 (display: none 등)
+            modal.style.display = '';
             modal.classList.add('active');
             document.body.style.overflow = 'hidden';
             // 드래그로 인한 뒤로가기 방지
@@ -164,6 +426,7 @@ App.Modal = {
         const modal = document.getElementById(modalId);
         if (modal) {
             modal.classList.remove('active');
+            modal.style.display = 'none';
             document.body.style.overflow = '';
             // 이벤트 리스너 제거
             this.removeDragPrevention(modal);
@@ -173,6 +436,7 @@ App.Modal = {
     closeAll: function() {
         document.querySelectorAll('.modal-overlay.active').forEach(modal => {
             modal.classList.remove('active');
+            modal.style.display = 'none';
             this.removeDragPrevention(modal);
         });
         document.body.style.overflow = '';
@@ -627,8 +891,13 @@ App.MemberGrade = {
 
 // 초기화
 document.addEventListener('DOMContentLoaded', function() {
-    // 메뉴 필터링
-    App.filterMenuByRole();
+    // 인증 정보 복원 후 메뉴 필터링 (restoreAuth는 다른 리스너에서 처리됨)
+    // 여기서는 restoreAuth가 완료된 후 필터링하도록 약간의 지연 추가
+    setTimeout(function() {
+        if (App.currentRole) {
+            App.filterMenuByRole();
+        }
+    }, 100);
     
     // 시간 입력 필드 자동 포맷팅 (HH:MM)
     document.addEventListener('input', function(e) {
@@ -844,22 +1113,46 @@ App.initDarkMode = function() {
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     
     // 초기 테마 설정 (저장된 값 > 시스템 설정 > 다크 모드)
-    const isDark = savedTheme ? savedTheme === 'dark' : prefersDark;
-    
-    if (!isDark) {
+    if (savedTheme === 'light') {
         document.body.classList.add('light-mode');
+        document.body.classList.remove('green-gold-white-theme');
+    } else if (savedTheme === 'green-gold-white') {
+        document.body.classList.remove('light-mode');
+        document.body.classList.add('green-gold-white-theme');
+    } else {
+        // 다크 모드 (기본값)
+        document.body.classList.remove('light-mode');
+        document.body.classList.remove('green-gold-white-theme');
     }
     
     // 토글 버튼 추가
     App.addDarkModeToggle();
     
-    // 시스템 테마 변경 감지
+    // MutationObserver로 topbar-right가 나타날 때 버튼 추가
+    if (!App.themeObserver) {
+        App.themeObserver = new MutationObserver((mutations) => {
+            const topbarRight = document.querySelector('.topbar-right');
+            if (topbarRight && !document.getElementById('theme-toggle-btn')) {
+                App.addDarkModeToggle();
+            }
+        });
+        
+        // body를 관찰하여 DOM 변경 감지
+        App.themeObserver.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }
+    
+    // 시스템 테마 변경 감지 (저장된 테마가 없을 때만)
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
         if (!localStorage.getItem('theme')) {
             if (e.matches) {
                 document.body.classList.remove('light-mode');
+                document.body.classList.remove('green-gold-white-theme');
             } else {
                 document.body.classList.add('light-mode');
+                document.body.classList.remove('green-gold-white-theme');
             }
             App.updateDarkModeIcon();
         }
@@ -867,14 +1160,52 @@ App.initDarkMode = function() {
 };
 
 App.addDarkModeToggle = function() {
+    // 로그인 페이지에서는 실행하지 않음
+    if (window.location.pathname === '/login.html' || window.location.pathname === '/login') {
+        return;
+    }
+    
     const topbarRight = document.querySelector('.topbar-right');
-    if (!topbarRight) return;
+    if (!topbarRight) {
+        // topbar-right가 아직 없으면 잠시 후 다시 시도 (최대 10번)
+        if (!App.addDarkModeToggle.retryCount) {
+            App.addDarkModeToggle.retryCount = 0;
+        }
+        if (App.addDarkModeToggle.retryCount < 10) {
+            App.addDarkModeToggle.retryCount++;
+            setTimeout(() => App.addDarkModeToggle(), 200);
+        }
+        return;
+    }
+    
+    // 성공했으면 재시도 카운터 리셋
+    App.addDarkModeToggle.retryCount = 0;
+    
+    // 이미 버튼이 있으면 제거
+    const existingBtn = document.getElementById('theme-toggle-btn');
+    if (existingBtn) {
+        existingBtn.remove();
+    }
     
     const toggleBtn = document.createElement('button');
     toggleBtn.className = 'theme-toggle-btn';
     toggleBtn.id = 'theme-toggle-btn';
     toggleBtn.title = '테마 전환';
-    toggleBtn.innerHTML = document.body.classList.contains('light-mode') ? '🌙' : '☀️';
+    
+    // 현재 테마에 따라 아이콘 설정 (버튼이 DOM에 추가되기 전에 설정)
+    const isLightMode = document.body.classList.contains('light-mode');
+    const isGreenGoldWhite = document.body.classList.contains('green-gold-white-theme');
+    
+    if (isGreenGoldWhite) {
+        toggleBtn.innerHTML = '🌙';
+        toggleBtn.title = '다크 모드로 전환';
+    } else if (isLightMode) {
+        toggleBtn.innerHTML = '🎨';
+        toggleBtn.title = '초록색-금색-흰색 테마로 전환';
+    } else {
+        toggleBtn.innerHTML = '☀️';
+        toggleBtn.title = '라이트 모드로 전환';
+    }
     
     toggleBtn.addEventListener('click', () => {
         App.toggleDarkMode();
@@ -887,17 +1218,30 @@ App.addDarkModeToggle = function() {
     } else {
         topbarRight.prepend(toggleBtn);
     }
+    
+    console.log('테마 토글 버튼 추가 완료');
 };
 
 App.toggleDarkMode = function() {
     const body = document.body;
     const isLightMode = body.classList.contains('light-mode');
+    const isGreenGoldWhite = body.classList.contains('green-gold-white-theme');
     
-    if (isLightMode) {
+    // 테마 순환: 다크 모드 -> 라이트 모드 -> 초록색-금색-흰색 -> 다크 모드
+    if (isGreenGoldWhite) {
+        // 초록색-금색-흰색 -> 다크 모드
+        body.classList.remove('green-gold-white-theme');
         body.classList.remove('light-mode');
         localStorage.setItem('theme', 'dark');
+    } else if (isLightMode) {
+        // 라이트 모드 -> 초록색-금색-흰색
+        body.classList.remove('light-mode');
+        body.classList.add('green-gold-white-theme');
+        localStorage.setItem('theme', 'green-gold-white');
     } else {
+        // 다크 모드 -> 라이트 모드
         body.classList.add('light-mode');
+        body.classList.remove('green-gold-white-theme');
         localStorage.setItem('theme', 'light');
     }
     
@@ -914,18 +1258,46 @@ App.updateDarkModeIcon = function() {
     const toggleBtn = document.getElementById('theme-toggle-btn');
     if (toggleBtn) {
         const isLightMode = document.body.classList.contains('light-mode');
-        toggleBtn.innerHTML = isLightMode ? '🌙' : '☀️';
-        toggleBtn.title = isLightMode ? '다크 모드로 전환' : '라이트 모드로 전환';
+        const isGreenGoldWhite = document.body.classList.contains('green-gold-white-theme');
+        
+        if (isGreenGoldWhite) {
+            toggleBtn.innerHTML = '🌙';
+            toggleBtn.title = '다크 모드로 전환';
+        } else if (isLightMode) {
+            toggleBtn.innerHTML = '🎨';
+            toggleBtn.title = '초록색-금색-흰색 테마로 전환';
+        } else {
+            toggleBtn.innerHTML = '☀️';
+            toggleBtn.title = '라이트 모드로 전환';
+        }
     }
 };
 
 // 페이지 로드 시 초기화
 document.addEventListener('DOMContentLoaded', () => {
-    App.initDarkMode();
-    App.initNotifications();
-    App.initSearch();
-    // 5분마다 알림 개수 업데이트
-    setInterval(() => App.updateNotificationBadge(), 5 * 60 * 1000);
+    // 로그인 페이지는 제외
+    if (window.location.pathname !== '/login.html' && window.location.pathname !== '/login') {
+        App.initDarkMode();
+        App.initNotifications();
+        App.initSearch();
+        // 5분마다 알림 개수 업데이트
+        setInterval(() => App.updateNotificationBadge(), 5 * 60 * 1000);
+        
+        // topbar-right가 늦게 로드될 수 있으므로 여러 시점에서 시도
+        setTimeout(() => {
+            App.addDarkModeToggle();
+        }, 100);
+        setTimeout(() => {
+            if (!document.getElementById('theme-toggle-btn')) {
+                App.addDarkModeToggle();
+            }
+        }, 300);
+        setTimeout(() => {
+            if (!document.getElementById('theme-toggle-btn')) {
+                App.addDarkModeToggle();
+            }
+        }, 800);
+    }
 });
 
 // ========================================
@@ -1314,3 +1686,201 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// 페이지 로드 시 인증 체크 (로그인 페이지 제외)
+document.addEventListener('DOMContentLoaded', function() {
+    // 로그인 페이지는 제외
+    if (window.location.pathname === '/login.html' || window.location.pathname === '/login') {
+        App.restoreAuth();
+        return;
+    }
+
+    // 먼저 인증 정보 복원 (중요: filterMenuByRole 전에 실행)
+    App.restoreAuth();
+
+    // 인증되지 않은 경우 로그인 페이지로 리다이렉트
+    if (!App.isAuthenticated()) {
+        window.location.href = '/login.html';
+        return;
+    }
+
+    // 권한 데이터 로드 후 메뉴 필터링
+    (async function() {
+        await App.loadRolePermissions();
+        // 약간의 지연을 두어 DOM이 완전히 로드된 후 필터링
+        setTimeout(function() {
+            App.filterMenuByRole();
+        }, 0);
+    })();
+    
+    // 테마 초기화 및 버튼 추가 시도 (인증 후 DOM이 완전히 로드된 후)
+    // 여러 시점에서 시도하여 확실히 추가되도록
+    App.initDarkMode();
+    setTimeout(() => {
+        App.addDarkModeToggle();
+    }, 50);
+    setTimeout(() => {
+        if (!document.getElementById('theme-toggle-btn')) {
+            App.addDarkModeToggle();
+        }
+    }, 300);
+    setTimeout(() => {
+        if (!document.getElementById('theme-toggle-btn')) {
+            App.addDarkModeToggle();
+        }
+    }, 800);
+    setTimeout(() => {
+        if (!document.getElementById('theme-toggle-btn')) {
+            App.addDarkModeToggle();
+        }
+    }, 1500);
+
+    // 사용자 정보 표시 및 로그아웃 기능 추가
+    // 모든 user-menu-btn 요소에 이벤트 리스너 추가 (id가 없어도 작동하도록)
+    function setupUserMenuButtons() {
+        const userMenuButtons = document.querySelectorAll('.user-menu-btn');
+        console.log('사용자 메뉴 버튼 찾기:', userMenuButtons.length, '개');
+        
+        userMenuButtons.forEach(function(btn) {
+            // 이미 이벤트 리스너가 등록되어 있는지 확인
+            if (btn.hasAttribute('data-logout-setup')) {
+                return;
+            }
+            
+            console.log('사용자 메뉴 버튼 이벤트 리스너 등록');
+            
+            // 사용자 정보가 있으면 툴팁 설정
+            if (App.currentUser && App.currentUser.name) {
+                btn.title = `${App.currentUser.name} (${App.currentUser.role})`;
+            }
+            
+            // 사용자 메뉴 클릭 시 사용자 정보 모달 표시
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('사용자 메뉴 버튼 클릭됨');
+                showUserMenuModal();
+            });
+            
+            // 중복 등록 방지 플래그
+            btn.setAttribute('data-logout-setup', 'true');
+        });
+    }
+    
+    // 즉시 실행 및 약간의 지연 후에도 실행 (동적 로드 대응)
+    setupUserMenuButtons();
+    setTimeout(setupUserMenuButtons, 100);
+    setTimeout(setupUserMenuButtons, 500);
+});
+
+// window.onload에서도 테마 버튼 추가 시도
+window.addEventListener('load', () => {
+    if (!document.getElementById('theme-toggle-btn')) {
+        App.addDarkModeToggle();
+    }
+});
+
+// 사용자 메뉴 모달 표시
+async function showUserMenuModal() {
+    if (!App.currentUser) {
+        return;
+    }
+    
+    const userName = App.currentUser.name || App.currentUser.username;
+    let coachInfo = null;
+    
+    // 코치 정보 가져오기 (ADMIN, MANAGER는 조회하지 않음)
+    if (App.currentUser.id && (App.currentUser.role === 'COACH' || App.currentUser.role === 'FRONT')) {
+        try {
+            const coach = await App.api.get(`/coaches/by-user/${App.currentUser.id}`);
+            if (coach) {
+                coachInfo = coach;
+                console.log('코치 정보 조회 성공:', coach);
+            }
+        } catch (error) {
+            // 404는 코치 정보가 없는 것이므로 정상 (모달은 계속 표시)
+            if (error.response && error.response.status === 404) {
+                console.log('코치 정보 없음 (정상) - 사용자 ID:', App.currentUser.id);
+            } else {
+                console.log('코치 정보 조회 실패:', error);
+            }
+            // 에러가 발생해도 모달은 계속 표시
+        }
+    }
+    
+    // 모달 HTML 생성
+    let coachText = '';
+    if (coachInfo && coachInfo.specialties) {
+        // specialties가 있으면 포지션으로 표시
+        coachText = coachInfo.specialties;
+    } else if (App.currentUser.role === 'COACH') {
+        // 코치 역할이지만 코치 정보가 없으면 "코치"로만 표시
+        coachText = '코치';
+    }
+    
+    const modalHtml = `
+        <div id="user-menu-modal" class="modal-overlay active" style="display: flex;">
+            <div class="modal" style="max-width: 350px;">
+                <div class="modal-header">
+                    <h2 class="modal-title">사용자 정보</h2>
+                    <button class="modal-close" onclick="closeUserMenuModal()">×</button>
+                </div>
+                <div class="modal-body">
+                    <div style="text-align: center; padding: 20px 0;">
+                        <div style="font-size: 48px; margin-bottom: 16px;">👤</div>
+                        <div style="font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px;">
+                            ${userName}
+                        </div>
+                        ${coachText ? `
+                        <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                            ${coachText}
+                        </div>
+                        ` : ''}
+                        <div style="font-size: 12px; color: var(--text-muted);">
+                            ${App.currentUser.role === 'ADMIN' ? '관리자' : 
+                              App.currentUser.role === 'MANAGER' ? '매니저' : 
+                              App.currentUser.role === 'COACH' ? '코치' : 
+                              App.currentUser.role === 'FRONT' ? '데스크' : App.currentUser.role}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer" style="justify-content: center; gap: 12px;">
+                    <button class="btn btn-secondary" onclick="closeUserMenuModal()">닫기</button>
+                    <button class="btn btn-danger" onclick="logoutUser()">로그아웃</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // 기존 모달이 있으면 제거
+    const existingModal = document.getElementById('user-menu-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // 모달 추가
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // 모달 배경 클릭 시 닫기
+    const modal = document.getElementById('user-menu-modal');
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            closeUserMenuModal();
+        }
+    });
+}
+
+// 사용자 메뉴 모달 닫기
+function closeUserMenuModal() {
+    const modal = document.getElementById('user-menu-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+// 로그아웃
+function logoutUser() {
+    if (confirm('로그아웃 하시겠습니까?')) {
+        App.clearAuth();
+    }
+}

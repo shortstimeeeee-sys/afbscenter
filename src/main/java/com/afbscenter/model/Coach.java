@@ -53,6 +53,9 @@ public class Coach {
     @Column(name = "available_branches")
     private String availableBranches; // 배정된 지점들 (SAHA,YEONSAN,RENTAL 등 쉼표로 구분)
 
+    @Column(name = "user_id")
+    private Long userId; // 연결된 사용자 계정 ID (User 테이블 참조)
+
     @Column(nullable = false)
     private Boolean active = true;
 }

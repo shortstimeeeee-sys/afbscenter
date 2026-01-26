@@ -50,6 +50,12 @@ public class CoachService {
         return coachRepository.findById(id);
     }
 
+    // 코치 조회 (사용자 ID)
+    @Transactional(readOnly = true)
+    public Optional<Coach> getCoachByUserId(Long userId) {
+        return coachRepository.findByUserId(userId);
+    }
+
     // 전체 코치 조회
     @Transactional(readOnly = true)
     public List<Coach> getAllCoaches() {

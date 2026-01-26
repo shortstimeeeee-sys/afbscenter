@@ -62,6 +62,37 @@ body.light-mode {
     --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.12);
 }
 
+/* 초록색-금색-흰색 테마 색상 팔레트 */
+body.green-gold-white-theme {
+    /* 부드럽고 눈에 편안한 초록색 계열 배경 */
+    --bg-primary: #F1F8F4;
+    --bg-secondary: #E8F5ED;
+    --bg-tertiary: #DCEFE4;
+    --bg-hover: #D0E9D8;
+    
+    --border-color: #B8DCC5;
+    --border-hover: #A8D0B5;
+    
+    /* 텍스트는 부드러운 초록색 계열로 가독성 확보 */
+    --text-primary: #2D4A35;
+    --text-secondary: #3D5A47;
+    --text-muted: #5A7A66;
+    
+    /* 부드러운 노란색을 포인트 색상으로 사용 */
+    --accent-primary: #E6C200;
+    --accent-hover: #D4B000;
+    --accent-light: #F0D033;
+    
+    --success: #66BB6A;
+    --warning: #FFB74D;
+    --danger: #EF5350;
+    --info: #42A5F5;
+    
+    --shadow-sm: 0 2px 4px rgba(45, 74, 53, 0.08);
+    --shadow-md: 0 4px 8px rgba(45, 74, 53, 0.12);
+    --shadow-lg: 0 8px 16px rgba(45, 74, 53, 0.15);
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -75,6 +106,12 @@ body {
     font-size: 14px;
     line-height: 1.6;
     overflow-x: hidden;
+}
+
+/* 초록색-금색-흰색 테마에서 body 배경을 부드러운 초록색으로 */
+body.green-gold-white-theme {
+    background: var(--bg-primary);
+    background-attachment: fixed;
 }
 
 /* ========================================
@@ -101,6 +138,12 @@ body {
     overflow-y: auto;
 }
 
+/* 초록색-금색-흰색 테마에서 사이드바를 부드러운 초록색으로 */
+body.green-gold-white-theme .sidebar {
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+}
+
 .sidebar-header {
     padding: 24px 20px;
     border-bottom: 1px solid var(--border-color);
@@ -111,6 +154,11 @@ body {
     font-weight: 700;
     color: var(--accent-primary);
     margin-bottom: 4px;
+}
+
+/* 초록색-금색-흰색 테마에서 사이드바 로고에 부드러운 노란색 포인트 */
+body.green-gold-white-theme .sidebar-logo {
+    color: var(--accent-primary);
 }
 
 .sidebar-subtitle {
@@ -160,6 +208,14 @@ body {
     font-weight: 600;
 }
 
+/* 초록색-금색-흰색 테마에서 활성 메뉴 강조 */
+body.green-gold-white-theme .menu-item.active {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-left-width: 3px;
+    border-left-color: var(--accent-primary);
+}
+
 .menu-item-icon {
     width: 20px;
     height: 20px;
@@ -191,6 +247,12 @@ body {
     z-index: 100;
 }
 
+/* 초록색-금색-흰색 테마에서 topbar를 부드러운 초록색으로 */
+body.green-gold-white-theme .topbar {
+    background-color: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
 .topbar-left {
     display: flex;
     align-items: center;
@@ -200,6 +262,11 @@ body {
 .page-title {
     font-size: 24px;
     font-weight: 700;
+    color: var(--text-primary);
+}
+
+/* 초록색-금색-흰색 테마에서 페이지 타이틀 */
+body.green-gold-white-theme .page-title {
     color: var(--text-primary);
 }
 
@@ -282,6 +349,24 @@ body {
     margin-bottom: 24px;
 }
 
+/* 초록색-금색-흰색 테마에서 카드 배경을 부드러운 초록색으로 */
+body.green-gold-white-theme .card {
+    background-color: var(--bg-secondary);
+    border-color: var(--border-color);
+    box-shadow: var(--shadow-sm);
+}
+
+body.green-gold-white-theme .card-header {
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 12px;
+    margin-bottom: 20px;
+}
+
+body.green-gold-white-theme .card-title {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
 .card-header {
     display: flex;
     align-items: center;
@@ -313,11 +398,25 @@ body {
 
 .btn-primary {
     background-color: var(--accent-primary);
-    color: white;
+    color: var(--text-primary);
+    font-weight: 600;
 }
 
 .btn-primary:hover {
     background-color: var(--accent-hover);
+}
+
+/* 초록색-금색-흰색 테마에서 버튼 스타일 */
+body.green-gold-white-theme .btn-primary {
+    background-color: var(--accent-primary);
+    color: var(--text-primary);
+    box-shadow: 0 2px 4px rgba(230, 194, 0, 0.15);
+}
+
+body.green-gold-white-theme .btn-primary:hover {
+    background-color: var(--accent-hover);
+    box-shadow: 0 3px 6px rgba(230, 194, 0, 0.25);
+    transform: translateY(-1px);
 }
 
 .btn-secondary {
@@ -392,6 +491,14 @@ body {
     outline: none;
     border-color: var(--accent-primary);
     background-color: var(--bg-hover);
+}
+
+/* 초록색-금색-흰색 테마에서 입력 필드 포커스 시 부드러운 노란색 포인트 */
+body.green-gold-white-theme .form-control:focus {
+    border-color: var(--accent-primary);
+    border-width: 1px;
+    box-shadow: 0 0 0 2px rgba(230, 194, 0, 0.15);
+    background-color: var(--bg-secondary);
 }
 
 .form-control::placeholder {
@@ -472,6 +579,21 @@ body {
 }
 
 .table thead {
+    background-color: var(--bg-tertiary);
+}
+
+/* 초록색-금색-흰색 테마에서 테이블 헤더를 부드러운 초록색으로 */
+body.green-gold-white-theme .table thead {
+    background-color: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+body.green-gold-white-theme .table th {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+body.green-gold-white-theme .table tbody tr:hover {
     background-color: var(--bg-tertiary);
 }
 
@@ -598,6 +720,22 @@ body {
     padding: 20px;
 }
 
+/* 초록색-금색-흰색 테마에서 KPI 카드를 부드러운 초록색으로 */
+body.green-gold-white-theme .kpi-card {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+    transition: all 0.3s ease;
+}
+
+body.green-gold-white-theme .kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: var(--border-hover);
+    background-color: var(--bg-tertiary);
+}
+}
+
 .kpi-label {
     font-size: 12px;
     color: var(--text-muted);
@@ -656,6 +794,23 @@ body {
     overflow-y: auto;
     /* 모달 내부는 정상 스크롤 허용 */
     touch-action: pan-y;
+}
+
+/* 초록색-금색-흰색 테마에서 모달을 부드러운 초록색으로 */
+body.green-gold-white-theme .modal {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+}
+
+body.green-gold-white-theme .modal-header {
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--bg-tertiary);
+}
+
+body.green-gold-white-theme .modal-title {
+    color: var(--text-primary);
+    font-weight: 600;
 }
 
 .modal-header {
@@ -733,6 +888,14 @@ body {
     color: white;
 }
 
+/* 초록색-금색-흰색 테마에서 페이지네이션 활성 버튼에 부드러운 노란색 포인트 */
+body.green-gold-white-theme .pagination-btn.active {
+    background-color: var(--accent-primary);
+    color: var(--text-primary);
+    font-weight: 600;
+    box-shadow: 0 2px 4px rgba(230, 194, 0, 0.2);
+}
+
 /* 스크롤바 스타일 */
 ::-webkit-scrollbar {
     width: 8px;
@@ -750,4 +913,18 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--bg-hover);
+}
+
+/* 초록색-금색-흰색 테마에서 스크롤바를 초록색으로 */
+body.green-gold-white-theme ::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+body.green-gold-white-theme ::-webkit-scrollbar-thumb:hover {
+    background: var(--border-hover);
+}
+
+body.green-gold-white-theme ::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
 }

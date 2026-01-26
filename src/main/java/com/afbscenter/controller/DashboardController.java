@@ -263,27 +263,36 @@ public class DashboardController {
             }
             kpi.put("avgRevenuePerMember", avgRevenuePerMember); // 평균 회원당 매출
             
-            // 만료 임박 회원 수 계산 (횟수 5회 이하 또는 기간 7일 이하)
+            // 만료 임박 및 종료 회원 수 계산
             long expiringMembersCount = 0L;
+            long expiredMembersCount = 0L;
             try {
                 List<com.afbscenter.model.Member> allMembers = memberRepository.findAll();
                 LocalDate expiryThreshold = today.plusDays(7); // 7일 이내 만료
                 
                 for (com.afbscenter.model.Member member : allMembers) {
                     try {
-                        List<MemberProduct> memberProducts = memberProductRepository.findByMemberIdAndStatus(
+                        List<MemberProduct> activeProducts = memberProductRepository.findByMemberIdAndStatus(
                             member.getId(), MemberProduct.Status.ACTIVE);
+                        List<MemberProduct> expiredMemberProducts = memberProductRepository.findByMemberIdAndStatus(
+                            member.getId(), MemberProduct.Status.EXPIRED);
+                        List<MemberProduct> usedUpMemberProducts = memberProductRepository.findByMemberIdAndStatus(
+                            member.getId(), MemberProduct.Status.USED_UP);
+                        
+                        // 회원의 모든 이용권 조회
+                        List<MemberProduct> allMemberProducts = memberProductRepository.findByMemberId(member.getId());
                         
                         boolean isExpiring = false;
+                        boolean isExpired = false;
                         
-                        for (MemberProduct mp : memberProducts) {
+                        // 만료 임박 확인
+                        for (MemberProduct mp : activeProducts) {
                             try {
                                 // 횟수권: 남은 횟수 5회 이하
                                 if (mp.getProduct() != null && 
                                     mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
                                     Integer remainingCount = mp.getRemainingCount();
                                     
-                                    // remainingCount가 null이면 실제 사용 횟수를 계산
                                     if (remainingCount == null) {
                                         Integer totalCount = mp.getTotalCount();
                                         if (totalCount == null || totalCount <= 0) {
@@ -293,7 +302,6 @@ public class DashboardController {
                                             }
                                         }
                                         
-                                        // 실제 사용된 횟수 계산
                                         Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
                                         if (usedCountByBooking == null) usedCountByBooking = 0L;
                                         
@@ -301,7 +309,6 @@ public class DashboardController {
                                             member.getId(), mp.getId());
                                         if (usedCountByAttendance == null) usedCountByAttendance = 0L;
                                         
-                                        // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용
                                         Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
                                         remainingCount = totalCount - actualUsedCount.intValue();
                                         if (remainingCount < 0) remainingCount = 0;
@@ -329,19 +336,34 @@ public class DashboardController {
                             }
                         }
                         
+                        // 종료 회원 확인:
+                        // 1. 이용권이 전혀 없는 경우
+                        // 2. 활성 이용권이 없고 모든 이용권이 만료/사용 완료된 경우
+                        if (allMemberProducts == null || allMemberProducts.isEmpty()) {
+                            // 이용권이 전혀 없는 경우
+                            isExpired = true;
+                        } else if (activeProducts == null || activeProducts.isEmpty()) {
+                            // 활성 이용권이 없는 경우
+                            isExpired = true;
+                        }
+                        
                         if (isExpiring) {
                             expiringMembersCount++;
                         }
+                        if (isExpired) {
+                            expiredMembersCount++;
+                        }
                     } catch (Exception e) {
-                        logger.debug("회원 만료 임박 확인 실패: Member ID={}, 오류: {}", 
+                        logger.debug("회원 만료 확인 실패: Member ID={}, 오류: {}", 
                             member.getId(), e.getMessage());
                     }
                 }
             } catch (Exception e) {
-                logger.warn("만료 임박 회원 수 계산 실패: {}", e.getMessage());
+                logger.warn("만료 임박 및 종료 회원 수 계산 실패: {}", e.getMessage());
             }
             
             kpi.put("expiringMembers", expiringMembersCount); // 만료 임박 회원 수
+            kpi.put("expiredMembers", expiredMembersCount); // 종료 회원 수
 
             return ResponseEntity.ok(kpi);
         } catch (Exception e) {
@@ -352,23 +374,38 @@ public class DashboardController {
     
     @GetMapping("/expiring-members")
     @Transactional(readOnly = true)
-    public ResponseEntity<List<Map<String, Object>>> getExpiringMembers() {
+    public ResponseEntity<Map<String, Object>> getExpiringMembers() {
         try {
             LocalDate today = LocalDate.now();
             LocalDate expiryThreshold = today.plusDays(7); // 7일 이내 만료
             
             List<com.afbscenter.model.Member> allMembers = memberRepository.findAll();
             List<Map<String, Object>> expiringMembersList = new ArrayList<>();
+            List<Map<String, Object>> expiredMembersList = new ArrayList<>();
             
             for (com.afbscenter.model.Member member : allMembers) {
                 try {
-                    List<MemberProduct> memberProducts = memberProductRepository.findByMemberIdAndStatus(
+                    // 활성 상태와 만료 상태 모두 확인
+                    List<MemberProduct> activeProducts = memberProductRepository.findByMemberIdAndStatus(
                         member.getId(), MemberProduct.Status.ACTIVE);
+                    List<MemberProduct> expiredMemberProducts = memberProductRepository.findByMemberIdAndStatus(
+                        member.getId(), MemberProduct.Status.EXPIRED);
+                    List<MemberProduct> usedUpMemberProducts = memberProductRepository.findByMemberIdAndStatus(
+                        member.getId(), MemberProduct.Status.USED_UP);
                     
+                    // 회원의 모든 이용권 조회 (이용권이 없는 경우 확인용)
+                    List<MemberProduct> allMemberProducts = memberProductRepository.findByMemberId(member.getId());
+                    
+                    // 만료 임박 상품
                     boolean isExpiring = false;
                     List<Map<String, Object>> expiringProducts = new ArrayList<>();
                     
-                    for (MemberProduct mp : memberProducts) {
+                    // 종료 상품
+                    boolean isExpired = false;
+                    List<Map<String, Object>> expiredProducts = new ArrayList<>();
+                    
+                    // 활성 상품 중 만료 임박 확인
+                    for (MemberProduct mp : activeProducts) {
                         try {
                             Map<String, Object> productInfo = new HashMap<>();
                             boolean productExpiring = false;
@@ -419,7 +456,6 @@ public class DashboardController {
                                         !mp.getExpiryDate().isAfter(expiryThreshold)) {
                                         productExpiring = true;
                                         // 만료일까지 남은 일수 계산 (오늘 포함하지 않음)
-                                        // 예: 오늘이 1월 26일이고 만료일이 1월 27일이면 1일
                                         long daysUntilExpiry = java.time.temporal.ChronoUnit.DAYS.between(today, mp.getExpiryDate());
                                         
                                         // 만료일이 오늘과 같으면 "오늘 만료", 내일이면 "내일 만료", 그 외는 "N일"
@@ -433,15 +469,13 @@ public class DashboardController {
                                         
                                         productInfo.put("expiryDate", mp.getExpiryDate().toString());
                                         productInfo.put("daysUntilExpiry", daysUntilExpiry);
-                                        
-                                        logger.debug("만료 임박 기간권: 회원 ID={}, 상품={}, 만료일={}, 남은 일수={}", 
-                                            member.getId(), mp.getProduct().getName(), mp.getExpiryDate(), daysUntilExpiry);
                                     }
                                 }
                             }
                             
                             if (productExpiring) {
                                 isExpiring = true;
+                                productInfo.put("id", mp.getId());
                                 productInfo.put("productName", mp.getProduct() != null ? mp.getProduct().getName() : "알 수 없음");
                                 productInfo.put("productType", mp.getProduct() != null ? mp.getProduct().getType().toString() : "");
                                 productInfo.put("expiryReason", expiryReason);
@@ -450,6 +484,79 @@ public class DashboardController {
                         } catch (Exception e) {
                             logger.debug("MemberProduct 만료 확인 실패: MemberProduct ID={}, 오류: {}", 
                                 mp.getId(), e.getMessage());
+                        }
+                    }
+                    
+                    // 종료 회원 확인: 
+                    // 1. 이용권이 전혀 없는 경우
+                    // 2. 모든 이용권이 만료되었거나 사용 완료된 경우
+                    if (allMemberProducts == null || allMemberProducts.isEmpty()) {
+                        // 이용권이 전혀 없는 경우
+                        isExpired = true;
+                        Map<String, Object> productInfo = new HashMap<>();
+                        productInfo.put("id", null);
+                        productInfo.put("productName", "이용권 없음");
+                        productInfo.put("productType", "NONE");
+                        productInfo.put("expiryReason", "등록된 이용권이 없습니다");
+                        productInfo.put("status", "NO_PRODUCT");
+                        expiredProducts.add(productInfo);
+                    } else {
+                        // 활성 이용권이 하나도 없는 경우 (모두 만료/사용 완료)
+                        if (activeProducts == null || activeProducts.isEmpty()) {
+                            // 만료/사용 완료 상품 확인
+                            List<MemberProduct> allExpiredProducts = new ArrayList<>();
+                            allExpiredProducts.addAll(expiredMemberProducts);
+                            allExpiredProducts.addAll(usedUpMemberProducts);
+                            
+                            if (!allExpiredProducts.isEmpty()) {
+                                // 최근에 만료된 이용권 정보 표시
+                                for (MemberProduct mp : allExpiredProducts) {
+                                    try {
+                                        Map<String, Object> productInfo = new HashMap<>();
+                                        String expiryReason = "";
+                                        
+                                        if (mp.getProduct() != null) {
+                                            if (mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
+                                                expiryReason = "횟수 소진";
+                                            } else if (mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS) {
+                                                if (mp.getExpiryDate() != null) {
+                                                    long daysSinceExpiry = java.time.temporal.ChronoUnit.DAYS.between(mp.getExpiryDate(), today);
+                                                    if (daysSinceExpiry == 0) {
+                                                        expiryReason = "오늘 만료됨";
+                                                    } else if (daysSinceExpiry > 0) {
+                                                        expiryReason = daysSinceExpiry + "일 전 만료됨";
+                                                    } else {
+                                                        expiryReason = "만료됨";
+                                                    }
+                                                } else {
+                                                    expiryReason = "만료됨";
+                                                }
+                                            }
+                                            
+                                            isExpired = true;
+                                            productInfo.put("id", mp.getId());
+                                            productInfo.put("productName", mp.getProduct().getName());
+                                            productInfo.put("productType", mp.getProduct().getType().toString());
+                                            productInfo.put("expiryReason", expiryReason);
+                                            productInfo.put("status", mp.getStatus() != null ? mp.getStatus().toString() : "");
+                                            expiredProducts.add(productInfo);
+                                        }
+                                    } catch (Exception e) {
+                                        logger.debug("MemberProduct 종료 확인 실패: MemberProduct ID={}, 오류: {}", 
+                                            mp.getId(), e.getMessage());
+                                    }
+                                }
+                            } else {
+                                // 이용권이 있지만 상태가 불명확한 경우
+                                isExpired = true;
+                                Map<String, Object> productInfo = new HashMap<>();
+                                productInfo.put("id", null);
+                                productInfo.put("productName", "활성 이용권 없음");
+                                productInfo.put("productType", "NONE");
+                                productInfo.put("expiryReason", "활성 상태의 이용권이 없습니다");
+                                productInfo.put("status", "NO_ACTIVE");
+                                expiredProducts.add(productInfo);
+                            }
                         }
                     }
                     
@@ -464,15 +571,31 @@ public class DashboardController {
                         memberMap.put("expiringProducts", expiringProducts);
                         expiringMembersList.add(memberMap);
                     }
+                    
+                    if (isExpired) {
+                        Map<String, Object> memberMap = new HashMap<>();
+                        memberMap.put("id", member.getId());
+                        memberMap.put("memberNumber", member.getMemberNumber());
+                        memberMap.put("name", member.getName());
+                        memberMap.put("phoneNumber", member.getPhoneNumber());
+                        memberMap.put("grade", member.getGrade());
+                        memberMap.put("school", member.getSchool());
+                        memberMap.put("expiredProducts", expiredProducts);
+                        expiredMembersList.add(memberMap);
+                    }
                 } catch (Exception e) {
-                    logger.debug("회원 만료 임박 확인 실패: Member ID={}, 오류: {}", 
+                    logger.debug("회원 만료 확인 실패: Member ID={}, 오류: {}", 
                         member.getId(), e.getMessage());
                 }
             }
             
-            return ResponseEntity.ok(expiringMembersList);
+            Map<String, Object> result = new HashMap<>();
+            result.put("expiring", expiringMembersList);
+            result.put("expired", expiredMembersList);
+            
+            return ResponseEntity.ok(result);
         } catch (Exception e) {
-            logger.error("만료 임박 회원 목록 조회 중 오류 발생", e);
+            logger.error("만료 임박 및 종료 회원 목록 조회 중 오류 발생", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

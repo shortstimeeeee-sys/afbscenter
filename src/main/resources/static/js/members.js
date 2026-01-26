@@ -21,15 +21,29 @@ function formatPeriodPass(startDate, endDate) {
 
 let currentPage = 1;
 let currentFilters = {};
-let currentMemberDetail = null; // 현재 상세 정보 모달에 표시 중인 회원 정보
+// currentMemberDetail은 dashboard.js에서 선언됨 (전역 변수로 공유)
 let currentEditingMember = null; // 현재 수정 중인 회원 정보 (코치 선택용)
 
 document.addEventListener('DOMContentLoaded', function() {
-    loadMembers();
-    loadProductsForSelect(); // 상품 목록 로드
+    // members.html 페이지에서만 실행
+    if (document.getElementById('members-table-body')) {
+        loadMembers();
+        loadProductsForSelect(); // 상품 목록 로드
+    }
+    
+    // 관리자만 삭제 버튼 표시
+    if (App.currentUser && App.currentUser.role === 'ADMIN') {
+        const deleteAllBtn = document.getElementById('delete-all-members-btn');
+        if (deleteAllBtn) {
+            deleteAllBtn.style.display = 'inline-flex';
+        }
+    }
     
     // 검색 이벤트
-    document.getElementById('member-search').addEventListener('input', debounce(handleSearch, 300));
+    const searchInput = document.getElementById('member-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', debounce(handleSearch, 300));
+    }
     
     // 탭 전환
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -199,6 +213,15 @@ function getProductTypeText(type) {
 
 async function loadMembers() {
     try {
+        const tbody = document.getElementById('members-table-body');
+        if (!tbody) {
+            console.warn('members-table-body 요소를 찾을 수 없습니다.');
+            return;
+        }
+        
+        // 로딩 표시
+        tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">로딩 중...</td></tr>';
+        
         const params = new URLSearchParams({
             page: currentPage,
             ...currentFilters
@@ -228,29 +251,62 @@ async function loadMembers() {
         } else {
             members = await App.api.get(`/members?${params}`);
         }
+        
+        // API 응답이 배열인지 확인
+        if (!Array.isArray(members)) {
+            console.error('회원 목록 API 응답이 배열이 아닙니다:', members);
+            tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--danger);">회원 목록을 불러오는데 실패했습니다. (응답 형식 오류)</td></tr>';
+            return;
+        }
+        
+        console.log('회원 목록 로드 성공:', members.length, '명');
         renderMembersTable(members);
     } catch (error) {
         console.error('회원 목록 로드 실패:', error);
+        const tbody = document.getElementById('members-table-body');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--danger);">회원 목록을 불러오는데 실패했습니다. 페이지를 새로고침해주세요.</td></tr>';
+        }
+        App.showNotification('회원 목록을 불러오는데 실패했습니다.', 'danger');
     }
 }
 
 function renderMembersTable(members) {
-    const tbody = document.getElementById('members-table-body');
-    
-    if (!members || members.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">회원이 없습니다.</td></tr>';
-        document.getElementById('pagination-container').innerHTML = '';
-        return;
-    }
-    
-    // 회원 수 표시
-    document.getElementById('pagination-container').innerHTML = `
-        <div style="text-align: center; padding: 16px; font-weight: 600; color: var(--text-primary);">
-            총 <span style="color: var(--accent-primary); font-size: 18px;">${members.length}</span>명의 회원이 등록되어 있습니다.
-        </div>
-    `;
-    
-    tbody.innerHTML = members.map(member => {
+    try {
+        const tbody = document.getElementById('members-table-body');
+        const paginationContainer = document.getElementById('pagination-container');
+        
+        // members.html 페이지가 아닌 경우 (대시보드 등) 함수 실행 중단
+        if (!tbody) {
+            console.warn('members-table-body 요소를 찾을 수 없습니다. members.html 페이지가 아닐 수 있습니다.');
+            return;
+        }
+        
+        // members가 배열인지 확인
+        if (!Array.isArray(members)) {
+            console.error('renderMembersTable: members가 배열이 아닙니다:', members);
+            tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--danger);">데이터 형식 오류가 발생했습니다.</td></tr>';
+            return;
+        }
+        
+        if (!members || members.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">회원이 없습니다.</td></tr>';
+            if (paginationContainer) {
+                paginationContainer.innerHTML = '';
+            }
+            return;
+        }
+        
+        // 회원 수 표시
+        if (paginationContainer) {
+            paginationContainer.innerHTML = `
+            <div style="text-align: center; padding: 16px; font-weight: 600; color: var(--text-primary);">
+                총 <span style="color: var(--accent-primary); font-size: 18px;">${members.length}</span>명의 회원이 등록되어 있습니다.
+            </div>
+        `;
+        }
+        
+        tbody.innerHTML = members.map(member => {
         const isExpiring = checkMemberExpiring(member);
         const expiringBadge = isExpiring ? '<span class="badge badge-warning" style="margin-left: 4px; font-size: 11px;">⚠️ 만료 임박</span>' : '';
         
@@ -283,11 +339,18 @@ function renderMembersTable(members) {
             <td>
                 <button class="btn btn-sm btn-primary" onclick="openExtendProductModal(${member.id})" title="이용권 연장" style="margin-right: 4px;">연장</button>
                 <button class="btn btn-sm btn-secondary" onclick="editMember(${member.id})">수정</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteMember(${member.id})">삭제</button>
+                ${App.currentUser && App.currentUser.role === 'ADMIN' ? `<button class="btn btn-sm btn-danger" onclick="deleteMember(${member.id})">삭제</button>` : ''}
             </td>
         </tr>
     `;
     }).join('');
+    } catch (error) {
+        console.error('renderMembersTable 오류:', error);
+        const tbody = document.getElementById('members-table-body');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--danger);">회원 목록을 표시하는 중 오류가 발생했습니다.</td></tr>';
+        }
+    }
 }
 
 // 회원 등급 텍스트는 common.js의 App.MemberGrade 사용
@@ -530,15 +593,72 @@ function getExpiryDateColor(expiryDate) {
 
 // 회원의 모든 상품/이용권 표시 (상품/이용권 컬럼용)
 function renderMemberProducts(member) {
+    // 디버깅: 회원 상품 데이터 전체 확인
     if (!member.memberProducts || member.memberProducts.length === 0) {
+        console.log('회원 상품 없음:', {
+            memberId: member.id,
+            memberNumber: member.memberNumber,
+            memberName: member.name,
+            memberProducts: member.memberProducts
+        });
         return '<span style="color: var(--text-muted);">-</span>';
     }
     
+    // 디버깅: 모든 상품 상태 확인
+    console.log('회원 상품 데이터 확인:', {
+        memberId: member.id,
+        memberNumber: member.memberNumber,
+        memberName: member.name,
+        totalProducts: member.memberProducts.length,
+        allProducts: member.memberProducts.map(mp => ({
+            id: mp.id,
+            status: mp.status,
+            remainingCount: mp.remainingCount,
+            totalCount: mp.totalCount,
+            productName: mp.product?.name || '상품 정보 없음',
+            productId: mp.product?.id || null,
+            productUsageCount: mp.product?.usageCount || null,
+            productType: mp.product?.type || null
+        }))
+    });
+    
     // 활성 상태인 상품만 필터링
-    let activeProducts = member.memberProducts.filter(mp => mp.status === 'ACTIVE');
+    let activeProducts = member.memberProducts.filter(mp => {
+        const isActive = mp.status === 'ACTIVE';
+        if (!isActive) {
+            console.log('비활성 상품 제외:', {
+                memberId: member.id,
+                memberName: member.name,
+                productId: mp.product?.id,
+                productName: mp.product?.name,
+                status: mp.status
+            });
+        }
+        return isActive;
+    });
     
     if (activeProducts.length === 0) {
+        console.warn('활성 상품 없음:', {
+            memberId: member.id,
+            memberNumber: member.memberNumber,
+            memberName: member.name,
+            totalProducts: member.memberProducts.length,
+            allStatuses: member.memberProducts.map(mp => mp.status)
+        });
         return '<span style="color: var(--text-muted);">-</span>';
+    }
+    
+    // 디버깅: 활성 상품 데이터 확인
+    if (activeProducts.length > 0) {
+        activeProducts.forEach((mp, index) => {
+            if (!mp.product || !mp.product.name) {
+                console.warn(`활성 상품 ${index + 1} - 상품 정보 없음:`, {
+                    memberId: member.id,
+                    memberName: member.name,
+                    memberProduct: mp
+                });
+            }
+        });
     }
     
     // 카테고리별로 정렬 (야구 > 트레이닝 > 필라테스 > 기타)
@@ -576,8 +696,25 @@ function renderMemberProducts(member) {
     
     // 각 상품별로 표시: 횟수권은 "상품명 : 남은 횟수", 기간권은 "상품명 : 시작일 ~ 종료일"
     const productLines = activeProducts.map(mp => {
-        const product = mp.product || {};
-        const productName = product.name || '상품';
+        // product 정보가 없어도 최소한 표시
+        if (!mp.product) {
+            console.warn('상품 정보가 없는 MemberProduct:', {
+                memberId: member.id,
+                memberName: member.name,
+                memberProductId: mp.id,
+                status: mp.status,
+                remainingCount: mp.remainingCount,
+                totalCount: mp.totalCount
+            });
+            // product 정보가 없어도 MemberProduct ID라도 표시
+            const productName = `상품 ID: ${mp.id || '알 수 없음'}`;
+            const displayText = `<span style="color: #ff9800; font-weight: 600;">${productName}</span> <span style="color: var(--text-muted); font-size: 11px;">(상품 정보 없음)</span>`;
+            return displayText;
+        }
+        
+        const product = mp.product;
+        // product가 없거나 name이 없으면 '알 수 없음' 표시
+        const productName = product.name || `상품 ID: ${product.id || '알 수 없음'}`;
         const productType = product.type || '';
         
         // 이용권 이름은 초록색으로 통일
@@ -628,10 +765,31 @@ function renderMemberProducts(member) {
         
         // 횟수권(COUNT_PASS)인 경우: 남은 횟수 표시
         // 남은 횟수 계산 (renderMemberProductsRemaining과 동일한 로직)
-        // remainingCount가 null/undefined인 경우에만 totalCount나 usageCount 사용
+        // remainingCount가 null/undefined이거나 0인 경우 totalCount나 usageCount 사용
         let remaining = mp.remainingCount;
-        if (remaining === null || remaining === undefined) {
-            remaining = mp.totalCount || product.usageCount || 10;
+        // remainingCount가 null이거나 0이고, totalCount나 usageCount가 있으면 그것을 사용
+        if (remaining === null || remaining === undefined || remaining === 0) {
+            // 우선순위: totalCount > product.usageCount
+            remaining = mp.totalCount;
+            if (remaining === null || remaining === undefined || remaining === 0) {
+                remaining = product.usageCount;
+            }
+            
+            // remaining이 여전히 null이거나 0이면 경고 로그 출력
+            if (remaining === null || remaining === undefined || remaining === 0) {
+                console.warn('회원 상품 잔여 횟수 정보 없음 - 상품의 usageCount가 설정되지 않음:', {
+                    memberId: member.id,
+                    memberName: member.name,
+                    memberProductId: mp.id,
+                    productId: product.id,
+                    productName: product.name,
+                    remainingCount: mp.remainingCount,
+                    totalCount: mp.totalCount,
+                    usageCount: product.usageCount
+                });
+                // 모든 값이 null이면 "정보 없음" 표시
+                remaining = null;
+            }
         }
         
         // 상품에 지정된 코치 찾기 (MemberProductInfo.coachName 사용)
@@ -666,12 +824,23 @@ function renderMemberProducts(member) {
         
         // 항상 "상품명 : 남은 횟수" 형식으로 표시
         // 남은 횟수에 따라 색상 적용 (이미 getRemainingCountColor 함수 사용)
-        const remainingColor = getRemainingCountColor(remaining);
-        const weight = remaining <= 5 ? '700' : '600';
-        const displayText = `<span style="color: ${productNameColor}; font-weight: 600;">${productName}</span> : <span style="color: ${remainingColor}; font-weight: ${weight};">${remaining}회</span>`;
+        let remainingDisplay = '';
+        if (remaining === null || remaining === undefined) {
+            remainingDisplay = '<span style="color: #ff9800; font-weight: 600;">정보 없음</span>';
+        } else {
+            const remainingColor = getRemainingCountColor(remaining);
+            const weight = remaining <= 5 ? '700' : '600';
+            remainingDisplay = `<span style="color: ${remainingColor}; font-weight: ${weight};">${remaining}회</span>`;
+        }
+        const displayText = `<span style="color: ${productNameColor}; font-weight: 600;">${productName}</span> : ${remainingDisplay}`;
         
         return displayText;
-    }).join('<br>');
+    }).filter(line => line !== null).join('<br>');
+    
+    // 상품이 하나도 없으면 '-' 표시
+    if (productLines.length === 0) {
+        return '<span style="color: var(--text-muted);">-</span>';
+    }
     
     return `<div style="line-height: 1.6;">${productLines}</div>`;
 }
@@ -1550,6 +1719,12 @@ async function assignProductsToMember(memberId, productIds) {
 }
 
 async function deleteMember(id) {
+    // 관리자 권한 확인
+    if (!App.currentUser || App.currentUser.role !== 'ADMIN') {
+        App.showNotification('회원 삭제는 관리자만 가능합니다.', 'danger');
+        return;
+    }
+    
     if (!confirm('정말 삭제하시겠습니까?')) return;
     
     try {
@@ -1562,6 +1737,12 @@ async function deleteMember(id) {
 }
 
 async function deleteAllMembers() {
+    // 관리자 권한 확인
+    if (!App.currentUser || App.currentUser.role !== 'ADMIN') {
+        App.showNotification('회원 전체 삭제는 관리자만 가능합니다.', 'danger');
+        return;
+    }
+    
     // 이중 확인 (위험한 작업이므로)
     const firstConfirm = confirm('⚠️ 경고: 모든 회원 데이터가 삭제됩니다!\n\n이 작업은 되돌릴 수 없습니다.\n\n정말 모든 회원을 삭제하시겠습니까?');
     if (!firstConfirm) return;
@@ -1708,8 +1889,24 @@ function renderProductsList(products) {
             ${products.map(p => {
                 const product = p.product || {};
                 const productName = product.name || '알 수 없음';
-                const remaining = p.remainingCount !== undefined ? p.remainingCount : p.remaining || 0;
-                const total = p.totalCount !== undefined ? p.totalCount : p.total || 0;
+                
+                // remainingCount 계산
+                let remaining = p.remainingCount;
+                if (remaining === null || remaining === undefined || remaining === 0) {
+                    remaining = p.totalCount;
+                    if (remaining === null || remaining === undefined || remaining === 0) {
+                        remaining = product.usageCount;
+                    }
+                }
+                remaining = remaining !== null && remaining !== undefined ? remaining : 0;
+                
+                // totalCount 계산 (totalCount가 null이면 product.usageCount 사용)
+                let total = p.totalCount;
+                if (total === null || total === undefined || total === 0) {
+                    total = product.usageCount;
+                }
+                total = total !== null && total !== undefined ? total : 0;
+                
                 const expiryDate = p.expiryDate ? App.formatDate(p.expiryDate) : '-';
                 const status = p.status || 'UNKNOWN';
                 const productId = p.id;
@@ -1719,24 +1916,67 @@ function renderProductsList(products) {
                 
                 // 패키지 항목별 잔여 횟수 표시
                 let remainingDisplay = '';
+                let displayColor = 'var(--text-secondary)';
+                
                 if (p.packageItemsRemaining) {
                     try {
                         const packageItems = JSON.parse(p.packageItemsRemaining);
                         const itemsText = packageItems.map(item => `${item.name} ${item.remaining}회`).join(', ');
                         remainingDisplay = `<strong style="color: var(--accent-primary);">[패키지]</strong> ${itemsText}`;
                     } catch (e) {
-                        remainingDisplay = `잔여: ${remaining}/${total}`;
+                        // 횟수권인 경우 색상 적용
+                        if (isCountPass) {
+                            displayColor = getRemainingCountColor(remaining);
+                        }
+                        // total이 0이면 "잔여: X회" 형식으로 표시
+                        if (total > 0) {
+                            remainingDisplay = `잔여: ${remaining}/${total}`;
+                        } else {
+                            remainingDisplay = `잔여: ${remaining}회`;
+                        }
                     }
                 } else {
-                    remainingDisplay = `잔여: ${remaining}/${total}`;
+                    // 횟수권인 경우 색상 적용
+                    if (isCountPass) {
+                        displayColor = getRemainingCountColor(remaining);
+                    } else if (isMonthlyPass && p.expiryDate) {
+                        displayColor = getExpiryDateColor(p.expiryDate);
+                    }
+                    // total이 0이면 "잔여: X회" 형식으로 표시
+                    if (total > 0) {
+                        remainingDisplay = `잔여: ${remaining}/${total}`;
+                    } else {
+                        remainingDisplay = `잔여: ${remaining}회`;
+                    }
+                }
+                
+                // 기간권인 경우 만료일 정보 추가 및 색상 적용
+                let periodInfo = '';
+                if (isMonthlyPass) {
+                    if (p.expiryDate) {
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const expiry = new Date(p.expiryDate);
+                        expiry.setHours(0, 0, 0, 0);
+                        const remainingDays = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+                        
+                        if (remainingDays >= 0) {
+                            periodInfo = ` | 시작일: ${startDate} | 유효기간: ${expiryDate} (${remainingDays}일 남음)`;
+                        } else {
+                            periodInfo = ` | 시작일: ${startDate} | 유효기간: ${expiryDate} (만료됨)`;
+                        }
+                        displayColor = getExpiryDateColor(p.expiryDate);
+                    } else {
+                        periodInfo = ` | 시작일: ${startDate} | 유효기간: -`;
+                    }
                 }
                 
                 return `
                 <div class="product-item" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid var(--border-color);">
                     <div class="product-info" style="flex: 1;">
                         <div class="product-name" style="font-weight: 600; margin-bottom: 4px;">${productName}</div>
-                        <div class="product-detail" style="font-size: 14px; color: var(--text-secondary);">
-                            ${remainingDisplay}${isMonthlyPass ? ` | 시작일: ${startDate} | 유효기간: ${expiryDate}` : ''}
+                        <div class="product-detail" style="font-size: 14px; color: ${displayColor}; font-weight: 600;">
+                            ${remainingDisplay}${periodInfo}
                         </div>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
@@ -1751,6 +1991,9 @@ function renderProductsList(products) {
                                 기간 수정
                             </button>
                         ` : ''}
+                        <button class="btn btn-sm btn-danger" onclick="deleteMemberProduct(${productId}, '${productName}')" title="이용권 삭제">
+                            삭제
+                        </button>
                     </div>
                 </div>
             `;
@@ -1758,6 +2001,9 @@ function renderProductsList(products) {
         </div>
     `;
 }
+
+// 전역에서 접근 가능하도록 window 객체에 할당
+window.renderProductsList = renderProductsList;
 
 // 횟수 조정 모달 열기
 async function openAdjustCountModal(productId, currentRemaining) {
@@ -2051,6 +2297,47 @@ function renderPaymentsList(payments) {
             </table>
         </div>
     `;
+}
+
+// 이용권 삭제
+async function deleteMemberProduct(memberProductId, productName) {
+    if (!confirm(`"${productName}" 이용권을 삭제하시겠습니까?\n\n주의: 관련된 예약과 결제 정보도 함께 삭제됩니다.`)) {
+        return;
+    }
+    
+    try {
+        const response = await App.api.delete(`/member-products/${memberProductId}`);
+        
+        if (response && response.success) {
+            App.showNotification('이용권이 삭제되었습니다.', 'success');
+            
+            // 회원 상세 모달이 열려있으면 이용권 목록 새로고침
+            const memberDetailModal = document.getElementById('member-detail-modal');
+            if (memberDetailModal && memberDetailModal.style.display !== 'none' && currentMemberDetail) {
+                // 현재 활성화된 탭 확인
+                const activeTab = document.querySelector('#member-detail-modal .tab-btn.active');
+                if (activeTab && activeTab.getAttribute('data-tab') === 'products') {
+                    // 이용권 탭이 활성화되어 있으면 목록 새로고침
+                    loadMemberProductsForDetail(currentMemberDetail.id);
+                }
+            }
+            
+            // 회원 수정 모달이 열려있으면 상품 목록도 새로고침
+            const memberModal = document.getElementById('member-modal');
+            if (memberModal && memberModal.style.display === 'flex' && currentEditingMember) {
+                // 회원 수정 모달이 열려있으면 상품 목록 새로고침
+                if (typeof loadMemberProducts === 'function') {
+                    loadMemberProducts(currentEditingMember.id);
+                }
+            }
+        } else {
+            App.showNotification(response?.error || '이용권 삭제에 실패했습니다.', 'danger');
+        }
+    } catch (error) {
+        console.error('이용권 삭제 실패:', error);
+        const errorMsg = error.response?.data?.error || '이용권 삭제에 실패했습니다.';
+        App.showNotification(errorMsg, 'danger');
+    }
 }
 
 async function loadMemberBookings(memberId) {

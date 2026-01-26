@@ -168,8 +168,8 @@ function renderAnalytics(data) {
         activeCount: memberMetrics.activeCount || 0
     });
     
-    // 최근 방문 회원
-    document.getElementById('recent-visitors').textContent = memberMetrics.recentVisitors || 0;
+    // 학교/소속 현황
+    loadSchoolStats();
     
     // 신규/이탈 추이 차트
     renderMemberTrendChart('member-trend-chart', memberMetrics.trend || []);
@@ -1320,6 +1320,58 @@ function getPaymentMethodText(method) {
         'EASY_PAY': '간편결제'
     };
     return map[method] || method;
+}
+
+// 학교/소속 현황 로드
+async function loadSchoolStats() {
+    try {
+        const members = await App.api.get('/members');
+        
+        // 학교/소속별 그룹화
+        const schoolGroups = {};
+        let totalCount = 0;
+        members.forEach(member => {
+            totalCount++;
+            // 학교 필드가 null, undefined, 빈 문자열, 공백만 있는 경우 '미입력'으로 처리
+            let school = member.school;
+            if (!school || (typeof school === 'string' && school.trim() === '')) {
+                school = '미입력';
+            } else {
+                school = school.trim();
+            }
+            
+            if (!schoolGroups[school]) {
+                schoolGroups[school] = 0;
+            }
+            schoolGroups[school]++;
+        });
+        
+        // 회원 수가 많은 순으로 정렬
+        const sortedSchools = Object.entries(schoolGroups)
+            .sort((a, b) => b[1] - a[1]);
+        
+        const container = document.getElementById('school-stats-container');
+        
+        if (sortedSchools.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-muted); text-align: center; font-size: 12px;">데이터가 없습니다.</p>';
+            return;
+        }
+        
+        // 총합 확인 (디버깅용)
+        const sumCount = sortedSchools.reduce((sum, [, count]) => sum + count, 0);
+        console.log('학교/소속 현황 - 총 회원 수:', totalCount, '집계된 회원 수:', sumCount);
+        
+        container.innerHTML = sortedSchools.map(([school, count]) => `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
+                <span style="font-size: 13px; color: var(--text-primary);">${school}</span>
+                <span style="font-size: 14px; font-weight: 600; color: var(--accent-primary);">${count}명</span>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('학교/소속 현황 로드 실패:', error);
+        const container = document.getElementById('school-stats-container');
+        container.innerHTML = '<p style="color: var(--text-muted); text-align: center; font-size: 12px;">데이터를 불러올 수 없습니다.</p>';
+    }
 }
 
 // 매출 추이 차트 필터 기간 설정

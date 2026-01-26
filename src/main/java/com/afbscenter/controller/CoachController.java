@@ -50,6 +50,14 @@ public class CoachController {
         return ResponseEntity.ok(coachService.getActiveCoaches());
     }
 
+    @GetMapping("/by-user/{userId}")
+    @Transactional(readOnly = true)
+    public ResponseEntity<Coach> getCoachByUserId(@PathVariable Long userId) {
+        return coachService.getCoachByUserId(userId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @GetMapping("/{id}")
     @Transactional(readOnly = true)
     public ResponseEntity<Coach> getCoachById(@PathVariable Long id) {

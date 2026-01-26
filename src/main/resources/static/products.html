@@ -75,7 +75,12 @@
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">상품 목록</h2>
-                        <button class="btn btn-primary" onclick="openProductModal()">상품 추가</button>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-secondary" onclick="updateAllProducts()" title="모든 상품의 데이터 정합성 수정 및 기간제 상품 사용 조건 업데이트">
+                                🔧 상품 데이터 일괄 수정
+                            </button>
+                            <button class="btn btn-primary" onclick="openProductModal()">상품 추가</button>
+                        </div>
                     </div>
                     <div class="filter-group" style="margin-bottom: 20px;">
                         <select class="form-control" id="filter-type" style="width: 200px;" onchange="applyFilters()">
@@ -135,12 +140,15 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">카테고리</label>
-                        <select class="form-control" id="product-category">
-                            <option value="">선택 안 함</option>
+                        <label class="form-label">카테고리 * <span style="color: #dc3545;">(필수)</span></label>
+                        <select class="form-control" id="product-category" required>
+                            <option value="">선택하세요</option>
                             <option value="BASEBALL">야구</option>
                             <option value="TRAINING">트레이닝</option>
                             <option value="PILATES">필라테스</option>
+                            <option value="TRAINING_FITNESS">트레이닝+필라테스</option>
+                            <option value="RENTAL">대관</option>
+                            <option value="GENERAL">일반</option>
                         </select>
                         <small style="color: var(--text-muted); display: block; margin-top: 4px;">
                             예약 시 이용권 보유 회원 필터링에 사용됩니다.
@@ -148,24 +156,32 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label class="form-label">가격 *</label>
+                            <label class="form-label">가격 * <span style="color: #dc3545;">(필수)</span></label>
                             <input type="number" class="form-control" id="product-price" required min="0">
                         </div>
-                        <div class="form-group">
-                            <label class="form-label">유효기간 (일)</label>
-                            <input type="number" class="form-control" id="product-validity" min="0" placeholder="0 = 무제한">
+                        <div class="form-group" id="validity-group">
+                            <label class="form-label">유효기간 (일) <span id="validity-required" style="color: #dc3545; display: none;">* (필수)</span></label>
+                            <small style="color: var(--text-muted); display: block; margin-bottom: 8px;" id="validity-hint">0 = 무제한</small>
+                            <input type="number" class="form-control" id="product-validity" min="0" placeholder="예: 30">
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">패키지 구성 (선택사항)</label>
-                        <small style="color: var(--text-muted); display: block; margin-bottom: 8px;">패키지 상품인 경우 포함된 시설/항목과 횟수를 입력하세요.</small>
+                    <div class="form-group" id="usage-count-group" style="display: none;">
+                        <label class="form-label">사용 횟수 * <span style="color: #dc3545;">(필수)</span></label>
+                        <input type="number" class="form-control" id="product-usage-count" min="1" placeholder="예: 1회권이면 1, 10회권이면 10" required>
+                        <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                            회차권인 경우 사용 가능한 횟수를 반드시 입력하세요. (패키지 구성이나 사용 조건에서 자동 추출되지만, 직접 입력을 권장합니다)
+                        </small>
+                    </div>
+                    <div class="form-group" id="usage-conditions-group" style="display: none;">
+                        <label class="form-label">사용 조건 * <span style="color: #dc3545;">(필수)</span></label>
+                        <small style="color: var(--text-muted); display: block; margin-bottom: 8px;">회차권인 경우 레슨명과 횟수를 입력하세요.</small>
                         <div id="package-items-container">
-                            <!-- 동적으로 추가되는 패키지 항목들 -->
+                            <!-- 동적으로 추가되는 레슨 항목들 -->
                         </div>
                         <button type="button" class="btn btn-sm btn-secondary" onclick="addPackageItem()" style="margin-top: 8px;">+ 항목 추가</button>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">사용 조건 (추가 안내사항)</label>
+                        <label class="form-label">추가 안내사항</label>
                         <textarea class="form-control" id="product-conditions" rows="2" placeholder="예: 평일만 사용 가능, 피크타임 제외 등"></textarea>
                     </div>
                     <div class="form-group">

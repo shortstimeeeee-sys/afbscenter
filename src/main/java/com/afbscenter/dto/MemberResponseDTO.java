@@ -252,6 +252,8 @@ public class MemberResponseDTO {
                         productInfo.type = mp.getProduct().getType() != null ? mp.getProduct().getType().name() : null;
                         productInfo.price = mp.getProduct().getPrice();
                         productInfo.category = mp.getProduct().getCategory() != null ? mp.getProduct().getCategory().name() : null;
+                        productInfo.usageCount = mp.getProduct().getUsageCount(); // 상품의 usageCount 추가
+                        productInfo.validDays = mp.getProduct().getValidDays(); // 상품의 validDays 추가
                         
                         // 상품의 담당 코치 정보 추가
                         if (mp.getProduct().getCoach() != null) {
@@ -376,6 +378,8 @@ public class MemberResponseDTO {
                         productMap.put("type", mp.product.type);
                         productMap.put("price", mp.product.price);
                         productMap.put("category", mp.product.category);
+                        productMap.put("usageCount", mp.product.usageCount); // 상품의 usageCount 추가
+                        productMap.put("validDays", mp.product.validDays); // 상품의 validDays 추가
                         
                         // 상품의 담당 코치 정보 추가
                         if (mp.product.coach != null) {
@@ -457,6 +461,8 @@ public class MemberResponseDTO {
         public String type;
         public Integer price;
         public String category;
+        public Integer usageCount; // 상품의 사용 횟수
+        public Integer validDays; // 상품의 유효기간
         public CoachInfo coach; // 상품의 담당 코치
         
         public Long getId() { return id; }
@@ -464,6 +470,8 @@ public class MemberResponseDTO {
         public String getType() { return type; }
         public Integer getPrice() { return price; }
         public String getCategory() { return category; }
+        public Integer getUsageCount() { return usageCount; }
+        public Integer getValidDays() { return validDays; }
         public CoachInfo getCoach() { return coach; }
     }
 }

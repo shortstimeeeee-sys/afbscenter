@@ -7,6 +7,7 @@ import com.afbscenter.model.Member;
 import com.afbscenter.model.MemberProduct;
 import com.afbscenter.model.Payment;
 import com.afbscenter.model.Product;
+import com.afbscenter.dto.MemberResponseDTO;
 import com.afbscenter.repository.AttendanceRepository;
 import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.CoachRepository;
@@ -308,6 +309,31 @@ public class MemberController {
             
             memberMap.put("memberProducts", memberProductsList);
             
+            // 누적 결제 금액 계산
+            Integer totalPayment = null;
+            try {
+                totalPayment = paymentRepository.sumTotalAmountByMemberId(id);
+                if (totalPayment == null) {
+                    totalPayment = 0;
+                }
+            } catch (Exception e) {
+                logger.warn("결제 금액 계산 실패 (Member ID: {}): {}", id, e.getMessage());
+                totalPayment = 0;
+            }
+            memberMap.put("totalPayment", totalPayment);
+            
+            // 최근 레슨 날짜 계산
+            java.time.LocalDate latestLessonDate = null;
+            try {
+                List<com.afbscenter.model.Booking> latestLessons = bookingRepository.findLatestLessonByMemberId(id);
+                if (latestLessons != null && !latestLessons.isEmpty()) {
+                    latestLessonDate = latestLessons.get(0).getStartTime().toLocalDate();
+                }
+            } catch (Exception e) {
+                logger.warn("최근 레슨 날짜 계산 실패 (Member ID: {}): {}", id, e.getMessage());
+            }
+            memberMap.put("latestLessonDate", latestLessonDate);
+            
             return ResponseEntity.ok(memberMap);
         } catch (Exception e) {
             logger.error("회원 조회 중 오류 발생 (회원 ID: {})", id, e);
@@ -524,10 +550,8 @@ public class MemberController {
             }
             
             // 연장 모달에서 호출하는지 확인 (결제 생성을 건너뛰기 위해)
-            Boolean skipPayment = (Boolean) request.get("skipPayment");
-            if (skipPayment == null) {
-                skipPayment = false;
-            }
+            // 람다 표현식에서 사용하기 위해 final 변수로 선언
+            final Boolean skipPayment = request.get("skipPayment") != null ? (Boolean) request.get("skipPayment") : false;
             
             productIdLong = productId.longValue();
             logger.debug("상품 조회 시작: 상품 ID={}", productIdLong);
@@ -645,21 +669,39 @@ public class MemberController {
                     
                     // 각 항목의 count를 remaining으로 복사
                     List<Map<String, Object>> remainingItems = new ArrayList<>();
+                    int totalPackageCount = 0;
                     for (Map<String, Object> item : items) {
                         Map<String, Object> remainingItem = new HashMap<>();
                         remainingItem.put("name", item.get("name"));
-                        remainingItem.put("remaining", item.get("count")); // count를 remaining으로
+                        Object countObj = item.get("count");
+                        int count = countObj instanceof Number ? ((Number) countObj).intValue() : 0;
+                        remainingItem.put("remaining", count);
                         remainingItems.add(remainingItem);
+                        totalPackageCount += count;
                     }
                     
                     memberProduct.setPackageItemsRemaining(mapper.writeValueAsString(remainingItems));
-                    logger.info("패키지 항목 초기화 완료: {}", memberProduct.getPackageItemsRemaining());
+                    
+                    // 패키지 항목이 있는 경우에도 totalCount와 remainingCount 설정 (일반 횟수권과 동일하게)
+                    if (product.getType() != null && product.getType() == Product.ProductType.COUNT_PASS) {
+                        memberProduct.setTotalCount(totalPackageCount);
+                        if (skipPayment) {
+                            memberProduct.setRemainingCount(0);
+                            logger.debug("연장 모달: 패키지 상품 remainingCount를 0으로 설정");
+                        } else {
+                            memberProduct.setRemainingCount(totalPackageCount);
+                            logger.debug("신규 할당: 패키지 상품 remainingCount를 {}로 설정", totalPackageCount);
+                        }
+                    }
+                    
+                    logger.info("패키지 항목 초기화 완료: {}, totalCount={}, remainingCount={}", 
+                        memberProduct.getPackageItemsRemaining(), memberProduct.getTotalCount(), memberProduct.getRemainingCount());
                 } catch (Exception e) {
                     logger.error("패키지 항목 초기화 실패: {}", e.getMessage(), e);
                     // 패키지 항목 초기화 실패해도 계속 진행
                 }
             }
-            // 일반 횟수권인 경우 총 횟수 설정
+            // 일반 횟수권인 경우 총 횟수 설정 (패키지 항목이 없는 경우)
             else if (product.getType() != null && product.getType() == Product.ProductType.COUNT_PASS) {
                 logger.debug("횟수권 처리 시작: 상품 타입={}", product.getType());
                 // usageCount가 null이면 기본값 0으로 설정 (에러 방지)
@@ -694,15 +736,39 @@ public class MemberController {
                 throw new IllegalArgumentException("MemberProduct의 Product가 null입니다.");
             }
             
+            // 람다에서 사용하기 위해 final 변수 생성 (effectively final)
+            final Product finalProduct = product; // 람다에서 사용하기 위해 final 변수로 복사
+            
             // MemberProduct 저장을 별도 트랜잭션으로 실행하여 먼저 커밋
             // 이렇게 하면 코치 배정이나 결제 생성 실패가 MemberProduct 저장에 영향을 주지 않음
             // TransactionTemplate을 사용하여 REQUIRES_NEW 트랜잭션으로 실행
             // 람다에서 사용하기 위해 final 변수 사용
             MemberProduct saved = transactionTemplate.execute(status -> {
                 try {
+                    // 저장 전 상태 로깅
+                    if (finalProduct.getType() == Product.ProductType.COUNT_PASS) {
+                        logger.info("MemberProduct 저장 전 - 회원 ID={}, 상품 ID={}, totalCount={}, remainingCount={}, skipPayment={}", 
+                            memberId, finalProductIdForLambda, memberProduct.getTotalCount(), memberProduct.getRemainingCount(), skipPayment);
+                    }
+                    
                     MemberProduct result = memberProductRepository.save(memberProduct);
-                    logger.info("MemberProduct 저장 성공 (별도 트랜잭션): ID={}, 회원 ID={}, 상품 ID={}", 
-                        result.getId(), memberId, finalProductIdForLambda);
+                    
+                    // 저장 후 검증
+                    if (finalProduct.getType() == Product.ProductType.COUNT_PASS) {
+                        logger.info("MemberProduct 저장 성공 (별도 트랜잭션): ID={}, 회원 ID={}, 상품 ID={}, totalCount={}, remainingCount={}", 
+                            result.getId(), memberId, finalProductIdForLambda, result.getTotalCount(), result.getRemainingCount());
+                        
+                        // remainingCount가 0인데 skipPayment가 false이면 경고 (null 체크 추가)
+                        Integer remainingCount = result.getRemainingCount();
+                        if (remainingCount != null && remainingCount == 0 && !skipPayment) {
+                            logger.warn("⚠️ 회차권 상품 구매 시 remainingCount가 0입니다! 회원 ID={}, 상품 ID={}, totalCount={}", 
+                                memberId, finalProductIdForLambda, result.getTotalCount());
+                        }
+                    } else {
+                        logger.info("MemberProduct 저장 성공 (별도 트랜잭션): ID={}, 회원 ID={}, 상품 ID={}", 
+                            result.getId(), memberId, finalProductIdForLambda);
+                    }
+                    
                     return result;
                 } catch (Exception e) {
                     logger.error("MemberProduct 저장 실패 (별도 트랜잭션): 회원 ID={}, 상품 ID={}, 에러 타입: {}, 에러 메시지: {}", 
@@ -745,8 +811,7 @@ public class MemberController {
             // MemberProduct 저장이 성공한 후, 코치 배정과 결제 생성을 별도 트랜잭션으로 처리
             // TransactionTemplate을 사용하여 완전히 독립적인 트랜잭션으로 실행
             // 이렇게 하면 MemberProduct 저장이 롤백되지 않음
-            // 람다에서 사용하기 위해 final 변수 생성 (product는 null에서 할당되므로 final 변수 필요)
-            final Product finalProduct = product;
+            // 람다에서 사용하기 위해 final 변수 생성
             final Member finalMember = member;
             
             try {
@@ -776,7 +841,7 @@ public class MemberController {
                         memberId, finalProductIdForLambda, skipPayment);
                     transactionTemplate.execute(status -> {
                         try {
-                            createPaymentIfNeededInTransaction(finalMember, finalProduct, memberId, finalProductId, finalProductIdForLambda);
+                            createPaymentIfNeededInTransaction(finalMember, finalProduct, memberId, finalProductIdForLambda, finalProductIdForLambda);
                             logger.info("결제 생성 트랜잭션 완료: Member ID={}, Product ID={}", 
                                 memberId, finalProductIdForLambda);
                             return null;
@@ -830,6 +895,7 @@ public class MemberController {
             
             if (cause != null) {
                 logger.error("원인 예외: 타입={}, 메시지={}", cause.getClass().getName(), cause.getMessage());
+                cause.printStackTrace();
             }
             
             e.printStackTrace();
@@ -843,6 +909,11 @@ public class MemberController {
             errorResponse.put("productId", productIdLong);
             if (cause != null) {
                 errorResponse.put("cause", cause.getClass().getName() + ": " + cause.getMessage());
+                // 스택 트레이스도 포함 (디버깅용)
+                java.io.StringWriter sw = new java.io.StringWriter();
+                java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+                cause.printStackTrace(pw);
+                errorResponse.put("stackTrace", sw.toString());
             }
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
@@ -1650,9 +1721,19 @@ public class MemberController {
 
     @DeleteMapping("/{id}")
     @Transactional
-    public ResponseEntity<Map<String, Object>> deleteMember(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> deleteMember(@PathVariable Long id, 
+                                                             jakarta.servlet.http.HttpServletRequest request) {
         Map<String, Object> response = new HashMap<>();
         try {
+            // 관리자 권한 확인
+            String role = (String) request.getAttribute("role");
+            if (role == null || !role.equals("ADMIN")) {
+                logger.warn("회원 삭제 권한 없음: ID={}, Role={}", id, role);
+                response.put("error", "회원 삭제는 관리자만 가능합니다.");
+                response.put("message", "회원 삭제는 관리자만 가능합니다.");
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+            }
+            
             logger.info("회원 삭제 요청: ID={}", id);
             memberService.deleteMember(id);
             logger.info("회원 삭제 성공: ID={}", id);
@@ -1676,9 +1757,19 @@ public class MemberController {
 
     @DeleteMapping("/all")
     @Transactional
-    public ResponseEntity<Map<String, Object>> deleteAllMembers() {
+    public ResponseEntity<Map<String, Object>> deleteAllMembers(jakarta.servlet.http.HttpServletRequest request) {
         Map<String, Object> response = new HashMap<>();
         try {
+            // 관리자 권한 확인
+            String role = (String) request.getAttribute("role");
+            if (role == null || !role.equals("ADMIN")) {
+                logger.warn("회원 전체 삭제 권한 없음: Role={}", role);
+                response.put("success", false);
+                response.put("error", "회원 전체 삭제는 관리자만 가능합니다.");
+                response.put("message", "회원 전체 삭제는 관리자만 가능합니다.");
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+            }
+            
             logger.warn("⚠️ 회원 전체 삭제 요청 시작");
             long memberCount = memberRepository.count();
             logger.warn("⚠️ 삭제될 회원 수: {}명", memberCount);
@@ -1715,182 +1806,161 @@ public class MemberController {
             members = memberService.getAllMembers();
         }
         
-        // 각 회원의 누적 결제 금액을 계산해서 Map으로 변환
-        List<Map<String, Object>> membersWithTotalPayment = members.stream().map(member -> {
-            Map<String, Object> memberMap = new HashMap<>();
-            memberMap.put("id", member.getId());
-            memberMap.put("memberNumber", member.getMemberNumber());
-            memberMap.put("name", member.getName());
-            memberMap.put("phoneNumber", member.getPhoneNumber());
-            memberMap.put("birthDate", member.getBirthDate());
-            memberMap.put("gender", member.getGender());
-            memberMap.put("height", member.getHeight());
-            memberMap.put("weight", member.getWeight());
-            memberMap.put("address", member.getAddress());
-            memberMap.put("memo", member.getMemo());
-            memberMap.put("grade", member.getGrade());
-            memberMap.put("status", member.getStatus());
-            memberMap.put("joinDate", member.getJoinDate());
-            memberMap.put("lastVisitDate", member.getLastVisitDate());
-            memberMap.put("coachMemo", member.getCoachMemo());
-            memberMap.put("guardianName", member.getGuardianName());
-            memberMap.put("guardianPhone", member.getGuardianPhone());
-            memberMap.put("school", member.getSchool());
-            memberMap.put("swingSpeed", member.getSwingSpeed());
-            memberMap.put("exitVelocity", member.getExitVelocity());
-            memberMap.put("pitchingSpeed", member.getPitchingSpeed());
-            memberMap.put("createdAt", member.getCreatedAt());
-            memberMap.put("updatedAt", member.getUpdatedAt());
-            
-            // 코치 정보 안전하게 로드
+        // MemberResponseDTO를 사용하여 일관된 형식으로 변환 (getAllMembers와 동일)
+        List<com.afbscenter.dto.MemberResponseDTO> memberDTOs = new java.util.ArrayList<>();
+        for (Member member : members) {
             try {
-                if (member.getCoach() != null) {
-                    // Lazy loading 트리거
-                    member.getCoach().getName();
-                    
-                    Map<String, Object> coachMap = new HashMap<>();
-                    coachMap.put("id", member.getCoach().getId());
-                    coachMap.put("name", member.getCoach().getName());
-                    memberMap.put("coach", coachMap);
-                } else {
-                    memberMap.put("coach", null);
-                }
-            } catch (Exception e) {
-                logger.warn("코치 정보 로드 실패 (회원 ID: {}): {}", member.getId(), e.getMessage());
-                memberMap.put("coach", null);
-            }
-            
-            // 누적 결제 금액 계산
-            Integer totalPayment = null;
-            try {
-                totalPayment = paymentRepository.sumTotalAmountByMemberId(member.getId());
-                if (totalPayment == null) {
+                // 누적 결제 금액 계산
+                Integer totalPayment = null;
+                try {
+                    totalPayment = paymentRepository.sumTotalAmountByMemberId(member.getId());
+                    if (totalPayment == null) {
+                        totalPayment = 0;
+                    }
+                } catch (Exception e) {
+                    logger.warn("결제 금액 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
                     totalPayment = 0;
                 }
-                logger.debug("회원 누적 결제 금액 계산: Member ID={}, Total Payment={}", member.getId(), totalPayment);
-            } catch (Exception e) {
-                logger.warn("결제 금액 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage(), e);
-                totalPayment = 0;
-            }
-            memberMap.put("totalPayment", totalPayment);
-            
-            // 최근 레슨 날짜 계산 (확정된 레슨 예약 중 가장 최근)
-            java.time.LocalDate latestLessonDate = null;
-            List<com.afbscenter.model.Booking> latestLessons = bookingRepository.findLatestLessonByMemberId(member.getId());
-            if (!latestLessons.isEmpty()) {
-                latestLessonDate = latestLessons.get(0).getStartTime().toLocalDate();
-            }
-            memberMap.put("latestLessonDate", latestLessonDate);
-            
-            // 횟수권 남은 횟수 계산 (실제 예약/출석 기록 기반으로 정확하게 계산)
-            int remainingCount = 0;
-            List<MemberProduct> countPassProducts = memberProductRepository.findActiveCountPassByMemberId(member.getId());
-            
-            for (MemberProduct mp : countPassProducts) {
+                
+                // 최근 레슨 날짜 계산
+                java.time.LocalDate latestLessonDate = null;
                 try {
-                    // DB에 저장된 remainingCount를 우선 사용 (수동 조정된 값 반영)
-                    Integer mpRemainingCount = mp.getRemainingCount();
-                    
-                    // remainingCount가 null이면 다시 계산
-                    if (mpRemainingCount == null) {
-                        // 총 횟수: totalCount 또는 product.usageCount
-                        Integer totalCount = mp.getTotalCount();
-                        if (totalCount == null || totalCount <= 0) {
-                            if (mp.getProduct() != null) {
-                                totalCount = mp.getProduct().getUsageCount();
-                            }
-                            if (totalCount == null || totalCount <= 0) {
-                                totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
-                            }
-                        }
-                        
-                        // 실제 사용된 횟수 계산
-                        Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
-                        if (usedCountByBooking == null) {
-                            usedCountByBooking = 0L;
-                        }
-                        
-                        Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(member.getId(), mp.getId());
-                        if (usedCountByAttendance == null) {
-                            usedCountByAttendance = 0L;
-                        }
-                        
-                        // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용
-                        Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
-                        
-                        // 잔여 횟수 = 총 횟수 - 실제 사용된 횟수
-                        mpRemainingCount = totalCount - actualUsedCount.intValue();
-                        if (mpRemainingCount < 0) {
-                            mpRemainingCount = 0;
-                        }
+                    List<com.afbscenter.model.Booking> latestLessons = bookingRepository.findLatestLessonByMemberId(member.getId());
+                    if (latestLessons != null && !latestLessons.isEmpty()) {
+                        latestLessonDate = latestLessons.get(0).getStartTime().toLocalDate();
                     }
-                    
-                    // 음수 방지
-                    if (mpRemainingCount < 0) {
-                        mpRemainingCount = 0;
-                    }
-                    
-                    remainingCount += mpRemainingCount;
                 } catch (Exception e) {
-                    logger.warn("회원 상품 잔여 횟수 계산 실패 (Member ID: {}, MemberProduct ID: {}): {}", 
-                            member.getId(), mp.getId(), e.getMessage());
-                    // 예외 발생 시 0으로 처리
+                    logger.warn("최근 레슨 날짜 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
                 }
-            }
-            
-            // DB에 저장된 remainingCount를 사용하므로 추가 차감 불필요
-            // (수동 조정된 값을 존중하기 위해 주석 처리)
-            /*
-            // memberProduct가 없는 확정된 레슨 예약/출석도 차감
-            Long unassignedConfirmedLessons = bookingRepository.countConfirmedLessonsWithoutMemberProduct(member.getId());
-            if (unassignedConfirmedLessons == null) {
-                unassignedConfirmedLessons = 0L;
-            }
-            
-            Long unassignedAttendancesCount = attendanceRepository.countCheckedInAttendancesWithoutMemberProduct(member.getId());
-            if (unassignedAttendancesCount == null) {
-                unassignedAttendancesCount = 0L;
-            }
-            
-            Long unassignedCount = unassignedAttendancesCount + unassignedConfirmedLessons;
-            
-            if (unassignedCount > 0 && !countPassProducts.isEmpty()) {
-                int unassignedCountInt = unassignedCount.intValue();
-                if (remainingCount >= unassignedCountInt) {
-                    remainingCount -= unassignedCountInt;
-                } else {
-                    remainingCount = 0;
+                
+                // 회원 상품 정보 (lazy loading 방지를 위해 JOIN FETCH 사용)
+                List<MemberProduct> allMemberProducts = null;
+                try {
+                    allMemberProducts = memberProductRepository.findByMemberIdWithProduct(member.getId());
+                } catch (Exception e) {
+                    logger.warn("회원 상품 조회 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
+                    allMemberProducts = new java.util.ArrayList<>();
                 }
+                
+                // 횟수권 남은 횟수 계산
+                int remainingCount = 0;
+                try {
+                    if (allMemberProducts != null) {
+                        for (MemberProduct mp : allMemberProducts) {
+                            try {
+                                if (mp.getProduct() == null || 
+                                    mp.getProduct().getType() != Product.ProductType.COUNT_PASS ||
+                                    mp.getStatus() != MemberProduct.Status.ACTIVE) {
+                                    continue;
+                                }
+                                
+                                Integer mpRemainingCount = mp.getRemainingCount();
+                                // remainingCount가 null이거나 0인 경우 재계산
+                                // 단, 실제 사용 기록이 있으면 0이 정상이므로 재계산하지 않음
+                                if (mpRemainingCount == null || mpRemainingCount == 0) {
+                                    // 실제 사용 기록 확인
+                                    Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(member.getId(), mp.getId());
+                                    if (usedCountByAttendance == null) {
+                                        usedCountByAttendance = 0L;
+                                    }
+                                    
+                                    Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
+                                    if (usedCountByBooking == null) {
+                                        usedCountByBooking = 0L;
+                                    }
+                                    
+                                    Long usedCount = Math.max(usedCountByAttendance, usedCountByBooking);
+                                    
+                                    // 총 횟수 계산 (우선순위: totalCount > product.usageCount > 기본값)
+                                    Integer totalCount = mp.getTotalCount();
+                                    if (totalCount == null || totalCount <= 0) {
+                                        if (mp.getProduct() != null) {
+                                            totalCount = mp.getProduct().getUsageCount();
+                                            
+                                            // usageCount가 null이면 기본값 사용
+                                            if (totalCount == null || totalCount <= 0) {
+                                                logger.warn("상품의 usageCount가 설정되지 않음: 상품 ID={}, 상품명={}", 
+                                                    mp.getProduct().getId(), mp.getProduct().getName());
+                                                totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                                            }
+                                        } else {
+                                            totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                                        }
+                                    }
+                                    
+                                    // 사용 기록이 없고 remainingCount가 0이면 재계산
+                                    if (usedCount == 0) {
+                                        mpRemainingCount = totalCount; // 사용 기록이 없으면 총 횟수로 설정
+                                    } else if (mpRemainingCount == null) {
+                                        // remainingCount가 null이고 사용 기록이 있으면 재계산
+                                        mpRemainingCount = Math.max(0, totalCount - usedCount.intValue());
+                                    }
+                                    // 사용 기록이 있고 remainingCount가 0이면 실제로 사용한 것이므로 그대로 유지
+                                }
+                                
+                                if (mpRemainingCount != null && mpRemainingCount > 0) {
+                                    remainingCount += mpRemainingCount;
+                                }
+                            } catch (Exception e) {
+                                logger.warn("회원 상품 잔여 횟수 계산 실패 (Member ID: {}, MemberProduct ID: {}): {}", 
+                                    member.getId(), mp.getId(), e.getMessage());
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("회원 잔여 횟수 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
+                }
+                
+                // 기간권 정보
+                MemberProduct activePeriodPass = null;
+                try {
+                    if (allMemberProducts != null) {
+                        activePeriodPass = allMemberProducts.stream()
+                            .filter(mp -> {
+                                try {
+                                    return mp.getProduct() != null && 
+                                           mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS &&
+                                           mp.getStatus() == MemberProduct.Status.ACTIVE && 
+                                           mp.getExpiryDate() != null;
+                                } catch (Exception e) {
+                                    return false;
+                                }
+                            })
+                            .filter(mp -> {
+                                try {
+                                    return mp.getExpiryDate().isAfter(java.time.LocalDate.now()) || 
+                                           mp.getExpiryDate().isEqual(java.time.LocalDate.now());
+                                } catch (Exception e) {
+                                    return false;
+                                }
+                            })
+                            .findFirst()
+                            .orElse(null);
+                    }
+                } catch (Exception e) {
+                    logger.warn("기간권 조회 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
+                }
+                
+                com.afbscenter.dto.MemberResponseDTO dto = com.afbscenter.dto.MemberResponseDTO.fromMember(member, totalPayment, latestLessonDate, 
+                        remainingCount, allMemberProducts, activePeriodPass);
+                memberDTOs.add(dto);
+            } catch (Exception e) {
+                logger.error("회원 DTO 변환 실패 (Member ID: {}): {}", 
+                    member != null ? member.getId() : "null", e.getMessage(), e);
             }
-            */
-            
-            memberMap.put("remainingCount", remainingCount);
-            
-            // 기간권 정보 (한달권 등) - 시작/종료 날짜
-            List<MemberProduct> periodPassProducts = memberProductRepository.findByMemberIdAndProductType(
-                member.getId(), 
-                Product.ProductType.MONTHLY_PASS
-            );
-            
-            // 활성 기간권 중 가장 최근 것 선택
-            MemberProduct activePeriodPass = periodPassProducts.stream()
-                .filter(mp -> mp.getStatus() == MemberProduct.Status.ACTIVE && mp.getExpiryDate() != null)
-                .filter(mp -> mp.getExpiryDate().isAfter(java.time.LocalDate.now()) || 
-                             mp.getExpiryDate().isEqual(java.time.LocalDate.now()))
-                .findFirst()
-                .orElse(null);
-            
-            if (activePeriodPass != null) {
-                memberMap.put("periodPassStartDate", activePeriodPass.getPurchaseDate() != null ? 
-                    activePeriodPass.getPurchaseDate().toLocalDate() : null);
-                memberMap.put("periodPassEndDate", activePeriodPass.getExpiryDate());
-            } else {
-                memberMap.put("periodPassStartDate", null);
-                memberMap.put("periodPassEndDate", null);
+        }
+        
+        // DTO를 Map으로 변환
+        List<Map<String, Object>> membersWithTotalPayment = new java.util.ArrayList<>();
+        for (com.afbscenter.dto.MemberResponseDTO dto : memberDTOs) {
+            try {
+                Map<String, Object> memberMap = dto.toMap();
+                membersWithTotalPayment.add(memberMap);
+            } catch (Exception e) {
+                logger.warn("회원 DTO 변환 실패 (Member ID: {}): {}", 
+                    dto != null ? dto.getId() : "unknown", e.getMessage());
             }
-            
-            return memberMap;
-        }).collect(Collectors.toList());
+        }
         
         return ResponseEntity.ok(membersWithTotalPayment);
     }

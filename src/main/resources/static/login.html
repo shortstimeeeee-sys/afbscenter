@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>로그인 - AF BASEBALL CLUB</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="stylesheet" href="/css/common.css">
+    <style>
+        :root {
+            /* 엠블럼 배경 이미지의 색상 (진한 녹색) */
+            --af-green: #1a4d2a;
+            --af-green-light: #2d5f37;
+            --af-green-dark: #0f3d1f;
+            --af-gold: #d4af37;
+            --af-gold-light: #e5c158;
+            --af-gold-dark: #b8941f;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            /* 엠블럼 이미지를 배경으로 적용 */
+            background: 
+                url('/images/af-background.png') center center / cover no-repeat,
+                var(--af-green);
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            margin: 0;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            /* 배경 이미지 위에 미묘한 오버레이 (새 이미지에 맞게 조정) */
+            background: rgba(0, 0, 0, 0.1);
+            pointer-events: none;
+            z-index: 0;
+        }
+        .login-container {
+            /* 컨테이너는 반투명 흰색 배경으로 배경 이미지가 살짝 보이도록 */
+            background: rgba(255, 255, 255, 0.97);
+            backdrop-filter: blur(12px);
+            border-radius: 24px;
+            box-shadow: 
+                0 20px 60px rgba(0, 0, 0, 0.5),
+                0 0 0 1px rgba(212, 175, 55, 0.2);
+            padding: 0;
+            width: 100%;
+            max-width: 420px;
+            position: relative;
+            z-index: 2;
+            overflow: hidden;
+        }
+        .login-container-inner {
+            padding: 48px 40px;
+        }
+        .login-header {
+            text-align: center;
+            /* 헤더 배경을 순수한 흰색으로 */
+            padding: 40px 40px 32px 40px;
+            background: white;
+            position: relative;
+            /* 상단 모서리만 둥글게 */
+            border-radius: 24px 24px 0 0;
+        }
+        .login-title {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--af-gold);
+            margin-bottom: 0;
+            letter-spacing: 1px;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        .login-container-inner {
+            padding: 32px 40px 48px 40px;
+            background: rgba(255, 255, 255, 0.97);
+        }
+        .form-group {
+            margin-bottom: 24px;
+        }
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1a4d2a;
+        }
+        .form-control {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid rgba(26, 77, 42, 0.2);
+            border-radius: 12px;
+            font-size: 14px;
+            background: rgba(255, 255, 255, 0.98);
+            color: var(--text-primary);
+            box-sizing: border-box;
+            transition: all 0.3s;
+        }
+        .form-control:focus {
+            outline: none;
+            border-color: var(--af-gold);
+            background: white;
+            box-shadow: 
+                0 0 0 4px rgba(212, 175, 55, 0.2),
+                0 2px 8px rgba(212, 175, 55, 0.15);
+        }
+        .form-control::placeholder {
+            color: #9ca3af;
+        }
+        .btn-login {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, var(--af-gold) 0%, var(--af-gold-dark) 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 
+                0 4px 16px rgba(212, 175, 55, 0.4),
+                0 0 0 1px rgba(212, 175, 55, 0.2) inset;
+            letter-spacing: 0.5px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+        .btn-login:hover {
+            background: linear-gradient(135deg, var(--af-gold-light) 0%, var(--af-gold) 100%);
+            transform: translateY(-2px);
+            box-shadow: 
+                0 6px 24px rgba(212, 175, 55, 0.5),
+                0 0 0 1px rgba(212, 175, 55, 0.3) inset;
+        }
+        .btn-login:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(212, 175, 55, 0.3);
+        }
+        .btn-login:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .error-message {
+            background: rgba(255, 255, 255, 0.95);
+            color: #ef4444;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+            border-left: 4px solid #ef4444;
+        }
+        .error-message.show {
+            display: block;
+        }
+        #register-link {
+            color: #1a4d2a;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        #register-link:hover {
+            color: var(--af-gold);
+            text-decoration: underline;
+        }
+        #init-admin-btn {
+            background: rgba(107, 114, 128, 0.8);
+            font-size: 12px;
+            padding: 10px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        #init-admin-btn:hover {
+            background: rgba(75, 85, 99, 0.9);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        }
+        /* 회원 가입 모달 오버레이에 엠블럼 배경 이미지 적용 */
+        #registerModal.modal-overlay {
+            background: 
+                url('/images/af-background.png') center center / cover no-repeat,
+                var(--af-green);
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            /* 이미지 위에 약간의 어두운 오버레이로 가독성 향상 */
+            position: relative;
+        }
+        #registerModal.modal-overlay::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.15);
+            z-index: 0;
+        }
+        #registerModal.modal-overlay > * {
+            position: relative;
+            z-index: 1;
+        }
+        /* 엠블럼이 잘 보이도록 모달 배경 조정 */
+        #registerModal .modal {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 
+                0 20px 60px rgba(0, 0, 0, 0.4),
+                0 0 0 2px rgba(212, 175, 55, 0.3);
+            border-radius: 24px;
+        }
+        
+        /* 테마 토글 버튼 */
+        .theme-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.9);
+            border: 2px solid var(--af-gold);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s;
+        }
+        .theme-toggle:hover {
+            background: white;
+            transform: scale(1.1);
+            box-shadow: 0 6px 16px rgba(212, 175, 55, 0.4);
+        }
+        
+        /* 초록색-금색-흰색 테마 */
+        body.theme-green-gold-white {
+            background: linear-gradient(135deg, var(--af-green) 0%, var(--af-green-light) 50%, var(--af-green-dark) 100%);
+        }
+        body.theme-green-gold-white::before {
+            background: radial-gradient(ellipse at center, rgba(212, 175, 55, 0.1) 0%, transparent 50%);
+        }
+        body.theme-green-gold-white .login-container {
+            background: white;
+            backdrop-filter: none;
+            box-shadow: 
+                0 20px 60px rgba(0, 0, 0, 0.3),
+                0 0 0 3px var(--af-gold);
+        }
+        body.theme-green-gold-white .login-header {
+            background: linear-gradient(135deg, var(--af-green) 0%, var(--af-green-light) 100%);
+        }
+        body.theme-green-gold-white .login-title {
+            color: var(--af-gold);
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+        }
+        body.theme-green-gold-white .login-container-inner {
+            background: white;
+        }
+        body.theme-green-gold-white .form-label {
+            color: var(--af-green-dark);
+        }
+        body.theme-green-gold-white .form-control {
+            border-color: rgba(26, 77, 42, 0.3);
+            background: white;
+        }
+        body.theme-green-gold-white .form-control:focus {
+            border-color: var(--af-gold);
+            box-shadow: 
+                0 0 0 4px rgba(212, 175, 55, 0.2),
+                0 2px 8px rgba(212, 175, 55, 0.15);
+        }
+        body.theme-green-gold-white #register-link {
+            color: var(--af-green);
+        }
+        body.theme-green-gold-white #register-link:hover {
+            color: var(--af-gold);
+        }
+    </style>
+</head>
+<body>
+    <!-- 테마 토글 버튼 -->
+    <button class="theme-toggle" id="theme-toggle" title="테마 변경">🎨</button>
+    
+    <div class="login-container">
+        <div class="login-header">
+            <div class="login-title">AF BASEBALL CLUB</div>
+        </div>
+        
+        <div class="login-container-inner">
+            <div id="error-message" class="error-message"></div>
+            
+            <form id="login-form">
+                <div class="form-group">
+                    <label class="form-label" for="username">사용자명</label>
+                    <input type="text" id="username" class="form-control" placeholder="사용자명을 입력하세요" required autofocus>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="password">비밀번호</label>
+                    <input type="password" id="password" class="form-control" placeholder="비밀번호를 입력하세요" required>
+                </div>
+                
+                <button type="submit" class="btn-login" id="login-btn">로그인</button>
+            </form>
+            
+            <!-- 회원 가입 링크 -->
+            <div style="margin-top: 20px; text-align: center;">
+                <a href="#" id="register-link">
+                    회원 가입
+                </a>
+            </div>
+            
+            <!-- 관리자 계정 초기화 버튼 (비밀번호 보호) -->
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(212, 175, 55, 0.3);">
+                <button type="button" class="btn-login" id="init-admin-btn">
+                    관리자 계정 초기화
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 회원 가입 모달 -->
+    <div id="registerModal" class="modal-overlay">
+        <div class="modal" style="max-width: 450px;">
+            <div class="modal-header">
+                <h2 class="modal-title">회원 가입</h2>
+                <button class="modal-close" onclick="closeRegisterModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="register-form" onsubmit="event.preventDefault(); submitRegister();">
+                    <div class="form-group">
+                        <label class="form-label" for="register-username">사용자명 *</label>
+                        <input type="text" id="register-username" class="form-control" placeholder="사용자명을 입력하세요" required autofocus>
+                        <small class="form-hint" style="display: block; margin-top: 4px; font-size: 12px; color: var(--text-muted);">
+                            다른 사용자와 중복되지 않는 고유한 사용자명을 입력하세요.
+                        </small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="register-password">비밀번호 *</label>
+                        <input type="password" id="register-password" class="form-control" placeholder="비밀번호를 입력하세요 (최소 4자)" required minlength="4">
+                        <small class="form-hint" style="display: block; margin-top: 4px; font-size: 12px; color: var(--text-muted);">
+                            비밀번호는 최소 4자 이상이어야 합니다.
+                        </small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="register-password-confirm">비밀번호 확인 *</label>
+                        <input type="password" id="register-password-confirm" class="form-control" placeholder="비밀번호를 다시 입력하세요" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="register-name">이름</label>
+                        <input type="text" id="register-name" class="form-control" placeholder="이름을 입력하세요 (선택사항)">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="register-phone">전화번호</label>
+                        <input type="tel" id="register-phone" class="form-control" placeholder="전화번호를 입력하세요 (선택사항)">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeRegisterModal()">취소</button>
+                <button class="btn btn-primary" onclick="submitRegister()">가입하기</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 관리자 계정 초기화 비밀번호 확인 모달 -->
+    <div id="adminInitModal" class="modal-overlay">
+        <div class="modal" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2 class="modal-title">관리자 계정 초기화</h2>
+                <button class="modal-close" onclick="closeAdminInitModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 16px; color: var(--text-secondary); font-size: 13px;">
+                    관리자 계정 초기화를 위해 비밀번호를 입력해주세요.
+                </p>
+                <form id="admin-init-form" onsubmit="event.preventDefault(); confirmAdminInit();">
+                    <div class="form-group">
+                        <label class="form-label">비밀번호 *</label>
+                        <input type="password" id="admin-init-password" class="form-control" placeholder="비밀번호를 입력하세요" required autofocus>
+                        <small class="form-hint" style="display: block; margin-top: 4px; font-size: 12px; color: var(--text-muted);">
+                            관리자 계정 초기화를 위한 비밀번호를 입력하세요.
+                        </small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeAdminInitModal()">취소</button>
+                <button class="btn btn-primary" onclick="confirmAdminInit()">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/common.js"></script>
+    <script>
+        // 테마 관리
+        function initTheme() {
+            const savedTheme = localStorage.getItem('loginTheme') || 'default';
+            const body = document.body;
+            const themeToggle = document.getElementById('theme-toggle');
+            
+            if (savedTheme === 'green-gold-white') {
+                body.classList.add('theme-green-gold-white');
+                themeToggle.textContent = '🖼️';
+                themeToggle.title = '기본 테마로 변경';
+            } else {
+                body.classList.remove('theme-green-gold-white');
+                themeToggle.textContent = '🎨';
+                themeToggle.title = '초록색-금색-흰색 테마로 변경';
+            }
+            
+            // 테마 토글 버튼 클릭 이벤트
+            themeToggle.addEventListener('click', function() {
+                if (body.classList.contains('theme-green-gold-white')) {
+                    body.classList.remove('theme-green-gold-white');
+                    localStorage.setItem('loginTheme', 'default');
+                    themeToggle.textContent = '🎨';
+                    themeToggle.title = '초록색-금색-흰색 테마로 변경';
+                } else {
+                    body.classList.add('theme-green-gold-white');
+                    localStorage.setItem('loginTheme', 'green-gold-white');
+                    themeToggle.textContent = '🖼️';
+                    themeToggle.title = '기본 테마로 변경';
+                }
+            });
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            // 테마 초기화
+            initTheme();
+            
+            const loginForm = document.getElementById('login-form');
+            const errorMessage = document.getElementById('error-message');
+            const loginBtn = document.getElementById('login-btn');
+
+            // 이미 로그인되어 있으면 대시보드로 리다이렉트
+            if (App.isAuthenticated()) {
+                window.location.href = '/';
+                return;
+            }
+
+            loginForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const username = document.getElementById('username').value.trim();
+                const password = document.getElementById('password').value;
+
+                if (!username || !password) {
+                    showError('사용자명과 비밀번호를 입력해주세요.');
+                    return;
+                }
+
+                loginBtn.disabled = true;
+                loginBtn.textContent = '로그인 중...';
+                errorMessage.classList.remove('show');
+
+                try {
+                    const response = await App.api.post('/auth/login', {
+                        username: username,
+                        password: password
+                    });
+
+                    // 로그인 성공
+                    App.setAuthToken(response.token);
+                    App.currentUser = {
+                        username: response.username,
+                        role: response.role,
+                        name: response.name,
+                        id: response.id
+                    };
+                    App.currentRole = response.role;
+                    
+                    // 사용자 정보를 localStorage에 저장
+                    localStorage.setItem('currentUser', JSON.stringify(App.currentUser));
+
+                    // 대시보드로 리다이렉트
+                    window.location.href = '/';
+                } catch (error) {
+                    console.error('로그인 실패:', error);
+                    let errorMsg = '로그인에 실패했습니다.';
+                    
+                    // 상세 에러 정보 출력
+                    console.error('로그인 에러 상세:', {
+                        message: error.message,
+                        response: error.response,
+                        status: error.response?.status,
+                        data: error.response?.data
+                    });
+                    
+                    // 서버에서 반환한 에러 메시지 추출
+                    if (error.response && error.response.data) {
+                        console.log('서버 응답 데이터:', error.response.data);
+                        if (error.response.data.error) {
+                            errorMsg = error.response.data.error;
+                            console.log('에러 메시지:', errorMsg);
+                        } else if (typeof error.response.data === 'string') {
+                            errorMsg = error.response.data;
+                        } else {
+                            // 응답 데이터 전체를 확인
+                            console.error('응답 데이터 (전체):', JSON.stringify(error.response.data, null, 2));
+                            errorMsg = error.response.data.error || JSON.stringify(error.response.data);
+                        }
+                    } else if (error.message) {
+                        errorMsg = error.message;
+                    }
+                    
+                    showError(errorMsg);
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = '로그인';
+                }
+            });
+
+            // 회원 가입 링크 클릭 이벤트
+            const registerLink = document.getElementById('register-link');
+            if (registerLink) {
+                registerLink.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    openRegisterModal();
+                });
+            }
+
+            // 관리자 계정 초기화 버튼 - 비밀번호 모달 열기
+            const initAdminBtn = document.getElementById('init-admin-btn');
+            if (initAdminBtn) {
+                console.log('관리자 계정 초기화 버튼 이벤트 리스너 등록');
+                initAdminBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('관리자 계정 초기화 버튼 클릭됨');
+                    openAdminInitModal();
+                });
+            } else {
+                console.error('관리자 계정 초기화 버튼을 찾을 수 없습니다: init-admin-btn');
+            }
+        });
+        
+        // 에러 메시지 표시 함수 (전역)
+        function showError(message) {
+            const errorMessage = document.getElementById('error-message');
+            if (errorMessage) {
+                errorMessage.textContent = message;
+                errorMessage.classList.add('show');
+                // 성공 메시지 스타일 초기화
+                errorMessage.style.background = 'rgba(239, 68, 68, 0.1)';
+                errorMessage.style.color = '#ef4444';
+            }
+        }
+        
+        // 성공 메시지 표시 함수
+        function showSuccess(message) {
+            const errorMessage = document.getElementById('error-message');
+            if (errorMessage) {
+                errorMessage.textContent = message;
+                errorMessage.classList.add('show');
+                errorMessage.style.background = 'rgba(34, 197, 94, 0.1)';
+                errorMessage.style.color = '#22c55e';
+            }
+        }
+        
+        // 회원 가입 모달 열기
+        function openRegisterModal() {
+            const form = document.getElementById('register-form');
+            if (form) {
+                form.reset();
+            }
+            App.Modal.open('registerModal');
+            setTimeout(() => {
+                const usernameInput = document.getElementById('register-username');
+                if (usernameInput) {
+                    usernameInput.focus();
+                }
+            }, 100);
+        }
+        
+        // 회원 가입 모달 닫기
+        function closeRegisterModal() {
+            App.Modal.close('registerModal');
+            const form = document.getElementById('register-form');
+            if (form) {
+                form.reset();
+            }
+        }
+        
+        // 회원 가입 제출
+        async function submitRegister() {
+            const form = document.getElementById('register-form');
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                return;
+            }
+            
+            const username = document.getElementById('register-username').value.trim();
+            const password = document.getElementById('register-password').value;
+            const passwordConfirm = document.getElementById('register-password-confirm').value;
+            const name = document.getElementById('register-name').value.trim();
+            const phoneNumber = document.getElementById('register-phone').value.trim();
+            
+            // 비밀번호 확인
+            if (password !== passwordConfirm) {
+                showError('비밀번호가 일치하지 않습니다.');
+                return;
+            }
+            
+            // 비밀번호 길이 확인
+            if (password.length < 4) {
+                showError('비밀번호는 최소 4자 이상이어야 합니다.');
+                return;
+            }
+            
+            const submitBtn = document.querySelector('#registerModal .btn-primary');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = '처리 중...';
+            }
+            
+            try {
+                const response = await App.api.post('/auth/register', {
+                    username: username,
+                    password: password,
+                    name: name || null,
+                    phoneNumber: phoneNumber || null
+                });
+                
+                console.log('회원 가입 성공:', response);
+                closeRegisterModal();
+                showSuccess('회원 가입이 완료되었습니다. 로그인해주세요.');
+                
+                // 사용자명 필드에 자동 입력
+                document.getElementById('username').value = username;
+                document.getElementById('password').focus();
+            } catch (error) {
+                console.error('회원 가입 실패:', error);
+                let errorMsg = '회원 가입에 실패했습니다.';
+                if (error.response && error.response.data && error.response.data.error) {
+                    errorMsg = error.response.data.error;
+                }
+                showError(errorMsg);
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '가입하기';
+                }
+            }
+        }
+        
+        // 관리자 계정 초기화 모달 열기
+        function openAdminInitModal() {
+            console.log('관리자 계정 초기화 모달 열기 시도');
+            const form = document.getElementById('admin-init-form');
+            if (form) {
+                form.reset();
+            }
+            
+            const modal = document.getElementById('adminInitModal');
+            if (modal) {
+                App.Modal.open('adminInitModal');
+                console.log('모달 열기 완료');
+                
+                // 모달이 열리면 비밀번호 입력 필드에 포커스
+                setTimeout(() => {
+                    const passwordInput = document.getElementById('admin-init-password');
+                    if (passwordInput) {
+                        passwordInput.focus();
+                        // Enter 키로 제출 (한 번만 등록)
+                        const enterHandler = function(e) {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                confirmAdminInit();
+                                passwordInput.removeEventListener('keypress', enterHandler);
+                            }
+                        };
+                        passwordInput.addEventListener('keypress', enterHandler);
+                    }
+                }, 100);
+            } else {
+                console.error('모달 요소를 찾을 수 없습니다: adminInitModal');
+            }
+        }
+        
+        // 관리자 계정 초기화 모달 닫기
+        function closeAdminInitModal() {
+            App.Modal.close('adminInitModal');
+            document.getElementById('admin-init-form').reset();
+        }
+        
+        // 관리자 계정 초기화 확인 (비밀번호 입력 후)
+        async function confirmAdminInit() {
+            const form = document.getElementById('admin-init-form');
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                return;
+            }
+            
+            const password = document.getElementById('admin-init-password').value;
+            if (!password) {
+                showError('비밀번호를 입력해주세요.');
+                return;
+            }
+            
+            const initAdminBtn = document.getElementById('init-admin-btn');
+            const errorMessage = document.getElementById('error-message');
+            initAdminBtn.disabled = true;
+            initAdminBtn.textContent = '처리 중...';
+            
+            try {
+                // 서버에 비밀번호와 함께 요청 전송
+                const response = await App.api.post('/auth/init-admin', {
+                    password: password
+                });
+                console.log('관리자 계정 초기화 결과:', response);
+                
+                closeAdminInitModal();
+                
+                // 에러 메시지 스타일을 성공 메시지로 변경
+                if (errorMessage) {
+                    errorMessage.style.background = 'rgba(34, 197, 94, 0.1)';
+                    errorMessage.style.color = '#22c55e';
+                }
+                
+                if (response.passwordReset) {
+                    showError('관리자 계정 비밀번호가 재설정되었습니다. (username: admin, password: admin123)');
+                } else if (response.exists) {
+                    showError('관리자 계정이 이미 존재합니다. (username: admin, password: admin123)');
+                } else {
+                    showError('관리자 계정이 생성되었습니다. (username: admin, password: admin123)');
+                }
+            } catch (error) {
+                console.error('관리자 계정 초기화 실패:', error);
+                let errorMsg = '관리자 계정 초기화에 실패했습니다.';
+                if (error.response && error.response.data && error.response.data.error) {
+                    errorMsg = error.response.data.error;
+                }
+                showError(errorMsg);
+            } finally {
+                initAdminBtn.disabled = false;
+                initAdminBtn.textContent = '관리자 계정 초기화';
+            }
+        }
+    </script>
+</body>
+</html>

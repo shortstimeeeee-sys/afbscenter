@@ -98,7 +98,17 @@ async function loadGradeStats(startDate, endDate) {
         });
         
         const tbody = document.getElementById('grade-stats-body');
-        const grades = Object.keys(gradeGroups).sort();
+        // 등급 순서: 고 -> 중 -> 초 -> 사회인
+        const gradeOrder = ['ELITE_HIGH', 'ELITE_MIDDLE', 'ELITE_ELEMENTARY', 'SOCIAL'];
+        const grades = Object.keys(gradeGroups).sort((a, b) => {
+            const aIndex = gradeOrder.indexOf(a);
+            const bIndex = gradeOrder.indexOf(b);
+            // 등급 순서에 없는 경우 맨 뒤로
+            if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+            if (aIndex === -1) return 1;
+            if (bIndex === -1) return -1;
+            return aIndex - bIndex;
+        });
         
         if (grades.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">데이터가 없습니다.</td></tr>';
@@ -219,7 +229,10 @@ async function loadCoachStats(startDate, endDate) {
         });
         
         const tbody = document.getElementById('coach-stats-body');
-        const coaches = Object.keys(coachGroups).sort();
+        // 담당 회원 수가 많은 순으로 정렬
+        const coaches = Object.keys(coachGroups).sort((a, b) => {
+            return coachGroups[b].memberCount - coachGroups[a].memberCount;
+        });
         
         if (coaches.length === 0) {
             tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">데이터가 없습니다.</td></tr>';

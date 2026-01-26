@@ -90,7 +90,7 @@
                         </div>
                         <div class="button-group" style="display: flex; gap: 8px;">
                             <button class="btn btn-primary" onclick="openMemberModal()">회원 등록</button>
-                            <button class="btn btn-danger" onclick="deleteAllMembers()">회원 전체 삭제</button>
+                            <button class="btn btn-danger" id="delete-all-members-btn" onclick="deleteAllMembers()" style="display: none;">회원 전체 삭제</button>
                         </div>
                     </div>
                 </div>
@@ -278,7 +278,7 @@
     
     <!-- 회원 상세 모달 -->
     <div class="modal-overlay" id="member-detail-modal">
-        <div class="modal" style="max-width: 1000px;">
+        <div class="modal" style="max-width: 1400px; width: 95%;">
             <div class="modal-header">
                 <h2 class="modal-title" id="member-detail-title">회원 상세</h2>
                 <button class="modal-close">×</button>

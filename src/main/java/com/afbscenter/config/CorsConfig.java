@@ -25,8 +25,9 @@ public class CorsConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        String[] origins = allowedOrigins.split(",");
         registry.addMapping("/api/**")
-                .allowedOrigins(allowedOrigins.split(","))
+                .allowedOriginPatterns(origins.length > 0 ? origins : new String[]{"*"})
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true)
@@ -45,9 +46,15 @@ public class CorsConfig implements WebMvcConfigurer {
         // 자격 증명 허용
         config.setAllowCredentials(true);
         
-        // 허용된 origin 설정
+        // 허용된 origin 설정 (allowCredentials가 true일 때는 allowedOriginPatterns 사용)
         List<String> origins = Arrays.asList(allowedOrigins.split(","));
-        config.setAllowedOrigins(origins);
+        if (origins.isEmpty() || origins.contains("*")) {
+            // 모든 origin 허용 (개발 환경)
+            config.addAllowedOriginPattern("*");
+        } else {
+            // 특정 origin만 허용
+            config.setAllowedOriginPatterns(origins);
+        }
         
         // 모든 헤더 허용 (ngrok-skip-browser-warning 포함)
         config.addAllowedHeader("*");

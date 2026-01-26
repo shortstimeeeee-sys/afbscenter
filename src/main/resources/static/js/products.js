@@ -24,10 +24,47 @@ function handleProductTypeChange() {
     const conditionsInput = document.getElementById('product-conditions');
     const packageItemsContainer = document.getElementById('package-items-container');
     const addPackageItemBtn = document.querySelector('button[onclick="addPackageItem()"]');
+    const usageCountGroup = document.getElementById('usage-count-group');
+    const usageCountInput = document.getElementById('product-usage-count');
+    const usageConditionsGroup = document.getElementById('usage-conditions-group');
+    
+    // 회차권인 경우 사용 조건(레슨명/횟수) 입력 필드 표시
+    if (type === 'COUNT_PASS') {
+        if (usageConditionsGroup) {
+            usageConditionsGroup.style.display = 'block';
+        }
+        if (usageCountGroup) {
+            usageCountGroup.style.display = 'none'; // 사용 횟수 필드는 숨김 (사용 조건에서 입력)
+        }
+        if (usageCountInput) {
+            usageCountInput.required = false;
+        }
+    } else {
+        if (usageConditionsGroup) {
+            usageConditionsGroup.style.display = 'none';
+        }
+        if (usageCountGroup) {
+            usageCountGroup.style.display = 'none';
+        }
+        if (usageCountInput) {
+            usageCountInput.required = false;
+        }
+    }
     
     if (type === 'MONTHLY_PASS') {
-        // 유효기간에 30일 자동 입력
+        // 유효기간 필수 표시
+        const validityRequired = document.getElementById('validity-required');
+        const validityHint = document.getElementById('validity-hint');
+        if (validityRequired) {
+            validityRequired.style.display = 'inline';
+        }
+        if (validityHint) {
+            validityHint.textContent = '기간제 상품은 필수 입력 항목입니다. (1 이상)';
+            validityHint.style.color = '#dc3545';
+        }
         if (validityInput) {
+            validityInput.required = true;
+            validityInput.min = 1;
             validityInput.value = '30';
         }
         
@@ -52,31 +89,40 @@ function handleProductTypeChange() {
             }
         }
         
-        // 패키지 항목 추가 버튼 비활성화
-        if (addPackageItemBtn) {
-            addPackageItemBtn.disabled = true;
-            addPackageItemBtn.style.opacity = '0.5';
-            addPackageItemBtn.style.cursor = 'not-allowed';
-        }
-        
-        // 기존 패키지 항목의 횟수 입력 필드 비활성화
-        if (packageItemsContainer) {
-            const countSelects = packageItemsContainer.querySelectorAll('.package-item-count');
-            countSelects.forEach(select => {
-                select.disabled = true;
-                select.style.opacity = '0.5';
-                select.style.cursor = 'not-allowed';
-            });
+        // 월정기 권인 경우 사용 조건 섹션 숨김
+        const usageConditionsGroup = document.getElementById('usage-conditions-group');
+        if (usageConditionsGroup) {
+            usageConditionsGroup.style.display = 'none';
         }
     } else {
-        // 월정기 권이 아닌 경우 패키지 항목 추가 버튼 활성화
+        // 기간제가 아닌 경우 유효기간 필수 해제
+        const validityRequired = document.getElementById('validity-required');
+        const validityHint = document.getElementById('validity-hint');
+        const validityInput = document.getElementById('product-validity');
+        if (validityRequired) {
+            validityRequired.style.display = 'none';
+        }
+        if (validityHint) {
+            validityHint.textContent = '0 = 무제한';
+            validityHint.style.color = 'var(--text-muted)';
+        }
+        if (validityInput) {
+            validityInput.required = false;
+            validityInput.min = 0;
+        }
+    }
+    
+    if (type === 'COUNT_PASS') {
+        // 회차권인 경우 사용 조건 섹션 표시 및 활성화
+        const usageConditionsGroup = document.getElementById('usage-conditions-group');
+        if (usageConditionsGroup) {
+            usageConditionsGroup.style.display = 'block';
+        }
         if (addPackageItemBtn) {
             addPackageItemBtn.disabled = false;
             addPackageItemBtn.style.opacity = '1';
             addPackageItemBtn.style.cursor = 'pointer';
         }
-        
-        // 기존 패키지 항목의 횟수 입력 필드 활성화
         if (packageItemsContainer) {
             const countSelects = packageItemsContainer.querySelectorAll('.package-item-count');
             countSelects.forEach(select => {
@@ -84,6 +130,12 @@ function handleProductTypeChange() {
                 select.style.opacity = '1';
                 select.style.cursor = 'default';
             });
+        }
+    } else {
+        // 기타 유형인 경우 사용 조건 섹션 숨김
+        const usageConditionsGroup = document.getElementById('usage-conditions-group');
+        if (usageConditionsGroup) {
+            usageConditionsGroup.style.display = 'none';
         }
     }
 }
@@ -258,15 +310,9 @@ function openProductModal(id = null) {
     
     App.Modal.open('product-modal');
     
-    // 모달이 열린 후 유형이 월정기 권이면 자동 계산 및 횟수 입력 비활성화
+    // 모달이 열린 후 유형에 따라 필드 표시/숨김 처리
     setTimeout(() => {
-        const type = document.getElementById('product-type').value;
-        if (type === 'MONTHLY_PASS') {
-            handleProductTypeChange();
-        } else {
-            // 월정기 권이 아닌 경우 활성화 상태로 초기화
-            handleProductTypeChange();
-        }
+        handleProductTypeChange(); // 유형에 따라 필드 표시/숨김 처리
     }, 100);
 }
 
@@ -275,6 +321,11 @@ function addPackageItem(itemName = '', itemCount = '') {
     const container = document.getElementById('package-items-container');
     const productType = document.getElementById('product-type')?.value;
     const isMonthlyPass = productType === 'MONTHLY_PASS';
+    
+    // itemCount를 숫자로 변환하여 비교
+    const countValue = itemCount ? parseInt(itemCount) : '';
+    const isSelected1 = (countValue === 1 || countValue === '1');
+    const isSelected10 = (countValue === 10 || countValue === '10');
     
     const itemDiv = document.createElement('div');
     itemDiv.className = 'package-item';
@@ -289,8 +340,8 @@ function addPackageItem(itemName = '', itemCount = '') {
         </select>
         <select class="form-control package-item-count" style="flex: 1;" ${isMonthlyPass ? 'disabled' : ''}>
             <option value="">횟수 선택</option>
-            <option value="1" ${itemCount == 1 ? 'selected' : ''}>1회권</option>
-            <option value="10" ${itemCount == 10 ? 'selected' : ''}>10회권</option>
+            <option value="1" ${isSelected1 ? 'selected' : ''}>1회권</option>
+            <option value="10" ${isSelected10 ? 'selected' : ''}>10회권</option>
         </select>
         <button type="button" class="btn btn-sm btn-danger" onclick="removePackageItem(this)" style="padding: 8px 12px;">삭제</button>
     `;
@@ -334,27 +385,65 @@ async function loadProductData(id) {
         document.getElementById('product-category').value = product.category || '';
         document.getElementById('product-price').value = product.price || '';
         document.getElementById('product-validity').value = product.validDays || '';
-        document.getElementById('product-conditions').value = product.conditions || '';
-        document.getElementById('product-refund-policy').value = product.refundPolicy || '';
         
-        // 패키지 항목 로드
-        if (product.packageItems) {
+        // usageCount 설정 (회차권인 경우)
+        const usageCountInput = document.getElementById('product-usage-count');
+        if (usageCountInput) {
+            usageCountInput.value = product.usageCount || '';
+            console.log('상품 usageCount 로드:', {
+                productId: product.id,
+                productName: product.name,
+                productType: product.type,
+                usageCount: product.usageCount
+            });
+        }
+        
+        // 회차권인 경우 사용 조건(레슨명/횟수) 로드
+        if (product.type === 'COUNT_PASS' && product.packageItems) {
             try {
                 const packageItems = JSON.parse(product.packageItems);
                 packageItems.forEach(item => {
                     addPackageItem(item.name, item.count);
                 });
+                // 사용 조건에서 추가 안내사항 추출 (예: "야구 1회권 | 평일만 사용 가능" → "평일만 사용 가능")
+                if (product.conditions) {
+                    const conditionsParts = product.conditions.split('|');
+                    if (conditionsParts.length > 1) {
+                        // "|"로 구분되어 있으면 첫 번째 부분은 사용 조건, 나머지는 추가 안내사항
+                        const additionalConditions = conditionsParts.slice(1).join('|').trim();
+                        document.getElementById('product-conditions').value = additionalConditions;
+                    } else {
+                        // "|"로 구분되지 않은 경우, "레슨명 N회권" 패턴인지 확인
+                        const usageConditionPattern = /^[\w\s]+\s+\d+회권\s*$/;
+                        const isUsageConditionPattern = usageConditionPattern.test(product.conditions.trim());
+                        if (!isUsageConditionPattern) {
+                            // 패턴이 아니면 추가 안내사항으로 간주
+                            document.getElementById('product-conditions').value = product.conditions;
+                        } else {
+                            // 패턴이면 추가 안내사항 필드는 비워둠 (사용 조건에서 이미 로드됨)
+                            document.getElementById('product-conditions').value = '';
+                        }
+                    }
+                } else {
+                    // conditions가 없으면 추가 안내사항 필드도 비움
+                    document.getElementById('product-conditions').value = '';
+                }
             } catch (e) {
-                console.warn('패키지 항목 파싱 실패:', e);
+                console.warn('사용 조건 항목 파싱 실패:', e);
+                // 파싱 실패 시에도 추가 안내사항 필드는 비워둠
+                document.getElementById('product-conditions').value = '';
             }
+        } else {
+            // 회차권이 아닌 경우에만 conditions를 추가 안내사항 필드에 넣음
+            document.getElementById('product-conditions').value = product.conditions || '';
         }
+        
+        document.getElementById('product-refund-policy').value = product.refundPolicy || '';
         
         // 수정 모드에서도 유형이 월정기 권이면 날짜 자동 계산 (기존 값이 없을 때만)
         if (product.type === 'MONTHLY_PASS') {
             const validityInput = document.getElementById('product-validity');
             const conditionsInput = document.getElementById('product-conditions');
-            const packageItemsContainer = document.getElementById('package-items-container');
-            const addPackageItemBtn = document.querySelector('button[onclick="addPackageItem()"]');
             
             // 유효기간이 없으면 30일로 설정
             if (validityInput && (!validityInput.value || validityInput.value.trim() === '')) {
@@ -380,23 +469,6 @@ async function loadProductData(id) {
                     // 이미 "시작일로부터" 형식이면 그대로 유지
                 }
             }
-            
-            // 패키지 항목 추가 버튼 비활성화
-            if (addPackageItemBtn) {
-                addPackageItemBtn.disabled = true;
-                addPackageItemBtn.style.opacity = '0.5';
-                addPackageItemBtn.style.cursor = 'not-allowed';
-            }
-            
-            // 기존 패키지 항목의 횟수 입력 필드 비활성화
-            if (packageItemsContainer) {
-                const countSelects = packageItemsContainer.querySelectorAll('.package-item-count');
-                countSelects.forEach(select => {
-                    select.disabled = true;
-                    select.style.opacity = '0.5';
-                    select.style.cursor = 'not-allowed';
-                });
-            }
         }
         
         console.log('상품 데이터 로드 완료');
@@ -406,65 +478,272 @@ async function loadProductData(id) {
     }
 }
 
+// 상품 데이터 일괄 수정 (정합성 수정 + 기간제 상품 conditions 업데이트)
+async function updateAllProducts() {
+    if (!confirm('모든 상품의 데이터를 일괄 수정하시겠습니까?\n\n수정 내용:\n- 회차권: VALID_DAYS null → 0으로 설정\n- 기간제: USAGE_COUNT 설정됨 → null로 설정\n- 기간제: PACKAGE_ITEMS 빈 문자열 → null로 설정\n- 기간제: conditions를 "시작일로부터 X일" 형식으로 업데이트')) {
+        return;
+    }
+    
+    try {
+        App.showNotification('상품 데이터 일괄 수정 중...', 'info');
+        const response = await App.api.post('/products/batch-update-all', {});
+        
+        if (response && response.success) {
+            const totalCount = response.totalCount || 0;
+            const fixedCount = response.fixedCount || 0;
+            const conditionsUpdatedCount = response.conditionsUpdatedCount || 0;
+            const errorCount = response.errorCount || 0;
+            
+            let message = `전체 ${totalCount}개 상품 중 ${fixedCount}개 수정 완료`;
+            if (conditionsUpdatedCount > 0) {
+                message += ` (기간제 conditions: ${conditionsUpdatedCount}개)`;
+            }
+            if (errorCount > 0) {
+                message += ` (오류: ${errorCount}개)`;
+            }
+            
+            if (response.fixDetails && response.fixDetails.length > 0) {
+                console.log('수정 상세 정보:', response.fixDetails);
+            }
+            
+            if (errorCount === 0) {
+                App.showNotification(message, 'success');
+            } else {
+                App.showNotification(message, 'warning');
+            }
+            
+            // 상품 목록 새로고침
+            loadProducts();
+        } else if (response && response.error) {
+            App.showNotification(`수정 실패: ${response.error}`, 'danger');
+        } else {
+            App.showNotification('수정 중 오류가 발생했습니다.', 'danger');
+        }
+    } catch (error) {
+        console.error('상품 데이터 일괄 수정 실패:', error);
+        App.showNotification('상품 데이터 일괄 수정에 실패했습니다: ' + (error.message || '알 수 없는 오류'), 'danger');
+    }
+}
+
+// 기간제 상품의 conditions 일괄 업데이트 (레거시 - 사용 안 함)
+async function updateMonthlyPassConditions() {
+    if (!confirm('기간제 상품(MONTHLY_PASS)의 모든 사용 조건을 "시작일로부터 X일" 형식으로 일괄 업데이트하시겠습니까?\n\n모든 기간제 상품의 conditions가 정확하게 업데이트됩니다.')) {
+        return;
+    }
+    
+    try {
+        App.showNotification('기간제 상품 업데이트 중...', 'info');
+        const response = await App.api.post('/products/batch-update-monthly-pass-conditions', {});
+        
+        if (response && response.success) {
+            const totalCount = response.totalCount || 0;
+            const updatedCount = response.updatedCount || 0;
+            const errorCount = response.errorCount || 0;
+            const verifiedCount = response.verifiedCount || 0;
+            
+            let message = `기간제 상품 ${totalCount}개 중 ${updatedCount}개 업데이트 완료`;
+            if (verifiedCount > 0) {
+                message += ` (검증 완료: ${verifiedCount}개)`;
+            }
+            if (errorCount > 0) {
+                message += ` (오류: ${errorCount}개)`;
+            }
+            
+            // 상세 정보가 있으면 콘솔에 출력
+            if (response.updateDetails && response.updateDetails.length > 0) {
+                console.log('업데이트 상세 정보:', response.updateDetails);
+                const errorDetails = response.updateDetails.filter(d => d.status === 'error' || d.status === 'failed');
+                if (errorDetails.length > 0) {
+                    console.warn('업데이트 실패 항목:', errorDetails);
+                }
+            }
+            
+            if (errorCount === 0 && verifiedCount === updatedCount) {
+                App.showNotification(message, 'success');
+            } else if (errorCount === 0) {
+                App.showNotification(message, 'warning');
+            } else {
+                App.showNotification(message, 'warning');
+            }
+            
+            // 상품 목록 새로고침
+            loadProducts();
+        } else if (response && response.error) {
+            App.showNotification(`업데이트 실패: ${response.error}`, 'danger');
+            if (response.updateDetails) {
+                console.error('업데이트 상세 정보:', response.updateDetails);
+            }
+        } else {
+            App.showNotification('업데이트 중 오류가 발생했습니다.', 'danger');
+        }
+    } catch (error) {
+        console.error('기간제 상품 업데이트 실패:', error);
+        App.showNotification('기간제 상품 업데이트에 실패했습니다: ' + (error.message || '알 수 없는 오류'), 'danger');
+    }
+}
+
 async function saveProduct() {
     const name = document.getElementById('product-name').value.trim();
     const type = document.getElementById('product-type').value;
     const category = document.getElementById('product-category').value;
     const priceStr = document.getElementById('product-price').value;
     const validDaysStr = document.getElementById('product-validity').value;
-    const conditions = document.getElementById('product-conditions').value.trim();
+    const additionalConditions = document.getElementById('product-conditions').value.trim(); // 추가 안내사항
     const refundPolicy = document.getElementById('product-refund-policy').value.trim();
     
     // 필수 필드 검증
-    if (!name) {
-        App.showNotification('상품명을 입력해주세요.', 'danger');
+    if (!name || name.trim() === '') {
+        App.showNotification('⚠️ 상품명은 필수 입력 항목입니다. 상품명을 입력해주세요.', 'danger');
+        document.getElementById('product-name').focus();
         return;
     }
     
     if (!type) {
-        App.showNotification('유형을 선택해주세요.', 'danger');
+        App.showNotification('⚠️ 상품 유형은 필수 선택 항목입니다. 유형을 선택해주세요.', 'danger');
+        document.getElementById('product-type').focus();
+        return;
+    }
+    
+    if (!category) {
+        App.showNotification('⚠️ 카테고리는 필수 선택 항목입니다. 카테고리를 선택해주세요.', 'danger');
+        document.getElementById('product-category').focus();
         return;
     }
     
     if (!priceStr || isNaN(parseInt(priceStr)) || parseInt(priceStr) < 0) {
-        App.showNotification('올바른 가격을 입력해주세요.', 'danger');
+        App.showNotification('⚠️ 가격은 필수 입력 항목이며 0 이상의 숫자여야 합니다. 올바른 가격을 입력해주세요.', 'danger');
+        document.getElementById('product-price').focus();
         return;
     }
-    
-    // 패키지 항목 수집
-    const packageItemsArray = [];
-    const packageItemElements = document.querySelectorAll('.package-item');
-    packageItemElements.forEach(item => {
-        const itemName = item.querySelector('.package-item-name').value.trim();
-        const itemCountStr = item.querySelector('.package-item-count').value;
-        
-        if (itemName && itemCountStr) {
-            const itemCount = parseInt(itemCountStr);
-            if (!isNaN(itemCount) && itemCount > 0) {
-                packageItemsArray.push({
-                    name: itemName,
-                    count: itemCount
-                });
-            }
-        }
-    });
     
     const data = {
         name: name,
         type: type,
-        category: category || null,
+        category: category,
         price: parseInt(priceStr),
-        packageItems: packageItemsArray.length > 0 ? JSON.stringify(packageItemsArray) : "",
-        conditions: conditions || "",
         refundPolicy: refundPolicy || ""
     };
     
-    // validDays는 값이 있을 때만 추가
-    if (validDaysStr && validDaysStr.trim() !== '') {
-        const validDays = parseInt(validDaysStr);
-        if (!isNaN(validDays) && validDays >= 0) {
-            data.validDays = validDays;
+    // 기간제(MONTHLY_PASS)인 경우 validDays 필수 검증
+    if (type === 'MONTHLY_PASS') {
+        if (!validDaysStr || validDaysStr.trim() === '' || isNaN(parseInt(validDaysStr)) || parseInt(validDaysStr) <= 0) {
+            App.showNotification('⚠️ 기간제 상품은 유효기간(일)이 필수 입력 항목입니다. 1 이상의 숫자를 입력해주세요.', 'danger');
+            document.getElementById('product-validity').focus();
+            return;
         }
+        const validDays = parseInt(validDaysStr);
+        if (validDays <= 0) {
+            App.showNotification('⚠️ 유효기간(일)은 1 이상이어야 합니다. 올바른 값을 입력해주세요.', 'danger');
+            document.getElementById('product-validity').focus();
+            return;
+        }
+        data.validDays = validDays;
+    } else {
+        // 기간제가 아닌 경우 validDays는 0 또는 null
+        if (validDaysStr && validDaysStr.trim() !== '') {
+            const validDays = parseInt(validDaysStr);
+            if (!isNaN(validDays) && validDays >= 0) {
+                data.validDays = validDays;
+            }
+        } else {
+            // 회차권인 경우 0으로 설정
+            if (type === 'COUNT_PASS') {
+                data.validDays = 0;
+            }
+        }
+    }
+    
+    // 회차권인 경우 사용 조건(레슨명/횟수) 수집
+    if (type === 'COUNT_PASS') {
+        const packageItemElements = document.querySelectorAll('.package-item');
+        if (packageItemElements.length === 0) {
+            App.showNotification('회차권인 경우 사용 조건(레슨명과 횟수)을 최소 1개 이상 입력해주세요.', 'danger');
+            return;
+        }
+        
+        const packageItemsArray = [];
+        for (let i = 0; i < packageItemElements.length; i++) {
+            const item = packageItemElements[i];
+            const itemName = item.querySelector('.package-item-name').value.trim();
+            const itemCountStr = item.querySelector('.package-item-count').value;
+            
+            // 레슨명과 횟수 모두 필수
+            if (!itemName) {
+                App.showNotification(`사용 조건 ${i + 1}번 항목의 레슨명을 선택해주세요.`, 'danger');
+                return;
+            }
+            if (!itemCountStr) {
+                App.showNotification(`사용 조건 ${i + 1}번 항목의 횟수를 선택해주세요.`, 'danger');
+                return;
+            }
+            
+            const itemCount = parseInt(itemCountStr);
+            if (isNaN(itemCount) || itemCount <= 0) {
+                App.showNotification(`사용 조건 ${i + 1}번 항목의 횟수가 올바르지 않습니다.`, 'danger');
+                return;
+            }
+            
+            packageItemsArray.push({
+                name: itemName,
+                count: itemCount
+            });
+        }
+        
+        // usageCount는 사용 조건의 모든 항목 횟수 합계
+        const usageCount = packageItemsArray.reduce((sum, item) => sum + (item.count || 0), 0);
+        if (usageCount <= 0) {
+            App.showNotification('회차권인 경우 사용 조건의 횟수 합계가 1 이상이어야 합니다.', 'danger');
+            return;
+        }
+        
+        // 사용 조건을 텍스트로 변환 (예: "야구 1회권")
+        const conditionsText = packageItemsArray.map(item => `${item.name} ${item.count}회권`).join(', ');
+        
+        data.packageItems = JSON.stringify(packageItemsArray); // JSON 형태로도 저장
+        data.conditions = conditionsText; // 사용 조건 텍스트로 저장
+        data.usageCount = usageCount; // 횟수 합계를 usageCount로 저장
+        
+        // 추가 안내사항이 있으면 사용 조건에 추가
+        if (additionalConditions && additionalConditions.trim() !== '') {
+            data.conditions = conditionsText + (conditionsText ? ' | ' : '') + additionalConditions;
+        }
+        
+        console.log('상품 저장 - usageCount 설정:', {
+            type: type,
+            usageCount: usageCount,
+            packageItems: packageItemsArray,
+            conditions: data.conditions
+        });
+    } else {
+        // 회차권이 아닌 경우
+        data.packageItems = "";
+        data.conditions = additionalConditions || "";
+    }
+    
+    // 최종 필수 필드 재검증 (데이터 구성 후)
+    if (!data.name || data.name.trim() === '') {
+        App.showNotification('⚠️ 상품명은 필수 입력 항목입니다.', 'danger');
+        return;
+    }
+    if (!data.type) {
+        App.showNotification('⚠️ 상품 유형은 필수 선택 항목입니다.', 'danger');
+        return;
+    }
+    if (!data.category) {
+        App.showNotification('⚠️ 카테고리는 필수 선택 항목입니다.', 'danger');
+        return;
+    }
+    if (data.price == null || data.price < 0) {
+        App.showNotification('⚠️ 가격은 필수 입력 항목이며 0 이상이어야 합니다.', 'danger');
+        return;
+    }
+    if (data.type === 'MONTHLY_PASS' && (data.validDays == null || data.validDays <= 0)) {
+        App.showNotification('⚠️ 기간제 상품은 유효기간(일)이 필수이며 1 이상이어야 합니다.', 'danger');
+        return;
+    }
+    if (data.type === 'COUNT_PASS' && (!data.usageCount || data.usageCount <= 0)) {
+        App.showNotification('⚠️ 회차권 상품은 사용 횟수가 필수이며 1 이상이어야 합니다.', 'danger');
+        return;
     }
     
     try {
@@ -475,8 +754,10 @@ async function saveProduct() {
         if (idValue && idValue !== '' && idValue !== 'undefined') {
             // 수정 모드
             console.log(`수정 API 호출: PUT /products/${idValue}`);
+            console.log('전송할 데이터:', JSON.stringify(data, null, 2));
             const response = await App.api.put(`/products/${idValue}`, data);
             console.log('상품 수정 완료:', response);
+            console.log('응답의 usageCount:', response.usageCount);
             App.showNotification('상품이 수정되었습니다.', 'success');
         } else {
             // 추가 모드

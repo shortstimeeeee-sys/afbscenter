@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>사용자 관리 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/users.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
+                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
+                    <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
+                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">훈련 관리</div>
+                    <a href="/training-logs.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
+                    <a href="/rankings.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">🏆</span><span>훈련 랭킹</span></a>
+                    <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">상품/결제</div>
+                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>상품/이용권</span></a>
+                    <a href="/payments.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">시설 관리</div>
+                    <a href="/facilities.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏟️</span><span>시설/슬롯 설정</span></a>
+                </div>
+                <div class="menu-section" data-role="Admin">
+                    <div class="menu-section-title">관리자</div>
+                    <a href="/analytics.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
+                    <a href="/announcements.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📢</span><span>공지/메시지</span></a>
+                    <a href="/users.html" class="menu-item active" data-role="Admin"><span class="menu-item-icon">👤</span><span>사용자 관리</span></a>
+                    <a href="/permissions.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">🔐</span><span>권한 관리</span></a>
+                    <a href="/settings.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚙️</span><span>설정</span></a>
+                </div>
+            </nav>
+        </aside>
+        
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">사용자 관리</h1>
+                    <div class="search-box">
+                        <input type="text" placeholder="사용자명/이름 검색..." id="user-search">
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn" id="notification-btn">🔔</button>
+                    <button class="user-menu-btn" id="user-menu-btn">👤</button>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <!-- 필터 및 액션 -->
+                <div class="card">
+                    <div class="filter-actions">
+                        <div class="filter-group">
+                            <select class="form-control" id="filter-role" style="width: 150px;">
+                                <option value="">전체 권한</option>
+                                <option value="ADMIN">관리자</option>
+                                <option value="MANAGER">매니저</option>
+                                <option value="COACH">코치</option>
+                                <option value="FRONT">데스크</option>
+                            </select>
+                            <select class="form-control" id="filter-active" style="width: 150px;">
+                                <option value="">전체 상태</option>
+                                <option value="true">활성</option>
+                                <option value="false">비활성</option>
+                            </select>
+                            <button class="btn btn-primary" onclick="applyFilters()">필터 적용</button>
+                        </div>
+                        <div class="button-group">
+                            <button class="btn btn-warning" onclick="showPendingUsers()" id="pending-users-btn">
+                                승인 대기 (<span id="pending-count">0</span>)
+                            </button>
+                            <button class="btn btn-primary" onclick="openUserModal()">사용자 추가</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 사용자 목록 -->
+                <div class="card">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>사용자명</th>
+                                    <th>이름</th>
+                                    <th>권한</th>
+                                    <th>전화번호</th>
+                                    <th>상태</th>
+                                    <th>승인 상태</th>
+                                    <th>마지막 로그인</th>
+                                    <th>작업</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table-body">
+                                <tr>
+                                    <td colspan="9" style="text-align: center; padding: 40px; color: var(--text-muted);">
+                                        로딩 중...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 사용자 추가/수정 모달 -->
+    <div id="userModal" class="modal-overlay">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="user-modal-title">사용자 추가</h2>
+                <button class="modal-close" onclick="closeUserModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="user-form">
+                    <input type="hidden" id="user-id">
+                    
+                    <div class="form-group">
+                        <label class="form-label">사용자명 *</label>
+                        <input type="text" id="user-username" class="form-control" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" id="password-label">비밀번호 *</label>
+                        <input type="password" id="user-password" class="form-control" required>
+                        <small class="form-hint" id="password-hint">최소 4자 이상</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">이름</label>
+                        <input type="text" id="user-name" class="form-control">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">전화번호</label>
+                        <input type="text" id="user-phone" class="form-control" placeholder="010-1234-5678">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">권한 *</label>
+                        <select id="user-role" class="form-control" required onchange="updateCoachSelection()">
+                            <option value="FRONT">데스크 (FRONT)</option>
+                            <option value="COACH">코치 (COACH)</option>
+                            <option value="MANAGER">매니저 (MANAGER)</option>
+                            <option value="ADMIN">관리자 (ADMIN)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" id="coach-selection-group" style="display: none;">
+                        <label class="form-label">연결된 코치</label>
+                        <select id="user-coach" class="form-control">
+                            <option value="">코치 선택 안함</option>
+                        </select>
+                        <small class="form-hint">코치 권한인 경우 코치 정보와 연결할 수 있습니다.</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="user-active" checked> 활성 계정
+                        </label>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="user-approved" checked> 승인됨
+                        </label>
+                        <small class="form-hint">체크 해제 시 승인 대기 상태가 됩니다.</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeUserModal()">취소</button>
+                <button class="btn btn-primary" onclick="saveUser()">저장</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 비밀번호 변경 모달 -->
+    <div id="passwordModal" class="modal-overlay">
+        <div class="modal" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2 class="modal-title">비밀번호 변경</h2>
+                <button class="modal-close" onclick="closePasswordModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="password-form">
+                    <input type="hidden" id="password-user-id">
+                    
+                    <div class="form-group">
+                        <label class="form-label">새 비밀번호 *</label>
+                        <input type="password" id="new-password" class="form-control" required>
+                        <small class="form-hint">최소 4자 이상</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">비밀번호 확인 *</label>
+                        <input type="password" id="confirm-password" class="form-control" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closePasswordModal()">취소</button>
+                <button class="btn btn-primary" onclick="changePassword()">변경</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/js/common.js"></script>
+    <script src="/js/users.js"></script>
+</body>
+</html>
