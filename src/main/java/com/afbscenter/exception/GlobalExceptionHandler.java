@@ -100,15 +100,94 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * HTTP 메시지 읽기 예외 처리 (JSON 파싱 오류 등)
+     */
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ResponseEntity<Map<String, Object>> handleHttpMessageNotReadableException(
+            org.springframework.http.converter.HttpMessageNotReadableException e) {
+        logger.warn("HTTP 메시지 읽기 오류: {}", e.getMessage());
+        Map<String, Object> errorResponse = new HashMap<>();
+        String errorMessage = "요청 데이터 형식이 올바르지 않습니다.";
+        if (e.getMessage() != null && e.getMessage().contains("Boolean")) {
+            errorMessage = "요청 데이터에 잘못된 형식이 포함되어 있습니다. Boolean 값은 true 또는 false만 가능합니다.";
+        }
+        errorResponse.put("error", "Bad Request");
+        errorResponse.put("message", errorMessage);
+        errorResponse.put("status", HttpStatus.BAD_REQUEST.value());
+        return ResponseEntity.badRequest().body(errorResponse);
+    }
+
+    /**
+     * 데이터 무결성 예외 처리
+     */
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ResponseEntity<Map<String, Object>> handleDataIntegrityViolationException(
+            org.springframework.dao.DataIntegrityViolationException e) {
+        logger.error("데이터 무결성 위반: {}", e.getMessage(), e);
+        Map<String, Object> errorResponse = new HashMap<>();
+        String errorMessage = "데이터 저장 중 제약 조건 위반이 발생했습니다.";
+        if (e.getCause() != null && e.getCause().getMessage() != null) {
+            errorMessage = e.getCause().getMessage();
+        }
+        errorResponse.put("error", "Data Integrity Violation");
+        errorResponse.put("message", errorMessage);
+        errorResponse.put("status", HttpStatus.BAD_REQUEST.value());
+        return ResponseEntity.badRequest().body(errorResponse);
+    }
+
+    /**
+     * 제약 조건 위반 예외 처리
+     */
+    @ExceptionHandler(org.hibernate.exception.ConstraintViolationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ResponseEntity<Map<String, Object>> handleConstraintViolationException(
+            org.hibernate.exception.ConstraintViolationException e) {
+        logger.error("제약 조건 위반: {}", e.getMessage(), e);
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("error", "Constraint Violation");
+        errorResponse.put("message", "데이터 저장 중 제약 조건 위반이 발생했습니다: " + e.getMessage());
+        errorResponse.put("status", HttpStatus.BAD_REQUEST.value());
+        return ResponseEntity.badRequest().body(errorResponse);
+    }
+
+    /**
+     * 정적 리소스를 찾을 수 없는 예외 처리 (Chrome DevTools 등)
+     * .well-known 경로는 조용히 무시
+     */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ResponseEntity<Map<String, Object>> handleNoResourceFoundException(
+            org.springframework.web.servlet.resource.NoResourceFoundException e) {
+        // .well-known 경로는 Chrome DevTools 등이 자동으로 요청하는 파일이므로 조용히 무시
+        if (e.getMessage() != null && e.getMessage().contains(".well-known")) {
+            // 조용히 404 반환 (로그 없음, 빈 응답)
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new HashMap<>());
+        }
+        // 다른 리소스는 경고 로그만 출력
+        logger.debug("리소스를 찾을 수 없음: {}", e.getMessage());
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("error", "Not Found");
+        errorResponse.put("message", "요청한 리소스를 찾을 수 없습니다.");
+        errorResponse.put("status", HttpStatus.NOT_FOUND.value());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+    }
+
+    /**
      * 기타 예외 처리
      */
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ResponseEntity<Map<String, Object>> handleGenericException(Exception e) {
+        // NoResourceFoundException은 이미 위에서 처리했으므로 여기서는 제외
+        if (e instanceof org.springframework.web.servlet.resource.NoResourceFoundException) {
+            return handleNoResourceFoundException((org.springframework.web.servlet.resource.NoResourceFoundException) e);
+        }
+        
         logger.error("예상치 못한 오류 발생", e);
         logger.error("오류 클래스: {}", e.getClass().getName());
-        logger.error("오류 메시지: {}", e.getMessage());
-        e.printStackTrace(); // 스택 트레이스 출력
+        logger.error("오류 메시지: {}", e.getMessage(), e);
         
         // 원인 체인 전체 출력
         Throwable cause = e.getCause();

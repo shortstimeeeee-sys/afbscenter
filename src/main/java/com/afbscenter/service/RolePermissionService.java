@@ -2,6 +2,8 @@ package com.afbscenter.service;
 
 import com.afbscenter.model.RolePermission;
 import com.afbscenter.repository.RolePermissionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +18,8 @@ import java.util.Optional;
 @Transactional
 public class RolePermissionService {
 
+    private static final Logger logger = LoggerFactory.getLogger(RolePermissionService.class);
+    
     private final RolePermissionRepository rolePermissionRepository;
 
     @Autowired
@@ -58,14 +62,21 @@ public class RolePermissionService {
 
     // 권한 저장
     public RolePermission saveRolePermission(String role, Map<String, Boolean> permissions) {
-        RolePermission rolePermission = rolePermissionRepository.findByRole(role)
-                .orElseGet(() -> {
-                    RolePermission newPerm = new RolePermission();
-                    newPerm.setRole(role);
-                    return newPerm;
-                });
+        try {
+            logger.info("권한 저장 시작: role={}, permissions 개수={}", role, permissions != null ? permissions.size() : 0);
+            
+            Optional<RolePermission> existing = rolePermissionRepository.findByRole(role);
+            RolePermission rolePermission;
+            
+            if (existing.isPresent()) {
+                rolePermission = existing.get();
+                logger.info("기존 권한 객체 찾음: id={}, role={}", rolePermission.getId(), rolePermission.getRole());
+            } else {
+                rolePermission = createDefaultPermissions(role);
+                logger.info("새 권한 객체 생성: role={}", role);
+            }
 
-        // 권한 업데이트
+            // 권한 업데이트
         if (permissions.containsKey("memberView")) rolePermission.setMemberView(permissions.get("memberView"));
         if (permissions.containsKey("memberCreate")) rolePermission.setMemberCreate(permissions.get("memberCreate"));
         if (permissions.containsKey("memberEdit")) rolePermission.setMemberEdit(permissions.get("memberEdit"));
@@ -115,8 +126,49 @@ public class RolePermissionService {
         if (permissions.containsKey("trainingLogCreate")) rolePermission.setTrainingLogCreate(permissions.get("trainingLogCreate"));
         if (permissions.containsKey("trainingLogEdit")) rolePermission.setTrainingLogEdit(permissions.get("trainingLogEdit"));
 
-        rolePermission.setUpdatedAt(LocalDateTime.now());
-        return rolePermissionRepository.save(rolePermission);
+            rolePermission.setUpdatedAt(LocalDateTime.now());
+            
+            logger.info("권한 객체 저장 시도: id={}, role={}", rolePermission.getId(), rolePermission.getRole());
+            
+            RolePermission saved;
+            try {
+                saved = rolePermissionRepository.save(rolePermission);
+                logger.info("권한 저장 성공: id={}, role={}", saved.getId(), saved.getRole());
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                logger.error("권한 저장 실패 (데이터베이스 제약 조건 위반): role={}", role, e);
+                logger.error("제약 조건 위반 메시지: {}", e.getMessage());
+                if (e.getCause() != null) {
+                    logger.error("원인: {}", e.getCause().getMessage());
+                }
+                throw new IllegalArgumentException("권한 저장 중 데이터베이스 제약 조건 위반: " + 
+                    (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()), e);
+            } catch (org.hibernate.exception.ConstraintViolationException e) {
+                logger.error("권한 저장 실패 (제약 조건 위반): role={}", role, e);
+                logger.error("제약 조건 위반 메시지: {}", e.getMessage());
+                throw new IllegalArgumentException("권한 저장 중 제약 조건 위반: " + e.getMessage(), e);
+            }
+            
+            return saved;
+        } catch (IllegalArgumentException e) {
+            logger.warn("권한 저장 실패 (IllegalArgumentException): role={}, message={}", role, e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            logger.error("권한 저장 중 예외 발생: role={}", role, e);
+            logger.error("예외 클래스: {}", e.getClass().getName());
+            logger.error("예외 메시지: {}", e.getMessage());
+            
+            // 원인 체인 전체 출력
+            Throwable cause = e.getCause();
+            int depth = 0;
+            while (cause != null && depth < 5) {
+                logger.error("원인 {}: {} - {}", depth + 1, cause.getClass().getName(), cause.getMessage());
+                cause = cause.getCause();
+                depth++;
+            }
+            
+            throw new RuntimeException("권한 저장 중 오류가 발생했습니다: " + 
+                (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()), e);
+        }
     }
 
     // 기본 권한 생성

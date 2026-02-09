@@ -1,5 +1,127 @@
 /* 회원 관리 페이지 스타일 */
 
+/* 타이틀 영역 위쪽 공백 제거 */
+body.members-page .main-content { padding-top: 0; }
+body.members-page .topbar { margin-top: 0; }
+
+/* 회원 기본 통계 */
+.members-stats-card {
+    margin-bottom: 16px;
+}
+.members-stats-card .card-header {
+    padding: 12px 16px;
+}
+.members-stats-card .card-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.members-stats-body {
+    padding: 18px 20px;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 16px;
+    overflow-x: auto;
+}
+.members-stats-loading {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+.members-stats-item {
+    flex: 0 0 auto;
+    min-width: 116px;
+    padding: 13px 18px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 15px;
+}
+.members-stats-item-clickable {
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+.members-stats-item-clickable:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-hover);
+}
+.members-stats-item-label {
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    font-size: 14px;
+    line-height: 1.35;
+}
+.members-stats-item-value {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 16px;
+    line-height: 1.35;
+}
+.members-stats-item-value.accent {
+    color: var(--accent-primary);
+}
+/* 회원 통계 한 행 레이아웃: 총합 항목도 동일 크기로 */
+.members-stats-body .stats-total-item .members-stats-item-value {
+    font-size: 16px !important;
+    font-weight: 700;
+}
+.members-stats-body .stats-total-item .members-stats-item-label {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+/* 등급별·휴면 고유색 (배지 색상과 동일) */
+.members-stats-item--social {
+    border-left: 4px solid #6c757d;
+    background: rgba(108, 117, 125, 0.08);
+}
+.members-stats-item--elite_elementary {
+    border-left: 4px solid #8e44ad;
+    background: rgba(155, 89, 182, 0.08);
+}
+.members-stats-item--elite_middle {
+    border-left: 4px solid #2980b9;
+    background: rgba(52, 152, 219, 0.08);
+}
+.members-stats-item--elite_high {
+    border-left: 4px solid #f39c12;
+    background: rgba(241, 196, 15, 0.08);
+}
+.members-stats-item--youth {
+    border-left: 4px solid #84cc16;
+    background: rgba(132, 204, 22, 0.08);
+}
+.members-stats-item--other {
+    border-left: 4px solid #009688;
+    background: rgba(0, 150, 136, 0.08);
+}
+.members-stats-item--active {
+    border-left: 4px solid #2ECC71;
+    background: rgba(46, 204, 113, 0.08);
+}
+.members-stats-item--active .members-stats-item-value {
+    color: #2ECC71;
+}
+/* 휴면: 잔잔함/휴식감을 주는 차분한 연보라(라벤더) */
+.members-stats-item--inactive {
+    border-left: 4px solid #8b7b9e;
+    background: rgba(139, 123, 158, 0.12);
+}
+.members-stats-item--inactive .members-stats-item-value {
+    color: #8b7b9e;
+}
+/* 비회원: 예약 건수 표시용 */
+.members-stats-item--nonmember {
+    border-left: 4px solid #6c757d;
+    background: rgba(108, 117, 125, 0.08);
+}
+.members-stats-item--nonmember .members-stats-item-value {
+    color: #6c757d;
+}
+
 .filter-actions {
     display: flex;
     justify-content: space-between;
@@ -80,6 +202,11 @@
     color: var(--text-secondary);
 }
 
+.product-coach .coach-name {
+    color: var(--coach-color, var(--text-primary)) !important;
+    font-weight: 600;
+}
+
 /* 상품/이용권 선택 시 선택된 항목 음영 표시 */
 #member-products {
     background-color: var(--bg-secondary);
@@ -139,4 +266,385 @@
 .card .table thead th:nth-child(11),
 .card .table tbody td:nth-child(11) {
     text-align: center !important;
+}
+
+/* 만료 임박 배지: 노란색에 가까운 배경 */
+.badge-expiring {
+    background-color: rgba(255, 235, 59, 0.35);
+    color: var(--warning);
+    font-weight: 600;
+}
+
+/* 종료 배지: 빨간색 계열 (종료/사용완료 내용이 있는 회원) */
+.badge-expired {
+    background-color: rgba(220, 38, 38, 0.18);
+    color: var(--danger, #DC2626);
+    font-weight: 600;
+}
+body.light-mode .badge-expired {
+    color: #B91C1C;
+}
+
+/* 회원 등록/수정 모달 너비 확대 (공통 1~5 한 줄 표시 여유) */
+#member-modal .modal {
+    max-width: 720px;
+}
+
+/* 회원 등록/수정 폼 - 투수/타자 기록 영역 */
+.member-ability-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 8px;
+}
+@media (max-width: 720px) {
+    .member-ability-form-grid {
+        grid-template-columns: 1fr;
+    }
+}
+.member-ability-form-section {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+}
+.member-ability-form-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* 투수/타자 기록 아래 공통 가로 영역 */
+.member-ability-common-row {
+    margin-top: 16px;
+    padding: 14px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+.member-ability-common-row .member-ability-form-section-title {
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 6px;
+}
+.member-ability-common-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 24px;
+    align-items: flex-end;
+}
+.member-ability-common-fields .form-group {
+    margin-bottom: 0;
+    min-width: 120px;
+}
+.member-ability-common-fields .common-radio-block {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+.member-ability-common-fields .common-radio-block .form-label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+.member-ability-common-fields .common-radio-block .form-control-radio-group {
+    padding: 6px 8px;
+    gap: 6px 10px;
+    flex-wrap: nowrap;
+}
+.member-ability-common-fields .common-radio-block .radio-option {
+    flex: 1;
+    min-width: 0;
+    justify-content: center;
+    font-size: 13px;
+}
+.member-ability-common-fields {
+    gap: 12px 16px;
+}
+
+/* 제구력 등 라디오 5개 가로 배치 (한 줄 유지) */
+.form-control-radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+    padding: 8px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+}
+.form-control-radio-group .radio-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-primary);
+    user-select: none;
+}
+.form-control-radio-group .radio-option input[type="radio"] {
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--accent-primary);
+}
+.form-control-radio-group .radio-option:has(input:checked) {
+    font-weight: 600;
+    color: var(--accent-primary);
+}
+
+/* 회원 상세 - 기본 정보 탭 내 투수/타자 기록 요약 */
+.member-ability-summary-row {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+.member-ability-summary-row .member-ability-summary-col {
+    flex: 1;
+    min-width: 200px;
+}
+.member-ability-summary-block {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    font-size: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+}
+.member-ability-summary-block .member-ability-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+}
+.member-ability-summary-block .member-ability-label {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+.member-ability-summary-block .member-ability-value {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* 회원 상세 모달 - 영역 확대 (글·그래프 잘 보이게) */
+.member-detail-modal-box {
+    max-width: 95vw;
+    width: 95%;
+    max-height: 95vh;
+    display: flex;
+    flex-direction: column;
+}
+.member-detail-modal-box .modal-header {
+    padding: 14px 24px;
+}
+.member-detail-modal-box .modal-title {
+    font-size: 17px;
+    font-weight: 600;
+}
+.member-detail-modal-box .modal-body {
+    overflow-y: auto;
+    min-height: 60vh;
+    padding: 24px 28px;
+}
+#detail-tab-content {
+    min-height: 50vh;
+    overflow: visible;
+}
+
+/* 회원 상세 - 개인 능력치 탭 (투수/타자 오각형) */
+.member-stats-ability-wrap {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    padding: 12px 0;
+    min-width: 100%;
+    box-sizing: border-box;
+}
+.member-stats-grade {
+    flex: 0 0 100%;
+    margin: 0 0 4px 0;
+    font-size: 15px;
+    color: var(--text-secondary);
+}
+.member-stats-grade strong {
+    color: var(--accent-primary);
+}
+.member-stats-legend {
+    flex: 0 0 100%;
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+.member-stats-legend .legend-item {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 14px;
+    cursor: pointer;
+    user-select: none;
+}
+.member-stats-legend .legend-item-fixed {
+    cursor: default;
+}
+.member-stats-legend .legend-toggle {
+    margin: 0 4px 0 0;
+    cursor: pointer;
+    accent-color: var(--accent-primary);
+}
+.member-stats-legend .legend-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+.member-stats-batter-ref-caption {
+    margin: 0 0 12px 0;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.member-stats-list .stat-rank {
+    font-weight: 500;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+.member-stats-list .stat-rank-gold {
+    color: #c9a227;
+    font-weight: 600;
+}
+.member-stats-ability-col {
+    flex: 1;
+    min-width: 320px;
+    max-width: 48%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 24px;
+    box-sizing: border-box;
+}
+.member-stats-ability-title {
+    margin: 0 0 10px 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-align: left;
+}
+.member-stats-radar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 20px;
+    min-height: 320px;
+}
+.member-stats-radar .radar-svg {
+    width: 320px;
+    height: 320px;
+    max-width: 100%;
+    overflow: visible;
+}
+.member-stats-radar .radar-svg-batter,
+.member-stats-radar .radar-svg-pitcher {
+    background: transparent;
+}
+.member-stats-radar .radar-vertex-value {
+    font-size: 9px;
+    fill: var(--text-primary);
+    font-weight: 600;
+    white-space: nowrap;
+}
+.member-stats-radar .radar-svg-batter .radar-grid,
+.member-stats-radar .radar-svg-batter .radar-axis,
+.member-stats-radar .radar-svg-pitcher .radar-grid,
+.member-stats-radar .radar-svg-pitcher .radar-axis {
+    stroke: var(--text-muted);
+    stroke-width: 0.6;
+}
+/* 기존 색상 (숨김)
+.member-stats-radar .radar-polygon-ref {
+    stroke: var(--text-primary);
+    stroke-width: 0.6;
+}
+.member-stats-radar .radar-polygon-avg {
+    fill: #db2777;
+    fill-opacity: 0.25;
+    stroke: #be185d;
+    stroke-width: 1.4;
+}
+.member-stats-radar .radar-polygon-member {
+    fill: #2563eb;
+    fill-opacity: 0.35;
+    stroke: #1d4ed8;
+    stroke-width: 2;
+}
+.member-stats-legend .legend-ref { background: var(--text-primary); }
+.member-stats-legend .legend-avg, .member-stats-legend .legend-item-avg { color: #be185d; }
+.member-stats-legend .legend-avg { background: #db2777; }
+.member-stats-legend .legend-member, .member-stats-legend .legend-item-member { color: #1d4ed8; }
+.member-stats-legend .legend-member { background: #2563eb; }
+*/
+
+/* 3번: 부드러운 톤 (기준 연회색, 평균 보라, 본인 초록) */
+.member-stats-radar .radar-polygon-ref {
+    stroke: #9ca3af;
+    stroke-width: 0.6;
+}
+.member-stats-radar .radar-polygon-avg {
+    fill: #7c3aed;
+    fill-opacity: 0.22;
+    stroke: #6d28d9;
+    stroke-width: 1.4;
+}
+.member-stats-radar .radar-polygon-member {
+    fill: #059669;
+    fill-opacity: 0.28;
+    stroke: #047857;
+    stroke-width: 2;
+}
+.member-stats-legend .legend-ref {
+    background: #9ca3af;
+}
+.member-stats-legend .legend-avg,
+.member-stats-legend .legend-item-avg {
+    color: #6d28d9;
+}
+.member-stats-legend .legend-avg {
+    background: #7c3aed;
+}
+.member-stats-legend .legend-member,
+.member-stats-legend .legend-item-member {
+    color: #047857;
+}
+.member-stats-legend .legend-member {
+    background: #059669;
+}
+.member-stats-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 14px;
+}
+.member-stats-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+.member-stats-list li:last-child {
+    border-bottom: none;
+}
+.member-stats-list .stat-label {
+    color: var(--text-secondary);
+}
+.member-stats-list .stat-value {
+    font-weight: 600;
+    color: var(--text-primary);
 }

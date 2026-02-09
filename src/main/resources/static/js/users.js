@@ -33,7 +33,7 @@ async function loadCoaches() {
     try {
         allCoaches = await App.api.get('/coaches');
     } catch (error) {
-        console.error('코치 목록 로드 실패:', error);
+        App.err('코치 목록 로드 실패:', error);
     }
 }
 
@@ -41,16 +41,16 @@ async function loadCoaches() {
 async function loadUsers() {
     try {
         const users = await App.api.get('/users');
-        console.log('=== 전체 사용자 목록 로드 ===');
-        console.log('전체 사용자 수:', users.length);
+        App.log('=== 전체 사용자 목록 로드 ===');
+        App.log('전체 사용자 수:', users.length);
         users.forEach(user => {
-            console.log(`  - ID: ${user.id}, 사용자명: ${user.username}, 이름: ${user.name}, approved: ${user.approved}, active: ${user.active}`);
+            App.log(`  - ID: ${user.id}, 사용자명: ${user.username}, 이름: ${user.name}, approved: ${user.approved}, active: ${user.active}`);
         });
         allUsers = users;
         updatePendingCount();
         applyFilters();
     } catch (error) {
-        console.error('사용자 목록 로드 실패:', error);
+        App.err('사용자 목록 로드 실패:', error);
         App.showNotification('사용자 목록을 불러오는데 실패했습니다.', 'error');
     }
 }
@@ -72,17 +72,17 @@ function updatePendingCount() {
 // 승인 대기 사용자 목록 표시
 async function showPendingUsers() {
     try {
-        console.log('=== 승인 대기 사용자 조회 시작 ===');
+        App.log('=== 승인 대기 사용자 조회 시작 ===');
         const pendingUsers = await App.api.get('/users/pending');
-        console.log('승인 대기 사용자 응답:', pendingUsers);
-        console.log('승인 대기 사용자 수:', pendingUsers.length);
+        App.log('승인 대기 사용자 응답:', pendingUsers);
+        App.log('승인 대기 사용자 수:', pendingUsers.length);
         
         if (pendingUsers.length === 0) {
-            console.log('승인 대기 사용자가 없습니다.');
+            App.log('승인 대기 사용자가 없습니다.');
             // 전체 사용자 목록에서 승인 대기 사용자 확인
-            console.log('전체 사용자 목록 확인:', allUsers);
+            App.log('전체 사용자 목록 확인:', allUsers);
             const pendingInAll = allUsers.filter(user => user.approved === false && user.active === true);
-            console.log('전체 목록에서 승인 대기 사용자:', pendingInAll);
+            App.log('전체 목록에서 승인 대기 사용자:', pendingInAll);
             
             App.showNotification('승인 대기 중인 사용자가 없습니다.', 'info');
             return;
@@ -93,7 +93,7 @@ async function showPendingUsers() {
         renderUsersTable();
         App.showNotification(`승인 대기 사용자 ${pendingUsers.length}명이 표시됩니다.`, 'info');
     } catch (error) {
-        console.error('승인 대기 사용자 로드 실패:', error);
+        App.err('승인 대기 사용자 로드 실패:', error);
         App.showNotification('승인 대기 사용자 목록을 불러오는데 실패했습니다.', 'error');
     }
 }
@@ -213,7 +213,7 @@ function renderUsersTable() {
             btn.onclick = function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-                console.log('수정 버튼 클릭 (이벤트 리스너):', userId);
+                App.log('수정 버튼 클릭 (이벤트 리스너):', userId);
                 editUser(parseInt(userId));
             };
         });
@@ -244,10 +244,10 @@ function updateCoachSelection() {
 
 // 사용자 추가 모달 열기
 function openUserModal(userId = null) {
-    console.log('openUserModal 호출, userId:', userId);
+    App.log('openUserModal 호출, userId:', userId);
     const modal = document.getElementById('userModal');
     if (!modal) {
-        console.error('userModal 요소를 찾을 수 없습니다.');
+        App.err('userModal 요소를 찾을 수 없습니다.');
         App.showNotification('모달을 찾을 수 없습니다.', 'error');
         return;
     }
@@ -266,18 +266,18 @@ function openUserModal(userId = null) {
     
     if (userId) {
         // 수정 모드
-        console.log('수정 모드, userId:', userId, 'allUsers:', allUsers);
+        App.log('수정 모드, userId:', userId, 'allUsers:', allUsers);
         const user = allUsers.find(u => u.id == userId);
         if (!user) {
-            console.error('사용자를 찾을 수 없습니다. userId:', userId);
+            App.err('사용자를 찾을 수 없습니다. userId:', userId);
             App.showNotification('사용자를 찾을 수 없습니다.', 'error');
             return;
         }
         
-        console.log('사용자 정보 로드:', user);
+        App.log('사용자 정보 로드:', user);
         title.textContent = '사용자 수정';
         document.getElementById('user-id').value = user.id;
-        document.getElementById('user-username').value = user.username;
+        document.getElementById('modal-user-username').value = user.username;
         document.getElementById('user-name').value = user.name || '';
         document.getElementById('user-phone').value = user.phoneNumber || '';
         document.getElementById('user-role').value = user.role;
@@ -308,9 +308,9 @@ function openUserModal(userId = null) {
         updateCoachSelection();
     }
     
-    console.log('모달 열기 시도, modal:', modal);
+    App.log('모달 열기 시도, modal:', modal);
     App.Modal.open('userModal');
-    console.log('모달 열기 완료');
+    App.log('모달 열기 완료');
 }
 
 // 사용자 모달 닫기
@@ -329,7 +329,7 @@ async function saveUser() {
     
     const userId = document.getElementById('user-id').value;
     const userData = {
-        username: document.getElementById('user-username').value.trim(),
+        username: document.getElementById('modal-user-username').value.trim(),
         password: document.getElementById('user-password').value,
         name: document.getElementById('user-name').value.trim() || null,
         phoneNumber: document.getElementById('user-phone').value.trim() || null,
@@ -362,7 +362,7 @@ async function saveUser() {
             }
             App.showNotification('사용자 정보가 저장되었습니다.', 'success');
         } catch (error) {
-            console.error('사용자 저장 실패:', error);
+            App.err('사용자 저장 실패:', error);
             const errorMsg = error.response?.data?.error || '사용자 저장에 실패했습니다.';
             App.showNotification(errorMsg, 'error');
             return;
@@ -378,7 +378,7 @@ async function saveUser() {
                 App.showNotification('사용자가 추가되었습니다.', 'success');
             }
         } catch (error) {
-            console.error('사용자 저장 실패:', error);
+            App.err('사용자 저장 실패:', error);
             const errorMsg = error.response?.data?.error || '사용자 저장에 실패했습니다.';
             App.showNotification(errorMsg, 'error');
             return;
@@ -411,7 +411,7 @@ async function updateCoachUserConnection(coachId, userId) {
         // 코치 목록 다시 로드
         await loadCoaches();
     } catch (error) {
-        console.error('코치 연결 업데이트 실패:', error);
+        App.err('코치 연결 업데이트 실패:', error);
         // 코치 연결 실패는 경고만 표시
         App.showNotification('코치 연결 업데이트에 실패했습니다.', 'warning');
     }
@@ -419,14 +419,14 @@ async function updateCoachUserConnection(coachId, userId) {
 
 // 사용자 수정
 function editUser(userId) {
-    console.log('사용자 수정 버튼 클릭:', userId);
+    App.log('사용자 수정 버튼 클릭:', userId);
     const user = allUsers.find(u => u.id == userId);
     if (!user) {
-        console.error('사용자를 찾을 수 없습니다:', userId);
+        App.err('사용자를 찾을 수 없습니다:', userId);
         App.showNotification('사용자를 찾을 수 없습니다.', 'error');
         return;
     }
-    console.log('수정할 사용자 정보:', user);
+    App.log('수정할 사용자 정보:', user);
     openUserModal(userId);
 }
 
@@ -441,7 +441,7 @@ async function approveUser(userId) {
         App.showNotification('사용자가 승인되었습니다.', 'success');
         await loadUsers();
     } catch (error) {
-        console.error('사용자 승인 실패:', error);
+        App.err('사용자 승인 실패:', error);
         const errorMsg = error.response?.data?.error || '사용자 승인에 실패했습니다.';
         App.showNotification(errorMsg, 'error');
     }
@@ -458,7 +458,7 @@ async function rejectUser(userId) {
         App.showNotification('사용자 승인이 거부되었습니다.', 'success');
         await loadUsers();
     } catch (error) {
-        console.error('사용자 승인 거부 실패:', error);
+        App.err('사용자 승인 거부 실패:', error);
         const errorMsg = error.response?.data?.error || '사용자 승인 거부에 실패했습니다.';
         App.showNotification(errorMsg, 'error');
     }
@@ -481,7 +481,7 @@ async function deleteUser(userId) {
         App.showNotification('사용자가 비활성화되었습니다.', 'success');
         loadUsers();
     } catch (error) {
-        console.error('사용자 삭제 실패:', error);
+        App.err('사용자 삭제 실패:', error);
         const errorMsg = error.response?.data?.error || '사용자 삭제에 실패했습니다.';
         App.showNotification(errorMsg, 'error');
     }
@@ -528,7 +528,7 @@ async function changePassword() {
         App.showNotification('비밀번호가 변경되었습니다.', 'success');
         closePasswordModal();
     } catch (error) {
-        console.error('비밀번호 변경 실패:', error);
+        App.err('비밀번호 변경 실패:', error);
         const errorMsg = error.response?.data?.error || '비밀번호 변경에 실패했습니다.';
         App.showNotification(errorMsg, 'error');
     }

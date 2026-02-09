@@ -2,12 +2,13 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>연산점 - 야구 예약 - AFBS 센터</title>
     <link rel="stylesheet" href="/css/common.css">
     <link rel="stylesheet" href="/css/bookings.css">
 </head>
-<body>
+<body class="booking-page">
     <div class="app-container">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -23,25 +24,28 @@
                     <div class="menu-section-title">회원 관리</div>
                     <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
                     <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">출석부</div>
+                    <a href="/attendance.html" class="menu-item menu-item--attendance" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings-without-product.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
                     
                     <!-- 사하점 -->
                     <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item active" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 대관 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
                     <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
-                    
-                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">훈련 관리</div>
@@ -70,35 +74,33 @@
                 <!-- 뷰 전환 버튼 -->
                 <div class="view-controls">
                     <button class="btn btn-secondary active" data-view="calendar" id="btn-calendar">달력</button>
-                    <button class="btn btn-secondary" data-view="list" id="btn-list">목록</button>
+                    <button class="btn btn-secondary" data-view="list" id="btn-list">예약 목록</button>
                     <button class="btn btn-secondary" onclick="openBookingModal()" id="btn-booking-new">예약 등록</button>
                 </div>
                 <!-- 코치 범례 -->
                 <div id="coach-legend" class="coach-legend"></div>
                 
-                <!-- 필터 -->
+                <!-- 필터 (한 행: 왼쪽 필터 컨트롤, 오른쪽 예약 통계) -->
                 <div class="card">
-                    <div class="filter-group" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
-                        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                            <select class="form-control" id="filter-facility" style="width: 200px;">
-                                <option value="">전체 시설</option>
-                                <option value="1">배팅케이지</option>
-                                <option value="2">피칭머신존</option>
-                                <option value="3">실내구장</option>
-                                <option value="4">레슨룸</option>
-                            </select>
-                            <select class="form-control" id="filter-status" style="width: 150px;">
-                                <option value="">전체 상태</option>
-                                <option value="CONFIRMED">확정</option>
-                                <option value="PENDING">대기</option>
-                                <option value="CANCELLED">취소</option>
-                                <option value="COMPLETED">완료</option>
-                            </select>
-                            <input type="date" class="form-control" id="filter-date-start" style="width: 150px;">
-                            <input type="date" class="form-control" id="filter-date-end" style="width: 150px;">
-                            <button class="btn btn-secondary" onclick="applyFilters()">적용</button>
+                    <div class="filter-row">
+                        <div class="filter-row-left">
+                            <div class="filter-group">
+                                <select class="form-control" id="filter-coach" style="width: 110px;">
+                                    <option value="">전체 코치</option>
+                                </select>
+                                <select class="form-control" id="filter-status" style="width: 110px;">
+                                    <option value="">전체 상태</option>
+                                    <option value="CONFIRMED">확정</option>
+                                    <option value="PENDING">대기</option>
+                                    <option value="CANCELLED">취소</option>
+                                    <option value="COMPLETED">완료</option>
+                                </select>
+                                <input type="date" class="form-control" id="filter-date-start" style="width: 130px;">
+                                <input type="date" class="form-control" id="filter-date-end" style="width: 130px;">
+                            </div>
+                            <button class="btn btn-success" id="btn-confirm-all" onclick="confirmAllPendingBookings()" style="display: none;">✅ 전체 확인</button>
                         </div>
-                        <button class="btn btn-success" id="btn-confirm-all" onclick="confirmAllPendingBookings()" style="display: none;">✅ 전체 확인</button>
+                        <div id="bookings-stats-container" class="filter-row-right bookings-stats-inner"></div>
                     </div>
                 </div>
                 
@@ -124,6 +126,7 @@
                                     <th>시설</th>
                                     <th>날짜/시간</th>
                                     <th>회원</th>
+                                    <th>담당 코치</th>
                                     <th>목적</th>
                                     <th>레슨 카테고리</th>
                                     <th>인원</th>
@@ -171,7 +174,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="openNonMemberBookingModal()">비회원 예약</button>
+                <button class="btn btn-primary" onclick="openNonMemberBookingModal()">비회원 예약</button>
                 <button class="btn btn-secondary" onclick="App.Modal.close('member-select-modal')">취소</button>
             </div>
         </div>
@@ -250,12 +253,12 @@
                     <div id="member-select-section">
                         <div class="form-group">
                             <label class="form-label">회원 선택 <span style="color: var(--danger);">*</span></label>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="openMemberSelectModal()" style="width: 100%;">회원 선택</button>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="openMemberSelectModal()" style="width: 100%;">회원 선택</button>
                             <small style="color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px;">회원을 선택하거나 비회원 정보를 입력해주세요</small>
                         </div>
                         <div class="form-group">
                             <label class="form-label">또는</label>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="selectNonMember()" style="width: 100%;">비회원 예약</button>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="selectNonMember()" style="width: 100%;">비회원 예약</button>
                         </div>
                     </div>
                     <div class="form-group">
@@ -423,6 +426,43 @@
             </div>
         </div>
     </div>
+
+    <div class="modal-overlay" id="pending-approval-modal" style="display: none;">
+        <div class="modal" style="max-width: 720px;">
+            <div class="modal-header">
+                <h2 class="modal-title">승인이 완료되지 않은 예약</h2>
+                <button type="button" class="modal-close" onclick="closePendingApprovalModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="bookings-stats-loading" id="pending-approval-loading">로딩 중...</p>
+                <div id="pending-approval-toolbar" style="display: none; margin-bottom: 12px; flex-wrap: wrap; align-items: center; gap: 12px;">
+                    <select id="pending-approval-filter-coach" class="form-control" style="width: 160px;">
+                        <option value="">전체 코치</option>
+                    </select>
+                    <button type="button" class="btn btn-success btn-sm" id="pending-approval-bulk-btn">✅ 일괄 승인</button>
+                </div>
+                <div class="table-container" id="pending-approval-table-wrap" style="display: none; max-height: 360px; overflow-y: auto;">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="pending-approval-select-all" title="전체 선택"></th>
+                                <th>날짜/시간</th>
+                                <th>시설</th>
+                                <th>회원</th>
+                                <th>코치</th>
+                                <th>작업</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pending-approval-tbody"></tbody>
+                    </table>
+                </div>
+                <p id="pending-approval-empty" style="display: none; color: var(--text-muted); margin: 0;">승인 대기 예약이 없습니다.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closePendingApprovalModal()">닫기</button>
+            </div>
+        </div>
+    </div>
     
     <script>
         // 페이지별 설정
@@ -449,6 +489,6 @@
         });
     </script>
     <script src="/js/common.js"></script>
-    <script src="/js/bookings-yeonsan.js"></script>
+    <script src="/js/bookings.js"></script>
 </body>
 </html>

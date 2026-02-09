@@ -41,4 +41,12 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     // 특정 회원의 출석 기록 수 (체크인 완료된 것만, memberProduct가 없는 경우)
     @Query("SELECT COUNT(a) FROM Attendance a WHERE a.member.id = :memberId AND (a.booking.memberProduct IS NULL OR a.booking.memberProduct.id IS NULL) AND a.status = 'PRESENT' AND a.checkInTime IS NOT NULL")
     Long countCheckedInAttendancesWithoutMemberProduct(@Param("memberId") Long memberId);
+    
+    // 체크인은 있지만 체크아웃이 없는 출석 기록 조회
+    @Query("SELECT a FROM Attendance a LEFT JOIN FETCH a.member LEFT JOIN FETCH a.facility LEFT JOIN FETCH a.booking WHERE a.checkInTime IS NOT NULL AND a.checkOutTime IS NULL")
+    List<Attendance> findIncompleteAttendances();
+    
+    // 특정 예약 ID로 출석 기록 조회 (booking과 memberProduct 함께 로드)
+    @Query("SELECT a FROM Attendance a LEFT JOIN FETCH a.booking b LEFT JOIN FETCH b.memberProduct mp LEFT JOIN FETCH mp.product WHERE a.booking.id = :bookingId")
+    java.util.Optional<Attendance> findByBookingId(@Param("bookingId") Long bookingId);
 }

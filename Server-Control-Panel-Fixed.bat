@@ -1,3 +1,3 @@
 @echo off
 cd /d "%~dp0"
-wscript.exe "%~dp0server-control-panel.vbs"
+powershell.exe -ExecutionPolicy Bypass -NoProfile -STA -WindowStyle Hidden -Command "cd '%~dp0'; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; $PSDefaultParameterValues['*:Encoding'] = 'utf8'; $env:JAVA_TOOL_OPTIONS = '-Dfile.encoding=UTF-8'; try { $content = [System.IO.File]::ReadAllText('%~dp0server-control-panel.ps1', [System.Text.Encoding]::UTF8); Invoke-Expression $content } catch { [System.Windows.Forms.MessageBox]::Show('Error: ' + $_.Exception.Message, 'Control Panel Error', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) }"

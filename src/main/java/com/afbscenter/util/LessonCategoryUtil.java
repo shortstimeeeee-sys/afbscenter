@@ -19,7 +19,9 @@ public class LessonCategoryUtil {
         }
         
         String specialties = coach.getSpecialties().toLowerCase();
-        if (specialties.contains("야구") || specialties.contains("baseball")) {
+        if (specialties.contains("유소년") || specialties.contains("youth")) {
+            return LessonCategory.YOUTH_BASEBALL;
+        } else if (specialties.contains("야구") || specialties.contains("baseball")) {
             return LessonCategory.BASEBALL;
         } else if (specialties.contains("필라테스") || specialties.contains("pilates")) {
             return LessonCategory.PILATES;
@@ -42,6 +44,8 @@ public class LessonCategoryUtil {
         switch (category) {
             case BASEBALL:
                 return "야구 레슨";
+            case YOUTH_BASEBALL:
+                return "유소년 야구";
             case PILATES:
                 return "필라테스 레슨";
             case TRAINING:

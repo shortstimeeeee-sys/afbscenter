@@ -3,12 +3,47 @@
 // 매출 추이 필터 기간 (기본값: 일주일)
 window.revenueTrendPeriod = 'week';
 
+// 학교/소속 클릭 시 상세에 쓸 회원 목록 (loadSchoolStats에서 설정)
+let _schoolStatsMembers = [];
+
 document.addEventListener('DOMContentLoaded', function() {
+    buildAnalyticsMonthPicker();
+    buildTopSpendersMonthPicker();
+    updateTopSpendersFilterVisibility();
+    
     document.getElementById('analytics-period').addEventListener('change', function() {
         const isCustom = this.value === 'custom';
         document.getElementById('analytics-start-date').disabled = !isCustom;
         document.getElementById('analytics-end-date').disabled = !isCustom;
+        document.getElementById('analytics-month-picker').value = '';
     });
+    
+    document.getElementById('analytics-month-picker').addEventListener('change', function() {
+        const val = this.value;
+        if (!val) return;
+        const [y, m] = val.split('-').map(Number);
+        const lastDay = new Date(y, m, 0).getDate();
+        document.getElementById('analytics-start-date').value = `${y}-${String(m).padStart(2, '0')}-01`;
+        document.getElementById('analytics-end-date').value = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+        document.getElementById('analytics-period').value = 'custom';
+        document.getElementById('analytics-start-date').disabled = false;
+        document.getElementById('analytics-end-date').disabled = false;
+        loadAnalytics();
+    });
+    document.getElementById('analytics-top-spenders-scope')?.addEventListener('change', function() {
+        updateTopSpendersFilterVisibility();
+        var scope = document.getElementById('analytics-top-spenders-scope')?.value;
+        if (scope === 'period') {
+            var now = new Date();
+            var y = now.getFullYear(), m = now.getMonth() + 1;
+            var lastDay = new Date(y, m, 0).getDate();
+            document.getElementById('analytics-top-spenders-start').value = y + '-' + String(m).padStart(2, '0') + '-01';
+            document.getElementById('analytics-top-spenders-end').value = y + '-' + String(m).padStart(2, '0') + '-' + String(lastDay).padStart(2, '0');
+        }
+        if (scope === 'month' || scope === 'all') loadAnalytics();
+    });
+    document.getElementById('analytics-top-spenders-month')?.addEventListener('change', loadAnalytics);
+    document.getElementById('analytics-top-spenders-apply')?.addEventListener('click', loadAnalytics);
     
     // 매출 추이 필터 버튼 초기 상태 설정 (약간의 지연 후)
     setTimeout(() => {
@@ -18,25 +53,97 @@ document.addEventListener('DOMContentLoaded', function() {
     loadAnalytics();
 });
 
+/** 2026년 1월 ~ 현재월까지 월별 보기 옵션 생성 */
+function buildAnalyticsMonthPicker() {
+    const picker = document.getElementById('analytics-month-picker');
+    if (!picker) return;
+    const startYear = 2026;
+    const now = new Date();
+    const endYear = now.getFullYear();
+    const endMonth = now.getMonth() + 1;
+    let opts = '<option value="">월별 보기</option>';
+    for (let y = startYear; y <= endYear; y++) {
+        const monthEnd = (y === endYear) ? endMonth : 12;
+        for (let m = 1; m <= monthEnd; m++) {
+            const v = `${y}-${String(m).padStart(2, '0')}`;
+            opts += `<option value="${v}">${y}년 ${m}월</option>`;
+        }
+    }
+    picker.innerHTML = opts;
+}
+
+/** 개인 결제 TOP: 해당 월 선택 옵션 (2026년 1월 ~ 현재월) */
+function buildTopSpendersMonthPicker() {
+    const sel = document.getElementById('analytics-top-spenders-month');
+    if (!sel) return;
+    const startYear = 2026;
+    const now = new Date();
+    const endYear = now.getFullYear();
+    const endMonth = now.getMonth() + 1;
+    const currentVal = `${endYear}-${String(endMonth).padStart(2, '0')}`;
+    let opts = '';
+    for (let y = startYear; y <= endYear; y++) {
+        const monthEnd = (y === endYear) ? endMonth : 12;
+        for (let m = 1; m <= monthEnd; m++) {
+            const v = `${y}-${String(m).padStart(2, '0')}`;
+            opts += `<option value="${v}"${v === currentVal ? ' selected' : ''}>${y}년 ${m}월</option>`;
+        }
+    }
+    sel.innerHTML = opts;
+}
+
+/** 개인 결제 TOP: scope에 따라 월/기간 UI 표시 */
+function updateTopSpendersFilterVisibility() {
+    const scope = document.getElementById('analytics-top-spenders-scope')?.value || 'all';
+    const monthWrap = document.getElementById('analytics-top-spenders-month-wrap');
+    const periodWrap = document.getElementById('analytics-top-spenders-period-wrap');
+    const applyBtn = document.getElementById('analytics-top-spenders-apply');
+    if (monthWrap) monthWrap.style.display = scope === 'month' ? 'inline' : 'none';
+    if (periodWrap) periodWrap.style.display = scope === 'period' ? 'inline' : 'none';
+    if (applyBtn) applyBtn.style.display = scope === 'period' ? 'inline-block' : 'none';
+}
+
 async function loadAnalytics() {
     const period = document.getElementById('analytics-period').value;
-    const startDate = document.getElementById('analytics-start-date').value;
-    const endDate = document.getElementById('analytics-end-date').value;
+    let startDate = document.getElementById('analytics-start-date').value;
+    let endDate = document.getElementById('analytics-end-date').value;
     
     try {
         const params = new URLSearchParams();
-        if (period === 'custom') {
+        if (period === 'all') {
+            const now = new Date();
+            const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            startDate = '2026-01-01';
+            endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+            params.append('period', 'custom');
+            params.append('startDate', startDate);
+            params.append('endDate', endDate);
+        } else if (period === 'custom') {
             if (startDate) params.append('startDate', startDate);
             if (endDate) params.append('endDate', endDate);
         } else {
             params.append('period', period);
         }
+        const topSpendersScopeEl = document.getElementById('analytics-top-spenders-scope');
+        const topSpendersScope = topSpendersScopeEl ? topSpendersScopeEl.value : 'all';
+        params.append('topSpendersScope', topSpendersScope);
+        if (topSpendersScope === 'month') {
+            const monthEl = document.getElementById('analytics-top-spenders-month');
+            if (monthEl && monthEl.value) params.append('topSpendersMonth', monthEl.value);
+        } else if (topSpendersScope === 'period') {
+            const startEl = document.getElementById('analytics-top-spenders-start');
+            const endEl = document.getElementById('analytics-top-spenders-end');
+            if (startEl && endEl && startEl.value && endEl.value) {
+                params.append('topSpendersStartDate', startEl.value);
+                params.append('topSpendersEndDate', endEl.value);
+            }
+        }
         
         const analytics = await App.api.get(`/analytics?${params}`);
         
-        console.log('Analytics 데이터 로드:', analytics);
-        console.log('매출 지표 데이터:', analytics.revenue);
-        console.log('카테고리별 매출:', analytics.revenue?.byCategory);
+        App.log('Analytics 데이터 로드:', analytics);
+        App.log('매출 지표 데이터:', analytics.revenue);
+        App.log('카테고리별 매출:', analytics.revenue?.byCategory);
         
         // 기간 정보 저장 (전역 변수로)
         window.currentAnalyticsPeriod = period;
@@ -45,7 +152,7 @@ async function loadAnalytics() {
         // 매출 추이 차트는 독립적으로 유지 (페이지 필터 변경 시에도 덮어쓰지 않음)
         renderAnalytics(analytics);
     } catch (error) {
-        console.error('통계 데이터 로드 실패:', error);
+        App.err('통계 데이터 로드 실패:', error);
     }
 }
 
@@ -54,9 +161,11 @@ function renderAnalytics(data) {
     const period = window.currentAnalyticsPeriod || 'month';
     const periodLabels = {
         'day': '일별',
+        'today': '일별',
         'week': '주별',
         'month': '월별',
-        'year': '년별',
+        'year': '전체',
+        'all': '현재까지',
         'custom': '기간 선택'
     };
     
@@ -77,6 +186,9 @@ function renderAnalytics(data) {
     }
     
     const periodLabel = periodLabels[period] || '월별';
+    if (period === 'all' && !monthLabel && data.operational?.periodStart) {
+        monthLabel = '2026년 1월 ~ ' + (data.operational.periodEnd ? data.operational.periodEnd.replace(/-/g,'.').slice(0,7) : '현재');
+    }
     
     // 취소율 및 노쇼율 데이터 추출
     const cancelRate = data.operational?.cancelRate ? (data.operational.cancelRate * 100) : 0;
@@ -110,11 +222,11 @@ function renderAnalytics(data) {
     renderFacilityUtilizationChart('facility-utilization-chart', data.operational?.facilityUtilization || [], data.operational?.periodDays || 0, periodLabel, monthLabel);
     
     // 매출 지표 렌더링 (상세 정보 포함)
-    console.log('매출 지표 렌더링 - byCategory:', data.revenue?.byCategory);
-    console.log('매출 지표 렌더링 - byProduct:', data.revenue?.byProduct);
-    console.log('매출 지표 렌더링 - trend:', data.revenue?.trend);
+    App.log('매출 지표 렌더링 - byCategory:', data.revenue?.byCategory);
+    App.log('매출 지표 렌더링 - byProduct:', data.revenue?.byProduct);
+    App.log('매출 지표 렌더링 - trend:', data.revenue?.trend);
     
-    renderRevenueChart('category-revenue-chart', data.revenue?.byCategory || [], data.revenue?.byProduct || [], data.revenue?.byCoach || [], monthLabel, data.revenue || {});
+    renderRevenueChart('category-revenue-chart', data.revenue?.byCategory || [], data.revenue?.byProduct || [], data.revenue?.byCoach || [], monthLabel, data.revenue || {}, periodLabel);
     
     // 매출 추이 차트는 별도 기간으로 로드 (초기 로드 시에만, 또는 필터 버튼 클릭 시)
     // 페이지 전체 기간 필터가 변경되어도 매출 추이 차트는 독립적으로 유지
@@ -174,6 +286,9 @@ function renderAnalytics(data) {
     // 신규/이탈 추이 차트
     renderMemberTrendChart('member-trend-chart', memberMetrics.trend || []);
     
+    // 개인 결제 TOP (scope: all=전체 누적, month=해당 월, period=기간)
+    renderMemberTopSpenders('member-top-spenders', memberMetrics.topSpenders || [], memberMetrics.topSpendersScope || 'all');
+    
     // 클릭 가능하게 설정
     const activeMembersEl = document.getElementById('active-members');
     activeMembersEl.style.cursor = 'pointer';
@@ -205,7 +320,7 @@ function renderFacilityUtilizationChart(containerId, data, periodDays, periodLab
     }
     
     container.innerHTML = `
-        <!-- 시설별 가동률 카드 -->
+        <div class="metric-content-subtitle">시간대별 예약·사용률 (운영시간 기준)</div>
         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; width: 100%;">
             ${sortedData.map((item, index) => {
                 const usedDays = item.usedDays || 0;
@@ -214,10 +329,46 @@ function renderFacilityUtilizationChart(containerId, data, periodDays, periodLab
                 const totalHours = item.totalHours || 0;
                 const availableHours = item.availableHours || 0;
                 const utilizationRate = item.value || 0;
+                const rentalCount = item.rentalCount || 0;
+                const rentalCompletedCount = item.rentalCompletedCount != null ? Number(item.rentalCompletedCount) : 0;
+                const rentalHours = item.rentalHours != null ? Number(item.rentalHours) : 0;
                 const hourlyStats = item.hourlyStats || [];
+                const openHour = item.openHour != null ? item.openHour : 0;
+                const closeHour = item.closeHour != null ? item.closeHour : 23;
+                // 08·23 제외, 그 사이 시간만 표시 (09~22)
+                const operatingHours = [];
+                if (closeHour >= openHour && closeHour - openHour >= 2) {
+                    for (let h = openHour + 1; h < closeHour; h++) operatingHours.push(h);
+                } else if (closeHour >= openHour) {
+                    for (let h = openHour; h <= closeHour; h++) operatingHours.push(h);
+                } else {
+                    for (let h = openHour + 1; h <= 23; h++) operatingHours.push(h);
+                    for (let h = 0; h < closeHour; h++) operatingHours.push(h);
+                }
                 
-                // 시간대별 그래프 데이터
                 const maxMinutes = hourlyStats.length > 0 ? Math.max(...hourlyStats.map(h => h.minutes || 0)) : 0;
+                const maxCountInRange = operatingHours.length > 0 ? Math.max(...operatingHours.map(h => (hourlyStats.find(x => x.hour === h) || {}).count || 0)) : 0;
+                const totalCountInRange = operatingHours.reduce((s, h) => s + ((hourlyStats.find(x => x.hour === h) || {}).count || 0), 0);
+                const avgCountInRange = operatingHours.length > 0 ? totalCountInRange / operatingHours.length : 0;
+                const barHeight = 48;
+                function renderHourBar(hour) {
+                    const hourData = hourlyStats.find(h => h.hour === hour);
+                    const minutes = hourData ? (hourData.minutes || 0) : 0;
+                    const count = hourData ? (hourData.count || 0) : 0;
+                    const isMaxHour = maxCountInRange > 0 && count === maxCountInRange;
+                    const aboveAvg = avgCountInRange > 0 && count >= avgCountInRange;
+                    const belowAvg = avgCountInRange > 0 && count < avgCountInRange;
+                    let pct = 0;
+                    if (maxMinutes > 0) pct = (minutes / maxMinutes * 100);
+                    else if (count > 0) pct = 12;
+                    const minPct = (count > 0 || minutes > 0) ? 8 : 0;
+                    const finalPct = Math.max(pct, minPct);
+                    const barColor = isMaxHour ? '#f0c000' : (aboveAvg ? 'var(--success)' : belowAvg ? 'var(--danger)' : 'var(--accent-primary)');
+                    const textColor = isMaxHour ? '#f0c000' : (aboveAvg ? 'var(--success)' : belowAvg ? 'var(--danger)' : 'var(--text-secondary)');
+                    const timeColor = isMaxHour ? '#f0c000' : (aboveAvg ? 'var(--success)' : belowAvg ? 'var(--danger)' : 'var(--text-muted)');
+                    return `<div class="hour-bar-cell" style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;cursor:pointer;min-height:${barHeight}px" onclick="showHourlyDetail(${hour},${count},${minutes})" title="${String(hour).padStart(2,'0')}:00 · ${count}회 예약"><div style="font-size:9px;color:${textColor};margin-bottom:2px;font-weight:${isMaxHour ? '700' : '400'}">${count > 0 ? count + '회' : '-'}</div><div style="width:48%;max-width:20px;height:${finalPct}%;min-height:${(count || minutes) ? '6' : '0'}px;background:${barColor};border-radius:2px 2px 0 0;opacity:${(count || minutes) ? '1' : '0.2'}"></div><div style="font-size:10px;color:${timeColor};margin-top:4px;font-weight:${isMaxHour ? '700' : '400'}">${String(hour).padStart(2,'0')}:00</div></div>`;
+                }
+                const hourBarsHtml = operatingHours.map(renderHourBar).join('');
                 
                 return `
                 <div style="border: 1px solid var(--border-color); border-radius: 12px; padding: 18px; background-color: var(--bg-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: all 0.2s; position: relative; overflow: hidden; width: 100%; box-sizing: border-box;" 
@@ -250,41 +401,59 @@ function renderFacilityUtilizationChart(containerId, data, periodDays, periodLab
                         </div>
                     </div>
                     
-                    <!-- 통계 정보 카드 (2x2 그리드) -->
+                    <!-- 통계 정보 카드: 총 운영 시간|예약 있는 일수 / 예약/훈련|실제 사용 시간 / 대관 발생|대관 사용 시간 -->
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 14px;">
-                        <div style="padding: 13px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color); transition: all 0.2s; min-width: 0;"
-                             onmouseover="this.style.background='var(--bg-primary)'; this.style.borderColor='var(--accent-primary)'"
-                             onmouseout="this.style.background='var(--bg-hover)'; this.style.borderColor='var(--border-color)'">
-                            <div style="font-size: 9px; color: var(--text-muted); margin-bottom: 6px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;">사용 일수</div>
-                            <div style="font-size: 20px; font-weight: 800; color: var(--text-primary); line-height: 1.2;">
-                                <span style="color: var(--accent-primary);">${usedDays}</span>
-                                <span style="font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-left: 3px;">/ ${totalDays}일</span>
-                            </div>
-                        </div>
-                        <div style="padding: 13px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color); transition: all 0.2s; min-width: 0;"
-                             onmouseover="this.style.background='var(--bg-primary)'; this.style.borderColor='var(--accent-primary)'"
-                             onmouseout="this.style.background='var(--bg-hover)'; this.style.borderColor='var(--border-color)'">
-                            <div style="font-size: 9px; color: var(--text-muted); margin-bottom: 6px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;">예약/훈련</div>
-                            <div style="font-size: 20px; font-weight: 800; color: var(--text-primary); line-height: 1.2;">
-                                <span style="color: var(--accent-primary);">${bookingCount}</span>
-                                <span style="font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-left: 3px;">회</span>
-                            </div>
-                        </div>
-                        <div style="padding: 13px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color); transition: all 0.2s; min-width: 0;"
-                             onmouseover="this.style.background='var(--bg-primary)'; this.style.borderColor='var(--accent-primary)'"
-                             onmouseout="this.style.background='var(--bg-hover)'; this.style.borderColor='var(--border-color)'">
-                            <div style="font-size: 9px; color: var(--text-muted); margin-bottom: 6px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;">총 운영 시간</div>
-                            <div style="font-size: 20px; font-weight: 800; color: var(--text-primary); line-height: 1.2;">
-                                <span>${availableHours.toFixed(1)}</span>
+                        <div style="padding: 13px; background: linear-gradient(135deg, rgba(255, 193, 7, 0.12) 0%, var(--bg-hover) 100%); border-radius: 8px; border: 1px solid var(--border-color); border-left: 3px solid var(--warning); transition: all 0.2s; min-width: 0;"
+                             onmouseover="this.style.background='linear-gradient(135deg, rgba(255, 193, 7, 0.18) 0%, var(--bg-primary) 100%)'; this.style.borderColor='var(--accent-primary)'"
+                             onmouseout="this.style.background='linear-gradient(135deg, rgba(255, 193, 7, 0.12) 0%, var(--bg-hover) 100%)'; this.style.borderColor='var(--border-color)'">
+                            <div style="font-size: 12px; color: var(--success); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">총 운영 시간</div>
+                            <div style="font-size: 20px; font-weight: 800; line-height: 1.2;">
+                                <span style="color: #fff;">${availableHours.toFixed(1)}</span>
                                 <span style="font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-left: 3px;">시간</span>
                             </div>
                         </div>
                         <div style="padding: 13px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color); transition: all 0.2s; min-width: 0;"
                              onmouseover="this.style.background='var(--bg-primary)'; this.style.borderColor='var(--accent-primary)'"
                              onmouseout="this.style.background='var(--bg-hover)'; this.style.borderColor='var(--border-color)'">
-                            <div style="font-size: 9px; color: var(--text-muted); margin-bottom: 6px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;">실제 사용 시간</div>
-                            <div style="font-size: 20px; font-weight: 800; color: var(--accent-primary); line-height: 1.2;">
-                                <span>${totalHours.toFixed(1)}</span>
+                            <div style="font-size: 12px; color: var(--success); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;" title="기간 중 예약이 1건이라도 있었던 날의 수">예약 있는 일수</div>
+                            <div style="font-size: 20px; font-weight: 800; line-height: 1.2;">
+                                <span style="color: #fff;">${usedDays}</span>
+                                <span style="font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-left: 3px;">/ ${totalDays}일</span>
+                            </div>
+                        </div>
+                        <div style="padding: 13px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color); transition: all 0.2s; min-width: 0;"
+                             onmouseover="this.style.background='var(--bg-primary)'; this.style.borderColor='var(--accent-primary)'"
+                             onmouseout="this.style.background='var(--bg-hover)'; this.style.borderColor='var(--border-color)'">
+                            <div style="font-size: 12px; color: var(--success); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">예약/훈련</div>
+                            <div style="font-size: 20px; font-weight: 800; line-height: 1.2;">
+                                <span style="color: #fff;">${bookingCount}</span>
+                                <span style="font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-left: 3px;">회</span>
+                            </div>
+                        </div>
+                        <div style="padding: 13px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color); transition: all 0.2s; min-width: 0;"
+                             onmouseover="this.style.background='var(--bg-primary)'; this.style.borderColor='var(--accent-primary)'"
+                             onmouseout="this.style.background='var(--bg-hover)'; this.style.borderColor='var(--border-color)'">
+                            <div style="font-size: 12px; color: var(--success); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">실제 사용 시간</div>
+                            <div style="font-size: 20px; font-weight: 800; line-height: 1.2;">
+                                <span style="color: #fff;">${totalHours.toFixed(1)}</span>
+                                <span style="font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-left: 3px;">시간</span>
+                            </div>
+                        </div>
+                        <div style="padding: 13px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color); transition: all 0.2s; min-width: 0;"
+                             onmouseover="this.style.background='var(--bg-primary)'; this.style.borderColor='var(--accent-primary)'"
+                             onmouseout="this.style.background='var(--bg-hover)'; this.style.borderColor='var(--border-color)'">
+                            <div style="font-size: 12px; color: var(--success); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">대관 발생</div>
+                            <div style="font-size: 16px; font-weight: 800; line-height: 1.4;">
+                                <div><span style="color: #fff;">${rentalCount}</span><span style="font-size: 11px; font-weight: 500; color: var(--text-secondary); margin-left: 2px;">확정</span></div>
+                                <div style="margin-top: 2px;"><span style="color: #fff;">${rentalCompletedCount}</span><span style="font-size: 11px; font-weight: 500; color: var(--text-secondary); margin-left: 2px;">완료</span></div>
+                            </div>
+                        </div>
+                        <div style="padding: 13px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color); transition: all 0.2s; min-width: 0;"
+                             onmouseover="this.style.background='var(--bg-primary)'; this.style.borderColor='var(--accent-primary)'"
+                             onmouseout="this.style.background='var(--bg-hover)'; this.style.borderColor='var(--border-color)'">
+                            <div style="font-size: 12px; color: var(--success); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">대관 사용 시간</div>
+                            <div style="font-size: 20px; font-weight: 800; line-height: 1.2;">
+                                <span style="color: #fff;">${rentalHours.toFixed(1)}</span>
                                 <span style="font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-left: 3px;">시간</span>
                             </div>
                         </div>
@@ -293,61 +462,39 @@ function renderFacilityUtilizationChart(containerId, data, periodDays, periodLab
                     <!-- 시간대별 운영 현황 -->
                     ${hourlyStats.length > 0 ? `
                     <div style="padding-top: 20px; border-top: 2px solid var(--border-color);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-                            <div style="font-size: 12px; color: var(--text-primary); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">⏰ 시간대별 운영 현황</div>
-                            <div style="font-size: 9px; color: var(--text-muted);">24시간 기준</div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <div style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">시간대별 운영 현황</div>
+                            <div style="font-size: 10px; color: var(--success); font-weight: 600;">${operatingHours.length > 0 ? ('운영 시간 : ' + String(operatingHours[0]).padStart(2, '0') + '~' + String(operatingHours[operatingHours.length - 1]).padStart(2, '0') + '시') : ''}</div>
+                        </div>
+                        <div style="margin-bottom: 14px; padding: 14px 12px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color); max-width: 100%; overflow-x: auto;">
+                            <div style="display: grid; grid-template-columns: repeat(${operatingHours.length}, minmax(28px, 1fr)); gap: 6px 8px; min-height: ${barHeight + 28}px;">
+                                ${hourBarsHtml}
+                            </div>
                         </div>
                         
-                        <!-- 시간대별 그래프 -->
-                        <div style="display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; height: 90px; margin-bottom: 14px; padding: 8px; background: linear-gradient(135deg, var(--bg-hover) 0%, var(--bg-primary) 100%); border-radius: 8px; border: 1px solid var(--border-color);">
-                            ${Array.from({length: 24}, (_, hour) => {
-                                const hourData = hourlyStats.find(h => h.hour === hour);
-                                const minutes = hourData ? (hourData.minutes || 0) : 0;
-                                const count = hourData ? (hourData.count || 0) : 0;
-                                
-                                // 높이 계산: maxMinutes가 0보다 크면 비율 계산, 아니면 count 기준으로 최소 높이 보장
-                                let height = 0;
-                                if (maxMinutes > 0) {
-                                    height = (minutes / maxMinutes * 100);
-                                } else if (count > 0) {
-                                    // maxMinutes가 0이지만 count가 있으면 최소 높이 보장
-                                    height = 10; // 최소 10%
-                                }
-                                
-                                // 최소 높이 보장 (데이터가 있으면 최소 8px)
-                                const minHeightPx = (count > 0 || minutes > 0) ? 8 : 0;
-                                const finalHeight = Math.max(height, minHeightPx > 0 ? (minHeightPx / 90 * 100) : 0);
-                                
-                                return `
-                                <div style="display: flex; flex-direction: column; align-items: center; justify-content: flex-end; position: relative; cursor: pointer;" 
-                                     onclick="showHourlyDetail(${hour}, ${count}, ${minutes})"
-                                     onmouseover="this.style.transform='scale(1.2)'; this.style.zIndex='10';"
-                                     onmouseout="this.style.transform='scale(1)'; this.style.zIndex='1';"
-                                     title="${String(hour).padStart(2, '0')}:00 - ${count}회 예약, ${(minutes/60).toFixed(1)}시간 운영">
-                                    <div style="width: 100%; height: ${finalHeight}%; min-height: ${minHeightPx}px; background: linear-gradient(180deg, var(--accent-primary) 0%, rgba(94, 106, 210, 0.85) 100%); border-radius: 2px 2px 0 0; transition: all 0.2s; position: relative; box-shadow: 0 -1px 3px rgba(0,0,0,0.1);">
-                                        ${finalHeight > 15 ? `<div style="position: absolute; top: -22px; left: 50%; transform: translateX(-50%); font-size: 8px; color: var(--text-primary); white-space: nowrap; background-color: var(--bg-primary); padding: 3px 5px; border-radius: 4px; border: 1px solid var(--border-color); opacity: 0; transition: opacity 0.2s; pointer-events: none; box-shadow: 0 2px 4px rgba(0,0,0,0.1); font-weight: 600;" class="hour-tooltip">${count}회</div>` : ''}
-                                        ${count > 0 && finalHeight <= 15 ? `<div style="position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 7px; color: var(--accent-primary); white-space: nowrap; font-weight: 700; pointer-events: none;">${count}회</div>` : ''}
-                                    </div>
-                                    <div style="font-size: 8px; color: var(--text-muted); margin-top: 4px; font-weight: 600;">${String(hour).padStart(2, '0')}</div>
-                                </div>
-                                `;
-                            }).join('')}
-                        </div>
-                        
-                        <!-- 상위 시간대 정보 -->
                         ${hourlyStats.length > 0 ? `
-                        <div style="padding: 12px 14px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color);">
-                            <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">🏆 상위 운영 시간대</div>
-                            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                                ${hourlyStats.sort((a, b) => (b.minutes || 0) - (a.minutes || 0)).slice(0, 5).map((h, idx) => 
-                                    `<div style="padding: 6px 10px; background-color: var(--bg-primary); border-radius: 6px; border: 1px solid var(--border-color); font-size: 10px; line-height: 1.4; transition: all 0.2s;"
-                                          onmouseover="this.style.borderColor='var(--accent-primary)'; this.style.transform='translateY(-1px)'"
-                                          onmouseout="this.style.borderColor='var(--border-color)'; this.style.transform='translateY(0)'">
-                                        <span style="color: var(--accent-primary); font-weight: 800;">${idx + 1}위</span> 
-                                        <span style="color: var(--text-primary); font-weight: 700;">${h.label}</span> 
-                                        <span style="color: var(--text-secondary);">(${(h.minutes/60).toFixed(1)}h, ${h.count}회)</span>
-                                    </div>`
-                                ).join('')}
+                        <div style="margin-bottom: 8px; padding-top: 8px; border-top: 1px solid var(--border-color);">
+                            <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 600;">상위 시간대</div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                ${(function() {
+                                    const totalCount = hourlyStats.reduce((s, x) => s + (x.count || 0), 0);
+                                    const top5 = [...hourlyStats].sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 5);
+                                    return top5.map((h) => {
+                                        const pct = totalCount > 0 ? ((h.count || 0) / totalCount * 100) : 0;
+                                        const count = h.count || 0;
+                                        const isMaxHour = maxCountInRange > 0 && count === maxCountInRange;
+                                        const aboveAvg = avgCountInRange > 0 && count >= avgCountInRange;
+                                        const belowAvg = avgCountInRange > 0 && count < avgCountInRange;
+                                        const bg = isMaxHour ? 'linear-gradient(135deg, rgba(255, 215, 0, 0.28) 0%, rgba(255, 215, 0, 0.1) 50%, rgba(255, 215, 0, 0.05) 100%)' : 'transparent';
+                                        const borderLeft = isMaxHour ? '3px solid #f0c000' : aboveAvg ? '3px solid var(--success)' : belowAvg ? '3px solid var(--danger)' : '3px solid var(--border-color)';
+                                        const accentColor = isMaxHour ? '#f0c000' : (aboveAvg ? 'var(--success)' : belowAvg ? 'var(--danger)' : 'var(--accent-primary)');
+                                        return `<div style="padding: 4px 8px; background: ${bg}; border-radius: 4px; border: 1px solid var(--border-color); border-left: ${borderLeft}; font-size: 9px;">
+                                        <span style="color: ${accentColor}; font-weight: 600;">${h.label}</span>
+                                        <span style="color: ${accentColor}; margin-left: 4px;">${count}회</span>
+                                        <span style="color: var(--text-muted); margin-left: 4px;">(${pct.toFixed(1)}%)</span>
+                                    </div>`;
+                                    }).join('');
+                                })()}
                             </div>
                         </div>
                         ` : ''}
@@ -380,7 +527,7 @@ function showHourlyDetail(hour, count, minutes) {
 }
 
 // 매출 지표 차트 렌더링 (상세 정보 포함, 간소화)
-function renderRevenueChart(containerId, categoryData, productData, coachData, monthLabel = '', revenueMetrics = {}) {
+function renderRevenueChart(containerId, categoryData, productData, coachData, monthLabel = '', revenueMetrics = {}, periodLabel = '월별') {
     const container = document.getElementById(containerId);
     if (!categoryData || categoryData.length === 0) {
         container.innerHTML = '<p style="color: var(--text-muted);">데이터가 없습니다.</p>';
@@ -402,12 +549,15 @@ function renderRevenueChart(containerId, categoryData, productData, coachData, m
         bestDateLabel = `${month}월 ${day}일`;
     }
     
+    const bestRevenueTitle = (periodLabel || '월별') + ' 최고 매출일';
+    
     container.innerHTML = `
+        <div class="metric-content-subtitle">기간 내 카테고리별 매출</div>
         ${bestRevenueDate ? `
-        <div style="margin-bottom: 12px; padding: 10px; background: linear-gradient(135deg, var(--accent-primary)15, var(--bg-hover)); border-radius: 8px; border: 1px solid var(--border-color); flex-shrink: 0;">
+        <div style="margin-bottom: 12px; padding: 10px; background: linear-gradient(135deg, rgba(255, 193, 7, 0.12) 0%, var(--bg-hover) 100%); border-radius: 8px; border: 1px solid var(--border-color); border-left: 3px solid var(--warning); flex-shrink: 0;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="font-size: 11px; color: var(--text-secondary); font-weight: 600;">최고 매출일</div>
-                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);">${bestDateLabel} <span style="color: var(--accent-primary);">${App.formatCurrency(bestRevenueAmount)}</span></div>
+                <div style="font-size: 12px; color: var(--success); font-weight: 600;">${bestRevenueTitle}</div>
+                <div style="font-size: 13px; font-weight: 700;"><span style="color: #f0c000;">${App.formatCurrency(bestRevenueAmount)}</span> <span style="color: #fff; font-size: 9px;">(${bestDateLabel})</span></div>
             </div>
             <div style="margin-top: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: var(--text-secondary);">
                 <span>평균 일일: <strong style="color: var(--text-primary);">${App.formatCurrency(Math.round(avgDailyRevenue))}</strong></span>
@@ -576,7 +726,7 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
         // 매출 추이를 그래프로 표시 (평균선, 전월 비교, 최고/최저, 성장률, 누적 매출 포함)
         const maxValue = Math.max(...data.map(item => Math.max(item.value || 0, item.prevValue || 0, item.cumulative || 0)), 1);
         const chartHeight = 250;
-        const paddingTop = 30;
+        const paddingTop = 42;
         const paddingBottom = 40;
         const chartAreaHeight = chartHeight - paddingTop - paddingBottom;
         
@@ -584,17 +734,22 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
         const trendMaxDate = revenueMetrics.trendMaxDate;
         const trendMaxValue = revenueMetrics.trendMaxValue || 0;
         const trendMinDate = revenueMetrics.trendMinDate;
-        const trendMinValue = revenueMetrics.trendMinValue || 0;
+        const trendMinValue = revenueMetrics.trendMinValue;
         const weekdayPattern = revenueMetrics.weekdayPattern || [];
+        const maxWeekdayAvg = weekdayPattern.length ? Math.max(...weekdayPattern.map(d => d.avgRevenue || 0)) : 0;
+        const minWeekdayAvg = weekdayPattern.length ? Math.min(...weekdayPattern.map(d => d.avgRevenue || 0)) : 0;
         
         // 평균선 Y 위치
         const avgY = paddingTop + chartAreaHeight - (trendAvg / maxValue) * chartAreaHeight;
         
         // 누적 매출 최대값 (별도 스케일)
         const maxCumulative = Math.max(...data.map(item => item.cumulative || 0), 1);
+        // 데이터 많을 때 글자 잘리지 않도록 최소 너비 보장 (가로 스크롤로 전부 보임)
+        const chartMinWidth = Math.max(380, data.length * 32);
         
         container.innerHTML = `
-            <div style="position: relative; height: ${chartHeight}px; padding: 16px 0; flex-shrink: 0;">
+            <div class="metric-content-subtitle">일별·한달 매출 추이</div>
+            <div style="min-width: ${chartMinWidth}px; position: relative; height: ${chartHeight}px; padding: 24px 28px 16px; flex-shrink: 0; overflow: visible;">
                 <svg width="100%" height="${chartHeight}" style="overflow: visible;">
                     <!-- 배경 그리드 -->
                     <defs>
@@ -616,28 +771,19 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
                         stroke-dasharray="5,5"
                         opacity="0.7"
                     />
-                    <text 
-                        x="5" 
-                        y="${avgY - 3}" 
-                        font-size="9" 
-                        fill="var(--warning)"
-                        font-weight="600"
-                    >평균: ${App.formatCurrency(Math.round(trendAvg))}</text>
                     ` : ''}
                     
                     ${data.map((item, index) => {
-                        const x = (index / Math.max(data.length - 1, 1)) * 100;
                         // 데이터 개수에 따라 막대 폭 조정 (일주일일 때 더 좁게)
-                        // 일주일 필터는 8일 데이터를 반환하므로 (오늘 포함 7일 전부터)
                         const isWeekView = window.revenueTrendPeriod === 'week' || data.length <= 8;
                         let barWidth;
                         if (isWeekView) {
-                            // 일주일 이하: 더 좁은 막대 (약 4-5%)
-                            barWidth = Math.max(100 / data.length - 8, 4);
+                            barWidth = Math.max(100 / data.length - 10, 4);
                         } else {
-                            // 한달 이상: 기존 방식 유지
-                            barWidth = Math.max(100 / data.length - 2, 3);
+                            barWidth = Math.max(100 / data.length - 5, 2.5);
                         }
+                        // 마지막 막대가 잘리지 않도록 0~(100-barWidth) 구간에 배치
+                        const x = (index / Math.max(data.length - 1, 1)) * (100 - barWidth);
                         const value = item.value || 0;
                         const prevValue = item.prevValue || 0;
                         const cumulative = item.cumulative || 0;
@@ -655,10 +801,16 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
                         
                         const isMax = item.isMax;
                         const isMin = item.isMin;
-                        const barColor = isMax ? 'var(--success)' : isMin ? 'var(--danger)' : 'var(--accent-primary)';
+                        // 최고 → 노란 고정, + 성장률 → 초록, - 성장률 → 빨강, 그외 accent/최저
+                        const barColor = isMax ? '#f0c000' : (index > 0 && growthRate > 0 ? 'var(--success)' : index > 0 && growthRate < 0 ? 'var(--danger)' : (isMin ? 'var(--danger)' : 'var(--accent-primary)'));
                         
-                        // 날짜 포맷팅
-                        const dateLabel = item.label ? item.label.split('-').slice(1).join('/') : '';
+                        // 날짜 포맷팅 (MM/DD + 요일)
+                        const weekdays = ['일','월','화','수','목','금','토'];
+                        const dateLabel = item.label ? (() => {
+                            const mmdd = item.label.split('-').slice(1).join('/');
+                            const dayNum = new Date(item.label + 'T12:00:00').getDay();
+                            return `${mmdd} (${weekdays[dayNum]})`;
+                        })() : '';
                         
                         return `
                             <g>
@@ -667,7 +819,7 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
                                 <line 
                                     x1="${x + barWidth/2}%" 
                                     y1="${prevY}" 
-                                    x2="${index < data.length - 1 ? ((index + 1) / Math.max(data.length - 1, 1) * 100 + barWidth/2) + '%' : x + barWidth/2 + '%'}" 
+                                    x2="${index < data.length - 1 ? ((index + 1) / Math.max(data.length - 1, 1) * (100 - barWidth) + barWidth/2) + '%' : x + barWidth/2 + '%'}" 
                                     y2="${index < data.length - 1 ? (paddingTop + chartAreaHeight - ((data[index + 1].prevValue || 0) / maxValue) * chartAreaHeight) : prevY}" 
                                     stroke="var(--text-muted)" 
                                     stroke-width="1.5" 
@@ -679,7 +831,7 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
                                 <!-- 누적 매출선 (점선) -->
                                 ${index > 0 ? `
                                 <line 
-                                    x1="${((index - 1) / Math.max(data.length - 1, 1) * 100 + barWidth/2)}%" 
+                                    x1="${((index - 1) / Math.max(data.length - 1, 1) * (100 - barWidth) + barWidth/2)}%" 
                                     y1="${paddingTop + chartAreaHeight - ((data[index - 1].cumulative || 0) / maxCumulative) * chartAreaHeight}" 
                                     x2="${x + barWidth/2}%" 
                                     y2="${cumulativeY}" 
@@ -702,7 +854,7 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
                                     onmouseover="this.style.opacity='0.8'; this.setAttribute('y', ${y - 2}); this.setAttribute('height', ${height + 4});"
                                     onmouseout="this.style.opacity='1'; this.setAttribute('y', ${y}); this.setAttribute('height', ${height});"
                                     onclick="openDetailModal('${containerId}', ${index}, '', '${item.label}')"
-                                    title="${item.label}: ${App.formatCurrency(value)}${prevValue > 0 ? ' (전월: ' + App.formatCurrency(prevValue) + ')' : ''}"
+                                    title="${App.formatCurrency(value)} (${item.label})${prevValue > 0 ? ' · 전월: ' + App.formatCurrency(prevValue) : ''}"
                                 />
                                 
                                 <!-- 최고/최저 표시 -->
@@ -711,7 +863,7 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
                                     cx="${x + barWidth/2}%" 
                                     cy="${y}" 
                                     r="4" 
-                                    fill="var(--success)" 
+                                    fill="#f0c000" 
                                     stroke="white" 
                                     stroke-width="2"
                                 />
@@ -720,7 +872,7 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
                                     y="${y - 8}" 
                                     text-anchor="middle" 
                                     font-size="8" 
-                                    fill="var(--success)"
+                                    fill="#f0c000"
                                     font-weight="700"
                                 >최고</text>
                                 ` : ''}
@@ -735,25 +887,25 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
                                 />
                                 ` : ''}
                                 
-                                <!-- 성장률 표시 (최고 표시가 있으면 더 위로) -->
+                                <!-- 성장률 표시 (막대 색에 맞춤) -->
                                 ${index > 0 && growthRate !== 0 ? `
                                 <text 
                                     x="${x + barWidth/2}%" 
                                     y="${isMax ? (y - 20) : (y - 12)}" 
                                     text-anchor="middle" 
                                     font-size="8" 
-                                    fill="${growthRate > 0 ? 'var(--success)' : 'var(--danger)'}"
+                                    fill="${barColor}"
                                     font-weight="700"
                                 >${growthRate > 0 ? '+' : ''}${growthRate.toFixed(1)}%</text>
                                 ` : ''}
                                 
-                                <!-- 날짜 라벨 -->
+                                <!-- 날짜 라벨 (막대 아래~하단 여백 중간) -->
                                 <text 
                                     x="${x + barWidth/2}%" 
-                                    y="${chartHeight - 10}" 
+                                    y="${paddingTop + chartAreaHeight + paddingBottom / 2}" 
                                     text-anchor="middle" 
                                     font-size="8" 
-                                    fill="var(--text-muted)"
+                                    fill="${barColor}"
                                     style="pointer-events: none;"
                                 >${dateLabel}</text>
                             </g>
@@ -761,10 +913,11 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
                     }).join('')}
                 </svg>
                 
-                <!-- 범례 및 정보 -->
-                <div style="position: absolute; top: 0; right: 0; font-size: 9px; color: var(--text-muted); display: flex; flex-direction: column; gap: 2px; text-align: right;">
-                    ${trendMaxValue > 0 ? `<div>최고: ${App.formatCurrency(trendMaxValue)}</div>` : ''}
-                    ${trendMinValue > 0 ? `<div>최저: ${App.formatCurrency(trendMinValue)}</div>` : ''}
+                <!-- 범례: 최고 / 최저 / 평균 (위에서 아래로) -->
+                <div style="position: absolute; top: 0; right: 0; font-size: 12px; display: flex; flex-direction: column; gap: 4px; text-align: right;">
+                    ${trendMaxValue > 0 ? `<div style="color: #f0c000;">최고: ${App.formatCurrency(trendMaxValue)}</div>` : ''}
+                    ${trendMinValue != null ? `<div style="color: #e74c3c;">최저: ${App.formatCurrency(trendMinValue)}</div>` : ''}
+                    ${trendAvg > 0 ? `<div style="color: var(--success);">평균: ${App.formatCurrency(Math.round(trendAvg))}</div>` : ''}
                 </div>
             </div>
             
@@ -773,13 +926,21 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
             <div style="margin-top: 16px; padding: 12px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color); flex-shrink: 0;">
                 <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600;">요일별 평균 매출</div>
                 <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;">
-                    ${weekdayPattern.map(day => `
-                        <div style="text-align: center; padding: 6px; background: var(--bg-primary); border-radius: 4px;">
+                    ${(function() {
+                        return weekdayPattern.map(day => {
+                            const val = day.avgRevenue || 0;
+                            const isMaxDay = maxWeekdayAvg > 0 && val === maxWeekdayAvg;
+                            const isMinDay = weekdayPattern.length && val === minWeekdayAvg;
+                            const bg = isMaxDay ? 'linear-gradient(135deg, rgba(255, 215, 0, 0.28) 0%, rgba(255, 215, 0, 0.1) 50%, rgba(255, 215, 0, 0.05) 100%)' : 'transparent';
+                            const borderLeft = isMaxDay ? '3px solid #f0c000' : isMinDay ? '3px solid var(--danger)' : '3px solid var(--accent-primary)';
+                            const amountColor = isMaxDay ? '#f0c000' : (isMinDay ? 'var(--danger)' : 'var(--accent-primary)');
+                            return `
+                        <div style="text-align: center; padding: 6px; background: ${bg}; border-radius: 4px; border: 1px solid var(--border-color); border-left: ${borderLeft}">
                             <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 4px;">${day.weekday}</div>
-                            <div style="font-size: 12px; font-weight: 700; color: var(--accent-primary);">${App.formatCurrency(Math.round(day.avgRevenue))}</div>
+                            <div style="font-size: 12px; font-weight: 700; color: ${amountColor};">${App.formatCurrency(Math.round(day.avgRevenue))}</div>
                             <div style="font-size: 8px; color: var(--text-muted); margin-top: 2px;">${day.count}일</div>
                         </div>
-                    `).join('')}
+                    `; }).join(''); })()}
                 </div>
             </div>
             ` : ''}
@@ -804,40 +965,49 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
     }
 }
 
-// 카테고리별 회원 통계 렌더링
+// 카테고리별 회원 통계 렌더링 (대관 포함, 카테고리별 고유색)
 function renderCategoryMemberChart(containerId, categoryData) {
     const container = document.getElementById(containerId);
-    const { memberCount, activeProducts } = categoryData;
-    
-    if (!memberCount || Object.keys(memberCount).length === 0) {
-        container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">데이터가 없습니다.</p>';
-        return;
-    }
+    const { memberCount = {}, activeProducts = {} } = categoryData;
     
     const categoryLabels = {
         'BASEBALL': '야구',
         'TRAINING': '트레이닝',
-        'TRAINING_FITNESS': '트레이닝+필라테스',
         'PILATES': '필라테스',
         'GENERAL': '일반',
         'RENTAL': '대관'
     };
+    // 다른 페이지와 동일한 카테고리 고유색 (products.js / 코치 배지 기준)
+    const categoryColors = {
+        'BASEBALL': { border: 'var(--accent-primary)', text: 'var(--accent-primary)' },           // 야구 - 파란
+        'TRAINING': { border: 'var(--success)', text: 'var(--success)' },                         // 트레이닝 - 초록
+        'PILATES': { border: 'var(--info)', text: 'var(--info)' },                                 // 필라테스 - 하늘
+        'RENTAL': { border: 'var(--rental)', text: 'var(--rental)' },                             // 대관 - 보라
+        'GENERAL': { border: 'var(--border-color)', text: 'var(--text-secondary)' }
+    };
+    const displayOrder = ['BASEBALL', 'TRAINING', 'PILATES', 'RENTAL'];
+    const excludedCategories = ['TRAINING_FITNESS'];
+    const extraCategories = Object.keys(memberCount)
+        .filter(c => !displayOrder.includes(c) && !excludedCategories.includes(c));
+    const categoriesToShow = [...displayOrder, ...extraCategories];
     
-    const sortedCategories = Object.entries(memberCount)
+    const sortedCategories = categoriesToShow
+        .map(cat => [cat, memberCount[cat] || 0])
         .sort((a, b) => b[1] - a[1]);
     
     container.innerHTML = `
+        <div class="metric-content-subtitle">카테고리별 회원 수·활성 이용권</div>
         <div style="display: flex; flex-direction: column; gap: 10px;">
             ${sortedCategories.map(([category, count]) => {
                 const label = categoryLabels[category] || category;
                 const products = activeProducts[category] || 0;
                 const avgProducts = count > 0 ? (products / count).toFixed(1) : '0.0';
-                
+                const colors = categoryColors[category] || categoryColors['GENERAL'];
                 return `
-                    <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--accent-primary);">
+                    <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid ${colors.border};">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                             <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);">${label}</div>
-                            <div style="font-size: 18px; font-weight: 800; color: var(--accent-primary);">${count}명</div>
+                            <div style="font-size: 18px; font-weight: 800; color: ${colors.text};">${count}명</div>
                         </div>
                         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-secondary);">
                             <span>활성 이용권: ${products}개</span>
@@ -849,6 +1019,16 @@ function renderCategoryMemberChart(containerId, categoryData) {
         </div>
     `;
 }
+
+// 등급 고유색 (members.css / common.css 배지와 동일)
+const GRADE_COLORS = {
+    'SOCIAL': '#6c757d',
+    'ELITE_ELEMENTARY': '#8e44ad',
+    'ELITE_MIDDLE': '#2980b9',
+    'ELITE_HIGH': '#f39c12',
+    'YOUTH': '#84cc16',           // 유소년 - 라임 (다른 등급과 겹치지 않게)
+    'OTHER': '#009688'
+};
 
 // 등급별 상세 통계 렌더링
 function renderGradeDetailChart(containerId, gradeData) {
@@ -865,7 +1045,8 @@ function renderGradeDetailChart(containerId, gradeData) {
         'ELITE_ELEMENTARY': '엘리트 (초)',
         'ELITE_MIDDLE': '엘리트 (중)',
         'ELITE_HIGH': '엘리트 (고)',
-        'YOUTH': '유소년'
+        'YOUTH': '유소년',
+        'OTHER': '기타 종목'
     };
     
     const sortedGrades = Object.entries(gradeStatusDistribution)
@@ -876,9 +1057,11 @@ function renderGradeDetailChart(containerId, gradeData) {
         });
     
     container.innerHTML = `
+        <div class="metric-content-subtitle">등급별 활성·휴면·이탈·최근 방문</div>
         <div style="display: flex; flex-direction: column; gap: 8px;">
             ${sortedGrades.map(([grade, statusMap]) => {
                 const label = gradeLabels[grade] || grade;
+                const color = GRADE_COLORS[grade] || 'var(--accent-primary)';
                 const active = statusMap['ACTIVE'] || 0;
                 const inactive = statusMap['INACTIVE'] || 0;
                 const withdrawn = statusMap['WITHDRAWN'] || 0;
@@ -886,23 +1069,23 @@ function renderGradeDetailChart(containerId, gradeData) {
                 const recentVisitors = gradeRecentVisitors[grade] || 0;
                 
                 return `
-                    <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--accent-primary);">
-                        <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">${label}</div>
-                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 11px;">
+                    <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid ${color};">
+                        <div style="font-size: 13px; font-weight: 700; color: ${color}; margin-bottom: 6px;">${label}</div>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 13px;">
                             <div>
-                                <div style="color: var(--text-secondary);">활성</div>
-                                <div style="font-weight: 700; color: var(--accent-primary);">${active}</div>
+                                <div style="color: var(--success);">활성</div>
+                                <div style="font-weight: 700; color: ${color};">${active}</div>
                             </div>
                             <div>
                                 <div style="color: var(--text-secondary);">휴면</div>
-                                <div style="font-weight: 700; color: var(--warning);">${inactive}</div>
+                                <div style="font-weight: 700; color: #fff;">${inactive}</div>
                             </div>
                             <div>
-                                <div style="color: var(--text-secondary);">이탈</div>
+                                <div style="color: var(--danger);">이탈</div>
                                 <div style="font-weight: 700; color: var(--danger);">${withdrawn}</div>
                             </div>
                         </div>
-                        <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-color); font-size: 10px; color: var(--text-secondary);">
+                        <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-color); font-size: 11px; color: var(--text-secondary);">
                             최근 방문: <span style="font-weight: 600; color: var(--info);">${recentVisitors}명</span> (30일 내)
                         </div>
                     </div>
@@ -912,7 +1095,7 @@ function renderGradeDetailChart(containerId, gradeData) {
     `;
 }
 
-// 등급별 분포 차트 렌더링
+// 등급별 분포 차트 렌더링 (회원/대시보드와 동일한 등급 고유색)
 function renderGradeDistributionChart(containerId, gradeDistribution) {
     const container = document.getElementById(containerId);
     if (!gradeDistribution || Object.keys(gradeDistribution).length === 0) {
@@ -925,7 +1108,8 @@ function renderGradeDistributionChart(containerId, gradeDistribution) {
         'ELITE_ELEMENTARY': '엘리트 (초)',
         'ELITE_MIDDLE': '엘리트 (중)',
         'ELITE_HIGH': '엘리트 (고)',
-        'YOUTH': '유소년'
+        'YOUTH': '유소년',
+        'OTHER': '기타 종목'
     };
     
     const total = Object.values(gradeDistribution).reduce((sum, count) => sum + count, 0);
@@ -933,19 +1117,21 @@ function renderGradeDistributionChart(containerId, gradeDistribution) {
         .sort((a, b) => b[1] - a[1]);
     
     container.innerHTML = `
+        <div class="metric-content-subtitle">등급별 회원 분포</div>
         <div style="display: flex; flex-direction: column; gap: 6px;">
             ${sortedGrades.map(([grade, count]) => {
                 const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
                 const label = gradeLabels[grade] || grade;
+                const color = GRADE_COLORS[grade] || 'var(--accent-primary)';
                 return `
-                    <div style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 4px; background: var(--bg-secondary);">
-                        <div style="min-width: 90px; font-size: 11px; color: var(--text-primary); font-weight: 600;">${label}</div>
+                    <div style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 4px; background: var(--bg-secondary); border-left: 3px solid ${color};">
+                        <div style="min-width: 90px; font-size: 13px; color: var(--text-primary); font-weight: 600;">${label}</div>
                         <div style="flex: 1; height: 18px; background-color: var(--bg-hover); border-radius: 4px; overflow: hidden;">
-                            <div style="height: 100%; width: ${percentage}%; background-color: var(--accent-primary); transition: width 0.3s;"></div>
+                            <div style="height: 100%; width: ${percentage}%; background-color: ${color}; transition: width 0.3s;"></div>
                         </div>
                         <div style="min-width: 55px; text-align: right;">
-                            <span style="font-weight: 700; color: var(--text-primary); font-size: 12px;">${count}</span>
-                            <span style="font-size: 10px; color: var(--text-secondary); margin-left: 3px;">(${percentage}%)</span>
+                            <span style="font-weight: 700; color: ${color}; font-size: 18px;">${count}</span>
+                            <span style="font-size: 11px; color: var(--text-secondary); margin-left: 3px;">(${percentage}%)</span>
                         </div>
                     </div>
                 `;
@@ -966,25 +1152,26 @@ function renderMemberStatusChart(containerId, statusData) {
     }
     
     container.innerHTML = `
-        <div style="display: flex; flex-direction: column; gap: 8px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--accent-primary);">
+        <div class="metric-content-subtitle">활성·휴면·이탈 비율</div>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--success);">
                 <div>
-                    <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 3px;">활성</div>
-                    <div style="font-size: 18px; font-weight: 700; color: var(--accent-primary);">${active}</div>
+                    <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">활성</div>
+                    <div style="font-size: 18px; font-weight: 800; color: var(--success);">${active}</div>
                 </div>
                 <div style="font-size: 11px; color: var(--text-secondary);">${total > 0 ? ((active / total) * 100).toFixed(1) : 0}%</div>
             </div>
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--warning);">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid #e9ecef;">
                 <div>
-                    <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 3px;">휴면</div>
-                    <div style="font-size: 18px; font-weight: 700; color: var(--warning);">${inactive}</div>
+                    <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">휴면</div>
+                    <div style="font-size: 18px; font-weight: 800; color: #fff;">${inactive}</div>
                 </div>
                 <div style="font-size: 11px; color: var(--text-secondary);">${total > 0 ? ((inactive / total) * 100).toFixed(1) : 0}%</div>
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--danger);">
                 <div>
-                    <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 3px;">이탈</div>
-                    <div style="font-size: 18px; font-weight: 700; color: var(--danger);">${withdrawn}</div>
+                    <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">이탈</div>
+                    <div style="font-size: 18px; font-weight: 800; color: var(--danger);">${withdrawn}</div>
                 </div>
                 <div style="font-size: 11px; color: var(--text-secondary);">${total > 0 ? ((withdrawn / total) * 100).toFixed(1) : 0}%</div>
             </div>
@@ -998,23 +1185,24 @@ function renderMemberProductStats(containerId, stats) {
     const { avgProductsPerMember, totalActiveProducts, membersWithProducts, activeCount } = stats;
     
     container.innerHTML = `
+        <div class="metric-content-subtitle">회원당 평균·활성 이용권·보유율</div>
         <div style="display: flex; flex-direction: column; gap: 10px;">
             <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--accent-primary);">
-                <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">평균 이용권 수</div>
-                <div style="font-size: 20px; font-weight: 800; color: var(--accent-primary);">${avgProductsPerMember.toFixed(1)}</div>
-                <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">회원당 평균</div>
-            </div>
-            <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--info);">
-                <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">활성 이용권</div>
-                <div style="font-size: 20px; font-weight: 800; color: var(--info);">${totalActiveProducts || 0}</div>
-                <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">${membersWithProducts || 0}명 보유</div>
+                <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">평균 이용권 수</div>
+                <div style="font-size: 18px; font-weight: 800; color: var(--accent-primary);">${avgProductsPerMember.toFixed(1)}</div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">회원당 평균</div>
             </div>
             <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--success);">
-                <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">이용권 보유율</div>
-                <div style="font-size: 20px; font-weight: 800; color: var(--success);">
+                <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">활성 이용권</div>
+                <div style="font-size: 18px; font-weight: 800; color: var(--success);">${totalActiveProducts || 0}</div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">${membersWithProducts || 0}명 보유</div>
+            </div>
+            <div style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--info);">
+                <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">이용권 보유율</div>
+                <div style="font-size: 18px; font-weight: 800; color: var(--info);">
                     ${activeCount > 0 ? ((membersWithProducts / activeCount) * 100).toFixed(1) : 0}%
                 </div>
-                <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">활성 회원 중 보유</div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">활성 회원 중 보유</div>
             </div>
         </div>
     `;
@@ -1066,15 +1254,169 @@ function renderMemberTrendChart(containerId, data) {
     window.memberTrendData = data;
 }
 
+function renderMemberTopSpenders(containerId, data, scope) {
+    scope = scope || 'all';
+    window.memberTopSpendersScope = scope;
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    var subtitle = '전체 누적 결제 금액 순 (5위·공동 5위까지)';
+    if (scope === 'month') {
+        var monthEl = document.getElementById('analytics-top-spenders-month');
+        if (monthEl && monthEl.options[monthEl.selectedIndex]) subtitle = monthEl.options[monthEl.selectedIndex].text + ' 결제 금액 순 (5위·공동 5위까지)';
+        else subtitle = '해당 월 결제 금액 순 (5위·공동 5위까지)';
+    } else if (scope === 'period') {
+        var startEl = document.getElementById('analytics-top-spenders-start');
+        var endEl = document.getElementById('analytics-top-spenders-end');
+        if (startEl && endEl && startEl.value && endEl.value) subtitle = startEl.value.replace(/-/g, '.') + ' ~ ' + endEl.value.replace(/-/g, '.') + ' 결제 금액 순 (5위·공동 5위까지)';
+        else subtitle = '선택 기간 내 결제 금액 순 (5위·공동 5위까지)';
+    }
+    if (!data || data.length === 0) {
+        const emptyMsg = scope === 'all' ? '결제 내역이 없습니다.' : scope === 'month' ? '해당 월 결제 내역이 없습니다.' : '선택한 기간 내 결제 내역이 없습니다.';
+        container.innerHTML = '<p style="color: var(--text-muted); padding: 12px;">' + emptyMsg + '</p>';
+        window.memberTopSpendersFull = [];
+        return;
+    }
+    window.memberTopSpendersFull = data;
+    const formatAmount = (n) => {
+        if (n == null) return '₩0';
+        return '₩' + Number(n).toLocaleString();
+    };
+    // 순위 부여: 금액 동일 시 같은 순위
+    let prevAmount = null;
+    let rank = 0;
+    const withRank = data.map((item, index) => {
+        const amount = item.totalAmount != null ? item.totalAmount : 0;
+        if (prevAmount === null || amount !== prevAmount) {
+            rank = index + 1;
+            prevAmount = amount;
+        }
+        return { ...item, rank, totalAmount: amount };
+    });
+    // 5위까지 표시 (공동 5위 포함)
+    const top5 = withRank.filter((item) => item.rank <= 5);
+    container.innerHTML = `
+        <div style="padding: 8px 0;">
+            <div class="metric-content-subtitle">${subtitle}</div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+                ${top5.map((item) => {
+                    const name = item.memberName || '-';
+                    const number = item.memberNumber || '-';
+                    const amount = item.totalAmount;
+                    const rankText = item.rank;
+                    const rankClass = item.rank === 1 ? 'top-spender-row--gold' : item.rank === 2 ? 'top-spender-row--silver' : item.rank === 3 ? 'top-spender-row--bronze' : '';
+                    return `
+                        <div class="top-spender-row ${rankClass}" style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; border-left: 3px solid var(--accent-primary);">
+                            <span class="top-spender-rank">${rankText}</span>
+                            <div style="flex: 1; min-width: 0;">
+                                <div class="top-spender-name">${name}</div>
+                                <div class="top-spender-number">${number}</div>
+                            </div>
+                            <span class="top-spender-amount">${formatAmount(amount)}</span>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+            <div style="margin-top: 10px; text-align: center;">
+                <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px;" onclick="openTopSpendersFullModal()">전체 보기 (${data.length}명)</button>
+            </div>
+        </div>
+    `;
+}
+
+function openTopSpendersFullModal() {
+    const data = window.memberTopSpendersFull || [];
+    const scope = window.memberTopSpendersScope || 'all';
+    var modalTitle = '개인 결제 TOP 전체 (누적)';
+    if (scope === 'month') {
+        var monthEl = document.getElementById('analytics-top-spenders-month');
+        if (monthEl && monthEl.options[monthEl.selectedIndex]) modalTitle = '개인 결제 TOP ' + monthEl.options[monthEl.selectedIndex].text;
+        else modalTitle = '개인 결제 TOP 해당 월';
+    } else if (scope === 'period') {
+        var startEl = document.getElementById('analytics-top-spenders-start');
+        var endEl = document.getElementById('analytics-top-spenders-end');
+        if (startEl && endEl && startEl.value && endEl.value) modalTitle = '개인 결제 TOP ' + startEl.value.replace(/-/g, '.') + ' ~ ' + endEl.value.replace(/-/g, '.');
+        else modalTitle = '개인 결제 TOP 선택 기간';
+    }
+    const modalId = 'analytics-top-spenders-modal';
+    let modal = document.getElementById(modalId);
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = modalId;
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal" style="max-width: 560px; width: 95%;">
+                <div class="modal-header">
+                    <h2 class="modal-title" id="analytics-top-spenders-modal-title">${modalTitle}</h2>
+                    <button class="modal-close" onclick="App.Modal.close('${modalId}')">×</button>
+                </div>
+                <div class="modal-body" id="analytics-top-spenders-content" style="overflow-y: auto; max-height: 70vh;"></div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    const titleEl = document.getElementById('analytics-top-spenders-modal-title');
+    if (titleEl) titleEl.textContent = modalTitle;
+    const formatAmount = (n) => {
+        if (n == null) return '₩0';
+        return '₩' + Number(n).toLocaleString();
+    };
+    let prevAmount = null;
+    let rank = 0;
+    const withRank = data.map((item, index) => {
+        const amount = item.totalAmount != null ? item.totalAmount : 0;
+        if (prevAmount === null || amount !== prevAmount) {
+            rank = index + 1;
+            prevAmount = amount;
+        }
+        return { ...item, rank, totalAmount: amount };
+    });
+    const content = document.getElementById('analytics-top-spenders-content');
+    if (!content) return;
+    if (data.length === 0) {
+        content.innerHTML = '<p style="color: var(--text-muted); padding: 12px;">데이터가 없습니다.</p>';
+    } else {
+        content.innerHTML = `
+            <div style="padding: 8px 0;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    ${withRank.map((item) => {
+                        const name = item.memberName || '-';
+                        const number = item.memberNumber || '-';
+                        const amount = item.totalAmount;
+                        const rankText = item.rank;
+                        const rankClass = item.rank === 1 ? 'top-spender-row--gold' : item.rank === 2 ? 'top-spender-row--silver' : item.rank === 3 ? 'top-spender-row--bronze' : '';
+                        return `
+                            <div class="top-spender-row ${rankClass}" style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; border-left: 3px solid var(--accent-primary);">
+                                <span class="top-spender-rank" style="min-width: 28px;">${rankText}</span>
+                                <div style="flex: 1; min-width: 0;">
+                                    <div class="top-spender-name">${name}</div>
+                                    <div class="top-spender-number">${number}</div>
+                                </div>
+                                <span class="top-spender-amount">${formatAmount(amount)}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `;
+    }
+    App.Modal.open(modalId);
+}
+
 function exportAnalytics() {
     App.showNotification('CSV 다운로드 기능은 준비 중입니다.', 'info');
 }
 
 // 세부 내역 모달 열기
 async function openDetailModal(chartType, index, value, displayLabel) {
-    const period = document.getElementById('analytics-period').value;
-    const startDate = document.getElementById('analytics-start-date').value;
-    const endDate = document.getElementById('analytics-end-date').value;
+    let period = document.getElementById('analytics-period').value;
+    let startDate = document.getElementById('analytics-start-date').value;
+    let endDate = document.getElementById('analytics-end-date').value;
+    if (period === 'all') {
+        const now = new Date();
+        const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        startDate = '2026-01-01';
+        endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    }
     
     // displayLabel이 없으면 value를 사용 (하위 호환성)
     const label = displayLabel || value;
@@ -1087,7 +1429,7 @@ async function openDetailModal(chartType, index, value, displayLabel) {
             // 카테고리별 매출 세부 내역
             title = `${label} 세부 내역`;
             const params = new URLSearchParams();
-            if (period === 'custom' && startDate && endDate) {
+            if ((period === 'custom' || period === 'all') && startDate && endDate) {
                 params.append('startDate', startDate);
                 params.append('endDate', endDate);
             }
@@ -1103,7 +1445,7 @@ async function openDetailModal(chartType, index, value, displayLabel) {
             // 회원 지표 세부 내역
             title = '회원 지표 세부 내역';
             const params = new URLSearchParams();
-            if (period === 'custom' && startDate && endDate) {
+            if ((period === 'custom' || period === 'all') && startDate && endDate) {
                 params.append('startDate', startDate);
                 params.append('endDate', endDate);
             }
@@ -1112,7 +1454,7 @@ async function openDetailModal(chartType, index, value, displayLabel) {
             // 운영 지표 세부 내역
             title = '운영 지표 세부 내역';
             const params = new URLSearchParams();
-            if (period === 'custom' && startDate && endDate) {
+            if ((period === 'custom' || period === 'all') && startDate && endDate) {
                 params.append('startDate', startDate);
                 params.append('endDate', endDate);
             }
@@ -1123,7 +1465,7 @@ async function openDetailModal(chartType, index, value, displayLabel) {
         
         renderDetailModal(title, data, chartType);
     } catch (error) {
-        console.error('세부 내역 로드 실패:', error);
+        App.err('세부 내역 로드 실패:', error);
         App.showNotification('세부 내역을 불러오는데 실패했습니다.', 'danger');
     }
 }
@@ -1214,7 +1556,7 @@ function renderDetailModal(title, data, chartType) {
                                     <td>${m.memberNumber || '-'}</td>
                                     <td>${m.name || '-'}</td>
                                     <td style="white-space: nowrap;">${m.phoneNumber || '-'}</td>
-                                    <td>${m.grade || '-'}</td>
+                                    <td>${m.grade ? (App.MemberGrade && App.MemberGrade.getText ? App.MemberGrade.getText(m.grade) : m.grade) : '-'}</td>
                                     <td>${m.school || '-'}</td>
                                     <td>${m.coach ? m.coach.name : '-'}</td>
                                     <td style="white-space: nowrap;">${m.createdAt ? App.formatDateTime(m.createdAt) : '-'}</td>
@@ -1326,6 +1668,7 @@ function getPaymentMethodText(method) {
 async function loadSchoolStats() {
     try {
         const members = await App.api.get('/members');
+        _schoolStatsMembers = members || [];
         
         // 학교/소속별 그룹화
         const schoolGroups = {};
@@ -1359,24 +1702,70 @@ async function loadSchoolStats() {
         
         // 총합 확인 (디버깅용)
         const sumCount = sortedSchools.reduce((sum, [, count]) => sum + count, 0);
-        console.log('학교/소속 현황 - 총 회원 수:', totalCount, '집계된 회원 수:', sumCount);
+        App.log('학교/소속 현황 - 총 회원 수:', totalCount, '집계된 회원 수:', sumCount);
         
-        container.innerHTML = sortedSchools.map(([school, count]) => `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
-                <span style="font-size: 13px; color: var(--text-primary);">${school}</span>
-                <span style="font-size: 14px; font-weight: 600; color: var(--accent-primary);">${count}명</span>
+        container.innerHTML = `
+            <div class="metric-content-subtitle">회원 소속별 현황</div>
+            ${sortedSchools.map(([school, count]) => `
+            <div class="school-stat-row" data-school="${App.escapeHtml(school)}" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-color); cursor: pointer;" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'" title="클릭하면 해당 소속 회원 목록 보기">
+                <span style="font-size: 13px; color: var(--text-primary);">${App.escapeHtml(school)}</span>
+                <span style="font-size: 18px; font-weight: 600; color: var(--accent-primary);">${count}명</span>
             </div>
-        `).join('');
+        `).join('')}`;
+        container.querySelectorAll('.school-stat-row').forEach(el => {
+            el.addEventListener('click', function() {
+                const school = this.getAttribute('data-school');
+                if (school) showSchoolDetail(school);
+            });
+        });
     } catch (error) {
-        console.error('학교/소속 현황 로드 실패:', error);
+        App.err('학교/소속 현황 로드 실패:', error);
         const container = document.getElementById('school-stats-container');
         container.innerHTML = '<p style="color: var(--text-muted); text-align: center; font-size: 12px;">데이터를 불러올 수 없습니다.</p>';
     }
 }
 
+// 학교/소속 클릭 시 해당 소속 회원 현황 모달
+function showSchoolDetail(schoolName) {
+    const normalized = schoolName === '미입력' ? '' : schoolName;
+    const list = _schoolStatsMembers.filter(m => {
+        const s = (m.school || '').trim();
+        if (schoolName === '미입력') return !s;
+        return s === schoolName;
+    });
+    const titleEl = document.getElementById('school-detail-modal-title');
+    const bodyEl = document.getElementById('school-detail-modal-body');
+    if (!titleEl || !bodyEl) return;
+    titleEl.textContent = (schoolName || '소속') + ' 회원 현황';
+    if (list.length === 0) {
+        bodyEl.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 16px;">해당 소속 회원이 없습니다.</p>';
+    } else {
+        const gradeLabels = { 'SOCIAL': '사회인', 'ELITE_ELEMENTARY': '엘리트(초)', 'ELITE_MIDDLE': '엘리트(중)', 'ELITE_HIGH': '엘리트(고)', 'YOUTH': '유소년', 'OTHER': '기타 종목' };
+        bodyEl.innerHTML = `
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;"><strong>${App.escapeHtml(String(schoolName))}</strong> · 총 ${list.length}명</p>
+            <div class="table-container" style="max-height: 42vh; overflow-y: auto;">
+                <table class="table">
+                    <thead><tr><th>회원번호</th><th>이름</th><th>등급</th><th>담당 코치</th></tr></thead>
+                    <tbody>
+                        ${list.map(m => `
+                            <tr>
+                                <td>${App.escapeHtml(m.memberNumber || '-')}</td>
+                                <td>${App.escapeHtml(m.name || '-')}</td>
+                                <td>${App.escapeHtml(gradeLabels[m.grade] || m.grade || '-')}</td>
+                                <td>${App.escapeHtml((m.coach && m.coach.name) || (m.coachNames || '-'))}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+    App.Modal.open('school-detail-modal');
+}
+
 // 매출 추이 차트 필터 기간 설정
 function setRevenueTrendPeriod(period) {
-    console.log('매출 추이 필터 변경:', period);
+    App.log('매출 추이 필터 변경:', period);
     window.revenueTrendPeriod = period;
     updateRevenueTrendFilterButtons();
     loadRevenueTrendChart();
@@ -1397,7 +1786,7 @@ function updateRevenueTrendFilterButtons() {
             monthBtn.className = 'btn btn-sm btn-primary';
         }
     } else {
-        console.warn('매출 추이 필터 버튼을 찾을 수 없습니다.');
+        App.warn('매출 추이 필터 버튼을 찾을 수 없습니다.');
     }
 }
 
@@ -1427,16 +1816,44 @@ async function loadRevenueTrendChart() {
         params.append('startDate', startDate.toISOString().split('T')[0]);
         params.append('endDate', endDate.toISOString().split('T')[0]);
         
-        console.log('매출 추이 차트 로드:', period, startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]);
+        App.log('매출 추이 차트 로드:', period, startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]);
         
         const analytics = await App.api.get(`/analytics?${params}`);
         
         // 매출 추이 차트만 렌더링
         if (analytics.revenue) {
-            console.log('매출 추이 데이터:', analytics.revenue.trend?.length, '일');
-            renderSimpleChart('revenue-trend-chart', analytics.revenue.trend || [], analytics.revenue || {});
+            let trend = analytics.revenue.trend || [];
+            const rev = { ...analytics.revenue };
+            // 한달일 때: 데이터가 있는 첫 날 이전 구간 제거 (앞쪽 빈 기간 축소)
+            if (period === 'month' && trend.length > 0) {
+                const firstWithData = trend.findIndex(item => (item.value || 0) > 0);
+                if (firstWithData > 0) {
+                    trend = trend.slice(firstWithData);
+                    const sum = trend.reduce((s, item) => s + (item.value || 0), 0);
+                    const maxVal = Math.max(...trend.map(item => item.value || 0), 0);
+                    const maxDate = trend.find(item => (item.value || 0) === maxVal)?.label || null;
+                    trend = trend.map(item => ({
+                        ...item,
+                        isMax: (item.value || 0) === maxVal
+                    }));
+                    rev.trend = trend;
+                    rev.trendAvg = trend.length > 0 ? sum / trend.length : 0;
+                    rev.trendMaxDate = maxDate;
+                    rev.trendMaxValue = maxVal;
+                }
+            }
+            // 최저: 0원 제외한 일별 매출 중 최소값
+            const positiveItems = trend.filter(item => (item.value || 0) > 0);
+            const minVal = positiveItems.length > 0 ? Math.min(...positiveItems.map(item => item.value)) : null;
+            const minDate = minVal != null ? (trend.find(item => (item.value || 0) === minVal)?.label || null) : null;
+            rev.trendMinValue = minVal;
+            rev.trendMinDate = minDate;
+            trend = trend.map(item => ({ ...item, isMin: minVal != null && (item.value || 0) === minVal }));
+            rev.trend = trend;
+            App.log('매출 추이 데이터:', trend.length, '일');
+            renderSimpleChart('revenue-trend-chart', trend, rev);
         }
     } catch (error) {
-        console.error('매출 추이 차트 로드 실패:', error);
+        App.err('매출 추이 차트 로드 실패:', error);
     }
 }

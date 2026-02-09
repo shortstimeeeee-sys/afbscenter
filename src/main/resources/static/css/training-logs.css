@@ -1,5 +1,44 @@
 /* 훈련 기록 페이지 스타일 */
 
+/* 타이틀 영역 위쪽 공백 제거 */
+body.training-logs-page .main-content { padding-top: 0; }
+body.training-logs-page .topbar { margin-top: 0; }
+
+/* 필터 행: 조회 버튼 옆에 미등록 기록자 표시 (경계선 구분) */
+.training-logs-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+}
+.training-logs-filter-left {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.training-logs-unregistered-wrap {
+    padding-left: 16px;
+    border-left: 1px solid var(--border-color);
+    margin-left: 8px;
+}
+.training-logs-unregistered-text {
+    display: inline-block;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    padding: 8px 14px;
+    background: rgba(94, 106, 210, 0.12);
+    border: 1px solid rgba(94, 106, 210, 0.35);
+    border-radius: var(--radius-md);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.training-logs-unregistered-text strong {
+    color: var(--accent-primary);
+    font-weight: 800;
+    font-size: 1.1em;
+}
+
 .form-section {
     margin-bottom: 32px;
     padding-bottom: 24px;

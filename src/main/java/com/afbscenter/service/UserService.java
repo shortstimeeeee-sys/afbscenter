@@ -2,6 +2,8 @@ package com.afbscenter.service;
 
 import com.afbscenter.model.User;
 import com.afbscenter.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -14,6 +16,8 @@ import java.util.Optional;
 @Service
 @Transactional
 public class UserService {
+
+    private static final Logger logger = LoggerFactory.getLogger(UserService.class);
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -28,14 +32,12 @@ public class UserService {
     @Transactional(readOnly = true)
     public List<User> getAllUsers() {
         List<User> allUsers = userRepository.findAll();
-        System.out.println("=== 전체 사용자 조회 ===");
-        System.out.println("전체 사용자 수: " + allUsers.size());
+        logger.debug("=== 전체 사용자 조회 ===");
+        logger.debug("전체 사용자 수: {}", allUsers.size());
         for (User user : allUsers) {
-            System.out.println("  - ID: " + user.getId() + 
-                             ", 사용자명: " + user.getUsername() + 
-                             ", 이름: " + user.getName() + 
-                             ", approved: " + user.getApproved() + 
-                             ", active: " + user.getActive());
+            logger.debug("  - ID: {}, 사용자명: {}, 이름: {}, approved: {}, active: {}", 
+                user.getId(), user.getUsername(), user.getName(), 
+                user.getApproved(), user.getActive());
         }
         return allUsers;
     }
@@ -52,14 +54,12 @@ public class UserService {
     @Transactional(readOnly = true)
     public List<User> getPendingUsers() {
         List<User> pendingUsers = userRepository.findByApprovedFalseAndActiveTrue();
-        System.out.println("=== 승인 대기 사용자 조회 ===");
-        System.out.println("조회된 승인 대기 사용자 수: " + pendingUsers.size());
+        logger.debug("=== 승인 대기 사용자 조회 ===");
+        logger.debug("조회된 승인 대기 사용자 수: {}", pendingUsers.size());
         for (User user : pendingUsers) {
-            System.out.println("  - ID: " + user.getId() + 
-                             ", 사용자명: " + user.getUsername() + 
-                             ", 이름: " + user.getName() + 
-                             ", approved: " + user.getApproved() + 
-                             ", active: " + user.getActive());
+            logger.debug("  - ID: {}, 사용자명: {}, 이름: {}, approved: {}, active: {}", 
+                user.getId(), user.getUsername(), user.getName(), 
+                user.getApproved(), user.getActive());
         }
         return pendingUsers;
     }

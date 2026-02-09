@@ -1,5 +1,9 @@
 /* 시설/슬롯 설정 페이지 스타일 */
 
+/* 타이틀 영역 위쪽 공백 제거 */
+body.facilities-page .main-content { padding-top: 0; }
+body.facilities-page .topbar { margin-top: 0; }
+
 .form-row {
     display: flex;
     align-items: center;
@@ -50,6 +54,17 @@
 
 .checkbox-group label:hover {
     color: var(--primary-accent);
+}
+
+.slots-notice {
+    margin: 0 0 12px 0;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    line-height: 1.4;
 }
 
 .slot-grid {

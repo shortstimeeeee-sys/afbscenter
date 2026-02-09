@@ -2,12 +2,13 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>회원 관리 - AFBS 센터</title>
     <link rel="stylesheet" href="/css/common.css">
     <link rel="stylesheet" href="/css/members.css">
 </head>
-<body>
+<body class="members-page">
     <div class="app-container">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -23,25 +24,28 @@
                     <div class="menu-section-title">회원 관리</div>
                     <a href="/members.html" class="menu-item active" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
                     <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">출석부</div>
+                    <a href="/attendance.html" class="menu-item menu-item--attendance" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings-without-product.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
                     
                     <!-- 사하점 -->
                     <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 대관 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
                     <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
-                    
-                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">훈련 관리</div>
@@ -67,6 +71,25 @@
             </header>
             
             <div class="content-area">
+                <!-- 회원 기본 통계 -->
+                <div class="card members-stats-card">
+                    <div class="card-header">
+                        <h2 class="card-title">📊 회원 기본 통계</h2>
+                    </div>
+                    <div id="members-stats-container" class="members-stats-body">
+                        <p class="members-stats-loading">로딩 중...</p>
+                    </div>
+                </div>
+                <!-- 통계 클릭 시 회원 목록 모달 -->
+                <div class="modal-overlay" id="stats-members-modal" style="display: none;">
+                    <div class="modal" style="max-width: 720px;">
+                        <div class="modal-header">
+                            <h2 class="modal-title" id="stats-members-modal-title">회원 목록</h2>
+                            <button class="modal-close" onclick="App.Modal.close('stats-members-modal')">×</button>
+                        </div>
+                        <div class="modal-body" id="stats-members-modal-body"></div>
+                    </div>
+                </div>
                 <!-- 필터 및 액션 -->
                 <div class="card">
                     <div class="filter-actions">
@@ -78,6 +101,7 @@
                                 <option value="ELITE_MIDDLE">엘리트 (중)</option>
                                 <option value="ELITE_HIGH">엘리트 (고)</option>
                                 <option value="YOUTH">유소년</option>
+                                <option value="OTHER">기타 종목</option>
                             </select>
                             <select class="form-control" id="filter-status" style="width: 150px;">
                                 <option value="">전체 상태</option>
@@ -179,6 +203,7 @@
                                 <option value="ELITE_MIDDLE">엘리트 (중)</option>
                                 <option value="ELITE_HIGH">엘리트 (고)</option>
                                 <option value="YOUTH">유소년</option>
+                                <option value="OTHER">기타 종목</option>
                             </select>
                         </div>
                     </div>
@@ -191,24 +216,81 @@
                         <input type="text" class="form-control" id="member-school" placeholder="예: 서울고등학교, XX야구단" required>
                     </div>
                     
-                    <!-- 야구 기록 -->
+                    <!-- 투수 / 타자 기록 (신규 가입 시 기록이 있다면 작성) -->
                     <div class="form-group">
                         <label class="form-label">
-                            훈련 기록 
+                            투수 / 타자 기록
                             <span style="color: var(--text-muted); font-size: 12px; font-weight: 400;">(신규 가입 시 기록이 있다면 작성)</span>
                         </label>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label class="form-label">스윙 속도 (mph)</label>
-                                <input type="number" class="form-control" id="member-swing-speed" placeholder="예: 68.5" min="0" step="0.1">
+                        <div class="member-ability-form-grid">
+                            <div class="member-ability-form-section">
+                                <div class="member-ability-form-section-title">투수 기록</div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">구속 (km/h)</label>
+                                        <input type="number" class="form-control" id="member-pitching-speed" placeholder="예: 120.5" min="0" step="0.1">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">제구력</label>
+                                        <div class="form-control-radio-group" id="member-pitcher-control-group" role="group" aria-label="제구력">
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-control" value="1"> 1</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-control" value="2"> 2</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-control" value="3"> 3</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-control" value="4"> 4</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-control" value="5"> 5</label>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label class="form-label">타구 속도 (mph)</label>
-                                <input type="number" class="form-control" id="member-exit-velocity" placeholder="예: 81.0" min="0" step="0.1">
+                            <div class="member-ability-form-section">
+                                <div class="member-ability-form-section-title">타자 기록</div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">스윙 속도 (mph)</label>
+                                        <input type="number" class="form-control" id="member-swing-speed" placeholder="예: 68.5" min="0" step="0.1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">타구 속도 (mph)</label>
+                                        <input type="number" class="form-control" id="member-exit-velocity" placeholder="예: 81.0" min="0" step="0.1">
+                                    </div>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label class="form-label">구속 (km/h)</label>
-                                <input type="number" class="form-control" id="member-pitching-speed" placeholder="예: 120.5" min="0" step="0.1">
+                        </div>
+                        <div class="member-ability-common-row">
+                            <div class="member-ability-form-section-title">공통</div>
+                            <div class="member-ability-common-fields">
+                                <div class="form-group common-radio-block">
+                                    <label class="form-label">파워</label>
+                                    <div class="form-control-radio-group" role="group" aria-label="파워">
+                                        <label class="radio-option"><input type="radio" name="member-batter-power" value="1"> 1</label>
+                                        <label class="radio-option"><input type="radio" name="member-batter-power" value="2"> 2</label>
+                                        <label class="radio-option"><input type="radio" name="member-batter-power" value="3"> 3</label>
+                                        <label class="radio-option"><input type="radio" name="member-batter-power" value="4"> 4</label>
+                                        <label class="radio-option"><input type="radio" name="member-batter-power" value="5"> 5</label>
+                                    </div>
+                                </div>
+                                <div class="form-group common-radio-block">
+                                    <label class="form-label">주력</label>
+                                    <div class="form-control-radio-group" role="group" aria-label="주력">
+                                        <label class="radio-option"><input type="radio" name="member-running-speed" value="1"> 1</label>
+                                        <label class="radio-option"><input type="radio" name="member-running-speed" value="2"> 2</label>
+                                        <label class="radio-option"><input type="radio" name="member-running-speed" value="3"> 3</label>
+                                        <label class="radio-option"><input type="radio" name="member-running-speed" value="4"> 4</label>
+                                        <label class="radio-option"><input type="radio" name="member-running-speed" value="5"> 5</label>
+                                    </div>
+                                </div>
+                                <div class="form-group common-radio-block">
+                                    <label class="form-label">유연성</label>
+                                    <div class="form-control-radio-group" role="group" aria-label="유연성">
+                                        <label class="radio-option"><input type="radio" name="member-flexibility" value="1"> 1</label>
+                                        <label class="radio-option"><input type="radio" name="member-flexibility" value="2"> 2</label>
+                                        <label class="radio-option"><input type="radio" name="member-flexibility" value="3"> 3</label>
+                                        <label class="radio-option"><input type="radio" name="member-flexibility" value="4"> 4</label>
+                                        <label class="radio-option"><input type="radio" name="member-flexibility" value="5"> 5</label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -278,7 +360,7 @@
     
     <!-- 회원 상세 모달 -->
     <div class="modal-overlay" id="member-detail-modal">
-        <div class="modal" style="max-width: 1400px; width: 95%;">
+        <div class="modal member-detail-modal-box">
             <div class="modal-header">
                 <h2 class="modal-title" id="member-detail-title">회원 상세</h2>
                 <button class="modal-close">×</button>
@@ -286,10 +368,12 @@
             <div class="modal-body">
                 <div class="detail-tabs">
                     <button class="tab-btn active" data-tab="info">기본 정보</button>
+                    <button class="tab-btn" data-tab="stats">개인 능력치</button>
                     <button class="tab-btn" data-tab="products">이용권</button>
                     <button class="tab-btn" data-tab="payments">결제 내역</button>
                     <button class="tab-btn" data-tab="bookings">예약 내역</button>
                     <button class="tab-btn" data-tab="attendance">출석 내역</button>
+                    <button class="tab-btn" data-tab="product-history">이용권 구매/종료 이력</button>
                     <button class="tab-btn" data-tab="memo">코치 메모</button>
                 </div>
                 <div id="detail-tab-content"></div>
@@ -320,9 +404,10 @@
                             </label>
                             <label style="display: flex; align-items: center; cursor: pointer;">
                                 <input type="radio" name="adjust-mode" value="absolute" style="margin-right: 6px;">
-                                <span>직접 설정</span>
+                                <span>직접 설정 (잔여 N회로 맞추기)</span>
                             </label>
                         </div>
+                        <small style="color: var(--text-muted); font-size: 11px;">직접 설정: 10회권인데 이미 6회 썼다면 4 입력 → 잔여 4회로 저장, 총 횟수(10)는 유지됩니다.</small>
                     </div>
                     <div class="form-group">
                         <label class="form-label" id="adjust-amount-label">조정할 횟수</label>
@@ -410,5 +495,6 @@
     
     <script src="/js/common.js"></script>
     <script src="/js/members.js"></script>
+    <script src="/js/members-stats.js"></script>
 </body>
 </html>

@@ -1,1 +1,9 @@
 /* 출석/이용 기록 페이지 스타일 */
+
+/* 타이틀 영역 위쪽 공백 제거 */
+body.attendance-page .main-content {
+    padding-top: 0 !important;
+    align-content: flex-start;
+}
+body.attendance-page .topbar { margin-top: 0 !important; }
+body.attendance-page .content-area > *:first-child { margin-top: 0 !important; }

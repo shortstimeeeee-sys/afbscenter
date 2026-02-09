@@ -36,13 +36,13 @@ public class TrainingLog {
 
     // 타격 기록
     @Column(name = "swing_speed")
-    private Double swingSpeed; // 스윙 속도 (km/h)
+    private Double swingSpeed; // 스윙 속도 (mph)
     
     @Column(name = "swing_count")
     private Integer swingCount; // 스윙수
 
     @Column(name = "ball_speed")
-    private Double ballSpeed; // 타구속도 (km/h)
+    private Double ballSpeed; // 타구속도 (mph)
 
     @Column(name = "launch_angle")
     private Double launchAngle; // 발사각 (도)

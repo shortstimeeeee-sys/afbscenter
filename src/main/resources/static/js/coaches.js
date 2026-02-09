@@ -7,16 +7,17 @@ document.addEventListener('DOMContentLoaded', function() {
 async function loadCoaches() {
     try {
         const coaches = await App.api.get('/coaches');
-        console.log('코치 목록 로드:', coaches);
+        App.log('코치 목록 로드:', coaches);
         // 디버깅: 각 코치의 availableBranches 확인
         coaches.forEach(coach => {
-            console.log(`코치: ${coach.name}, availableBranches:`, coach.availableBranches);
+            App.log(`코치: ${coach.name}, availableBranches:`, coach.availableBranches);
         });
         await renderCoachesTable(coaches);
         renderCoachSelect(coaches);
         updateCoachCount(coaches.length);
+        renderCoachStats(coaches);
     } catch (error) {
-        console.error('코치 목록 로드 실패:', error);
+        App.err('코치 목록 로드 실패:', error);
     }
 }
 
@@ -24,6 +25,111 @@ function updateCoachCount(count) {
     const badge = document.getElementById('coach-count-badge');
     if (badge) {
         badge.textContent = `${count}명`;
+    }
+}
+
+function classifyCoachCategories(coach) {
+    const name = (coach.name || '').toLowerCase();
+    const spec = (coach.specialties || '').toLowerCase();
+    const combined = name + ' ' + spec;
+    const baseball = /\[대표\]|\[코치\]|\[포수코치\]|\[투수코치\]|야구|타격|투구|수비|포수|투수|비야구인/.test(combined);
+    const pilates = /\[강사\]|필라테스/.test(combined);
+    const training = /\[트레이너\]|트레이닝/.test(combined);
+    const youth = /유소년/.test(combined);
+    const rental = /대관|\[대관담당\]/.test(combined);
+    return { baseball, pilates, training, youth, rental };
+}
+
+function renderCoachStats(coaches) {
+    const container = document.getElementById('coaches-stats-container');
+    if (!container) return;
+    const list = Array.isArray(coaches) ? coaches : [];
+    const total = list.length;
+    let baseball = 0, pilates = 0, training = 0, youth = 0, rental = 0;
+    list.forEach(c => {
+        const cat = classifyCoachCategories(c);
+        if (cat.baseball) baseball++;
+        if (cat.pilates) pilates++;
+        if (cat.training) training++;
+        if (cat.youth) youth++;
+        if (cat.rental) rental++;
+    });
+    const items = [
+        { label: '총 코치 수', value: total + '명', itemClass: 'coaches-stats-item--total', isTotal: true, filterType: 'all' },
+        { label: '⚾ 야구', value: baseball + '명', itemClass: 'coaches-stats-item--baseball', isTotal: false, filterType: 'baseball' },
+        { label: '👶 유소년', value: youth + '명', itemClass: 'coaches-stats-item--youth', isTotal: false, filterType: 'youth' },
+        { label: '💪 트레이닝', value: training + '명', itemClass: 'coaches-stats-item--training', isTotal: false, filterType: 'training' },
+        { label: '🧘 필라테스', value: pilates + '명', itemClass: 'coaches-stats-item--pilates', isTotal: false, filterType: 'pilates' },
+        { label: '🏟️ 대관', value: rental + '명', itemClass: 'coaches-stats-item--rental', isTotal: false, filterType: 'rental' }
+    ];
+    if (total === 0) {
+        container.innerHTML = '<p class="coaches-stats-loading">등록된 코치가 없습니다.</p>';
+        return;
+    }
+    container.innerHTML = items.map(item => `
+        <div class="coaches-stats-item coaches-stats-item-clickable ${item.itemClass || ''}${item.isTotal ? ' stats-total-item' : ''}"
+             data-filter-type="${App.escapeHtml(item.filterType || '')}"
+             data-label="${App.escapeHtml(item.label || '')}"
+             title="클릭하면 목록 보기">
+            <div class="coaches-stats-item-label">${App.escapeHtml(item.label)}</div>
+            <div class="coaches-stats-item-value">${App.escapeHtml(item.value)}</div>
+        </div>
+    `).join('');
+    container.querySelectorAll('.coaches-stats-item-clickable').forEach(function(el) {
+        el.addEventListener('click', function() {
+            var type = el.getAttribute('data-filter-type');
+            var label = el.getAttribute('data-label');
+            openStatsCoachModal(type, label);
+        });
+    });
+}
+
+/** 통계 항목 클릭 시 해당 조건의 코치 목록 모달 */
+async function openStatsCoachModal(filterType, titleLabel) {
+    var modal = document.getElementById('stats-coaches-modal');
+    var titleEl = document.getElementById('stats-coaches-modal-title');
+    var bodyEl = document.getElementById('stats-coaches-modal-body');
+    if (!modal || !titleEl || !bodyEl) return;
+    titleEl.textContent = (titleLabel || '코치') + ' 목록';
+    bodyEl.innerHTML = '<p class="coaches-stats-loading">로딩 중...</p>';
+    App.Modal.open('stats-coaches-modal');
+    try {
+        var list = await App.api.get('/coaches');
+        var coaches = Array.isArray(list) ? list : [];
+        if (filterType && filterType !== 'all') {
+            coaches = coaches.filter(function(c) {
+                var cat = classifyCoachCategories(c);
+                return cat[filterType];
+            });
+        }
+        if (coaches.length === 0) {
+            bodyEl.innerHTML = '<p style="color: var(--text-muted); padding: 16px;">해당 조건의 코치가 없습니다.</p>';
+            return;
+        }
+        var tableHtml = '<div class="table-container" style="max-height: 60vh; overflow: auto;"><table class="table"><thead><tr><th>이름</th><th>담당 종목</th><th>배정 지점</th><th>수강 인원</th></tr></thead><tbody>';
+        var branchNames = { 'SAHA': '사하점', 'YEONSAN': '연산점', 'RENTAL': '대관' };
+        function formatBranchesToKorean(availableBranches) {
+            if (availableBranches == null) return '-';
+            var codes = [];
+            if (Array.isArray(availableBranches)) {
+                codes = availableBranches;
+            } else if (typeof availableBranches === 'string') {
+                codes = availableBranches.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+            } else if (typeof availableBranches === 'object') {
+                codes = Object.keys(availableBranches).filter(function(k) { return availableBranches[k]; });
+            }
+            return codes.map(function(k) { return branchNames[k] || k; }).join(', ') || '-';
+        }
+        coaches.forEach(function(c) {
+            var specialties = (c.specialties || '-');
+            var branches = formatBranchesToKorean(c.availableBranches);
+            tableHtml += '<tr onclick="App.Modal.close(\'stats-coaches-modal\'); window.location.href=\'/coaches.html#coach-' + (c.id || '') + '\'"><td>' + App.escapeHtml(c.name || '-') + '</td><td>' + App.escapeHtml(specialties) + '</td><td>' + App.escapeHtml(branches) + '</td><td>' + (c.studentCount != null ? c.studentCount : '-') + '</td></tr>';
+        });
+        tableHtml += '</tbody></table></div>';
+        bodyEl.innerHTML = tableHtml;
+    } catch (err) {
+        App.err('통계 코치 목록 로드 실패:', err);
+        bodyEl.innerHTML = '<p style="color: var(--danger); padding: 16px;">목록을 불러오는데 실패했습니다.</p>';
     }
 }
 
@@ -75,7 +181,7 @@ async function showCoachStudents(coachId) {
         
         App.Modal.open('coach-students-modal');
     } catch (error) {
-        console.error('수강 인원 로드 실패:', error);
+        App.err('수강 인원 로드 실패:', error);
         App.showNotification('수강 인원을 불러오는데 실패했습니다.', 'danger');
     }
 }
@@ -93,62 +199,14 @@ async function renderCoachesTable(coaches) {
         return;
     }
     
-    // 코치 정렬: 대표 -> 코치 -> 분야별코치 -> 트레이너 -> 강사
+    // 코치 정렬: 대표 → 대관 담당 → 메인 코치 → 야구 관련 → 트레이닝 강사 → 필라테스 강사 (common.js CoachSortOrder와 동일)
     const sortedCoaches = coaches.sort((a, b) => {
-        const aName = a.name || '';
-        const bName = b.name || '';
-        
-        // 카테고리 분류 함수
-        const getCategory = (coach) => {
-            const name = coach.name || '';
-            
-            // 1. 대표: [대표] 포함
-            if (name.includes('[대표]')) {
-                return 1;
-            }
-            // 2. 코치: [코치] 포함 (하지만 분야별코치는 제외)
-            if (name.includes('[코치]') && 
-                !name.includes('[유소년코치]') && 
-                !name.includes('[투수코치]') && 
-                !name.includes('[포수코치]') &&
-                !name.includes('[타격코치]') &&
-                !name.includes('[수비코치]') &&
-                !name.includes('[주루코치]')) {
-                return 2;
-            }
-            // 3. 분야별코치: [유소년코치], [투수코치], [포수코치] 등
-            if (name.includes('[유소년코치]') || 
-                name.includes('[투수코치]') || 
-                name.includes('[포수코치]') ||
-                name.includes('[타격코치]') ||
-                name.includes('[수비코치]') ||
-                name.includes('[주루코치]')) {
-                return 3;
-            }
-            // 4. 트레이너: 트레이너 또는 트레이닝 포함
-            if (name.includes('트레이너') || name.includes('트레이닝')) {
-                return 4;
-            }
-            // 5. 강사: [강사] 포함
-            if (name.includes('[강사]')) {
-                return 5;
-            }
-            // 기타: 이름만 있는 경우는 코치로 간주 (2번 카테고리)
-            return 2;
-        };
-        
-        const aCat = getCategory(a);
-        const bCat = getCategory(b);
-        
-        // 카테고리 순서대로 정렬
-        if (aCat !== bCat) {
-            return aCat - bCat;
-        }
-        
-        // 같은 카테고리 내에서는 이름순 정렬 (대괄호 제거 후 비교)
-        const aNameForSort = aName.replace(/\s*\[.*?\]\s*/g, '').trim();
-        const bNameForSort = bName.replace(/\s*\[.*?\]\s*/g, '').trim();
-        return aNameForSort.localeCompare(bNameForSort, 'ko');
+        const orderA = App.CoachSortOrder ? App.CoachSortOrder(a) : 6;
+        const orderB = App.CoachSortOrder ? App.CoachSortOrder(b) : 6;
+        if (orderA !== orderB) return orderA - orderB;
+        const aName = (a.name || '').replace(/\s*\[.*?\]\s*/g, '').trim();
+        const bName = (b.name || '').replace(/\s*\[.*?\]\s*/g, '').trim();
+        return aName.localeCompare(bName, 'ko');
     });
     
     // 각 코치의 수강 인원 수를 가져오기
@@ -162,24 +220,64 @@ async function renderCoachesTable(coaches) {
     }));
     
     tbody.innerHTML = coachesWithCount.map(coach => {
-        // 배정 지점 표시
+        // 배정 지점 표시 (사하점·연산점 고유색, 대관은 흰색 유지)
         let branches = '-';
         if (coach.availableBranches) {
             try {
                 const branchArray = coach.availableBranches.split(',').map(b => b.trim().toUpperCase());
-                const branchNames = { 'SAHA': '사하점', 'YEONSAN': '연산점', 'RENTAL': '대관' };
-                const branchDisplayNames = branchArray.map(b => branchNames[b] || b).filter(Boolean);
-                branches = branchDisplayNames.length > 0 ? branchDisplayNames.join(', ') : '-';
+                const branchConfig = {
+                    'SAHA': { label: '사하점', class: 'branch-label--saha' },
+                    'YEONSAN': { label: '연산점', class: 'branch-label--yeonsan' },
+                    'RENTAL': { label: '대관', class: 'branch-label--rental' }
+                };
+                const branchSpans = branchArray.map(b => {
+                    const cfg = branchConfig[b];
+                    if (!cfg) return '';
+                    return cfg.class
+                        ? `<span class="branch-label ${cfg.class}">${cfg.label}</span>`
+                        : `<span class="branch-label">${cfg.label}</span>`;
+                }).filter(Boolean);
+                branches = branchSpans.length > 0 ? branchSpans.join(', ') : '-';
             } catch (e) {
-                console.warn('배정 지점 파싱 오류:', coach.name, coach.availableBranches, e);
+                App.warn('배정 지점 파싱 오류:', coach.name, coach.availableBranches, e);
                 branches = '-';
             }
         }
         
+        // 코치 이름 색상 가져오기
+        const coachColor = App.CoachColors ? App.CoachColors.getColor(coach) : 'var(--text-primary)';
+        const coachNameHtml = `<span style="color: ${coachColor}; font-weight: 600;">${coach.name}</span>`;
+        
+        // 담당 종목: 항목별 글자색 적용 + 셀 테두리/배경 유지
+        const rawSpec = (coach.specialties || '').trim();
+        const specText = (coach.specialties || '').toLowerCase();
+        const nameText = (coach.name || '').toLowerCase();
+        const combined = nameText + ' ' + specText;
+        let specialtyCellClass = 'coach-specialty-cell';
+        if (/대관/.test(specText)) specialtyCellClass += ' coach-specialty--rental';
+        else if (/필라테스|\[강사\]/.test(combined)) specialtyCellClass += ' coach-specialty--pilates';
+        else if (/트레이닝|\[트레이너\]/.test(combined)) specialtyCellClass += ' coach-specialty--training';
+        else if (/야구|유소년|\[대표\]|\[코치\]|\[포수코치\]|\[투수코치\]|타격|투구|수비|포수|투수|비야구인/.test(combined)) specialtyCellClass += ' coach-specialty--baseball';
+        const displayedSpecHtml = rawSpec
+            ? rawSpec.split(',').map(function(s) {
+                const part = s.trim();
+                if (!part) return '';
+                var colorClass = '';
+                if (/^야구$/i.test(part)) colorClass = 'spec-color--baseball';
+                else if (/^유소년$/i.test(part)) colorClass = 'spec-color--youth';
+                else if (/^트레이닝$/i.test(part)) colorClass = 'spec-color--training';
+                else if (/^필라테스$/i.test(part)) colorClass = 'spec-color--pilates';
+                else if (/^대관$/i.test(part)) colorClass = 'spec-color--rental';
+                return colorClass
+                    ? '<span class="spec-item ' + colorClass + '">' + App.escapeHtml(part) + '</span>'
+                    : App.escapeHtml(part);
+            }).filter(Boolean).join(', ')
+            : '-';
+        
         return `
             <tr>
-                <td>${coach.name}</td>
-                <td>${coach.specialties || '-'}</td>
+                <td>${coachNameHtml}</td>
+                <td class="${specialtyCellClass}">${displayedSpecHtml}</td>
                 <td>${branches}</td>
                 <td>${coach.availableTimes || '-'}</td>
                 <td>
@@ -220,7 +318,7 @@ async function loadLessons() {
         const lessons = await App.api.get(`/lessons${queryString}`);
         renderLessons(lessons);
     } catch (error) {
-        console.error('레슨 목록 로드 실패:', error);
+        App.err('레슨 목록 로드 실패:', error);
         renderLessons([]);
     }
 }

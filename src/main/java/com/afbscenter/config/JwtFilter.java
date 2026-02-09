@@ -5,6 +5,8 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -15,6 +17,8 @@ import java.util.List;
 
 @Component
 public class JwtFilter extends OncePerRequestFilter {
+
+    private static final Logger logger = LoggerFactory.getLogger(JwtFilter.class);
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -42,39 +46,38 @@ public class JwtFilter extends OncePerRequestFilter {
         // API 요청에 대한 JWT 검증
         if (path.startsWith("/api/")) {
             String authHeader = request.getHeader("Authorization");
-            System.out.println("JWT 필터 - 요청 경로: " + path);
-            System.out.println("JWT 필터 - Authorization 헤더: " + (authHeader != null ? "존재함" : "없음"));
+            logger.debug("JWT 필터 - 요청 경로: {}", path);
+            logger.debug("JWT 필터 - Authorization 헤더: {}", authHeader != null ? "존재함" : "없음");
             
             if (authHeader != null && authHeader.startsWith("Bearer ")) {
                 String token = authHeader.substring(7);
-                System.out.println("JWT 필터 - 토큰 추출 성공, 길이: " + token.length());
+                logger.debug("JWT 필터 - 토큰 추출 성공, 길이: {}", token.length());
                 
                 try {
                     String username = jwtUtil.extractUsername(token);
-                    System.out.println("JWT 필터 - 사용자명 추출: " + username);
+                    logger.debug("JWT 필터 - 사용자명 추출: {}", username);
                     
                     if (jwtUtil.validateToken(token, username)) {
                         // 토큰이 유효하면 요청 속성에 사용자 정보 저장
                         String role = jwtUtil.extractRole(token);
-                        System.out.println("JWT 필터 - 토큰 검증 성공: username=" + username + ", role=" + role);
+                        logger.debug("JWT 필터 - 토큰 검증 성공: username={}, role={}", username, role);
                         request.setAttribute("username", username);
                         request.setAttribute("role", role);
                         filterChain.doFilter(request, response);
                         return;
                     } else {
-                        System.out.println("JWT 필터 - 토큰 검증 실패: validateToken 반환 false");
+                        logger.warn("JWT 필터 - 토큰 검증 실패: validateToken 반환 false");
                     }
                 } catch (Exception e) {
                     // 토큰 검증 실패 - 로그 출력
-                    System.out.println("JWT 필터 - 토큰 검증 예외: " + e.getMessage());
-                    e.printStackTrace();
+                    logger.error("JWT 필터 - 토큰 검증 예외: {}", e.getMessage(), e);
                 }
             } else {
-                System.out.println("JWT 필터 - Authorization 헤더가 없거나 Bearer 형식이 아님");
+                logger.debug("JWT 필터 - Authorization 헤더가 없거나 Bearer 형식이 아님");
             }
 
             // 토큰이 없거나 유효하지 않은 경우
-            System.out.println("JWT 필터 - 401 Unauthorized 반환");
+            logger.warn("JWT 필터 - 401 Unauthorized 반환");
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");
             response.getWriter().write("{\"error\":\"인증이 필요합니다.\"}");

@@ -24,25 +24,28 @@
                     <div class="menu-section-title">회원 관리</div>
                     <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
                     <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">출석부</div>
+                    <a href="/attendance.html" class="menu-item menu-item--attendance" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings-without-product.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
                     
                     <!-- 사하점 -->
                     <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 대관 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
                     <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
-                    
-                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">훈련 관리</div>
@@ -51,8 +54,8 @@
                     <a href="/training-stats.html" class="menu-item active" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
                 </div>
                 <div class="menu-section">
-                    <div class="menu-section-title">상품/결제</div>
-                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>상품/이용권</span></a>
+                    <div class="menu-section-title">이용권/결제</div>
+                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>이용권</span></a>
                     <a href="/payments.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
                 </div>
             </nav>
@@ -75,9 +78,9 @@
                     <div class="card-body">
                         <div class="filter-group">
                             <label style="font-weight: 600; margin-right: 12px;">조회 기간:</label>
-                            <input type="date" class="form-control" id="stats-start-date" style="width: 150px;">
+                            <input type="date" class="form-control" id="stats-start-date" style="width: 130px;">
                             <span style="margin: 0 8px;">~</span>
-                            <input type="date" class="form-control" id="stats-end-date" style="width: 150px;">
+                            <input type="date" class="form-control" id="stats-end-date" style="width: 130px;">
                             <button class="btn btn-primary" onclick="loadAllStats()">조회</button>
                             <button class="btn btn-secondary" onclick="setThisMonth()">이번 달</button>
                             <button class="btn btn-secondary" onclick="setLastMonth()">지난 달</button>
@@ -147,6 +150,7 @@
                     <div class="card">
                         <div class="card-header">
                             <h2 class="card-title">🏃 코치별 담당 회원 통계</h2>
+                            <p class="card-subtitle" style="margin: 6px 0 0 0; font-size: 12px; color: var(--text-secondary); font-weight: normal;">담당 회원 = 활성 이용권 건수 (1인이 여러 이용권 보유 시 이용권 수만큼 집계)</p>
                         </div>
                         <div class="card-body">
                             <div class="table-container">
@@ -221,7 +225,26 @@
         </main>
     </div>
     
+    <!-- 코치 수강 인원 모달 (coaches.js의 showCoachStudents 함수 사용) -->
+    <div class="modal-overlay" id="coach-students-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title" id="coach-students-modal-title">수강 인원</h2>
+                <button class="modal-close" onclick="App.Modal.close('coach-students-modal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="coach-students-list">
+                    <p style="text-align: center; color: var(--text-muted);">로딩 중...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('coach-students-modal')">닫기</button>
+            </div>
+        </div>
+    </div>
+    
     <script src="/js/common.js"></script>
+    <script src="/js/coaches.js"></script>
     <script src="/js/training-stats.js"></script>
 </body>
 </html>

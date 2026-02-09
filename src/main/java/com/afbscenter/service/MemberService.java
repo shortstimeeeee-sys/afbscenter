@@ -211,7 +211,6 @@ public class MemberService {
                 logger.error("회원 정보: 이름={}, 전화번호={}, 회원번호={}, 등급={}, 상태={}", 
                     member.getName(), member.getPhoneNumber(), member.getMemberNumber(), 
                     member.getGrade(), member.getStatus());
-                e.printStackTrace();
                 throw new RuntimeException("회원 저장 중 오류가 발생했습니다: " + e.getMessage(), e);
             }
         } catch (IllegalArgumentException e) {
@@ -242,7 +241,6 @@ public class MemberService {
                 member != null ? member.getStatus() : "null",
                 member != null ? member.getJoinDate() : "null",
                 member != null ? member.getCreatedAt() : "null");
-            e.printStackTrace();
             throw new RuntimeException("회원 등록 중 오류가 발생했습니다: " + e.getMessage(), e);
         }
     }
@@ -455,40 +453,45 @@ public class MemberService {
                                 
                                 Integer mpRemainingCount = mp.getRemainingCount();
                                 
-                                // remainingCount가 null이거나 0인 경우 재계산
-                                // (0인 경우도 재계산하여 실제 사용 횟수 기반으로 정확한 값 확인)
-                                if (mpRemainingCount == null || mpRemainingCount == 0) {
-                                    Integer totalCount = mp.getTotalCount();
-                                    if (totalCount == null || totalCount <= 0) {
-                                        try {
-                                            if (mp.getProduct() != null) {
-                                                totalCount = mp.getProduct().getUsageCount();
-                                            }
-                                        } catch (Exception e) {
-                                            logger.warn("Product 정보 로드 실패 (MemberProduct ID: {}): {}", 
-                                                mp.getId(), e.getMessage());
-                                        }
-                                        if (totalCount == null || totalCount <= 0) {
-                                            totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
-                                        }
+                                // 총 횟수: product.usageCount를 우선 사용 (상품의 실제 사용 횟수 반영, 데이터 일관성 보장)
+                                Integer totalCount = null;
+                                try {
+                                    if (mp.getProduct() != null) {
+                                        totalCount = mp.getProduct().getUsageCount();
                                     }
-                                    
-                                    // 체크인된 출석 기록 수 (가장 정확한 데이터)
-                                    Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(member.getId(), mp.getId());
-                                    if (usedCountByAttendance == null) {
-                                        usedCountByAttendance = 0L;
-                                    }
-                                    
-                                    // 체크인된 예약 수 (출석 기록이 없는 경우를 대비)
-                                    // 주의: countConfirmedBookingsByMemberProductId는 이제 체크인된 예약만 카운트하므로
-                                    // 출석 기록과 중복될 수 있음. 출석 기록을 우선 사용
-                                    Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
-                                    if (usedCountByBooking == null) {
-                                        usedCountByBooking = 0L;
-                                    }
-                                    
-                                    // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용 (중복 방지)
-                                    Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
+                                } catch (Exception e) {
+                                    logger.warn("Product 정보 로드 실패 (MemberProduct ID: {}): {}", 
+                                        mp.getId(), e.getMessage());
+                                }
+                                // product.usageCount가 없으면 mp.totalCount 사용
+                                if (totalCount == null || totalCount <= 0) {
+                                    totalCount = mp.getTotalCount();
+                                }
+                                // 그것도 없으면 기본값 사용
+                                if (totalCount == null || totalCount <= 0) {
+                                    totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
+                                }
+                                
+                                // 체크인된 출석 기록 수 (가장 정확한 데이터)
+                                Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(member.getId(), mp.getId());
+                                if (usedCountByAttendance == null) {
+                                    usedCountByAttendance = 0L;
+                                }
+                                
+                                // 체크인된 예약 수 (출석 기록이 없는 경우를 대비)
+                                // 주의: countConfirmedBookingsByMemberProductId는 이제 체크인된 예약만 카운트하므로
+                                // 출석 기록과 중복될 수 있음. 출석 기록을 우선 사용
+                                Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
+                                if (usedCountByBooking == null) {
+                                    usedCountByBooking = 0L;
+                                }
+                                
+                                // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용 (중복 방지)
+                                Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
+                                
+                                // remainingCount가 null일 때만 재계산 (DB에 저장된 값을 우선 사용)
+                                // 체크인 시 차감된 정확한 값을 유지하기 위해 0도 유효한 값으로 처리
+                                if (mpRemainingCount == null) {
                                     mpRemainingCount = totalCount - actualUsedCount.intValue();
                                     if (mpRemainingCount < 0) {
                                         mpRemainingCount = 0;
@@ -500,6 +503,7 @@ public class MemberService {
                                         mp.setTotalCount(totalCount);
                                     }
                                 }
+                                // mpRemainingCount가 0이거나 양수인 경우 DB에 저장된 값을 그대로 사용 (체크인 시 차감된 정확한 값)
                                 
                                 if (mpRemainingCount < 0) {
                                     mpRemainingCount = 0;
@@ -606,10 +610,12 @@ public class MemberService {
         
         // 지점별 필터링 (코치의 배정 지점 기준)
         // 야구(BASEBALL)는 모든 지점에서 가능하므로 필터링하지 않음
-        // 트레이닝+필라테스(TRAINING_FITNESS)만 지점별로 필터링
+        // 트레이닝+필라테스(TRAINING_FITNESS)는 지점 필터 미적용: 트레이닝/필라테스 이용권이 있는 회원은
+        // 사하·연산 어느 페이지에서든 선택 가능하도록 함 (예약 시 해당 지점 코치/시설만 선택하면 됨)
         if (branch != null && !branch.trim().isEmpty() && 
             productCategory != null && !productCategory.trim().isEmpty() &&
-            !productCategory.toUpperCase().equals("BASEBALL")) {
+            !productCategory.toUpperCase().equals("BASEBALL") &&
+            !productCategory.toUpperCase().equals("TRAINING_FITNESS")) {
             try {
                 String branchUpper = branch.trim().toUpperCase();
                 memberDTOs = memberDTOs.stream()
@@ -703,6 +709,8 @@ public class MemberService {
     private void migrateMemberGradesIfNeeded() {
         try {
             logger.debug("마이그레이션: 기존 등급 값 확인 시작");
+            // 등급 CHECK 제약 조건 제거 시도 (신규 등급 추가 대응)
+            dropMemberGradeCheckConstraints();
             // 기존 등급 값이 있는지 확인
             Integer regularCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM members WHERE grade = 'REGULAR'", 
@@ -728,44 +736,6 @@ public class MemberService {
                 logger.info("회원 등급 마이그레이션 시작: {}건의 레코드 발견", totalOldGrades);
 
                 try {
-                    // CHECK 제약 조건 삭제 시도 (H2에서 enum에 대한 CHECK 제약 조건이 있을 수 있음)
-                    // H2에서는 오류 메시지에 나온 제약 조건 이름을 직접 삭제 시도
-                    String[] possibleConstraintNames = {
-                        "CONSTRAINT_635", "CONSTRAINT_636", "CONSTRAINT_637",
-                        "CHECK_GRADE", "MEMBERS_GRADE_CHECK"
-                    };
-                    
-                    for (String constraintName : possibleConstraintNames) {
-                        try {
-                            jdbcTemplate.execute("ALTER TABLE members DROP CONSTRAINT IF EXISTS " + constraintName);
-                            logger.debug("제약 조건 삭제 시도: {}", constraintName);
-                        } catch (Exception e) {
-                            // 제약 조건이 없거나 다른 이름일 수 있음 (무시)
-                            logger.debug("제약 조건 삭제 실패 (무시): {} - {}", constraintName, e.getMessage());
-                        }
-                    }
-                    
-                    // H2에서 제약 조건 목록 조회 시도 (다양한 방법)
-                    try {
-                        List<Map<String, Object>> constraints = jdbcTemplate.queryForList(
-                            "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS " +
-                            "WHERE TABLE_NAME = 'MEMBERS' AND CONSTRAINT_TYPE = 'CHECK'"
-                        );
-                        for (Map<String, Object> constraint : constraints) {
-                            String constraintName = (String) constraint.get("CONSTRAINT_NAME");
-                            if (constraintName != null) {
-                                try {
-                                    jdbcTemplate.execute("ALTER TABLE members DROP CONSTRAINT " + constraintName);
-                                    logger.info("CHECK 제약 조건 삭제: {}", constraintName);
-                                } catch (Exception e) {
-                                    logger.debug("제약 조건 삭제 실패 (무시): {}", constraintName);
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        logger.debug("제약 조건 목록 조회 실패 (무시): {}", e.getMessage());
-                    }
-
                     // REGULAR -> SOCIAL (사회인)
                     if (regularCount != null && regularCount > 0) {
                         int updated = jdbcTemplate.update("UPDATE members SET grade = 'SOCIAL' WHERE grade = 'REGULAR'");
@@ -795,6 +765,49 @@ public class MemberService {
         } catch (Exception e) {
             // 테이블이 아직 생성되지 않았거나 다른 오류가 발생한 경우 무시
             logger.warn("마이그레이션 실행 중 오류: {}", e.getMessage(), e);
+        }
+    }
+
+    private void dropMemberGradeCheckConstraints() {
+        try {
+            // CHECK 제약 조건 삭제 시도 (H2에서 enum에 대한 CHECK 제약 조건이 있을 수 있음)
+            String[] possibleConstraintNames = {
+                "CONSTRAINT_635", "CONSTRAINT_636", "CONSTRAINT_637",
+                "CHECK_GRADE", "MEMBERS_GRADE_CHECK"
+            };
+            
+            for (String constraintName : possibleConstraintNames) {
+                try {
+                    jdbcTemplate.execute("ALTER TABLE members DROP CONSTRAINT IF EXISTS " + constraintName);
+                    logger.debug("제약 조건 삭제 시도: {}", constraintName);
+                } catch (Exception e) {
+                    // 제약 조건이 없거나 다른 이름일 수 있음 (무시)
+                    logger.debug("제약 조건 삭제 실패 (무시): {} - {}", constraintName, e.getMessage());
+                }
+            }
+            
+            // H2에서 제약 조건 목록 조회 시도
+            try {
+                List<Map<String, Object>> constraints = jdbcTemplate.queryForList(
+                    "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS " +
+                    "WHERE TABLE_NAME = 'MEMBERS' AND CONSTRAINT_TYPE = 'CHECK'"
+                );
+                for (Map<String, Object> constraint : constraints) {
+                    String constraintName = (String) constraint.get("CONSTRAINT_NAME");
+                    if (constraintName != null) {
+                        try {
+                            jdbcTemplate.execute("ALTER TABLE members DROP CONSTRAINT " + constraintName);
+                            logger.info("CHECK 제약 조건 삭제: {}", constraintName);
+                        } catch (Exception e) {
+                            logger.debug("제약 조건 삭제 실패 (무시): {}", constraintName);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.debug("제약 조건 목록 조회 실패 (무시): {}", e.getMessage());
+            }
+        } catch (Exception e) {
+            logger.debug("등급 CHECK 제약 조건 제거 실패 (무시): {}", e.getMessage());
         }
     }
     
@@ -942,10 +955,16 @@ public class MemberService {
         if (updatedMember.getSchool() != null) {
             member.setSchool(updatedMember.getSchool());
         }
-        // 훈련 기록 (야구 기록)
+        // 훈련 기록 (투수/타자 기록)
         member.setSwingSpeed(updatedMember.getSwingSpeed());
         member.setExitVelocity(updatedMember.getExitVelocity());
         member.setPitchingSpeed(updatedMember.getPitchingSpeed());
+        member.setPitcherPower(updatedMember.getPitcherPower());
+        member.setPitcherControl(updatedMember.getPitcherControl());
+        member.setPitcherFlexibility(updatedMember.getPitcherFlexibility());
+        member.setRunningSpeed(updatedMember.getRunningSpeed());
+        member.setBatterPower(updatedMember.getBatterPower());
+        member.setBatterFlexibility(updatedMember.getBatterFlexibility());
         // 코치 설정
         if (updatedMember.getCoach() != null && updatedMember.getCoach().getId() != null) {
             Coach coach = coachRepository.findById(updatedMember.getCoach().getId())
@@ -1069,7 +1088,16 @@ public class MemberService {
             // H2 MODE=MySQL이므로 테이블/컬럼 이름은 대소문자 구분 없음
             
             // 관련 엔티티 삭제 (외래키 제약 조건을 고려한 순서)
+            // member_product_history는 payment_id, attendance_id를 참조하므로 가장 먼저 삭제
             // Payment와 Attendance가 Booking을 참조하므로, Booking 삭제 전에 먼저 삭제해야 함
+            
+            // 0. MemberProductHistory 삭제 (payment/attendance 참조하므로 먼저 삭제)
+            try {
+                jdbcTemplate.update("DELETE FROM member_product_history WHERE member_id = ?", id);
+                logger.info("MemberProductHistory 삭제 완료: Member ID={}", id);
+            } catch (Exception e) {
+                logger.warn("MemberProductHistory 삭제 실패 (무시): Member ID={}, 오류: {}", id, e.getMessage());
+            }
             
             // 1. Payment 삭제 (Booking을 참조하므로 먼저 삭제)
             try {

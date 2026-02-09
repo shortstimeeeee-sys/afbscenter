@@ -2,6 +2,12 @@
 
 웹 기반 야구 센터 관리 시스템입니다. 회원 관리, 예약 관리, 결제, 출석, 코치 관리, 훈련 기록 등을 통합 관리할 수 있습니다.
 
+- **처음 실행**: [QUICK_START.md](QUICK_START.md)  
+- **배포**: [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)  
+- **전체 검토**(구조·보안·개선 권장): [PROJECT_REVIEW_FULL.md](PROJECT_REVIEW_FULL.md)  
+- **점검/가독성**: [PROJECT_AUDIT_2026.md](PROJECT_AUDIT_2026.md), [PROJECT_REVIEW_2026.md](PROJECT_REVIEW_2026.md)  
+- **기타 문서**(과거 점검·리팩터링): [docs/](docs/) 참고
+
 ## 기술 스택
 
 - **Java 17**: 프로그래밍 언어
@@ -16,17 +22,23 @@
 ```
 src/main/java/com/afbscenter/
 ├── AfbsCenterApplication.java    # Spring Boot 메인 클래스
-├── controller/                   # REST API 컨트롤러
-│   ├── AttendanceController.java
+├── controller/                   # REST API 컨트롤러 (역할별 분리)
+│   ├── AnalyticsController.java
+│   ├── AnnouncementController.java
+│   ├── AttendanceController.java, AttendanceQueryController.java
+│   ├── AuthController.java
 │   ├── BaseballRecordController.java
-│   ├── BookingController.java
+│   ├── BookingController.java, BookingStatsController.java
 │   ├── CoachController.java
 │   ├── DashboardController.java
 │   ├── FacilityController.java
-│   ├── MemberController.java
-│   ├── PaymentController.java
-│   ├── ProductController.java
-│   └── TrainingLogController.java
+│   ├── MemberController.java, MemberDetailController.java, MemberQueryController.java, MemberStatsController.java
+│   ├── MemberProductController.java, MemberProductStatsController.java
+│   ├── PaymentController.java, PaymentStatsController.java
+│   ├── ProductController.java, ProductAdminController.java
+│   ├── RolePermissionController.java, SettingsController.java, UserController.java
+│   ├── TrainingLogController.java, TrainingLogStatsController.java
+│   └── MessageController.java, DatabaseStatusController.java, LessonController.java
 ├── model/                        # JPA 엔티티
 │   ├── Attendance.java
 │   ├── BaseballRecord.java
@@ -170,7 +182,7 @@ mvn spring-boot:run
 - `DELETE /api/baseball-records/{id}` - 기록 삭제
 - `GET /api/baseball-records/member/{memberId}/average-batting` - 평균 타율 조회
 
-자세한 API 문서는 `PROJECT_STRUCTURE.md`를 참고하세요.
+자세한 API 문서는 [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)를 참고하세요.
 
 ## 데이터베이스
 

@@ -24,25 +24,28 @@
                     <div class="menu-section-title">회원 관리</div>
                     <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
                     <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">출석부</div>
+                    <a href="/attendance.html" class="menu-item menu-item--attendance" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings-without-product.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
                     
                     <!-- 사하점 -->
                     <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 대관 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
                     <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
-                    
-                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">훈련 관리</div>
@@ -51,8 +54,8 @@
                     <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
                 </div>
                 <div class="menu-section">
-                    <div class="menu-section-title">상품/결제</div>
-                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>상품/이용권</span></a>
+                    <div class="menu-section-title">이용권/결제</div>
+                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>이용권</span></a>
                     <a href="/payments.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
                 </div>
             </nav>
@@ -64,16 +67,14 @@
                     <h1 class="page-title">🏆 훈련 기록 랭킹</h1>
                 </div>
                 <div class="topbar-right">
-                    <div class="user-info">
-                        <span class="user-name">관리자</span>
-                        <span class="user-role">Manager</span>
-                    </div>
+                    <button class="notification-btn" id="notification-btn" title="알림">🔔</button>
+                    <button class="user-menu-btn" id="user-menu-btn" title="사용자 메뉴">👤</button>
                 </div>
             </header>
 
             <div class="content-area">
-                <!-- 기간 선택 (훈련 횟수만 기간 필터 적용) -->
-                <div class="card">
+                <!-- 기간 선택 (훈련 횟수만 기간 필터 적용) - 개인정보 보호 시 마스킹 제외 -->
+                <div class="card rankings-filter-card">
                     <div class="card-header">
                         <h2 class="card-title">조회 기간 (훈련 횟수 기준)</h2>
                     </div>
@@ -87,7 +88,8 @@
                                 <input type="date" id="custom-start-date" class="form-control" style="width: auto;">
                                 <span>~</span>
                                 <input type="date" id="custom-end-date" class="form-control" style="width: auto;">
-                                <button class="btn btn-sm btn-primary" onclick="loadCustomPeriod()">조회</button>
+                                <button class="btn btn-primary rankings-query-btn" onclick="loadCustomPeriod()">조회</button>
+                                <button type="button" class="btn btn-sm btn-secondary" id="rankings-unlock-btn" onclick="openRankingsViewModal()" title="관리자 비밀번호 입력 시 이름·회원번호 전체 표시">🔓 관리자 비밀번호로 열람</button>
                             </div>
                             <div style="display: flex; gap: 8px; align-items: center; margin-left: auto;">
                                 <label style="font-size: 13px; color: var(--text-secondary); font-weight: 600;">회원 등급:</label>
@@ -98,6 +100,7 @@
                                     <option value="ELITE_MIDDLE">엘리트 (중)</option>
                                     <option value="ELITE_HIGH">엘리트 (고)</option>
                                     <option value="YOUTH">유소년</option>
+                                    <option value="OTHER">기타 종목</option>
                                 </select>
                             </div>
                         </div>
@@ -127,7 +130,7 @@
                     <div class="card ranking-card">
                         <div class="card-header">
                             <h3 class="card-title">⚡ 타구 속도 랭킹</h3>
-                            <span class="ranking-subtitle">회원 기록 기준</span>
+                            <span class="ranking-subtitle" id="exit-velocity-subtitle">훈련 기록 기준</span>
                         </div>
                         <div class="card-body">
                             <div id="exit-velocity-ranking" class="ranking-list">
@@ -140,7 +143,7 @@
                     <div class="card ranking-card">
                         <div class="card-header">
                             <h3 class="card-title">🔥 구속 랭킹</h3>
-                            <span class="ranking-subtitle">회원 기록 기준</span>
+                            <span class="ranking-subtitle" id="pitching-speed-subtitle">훈련 기록 기준</span>
                         </div>
                         <div class="card-body">
                             <div id="pitching-speed-ranking" class="ranking-list">
@@ -164,6 +167,28 @@
                 </div>
             </div>
         </main>
+    </div>
+
+    <!-- 관리자 비밀번호로 랭킹 개인정보 열람 모달 -->
+    <div class="modal-overlay" id="rankings-view-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">관리자 비밀번호로 열람</h2>
+                <button class="modal-close" type="button" aria-label="닫기">×</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 12px; color: var(--text-secondary); font-size: 14px;">관리자 비밀번호를 입력하면 랭킹에 이름·회원번호가 전체 표시됩니다. (개인 비밀번호가 아닌 관리자 계정 비밀번호입니다.)</p>
+                <div class="form-group">
+                    <label class="form-label">관리자 비밀번호</label>
+                    <input type="password" id="rankings-view-password" class="form-control" placeholder="관리자 비밀번호 입력" autocomplete="off">
+                </div>
+                <p id="rankings-view-error" style="color: var(--danger); font-size: 13px; margin-top: 8px;"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="App.Modal.close('rankings-view-modal')">취소</button>
+                <button type="button" class="btn btn-primary" onclick="confirmRankingsViewPassword()">확인</button>
+            </div>
+        </div>
     </div>
 
     <script src="/js/common.js"></script>

@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>스크린샷 발췌 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">출석부</div>
+                    <a href="/attendance.html" class="menu-item" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings-without-product.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
+                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
+                    <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">훈련 관리</div>
+                    <a href="/training-logs.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
+                    <a href="/rankings.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">🏆</span><span>훈련 랭킹</span></a>
+                    <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
+                </div>
+                <div class="menu-section" data-role="Admin">
+                    <div class="menu-section-title">관리자</div>
+                    <a href="/analytics.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
+                    <a href="/announcements.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📢</span><span>공지/메시지</span></a>
+                    <a href="/screenshot-export.html" class="menu-item active" data-role="Admin"><span class="menu-item-icon">📷</span><span>스크린샷 발췌</span></a>
+                    <a href="/users.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">👤</span><span>사용자 관리</span></a>
+                    <a href="/permissions.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">🔐</span><span>권한 관리</span></a>
+                    <a href="/settings.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚙️</span><span>설정</span></a>
+                </div>
+            </nav>
+        </aside>
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">스크린샷 발췌</h1>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn" id="notification-btn">🔔</button>
+                    <button class="user-menu-btn" id="user-menu-btn">👤</button>
+                </div>
+            </header>
+            <div class="content-area">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">📷 스크린샷 발췌</h2>
+                    </div>
+                    <div class="card-body" style="padding: 24px;">
+                        <p style="color: var(--text-secondary); margin-bottom: 16px;">
+                            아래 목록에서 <strong>미리보기</strong>를 누르면 모달에 해당 영역을 불러옵니다. 페이지별로 같은 순서로 정렬되어 있습니다.
+                        </p>
+                        <div class="filter-row" style="margin-bottom: 16px; display: flex; flex-wrap: nowrap; gap: 12px; align-items: center;">
+                            <label class="form-label" style="margin: 0;">페이지 필터:</label>
+                            <select class="form-control" id="filter-page" style="width: 220px;">
+                                <option value="">전체 페이지</option>
+                            </select>
+                            <label class="form-label" style="margin: 0;">개인정보 보호:</label>
+                            <button type="button" class="btn btn-secondary" id="btn-mask-toggle" title="미리보기 시 이름(성만), 회원번호(M+***), 금액(원/₩+***) 마스킹">
+                                <span id="btn-mask-label">보호 끔</span>
+                            </button>
+                        </div>
+                        <div id="screenshot-target-list" class="table-container">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>페이지</th>
+                                        <th>캡처 영역</th>
+                                        <th>작업</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="screenshot-target-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                        <p style="margin-top: 16px; font-size: 12px; color: var(--text-muted);">
+                            ※ 모달 안 내용을 스크린샷으로 저장하려면 브라우저에서 해당 영역을 지정해 캡처하거나, 추후 추가될 「캡처」 버튼을 사용할 수 있습니다.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 미리보기 모달: 해당 영역만 iframe으로 불러옴 (화면 중앙 고정) -->
+    <div id="screenshot-preview-modal" class="modal-overlay screenshot-preview-overlay" style="display: none;">
+        <div class="modal screenshot-preview-modal-box">
+            <div class="modal-header" style="display: flex; align-items: center; gap: 12px;">
+                <h2 class="modal-title" id="screenshot-preview-modal-title" style="margin: 0;">미리보기</h2>
+                <button type="button" class="btn btn-sm btn-secondary" id="btn-mask-toggle-modal" title="개인정보 보호: 이름(성만), 회원번호(M+***), 금액 마스킹">
+                    <span id="btn-mask-label-modal">전 페이지 보호 끔</span>
+                </button>
+                <button type="button" class="modal-close" onclick="closeScreenshotPreview()" style="margin-left: auto;">×</button>
+            </div>
+            <div class="modal-body screenshot-preview-modal-body" style="position: relative;">
+                <div id="screenshot-preview-loading" class="screenshot-preview-loading">로딩 중...</div>
+                <iframe id="screenshot-preview-iframe" class="screenshot-preview-iframe"></iframe>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeScreenshotPreview()">닫기</button>
+            </div>
+        </div>
+    </div>
+    <style>
+        .screenshot-preview-overlay {
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+            box-sizing: border-box;
+        }
+        .screenshot-preview-modal-box .modal-header {
+            background-color: var(--bg-secondary);
+        }
+        .screenshot-preview-modal-box {
+            display: flex;
+            flex-direction: column;
+            width: 95vw;
+            max-width: 1600px;
+            height: 92vh;
+            max-height: calc(100vh - 24px);
+            margin: 0;
+            overflow: hidden;
+        }
+        .screenshot-preview-modal-body {
+            flex: 1;
+            min-height: 0;
+            padding: 0;
+            padding-top: 12px;
+            background-color: var(--bg-primary);
+            overflow: hidden;
+        }
+        .screenshot-preview-iframe {
+            width: 100%;
+            height: 100%;
+            min-height: 300px;
+            border: none;
+            display: block;
+            background-color: var(--bg-primary);
+        }
+        .screenshot-preview-loading {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+            font-size: 15px;
+            z-index: 10;
+        }
+        .screenshot-preview-loading.hidden {
+            display: none;
+        }
+    </style>
+
+    <script src="/js/common.js"></script>
+    <script>
+        // 사이드바 순서와 각 페이지 내 섹션 순서 동일 (대시보드는 index.html 콘텐츠 순서: 공지 → KPI → 회원추이 → 월별매출 → 오늘일정)
+        var SCREENSHOT_TARGETS = [
+            { pageKey: 'dashboard', pageName: '대시보드', label: '공지사항', previewUrl: '/?export=export-announcements' },
+            { pageKey: 'dashboard', pageName: '대시보드', label: 'KPI 카드', previewUrl: '/?export=kpi-grid' },
+            { pageKey: 'dashboard', pageName: '대시보드', label: '회원 증가 추이', previewUrl: '/?export=export-member-chart' },
+            { pageKey: 'dashboard', pageName: '대시보드', label: '월별 매출', previewUrl: '/?export=export-revenue-chart' },
+            { pageKey: 'dashboard', pageName: '대시보드', label: '오늘 일정', previewUrl: '/?export=export-today-schedule' },
+            { pageKey: 'members', pageName: '회원 관리', label: '본문', previewUrl: '/members.html' },
+            { pageKey: 'coaches', pageName: '코치/레슨 관리', label: '본문', previewUrl: '/coaches.html' },
+            { pageKey: 'attendance', pageName: '출석/이용 기록', label: '본문', previewUrl: '/attendance.html' },
+            { pageKey: 'bookings-without-product', pageName: '이용권 미연결 예약 관리', label: '본문', previewUrl: '/bookings-without-product.html' },
+            { pageKey: 'bookings-saha', pageName: '사하점 야구', label: '본문', previewUrl: '/bookings.html' },
+            { pageKey: 'bookings-saha-youth', pageName: '사하점 야구(유소년)', label: '본문', previewUrl: '/bookings-saha-youth.html' },
+            { pageKey: 'bookings-saha-training', pageName: '사하점 트레이닝+필라테스', label: '본문', previewUrl: '/bookings-saha-training.html' },
+            { pageKey: 'bookings-yeonsan', pageName: '연산점 야구', label: '본문', previewUrl: '/bookings-yeonsan.html' },
+            { pageKey: 'bookings-yeonsan-youth', pageName: '연산점 야구(유소년)', label: '본문', previewUrl: '/bookings-yeonsan-youth.html' },
+            { pageKey: 'bookings-yeonsan-training', pageName: '연산점 트레이닝+필라테스', label: '본문', previewUrl: '/bookings-yeonsan-training.html' },
+            { pageKey: 'rentals', pageName: '대관 관리', label: '본문', previewUrl: '/rentals.html' },
+            { pageKey: 'training-logs', pageName: '훈련 기록', label: '본문', previewUrl: '/training-logs.html' },
+            { pageKey: 'rankings', pageName: '훈련 랭킹', label: '본문', previewUrl: '/rankings.html' },
+            { pageKey: 'training-stats', pageName: '훈련 통계', label: '본문', previewUrl: '/training-stats.html' },
+            { pageKey: 'products', pageName: '이용권', label: '본문', previewUrl: '/products.html' },
+            { pageKey: 'payments', pageName: '결제/정산', label: '본문', previewUrl: '/payments.html' },
+            { pageKey: 'facilities', pageName: '시설 관리', label: '본문', previewUrl: '/facilities.html' },
+            { pageKey: 'analytics', pageName: '통계/분석', label: '본문', previewUrl: '/analytics.html' },
+            { pageKey: 'announcements', pageName: '공지/메시지', label: '본문', previewUrl: '/announcements.html' },
+            { pageKey: 'users', pageName: '사용자 관리', label: '본문', previewUrl: '/users.html' },
+            { pageKey: 'permissions', pageName: '권한 관리', label: '본문', previewUrl: '/permissions.html' },
+            { pageKey: 'settings', pageName: '설정', label: '본문', previewUrl: '/settings.html' }
+        ];
+
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof App !== 'undefined' && App.init) App.init();
+
+            var filterSelect = document.getElementById('filter-page');
+            var tbody = document.getElementById('screenshot-target-tbody');
+            var pageKeys = [];
+            var seen = {};
+            SCREENSHOT_TARGETS.forEach(function(t) {
+                if (!seen[t.pageKey]) { seen[t.pageKey] = true; pageKeys.push({ key: t.pageKey, name: t.pageName }); }
+            });
+            pageKeys.forEach(function(p) {
+                var opt = document.createElement('option');
+                opt.value = p.key;
+                opt.textContent = p.name;
+                filterSelect.appendChild(opt);
+            });
+
+            function renderRows(filterKey) {
+                tbody.innerHTML = '';
+                SCREENSHOT_TARGETS.forEach(function(t) {
+                    if (filterKey && t.pageKey !== filterKey) return;
+                    var tr = document.createElement('tr');
+                    tr.setAttribute('data-page', t.pageKey);
+                    tr.innerHTML = '<td>' + (t.pageName || '') + '</td><td>' + (t.label || '') + '</td><td><button type="button" class="btn btn-sm btn-primary btn-preview" data-preview-url="' + (t.previewUrl || '') + '" data-label="' + (t.label || '미리보기').replace(/"/g, '&quot;') + '">미리보기</button></td>';
+                    tbody.appendChild(tr);
+                });
+                tbody.querySelectorAll('.btn-preview').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var url = this.getAttribute('data-preview-url');
+                        var label = this.getAttribute('data-label') || '미리보기';
+                        openScreenshotPreview(url, label);
+                    });
+                });
+            }
+
+            renderRows('');
+            filterSelect.addEventListener('change', function() {
+                renderRows(this.value || '');
+            });
+
+            applyMaskToggleLabels();
+            function setMaskToggle(on) {
+                screenshotMaskOn = !!on;
+                applyMaskToggleLabels();
+                var modal = document.getElementById('screenshot-preview-modal');
+                if (modal && modal.classList.contains('active') && screenshotCurrentUrl) {
+                    reloadPreviewWithMask();
+                }
+            }
+            document.getElementById('btn-mask-toggle').addEventListener('click', function() {
+                setMaskToggle(!screenshotMaskOn);
+            });
+            document.getElementById('btn-mask-toggle-modal').addEventListener('click', function() {
+                setMaskToggle(!screenshotMaskOn);
+            });
+
+            document.getElementById('screenshot-preview-modal').addEventListener('click', function(e) {
+                if (e.target === this) closeScreenshotPreview();
+            });
+        });
+
+        var screenshotLoadingTimeout;
+        var screenshotMaskOn = false;
+        var screenshotCurrentUrl = '';
+        var screenshotCurrentLabel = '';
+        function buildPreviewUrl(previewUrl) {
+            var url = previewUrl || '';
+            if (url.indexOf('export=') !== -1) {
+                url = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'mask=' + (screenshotMaskOn ? '1' : '0');
+            } else {
+                url = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'embed=1';
+                if (screenshotMaskOn) url = url + '&mask=1';
+            }
+            return url;
+        }
+        function applyMaskToggleLabels() {
+            var label = document.getElementById('btn-mask-label');
+            var labelModal = document.getElementById('btn-mask-label-modal');
+            var t = screenshotMaskOn ? '보호 켜짐' : '보호 끔';
+            if (label) label.textContent = t;
+            t = screenshotMaskOn ? '전 페이지 보호 켜짐' : '전 페이지 보호 끔';
+            if (labelModal) labelModal.textContent = t;
+        }
+        function openScreenshotPreview(previewUrl, label) {
+            var modal = document.getElementById('screenshot-preview-modal');
+            var title = document.getElementById('screenshot-preview-modal-title');
+            var iframe = document.getElementById('screenshot-preview-iframe');
+            var loadingEl = document.getElementById('screenshot-preview-loading');
+            if (!modal || !iframe) return;
+            title.textContent = label;
+            screenshotCurrentUrl = previewUrl || '';
+            screenshotCurrentLabel = label || '미리보기';
+            if (loadingEl) loadingEl.classList.remove('hidden');
+            iframe.src = 'about:blank';
+            modal.classList.add('active');
+            modal.style.display = 'flex';
+            var url = buildPreviewUrl(previewUrl);
+            if (screenshotLoadingTimeout) clearTimeout(screenshotLoadingTimeout);
+            screenshotLoadingTimeout = setTimeout(function() {
+                if (loadingEl && !loadingEl.classList.contains('hidden')) loadingEl.classList.add('hidden');
+            }, 4000);
+            setTimeout(function() {
+                iframe.src = url || 'about:blank';
+            }, 0);
+        }
+        function reloadPreviewWithMask() {
+            var iframe = document.getElementById('screenshot-preview-iframe');
+            if (!iframe || !screenshotCurrentUrl) return;
+            var loadingEl = document.getElementById('screenshot-preview-loading');
+            if (loadingEl) loadingEl.classList.remove('hidden');
+            if (screenshotLoadingTimeout) clearTimeout(screenshotLoadingTimeout);
+            screenshotLoadingTimeout = setTimeout(function() {
+                if (loadingEl && !loadingEl.classList.contains('hidden')) loadingEl.classList.add('hidden');
+            }, 4000);
+            iframe.src = buildPreviewUrl(screenshotCurrentUrl);
+        }
+        function closeScreenshotPreview() {
+            var modal = document.getElementById('screenshot-preview-modal');
+            var iframe = document.getElementById('screenshot-preview-iframe');
+            var loadingEl = document.getElementById('screenshot-preview-loading');
+            if (modal) {
+                modal.classList.remove('active');
+                modal.style.display = 'none';
+            }
+            if (iframe) iframe.src = 'about:blank';
+            if (loadingEl) loadingEl.classList.remove('hidden');
+            if (screenshotLoadingTimeout) { clearTimeout(screenshotLoadingTimeout); screenshotLoadingTimeout = null; }
+        }
+        window.addEventListener('message', function(e) {
+            if (e.data === 'screenshot-export-ready') {
+                var loadingEl = document.getElementById('screenshot-preview-loading');
+                if (loadingEl) loadingEl.classList.add('hidden');
+                if (screenshotLoadingTimeout) { clearTimeout(screenshotLoadingTimeout); screenshotLoadingTimeout = null; }
+            }
+        });
+    </script>
+</body>
+</html>

@@ -91,13 +91,29 @@ public class Member {
     private String school; // 학교/소속
 
     @Column(name = "swing_speed")
-    private Double swingSpeed; // 스윙 속도 (km/h) - 소수점 한자리
+    private Double swingSpeed; // 스윙 속도 (mph) - 소수점 한자리
 
     @Column(name = "exit_velocity")
-    private Double exitVelocity; // 타구 속도 (km/h) - 소수점 한자리
+    private Double exitVelocity; // 타구 속도 (mph) - 소수점 한자리
 
     @Column(name = "pitching_speed")
     private Double pitchingSpeed; // 구속 (km/h) - 소수점 한자리
+
+    /** 투수 능력치 */
+    @Column(name = "pitcher_power")
+    private Double pitcherPower;
+    @Column(name = "pitcher_control", length = 10)
+    private String pitcherControl; // 상, 중, 하 (HIGH, MID, LOW)
+    @Column(name = "pitcher_flexibility", length = 10)
+    private String pitcherFlexibility; // 상, 중, 하
+    @Column(name = "running_speed")
+    private Double runningSpeed; // 주력 (공통)
+
+    /** 타자 능력치 (파워·유연성 등) */
+    @Column(name = "batter_power")
+    private Double batterPower;
+    @Column(name = "batter_flexibility")
+    private Double batterFlexibility; // 타자 유연성 기록
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "coach_id")
@@ -144,7 +160,8 @@ public class Member {
         ELITE_ELEMENTARY,  // 엘리트 (초)
         ELITE_MIDDLE,      // 엘리트 (중)
         ELITE_HIGH,        // 엘리트 (고)
-        YOUTH              // 유소년
+        YOUTH,             // 유소년
+        OTHER              // 기타 종목
     }
 
     public enum MemberStatus {

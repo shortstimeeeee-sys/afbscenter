@@ -1,1 +1,5 @@
 /* 공지/메시지 페이지 스타일 */
+
+/* 타이틀 영역 위쪽 공백 제거 */
+body.announcements-page .main-content { padding-top: 0; }
+body.announcements-page .topbar { margin-top: 0; }

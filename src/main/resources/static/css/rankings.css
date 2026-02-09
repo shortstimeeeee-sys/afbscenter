@@ -7,6 +7,14 @@
     flex-wrap: wrap;
 }
 
+/* 조회 버튼: 옆 날짜 입력 필드와 같은 높이 */
+.rankings-query-btn {
+    padding: 10px 16px;
+    font-size: 14px;
+    min-height: 38px;
+    box-sizing: border-box;
+}
+
 .period-btn {
     transition: all 0.2s;
 }
@@ -63,6 +71,50 @@
     border-bottom: none;
 }
 
+/* 랭킹에서 회원 이름/회원번호 클릭 시 회원 상세로 이동 */
+.ranking-member-link {
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+    border-bottom: 1px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+}
+.ranking-member-link:hover {
+    color: var(--accent-primary);
+    border-bottom-color: var(--accent-primary);
+}
+
+/* 1~3위 행 배경 그라데이션 + 글자색 (금·은·동) */
+.ranking-item.ranking-item-gold {
+    background: linear-gradient(90deg, rgba(255, 215, 0, 0.28) 0%, rgba(255, 215, 0, 0.08) 50%, transparent 100%);
+}
+.ranking-item.ranking-item-gold .ranking-member-name { color: #d4af37; }
+.ranking-item.ranking-item-gold .ranking-main-value { color: #b8860b; }
+.ranking-item.ranking-item-gold .ranking-member-number,
+.ranking-item.ranking-item-gold .ranking-sub-value { color: #9a7b2a; }
+
+.ranking-item.ranking-item-silver {
+    background: linear-gradient(90deg, rgba(192, 192, 192, 0.32) 0%, rgba(192, 192, 192, 0.1) 50%, transparent 100%);
+}
+.ranking-item.ranking-item-silver .ranking-member-name { color: #a8a8a8; }
+.ranking-item.ranking-item-silver .ranking-main-value { color: #808080; }
+.ranking-item.ranking-item-silver .ranking-member-number,
+.ranking-item.ranking-item-silver .ranking-sub-value { color: #6b6b6b; }
+
+.ranking-item.ranking-item-bronze {
+    background: linear-gradient(90deg, rgba(205, 127, 50, 0.28) 0%, rgba(205, 127, 50, 0.08) 50%, transparent 100%);
+}
+.ranking-item.ranking-item-bronze .ranking-member-name { color: #b87333; }
+.ranking-item.ranking-item-bronze .ranking-main-value { color: #8b5a2b; }
+.ranking-item.ranking-item-bronze .ranking-member-number,
+.ranking-item.ranking-item-bronze .ranking-sub-value { color: #7a4e24; }
+
+.ranking-item.ranking-item-gold:hover,
+.ranking-item.ranking-item-silver:hover,
+.ranking-item.ranking-item-bronze:hover {
+    filter: brightness(1.05);
+}
+
 .ranking-position {
     font-size: 20px;
     font-weight: 900;
@@ -97,6 +149,39 @@
 .ranking-member-number {
     font-size: 11px;
     color: var(--text-secondary);
+}
+
+/* 랭킹 등급별 고유 색상 (common.css 엘리트 배지와 동일 톤) */
+.ranking-grade-badge {
+    margin-left: 6px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 600;
+}
+.ranking-grade-elite-high {
+    background-color: rgba(241, 196, 15, 0.25);
+    color: #f39c12;
+}
+.ranking-grade-elite-middle {
+    background-color: rgba(52, 152, 219, 0.25);
+    color: #2980b9;
+}
+.ranking-grade-elite-elementary {
+    background-color: rgba(155, 89, 182, 0.25);
+    color: #8e44ad;
+}
+.ranking-grade-social {
+    background-color: rgba(108, 117, 125, 0.25);
+    color: #6c757d;
+}
+.ranking-grade-youth {
+    background-color: rgba(132, 204, 22, 0.25);
+    color: #84cc16;
+}
+.ranking-grade-other {
+    background-color: rgba(0, 150, 136, 0.25);
+    color: #009688;
 }
 
 .ranking-value {

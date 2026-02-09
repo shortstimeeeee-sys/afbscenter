@@ -1,5 +1,14 @@
 /* 예약/대관 관리 페이지 스타일 */
 
+/* 회원 선택 모달이 대관 등록/빠른 예약 모달 위에 보이도록 (회원 선택 클릭 시 우선 표시) */
+#member-select-modal.modal-overlay {
+    z-index: 2100;
+}
+
+/* 타이틀 영역 위쪽 공백 제거 */
+body.rentals-page .main-content { padding-top: 0; }
+body.rentals-page .topbar { margin-top: 0; }
+
 .view-controls {
     display: flex;
     gap: 12px;
@@ -8,50 +17,29 @@
     flex-wrap: wrap;
 }
 
-/* 코치 범례 스타일 */
+/* 코치 범례: 글씨체는 common.css 통일. 대관만 구역 나누기(관리 지점 | 담당 코치) */
 .coach-legend {
+    align-items: stretch;
+    gap: 0;
+}
+.coach-legend .legend-section {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 6px 12px;
-    margin-bottom: 20px;
-    background-color: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    white-space: nowrap;
-    width: 100%;
+    min-width: 0;
 }
-
-.legend-title {
-    font-size: 12px;
-    color: var(--text-secondary);
-    font-weight: 500;
-    margin-right: 2px;
-    flex-shrink: 0;
+.coach-legend .legend-section:first-child {
+    flex: 1.5;
 }
-
-.legend-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
+.coach-legend .legend-section:last-child {
+    flex: 8.5;
 }
-
-.legend-color {
-    display: inline-block;
-    width: 14px;
-    height: 14px;
-    border-radius: 3px;
-    border: 1px solid var(--border-color);
-    flex-shrink: 0;
-}
-
-.legend-name {
-    font-size: 11px;
-    color: var(--text-primary);
-    white-space: nowrap;
+.coach-legend .legend-divider {
+    width: 1px;
+    min-width: 1px;
+    background: var(--border-color);
+    margin: 0 12px;
+    align-self: stretch;
 }
 
 .view-container {
@@ -62,11 +50,154 @@
     display: block;
 }
 
+/* 필터 한 행: 왼쪽 5.5 : 오른쪽 4.5, 지점별 대관 통계 */
+.filter-row {
+    display: grid;
+    grid-template-columns: 5.5fr 4.5fr;
+    align-items: center;
+    gap: 0;
+    min-height: 48px;
+}
+.filter-row-left {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 12px;
+    padding-right: 48px;
+    padding-left: 4px;
+    border-right: 1px solid var(--border-color);
+    min-width: 0;
+}
 .filter-group {
     display: flex;
-    gap: 12px;
+    flex-wrap: nowrap;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+}
+.filter-row-right {
+    display: flex;
     align-items: center;
     flex-wrap: wrap;
+    justify-content: flex-start;
+    padding-left: 56px;
+    padding-right: 24px;
+}
+.rentals-stats-inner {
+    margin: 0;
+}
+.rentals-stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 16px 24px;
+}
+.rentals-stats-total {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+.rentals-stats-total[data-branch] {
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    transition: background-color 0.15s ease;
+}
+.rentals-stats-total[data-branch]:hover {
+    background-color: var(--bg-tertiary);
+}
+.rentals-stats-total.rentals-stats-total--selected {
+    background-color: var(--bg-tertiary);
+    outline: 1px solid var(--border-color);
+}
+.rentals-stats-total .rentals-stats-label {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+.rentals-stats-total .rentals-stats-value {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--accent-primary);
+}
+.rentals-stats-total .rentals-stats-status {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-left: 4px;
+}
+.rentals-stats-pending {
+    font-size: 13px;
+    color: var(--info);
+    cursor: pointer;
+    text-decoration: underline;
+    margin-left: 8px;
+}
+.rentals-stats-pending:hover {
+    color: var(--accent-primary);
+}
+.rentals-stats-by-branch {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+}
+.rentals-stats-by-branch .rentals-stats-label {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin-right: 4px;
+}
+.rentals-stats-branch-item {
+    font-size: 13px;
+    color: var(--text-primary);
+    padding: 4px 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+.rentals-stats-branch-item:hover {
+    filter: brightness(1.05);
+}
+.rentals-stats-branch-item.rentals-stats-branch-item--selected {
+    outline: 2px solid var(--border-color);
+    outline-offset: 1px;
+}
+/* 지점 고유색 (대관 관리 페이지 기준) */
+.rentals-stats-branch-item.rentals-stats-branch--saha {
+    border-left: 4px solid #1E8449;
+    background: rgba(30, 132, 73, 0.15);
+    color: #1E8449;
+    font-weight: 500;
+}
+.rentals-stats-branch-item.rentals-stats-branch--yeonsan {
+    border-left: 4px solid #DAA520;
+    background: rgba(218, 165, 32, 0.15);
+    color: #DAA520;
+    font-weight: 500;
+}
+.rentals-stats-loading {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+@media (max-width: 900px) {
+    .filter-row {
+        grid-template-columns: 1fr;
+    }
+    .filter-row-left {
+        flex-wrap: wrap;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding-right: 0;
+        padding-bottom: 12px;
+    }
+    .filter-group {
+        flex-wrap: wrap;
+    }
+    .filter-row-right {
+        padding-left: 0;
+        padding-top: 12px;
+    }
 }
 
 .calendar-container {
@@ -102,6 +233,22 @@
     font-size: 12px;
     color: var(--text-secondary);
     text-transform: uppercase;
+    background-color: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+}
+.calendar-day-header.calendar-day-header-sun {
+    color: #d32f2f;
+    background-color: rgba(211, 47, 47, 0.12);
+}
+.calendar-day-header.calendar-day-header-sat {
+    color: #1976d2;
+    background-color: rgba(25, 118, 210, 0.12);
+}
+.calendar-day.calendar-day-sun .calendar-day-number {
+    color: #d32f2f;
+}
+.calendar-day.calendar-day-sat .calendar-day-number {
+    color: #1976d2;
 }
 
 .calendar-day {
@@ -240,4 +387,31 @@
 .day-schedule-icon:hover {
     opacity: 1;
     background-color: var(--bg-hover);
+}
+
+/* 목록 뷰 - 기록 검증 */
+.rentals-record-verification {
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    border: 1px solid var(--border-color);
+}
+.rentals-record-verification--ok {
+    background: rgba(46, 204, 113, 0.1);
+    border-color: var(--success, #2ECC71);
+    color: var(--text-primary);
+}
+.rentals-record-verification--ok .rentals-verification-ok {
+    color: var(--success, #2ECC71);
+    font-weight: 500;
+}
+.rentals-record-verification--warn {
+    background: rgba(241, 196, 15, 0.1);
+    border-color: var(--warning, #F1C40F);
+    color: var(--text-primary);
+}
+.rentals-record-verification--warn .rentals-verification-warn {
+    color: var(--warning, #d4a006);
+    font-weight: 500;
 }

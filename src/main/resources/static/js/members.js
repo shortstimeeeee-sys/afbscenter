@@ -21,10 +21,18 @@ function formatPeriodPass(startDate, endDate) {
 
 let currentPage = 1;
 let currentFilters = {};
+const MEMBER_PAGE_SIZE = 50;
+let memberPageIndex = 0;
+let memberPaginationInfo = null;
+let accumulatedMembersList = [];
 // currentMemberDetail은 dashboard.js에서 선언됨 (전역 변수로 공유)
 let currentEditingMember = null; // 현재 수정 중인 회원 정보 (코치 선택용)
 
 document.addEventListener('DOMContentLoaded', function() {
+    // 회원 기본 통계는 목록과 별도로 먼저 로드 (목록 오류와 무관하게 표시)
+    if (document.getElementById('members-stats-container')) {
+        loadMemberStats();
+    }
     // members.html 페이지에서만 실행
     if (document.getElementById('members-table-body')) {
         loadMembers();
@@ -99,6 +107,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const urlParams = new URLSearchParams(window.location.search);
     const memberId = urlParams.get('id');
     const action = urlParams.get('action');
+    const openMember = urlParams.get('openMember');
     
     if (memberId && action === 'extend') {
         // 페이지 로드 후 연장 모달 열기
@@ -108,6 +117,16 @@ document.addEventListener('DOMContentLoaded', function() {
             window.history.replaceState({}, document.title, `/members.html?id=${memberId}`);
         }, 500);
     }
+    // 랭킹 페이지에서 회원 클릭 시 회원 상세 모달 자동 열기
+    if (openMember) {
+        const id = parseInt(openMember, 10);
+        if (!isNaN(id)) {
+            setTimeout(() => {
+                openMemberDetail(id);
+            }, 300);
+            window.history.replaceState({}, document.title, window.location.pathname || '/members.html');
+        }
+    }
 });
 
 
@@ -116,7 +135,7 @@ async function loadProductsForSelect() {
     try {
         const select = document.getElementById('member-products');
         if (!select) {
-            console.warn('loadProductsForSelect: select를 찾을 수 없습니다.');
+            App.warn('loadProductsForSelect: select를 찾을 수 없습니다.');
             return;
         }
         
@@ -132,11 +151,11 @@ async function loadProductsForSelect() {
         const products = await App.api.get('/products');
         
         if (!products || !Array.isArray(products)) {
-            console.warn('상품 목록이 배열이 아닙니다:', products);
+            App.warn('상품 목록이 배열이 아닙니다:', products);
             return;
         }
         
-        console.log('로드된 상품 수:', products.length);
+        App.log('로드된 상품 수:', products.length);
         
         // 상품 옵션 추가
         if (products.length === 0) {
@@ -184,7 +203,7 @@ async function loadProductsForSelect() {
             updateTotalPrice();
         }, 100);
     } catch (error) {
-        console.error('상품 목록 로드 실패:', error);
+        App.err('상품 목록 로드 실패:', error);
         const select = document.getElementById('member-products');
         if (select) {
             // 에러 발생 시 안내 메시지
@@ -211,126 +230,144 @@ function getProductTypeText(type) {
     return map[type] || type;
 }
 
-async function loadMembers() {
+// 회원 통계(로드·카드·모달)는 members-stats.js 에서 처리
+
+async function loadMembers(append) {
     try {
         const tbody = document.getElementById('members-table-body');
         if (!tbody) {
-            console.warn('members-table-body 요소를 찾을 수 없습니다.');
+            App.warn('members-table-body 요소를 찾을 수 없습니다.');
             return;
         }
         
-        // 로딩 표시
-        tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">로딩 중...</td></tr>';
+        if (!append) {
+            memberPageIndex = 0;
+            accumulatedMembersList = [];
+            memberPaginationInfo = null;
+        }
         
-        const params = new URLSearchParams({
-            page: currentPage,
-            ...currentFilters
-        });
+        // 로딩 표시 (첫 페이지일 때만 테이블 비우기)
+        if (!append) {
+            tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">로딩 중...</td></tr>';
+        }
+        
         let members;
-        // 검색어가 있으면 검색 API 사용
+        // 검색어가 있으면 검색 API 사용 (페이지네이션 없음)
         if (currentFilters.search) {
             const searchQuery = currentFilters.search;
-            // 회원번호 형식인지 확인 (M으로 시작)
             if (searchQuery.toUpperCase().startsWith('M')) {
                 members = await App.api.get(`/members/search?memberNumber=${encodeURIComponent(searchQuery)}`);
             } else if (/^\d+$/.test(searchQuery.replace(/[-\s]/g, ''))) {
-                // 숫자만 있으면 전화번호로 검색
                 members = await App.api.get(`/members/search?phoneNumber=${encodeURIComponent(searchQuery)}`);
             } else {
-                // 그 외는 이름으로 검색
                 members = await App.api.get(`/members/search?name=${encodeURIComponent(searchQuery)}`);
             }
-            
-            // 검색 결과에 필터 적용 (클라이언트 측에서)
-            if (currentFilters.grade) {
-                members = members.filter(m => m.grade === currentFilters.grade);
-            }
-            if (currentFilters.status) {
-                members = members.filter(m => m.status === currentFilters.status);
-            }
+            if (currentFilters.grade) members = members.filter(m => m.grade === currentFilters.grade);
+            if (currentFilters.status) members = members.filter(m => m.status === currentFilters.status);
+            accumulatedMembersList = Array.isArray(members) ? members : [];
+            memberPaginationInfo = null;
         } else {
-            members = await App.api.get(`/members?${params}`);
+            const params = new URLSearchParams({
+                page: memberPageIndex,
+                size: MEMBER_PAGE_SIZE,
+                ...currentFilters
+            });
+            const response = await App.api.get(`/members?${params}`);
+            // 페이지네이션 응답 { content, totalElements, totalPages } 또는 기존 배열
+            if (response && typeof response === 'object' && Array.isArray(response.content)) {
+                if (append) {
+                    accumulatedMembersList = accumulatedMembersList.concat(response.content);
+                } else {
+                    accumulatedMembersList = response.content;
+                }
+                memberPaginationInfo = {
+                    totalElements: response.totalElements,
+                    totalPages: response.totalPages,
+                    number: response.number
+                };
+            } else if (Array.isArray(response)) {
+                accumulatedMembersList = response;
+                memberPaginationInfo = null;
+            } else {
+                App.err('회원 목록 API 응답이 배열이 아닙니다:', response);
+                tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--danger);">회원 목록을 불러오는데 실패했습니다. (응답 형식 오류)</td></tr>';
+                return;
+            }
         }
         
-        // API 응답이 배열인지 확인
-        if (!Array.isArray(members)) {
-            console.error('회원 목록 API 응답이 배열이 아닙니다:', members);
-            tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--danger);">회원 목록을 불러오는데 실패했습니다. (응답 형식 오류)</td></tr>';
-            return;
-        }
-        
-        console.log('회원 목록 로드 성공:', members.length, '명');
-        renderMembersTable(members);
+        members = accumulatedMembersList;
+        App.log('회원 목록 로드 성공:', members.length, '명');
+        renderMembersTable(members, !!memberPaginationInfo);
+        loadMemberStats();
     } catch (error) {
-        console.error('회원 목록 로드 실패:', error);
+        App.err('회원 목록 로드 실패:', error);
         const tbody = document.getElementById('members-table-body');
         if (tbody) {
             tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--danger);">회원 목록을 불러오는데 실패했습니다. 페이지를 새로고침해주세요.</td></tr>';
         }
-        App.showNotification('회원 목록을 불러오는데 실패했습니다.', 'danger');
+        App.showApiError(error);
     }
 }
 
-function renderMembersTable(members) {
+function renderMembersTable(members, showLoadMore) {
     try {
         const tbody = document.getElementById('members-table-body');
         const paginationContainer = document.getElementById('pagination-container');
         
-        // members.html 페이지가 아닌 경우 (대시보드 등) 함수 실행 중단
         if (!tbody) {
-            console.warn('members-table-body 요소를 찾을 수 없습니다. members.html 페이지가 아닐 수 있습니다.');
+            App.warn('members-table-body 요소를 찾을 수 없습니다. members.html 페이지가 아닐 수 있습니다.');
             return;
         }
         
-        // members가 배열인지 확인
         if (!Array.isArray(members)) {
-            console.error('renderMembersTable: members가 배열이 아닙니다:', members);
+            App.err('renderMembersTable: members가 배열이 아닙니다:', members);
             tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--danger);">데이터 형식 오류가 발생했습니다.</td></tr>';
             return;
         }
         
         if (!members || members.length === 0) {
             tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">회원이 없습니다.</td></tr>';
-            if (paginationContainer) {
-                paginationContainer.innerHTML = '';
-            }
+            if (paginationContainer) paginationContainer.innerHTML = '';
             return;
         }
         
-        // 회원 수 표시
+        var totalDisplay = memberPaginationInfo ? memberPaginationInfo.totalElements : members.length;
+        var hasMore = showLoadMore && memberPaginationInfo && (memberPageIndex + 1) < memberPaginationInfo.totalPages;
         if (paginationContainer) {
             paginationContainer.innerHTML = `
             <div style="text-align: center; padding: 16px; font-weight: 600; color: var(--text-primary);">
-                총 <span style="color: var(--accent-primary); font-size: 18px;">${members.length}</span>명의 회원이 등록되어 있습니다.
+                총 <span style="color: var(--accent-primary); font-size: 18px;">${totalDisplay}</span>명 중 <span style="color: var(--text-secondary);">${members.length}명</span> 표시
             </div>
+            ${hasMore ? '<div style="text-align: center; margin-bottom: 16px;"><button type="button" class="btn btn-secondary" id="members-load-more-btn">더 보기</button></div>' : ''}
         `;
+            var loadMoreBtn = document.getElementById('members-load-more-btn');
+            if (loadMoreBtn) loadMoreBtn.onclick = function() { memberPageIndex++; loadMembers(true); };
         }
         
         tbody.innerHTML = members.map(member => {
         const isExpiring = checkMemberExpiring(member);
-        const expiringBadge = isExpiring ? '<span class="badge badge-warning" style="margin-left: 4px; font-size: 11px;">⚠️ 만료 임박</span>' : '';
+        const hasExpired = checkMemberHasExpired(member);
+        const expiringBadge = isExpiring ? '<span class="badge badge-expiring" style="margin-left: 4px; font-size: 11px;">⚠️ 만료 임박</span>' : '';
+        const expiredBadge = hasExpired ? '<span class="badge badge-expired" style="margin-left: 4px; font-size: 11px;">종료</span>' : '';
+        const badgesHtml = [expiringBadge, expiredBadge].filter(Boolean).join(' ');
         
-        // 디버깅: 만료 임박 회원 확인
-        if (isExpiring) {
-            console.log('만료 임박 회원 발견:', {
-                id: member.id,
-                name: member.name,
-                memberProducts: member.memberProducts
-            });
+        let rowStyle = '';
+        if (hasExpired) {
+            rowStyle = 'background-color: rgba(220, 38, 38, 0.06); border-left: 3px solid var(--danger, #DC2626);';
         }
         
         return `
-        <tr ${isExpiring ? 'style="background-color: rgba(245, 158, 11, 0.05); border-left: 3px solid #F59E0B;"' : ''}>
-            <td><strong style="color: var(--accent-primary);">${member.memberNumber || '-'}</strong></td>
+        <tr ${rowStyle ? 'style="' + rowStyle + '"' : ''}>
+            <td><strong style="color: var(--accent-primary);">${App.escapeHtml(member.memberNumber || '-')}</strong></td>
             <td>
                 <div>
-                    <a href="#" onclick="openMemberDetail(${member.id}); return false;" style="color: var(--accent-primary); display: block;">${member.name}</a>
-                    ${expiringBadge ? `<div style="margin-top: 4px;">${expiringBadge}</div>` : ''}
+                    <a href="#" onclick="openMemberDetail(${member.id}); return false;" style="color: var(--accent-primary); display: block;">${App.escapeHtml(member.name || '')}</a>
+                    ${badgesHtml ? `<div style="margin-top: 4px;">${badgesHtml}</div>` : ''}
                 </div>
             </td>
-            <td><span class="badge badge-${getGradeBadge(member.grade)}">${getGradeText(member.grade)}</span></td>
-            <td style="display: none;">${member.phoneNumber}</td>
-            <td>${member.school || '-'}</td>
+            <td><span class="badge badge-${getGradeBadge(member.grade)}">${App.escapeHtml(getGradeText(member.grade))}</span></td>
+            <td style="display: none;">${App.escapeHtml(member.phoneNumber || '')}</td>
+            <td>${App.escapeHtml(member.school || '-')}</td>
             <td style="white-space: pre-line; line-height: 1.6;">${renderCoachNamesWithColors(member)}</td>
             <td style="white-space: pre-line; line-height: 1.6; font-size: 13px;">${renderMemberProducts(member)}</td>
             <td><span class="badge badge-${getStatusBadge(member.status)}">${getStatusText(member.status)}</span></td>
@@ -345,7 +382,7 @@ function renderMembersTable(members) {
     `;
     }).join('');
     } catch (error) {
-        console.error('renderMembersTable 오류:', error);
+        App.err('renderMembersTable 오류:', error);
         const tbody = document.getElementById('members-table-body');
         if (tbody) {
             tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--danger);">회원 목록을 표시하는 중 오류가 발생했습니다.</td></tr>';
@@ -369,6 +406,10 @@ function getGradeBadge(grade) {
             return 'elite-high';        // 고등: 밝은 주황색
         case 'SOCIAL':
             return 'secondary';         // 일반: 회색
+        case 'YOUTH':
+            return 'youth';             // 유소년: 초록색
+        case 'OTHER':
+            return 'other';             // 기타 종목: 청록
         default:
             return 'info';              // 기본: 하늘색
     }
@@ -409,14 +450,31 @@ function renderMemberProductsRemaining(member) {
             const productLines = countPassProducts.map(mp => {
                 const productName = mp.product.name || '상품';
                 
-                // remainingCount가 null이면 totalCount 또는 product.usageCount 사용
+                // remainingCount 계산 (상태가 USED_UP이면 0으로 표시)
                 let remaining = mp.remainingCount;
-                if (remaining === null || remaining === undefined) {
-                    remaining = mp.totalCount || mp.product.usageCount || 10;
+                const mpStatus = mp.status || 'ACTIVE';
+                
+                // 상태가 USED_UP이면 잔여 횟수는 0
+                if (mpStatus === 'USED_UP') {
+                    remaining = 0;
                 }
+                // remainingCount가 null이나 undefined일 때만 대체값 사용 (0은 유효한 값)
+                else if (remaining === null || remaining === undefined) {
+                    // 상품의 실제 usageCount를 우선 사용 (데이터 일관성 보장)
+                    remaining = mp.product?.usageCount;
+                    // product.usageCount가 없으면 totalCount 사용
+                    if (remaining === null || remaining === undefined) {
+                        remaining = mp.totalCount;
+                    }
+                    // 그것도 없으면 기본값 10 사용
+                    if (remaining === null || remaining === undefined) {
+                        remaining = 10;
+                    }
+                }
+                // remainingCount가 0이면 0으로 유지 (대체값 사용하지 않음)
                 
                 const color = getRemainingCountColor(remaining);
-                const weight = remaining <= 5 ? '700' : '600';
+                const weight = remaining <= 3 ? '700' : '600';
                 return `<span style="color: ${color}; font-weight: ${weight};">${productName}: ${remaining}회</span>`;
             }).join('<br>');
             
@@ -462,10 +520,169 @@ function renderCoachNamesWithColors(member) {
             coachColor = 'var(--text-primary)';
         }
         
-        return `<span style="color: ${coachColor}; font-weight: 600;">${trimmedName}</span>`;
+        return `<span style="color: ${coachColor}; font-weight: 600;">${App.escapeHtml(trimmedName)}</span>`;
     }).filter(name => name).join('<br>');
     
     return coloredNames || '-';
+}
+
+function normalizeCoachNameForColor(rawName) {
+    if (!rawName) return '';
+    let normalized = String(rawName).replace(/\s+/g, ' ').trim();
+    if (!normalized) return '';
+    normalized = normalized.replace(/\s*[\[\(].*?[\]\)]\s*$/, '').trim();
+    normalized = normalized.replace(/(대표|코치|강사|트레이너)/g, '').replace(/\s+/g, ' ').trim();
+    return normalized;
+}
+
+const COACH_FIXED_COLORS_FALLBACK = {
+    '서정민 [대표]': '#FF9800',
+    '서정민': '#FF9800',
+    '조장우 [코치]': '#4CAF50',
+    '조장우': '#4CAF50',
+    '최성훈 [코치]': '#E91E63',
+    '최성훈': '#E91E63',
+    '김우경 [투수코치]': '#9C27B0',
+    '김우경': '#9C27B0',
+    '이원준 [포수코치]': '#00BCD4',
+    '이원준': '#00BCD4',
+    '박준현 [트레이너]': '#5E6AD2',
+    '박준현': '#5E6AD2',
+    '이소연 [강사]': '#FFC107',
+    '이소연': '#FFC107',
+    '이서현 [강사]': '#F06292',
+    '이서현': '#F06292',
+    '김가영 [강사]': '#795548',
+    '김가영': '#795548',
+    '김소연 [강사]': '#009688',
+    '김소연': '#009688',
+    '조혜진 [강사]': '#673AB7',
+    '조혜진': '#673AB7'
+};
+
+function renderCoachNamesWithColorsFromText(rawText) {
+    if (!rawText) return '미지정';
+    const text = String(rawText).trim();
+    if (!text || text === '미지정') return '미지정';
+    const nameParts = text.split(/\s*[\n,;/|]+\s*/).filter(part => part && part.trim());
+    if (nameParts.length === 0) return '미지정';
+    const rendered = nameParts.map(part => {
+        const trimmed = part.trim();
+        if (!trimmed) return '';
+        const match = trimmed.match(/^(.+?)\s*[\[\(]([^\]\)]+)[\]\)]\s*$/);
+        const namePart = match ? match[1].trim() : trimmed;
+        const rolePart = match ? match[2].trim() : '';
+        const normalizedBaseName = normalizeCoachNameForColor(namePart);
+        let coachColor = null;
+        if (window.App && App.CoachColors) {
+            const fixed = App.CoachColors.fixedColors || COACH_FIXED_COLORS_FALLBACK;
+            const normalizedTrimmed = normalizeCoachNameForColor(trimmed);
+            const nameCandidates = [
+                trimmed,
+                namePart,
+                normalizedBaseName,
+                normalizedTrimmed,
+                String(namePart || '').replace(/\s+/g, ''),
+                String(trimmed || '').replace(/\s+/g, '')
+            ].filter(v => v);
+            for (const candidate of nameCandidates) {
+                if (fixed[candidate]) {
+                    coachColor = fixed[candidate];
+                    break;
+                }
+            }
+            if (!coachColor && typeof App.CoachColors.getColor === 'function') {
+                coachColor =
+                    App.CoachColors.getColor({ name: normalizedBaseName || namePart }) ||
+                    App.CoachColors.getColor({ name: trimmed }) ||
+                    null;
+            }
+        } else {
+            const fixed = COACH_FIXED_COLORS_FALLBACK;
+            const normalizedTrimmed = normalizeCoachNameForColor(trimmed);
+            const nameCandidates = [
+                trimmed,
+                namePart,
+                normalizedBaseName,
+                normalizedTrimmed,
+                String(namePart || '').replace(/\s+/g, ''),
+                String(trimmed || '').replace(/\s+/g, '')
+            ].filter(v => v);
+            for (const candidate of nameCandidates) {
+                if (fixed[candidate]) {
+                    coachColor = fixed[candidate];
+                    break;
+                }
+            }
+        }
+        coachColor = coachColor || 'var(--text-secondary)';
+        const nameSpan = `<span class="coach-name" data-coach-name="${normalizedBaseName || namePart}" style="color: ${coachColor} !important; font-weight: 600;">${namePart}</span>`;
+        return rolePart
+            ? `${nameSpan} <span style="color: var(--text-muted); font-weight: 600;">[${rolePart}]</span>`
+            : nameSpan;
+    }).filter(item => item).join('<br>');
+    return rendered || '미지정';
+}
+
+function getMemberCoachDisplayFromProducts(member) {
+    if (!member) return '-';
+    const memberProducts = Array.isArray(member.memberProducts) ? member.memberProducts : [];
+    const getCategoryKey = (mp) => {
+        const product = mp?.product || {};
+        const category = String(product.category || '').toUpperCase();
+        const nameLower = String(product.name || '').toLowerCase();
+        if (category === 'BASEBALL' || nameLower.includes('야구') || nameLower.includes('baseball')) {
+            return 'BASEBALL';
+        }
+        if (category === 'PILATES' || nameLower.includes('필라테스') || nameLower.includes('pilates')) {
+            return 'PILATES';
+        }
+        if (category === 'TRAINING' || category === 'TRAINING_FITNESS' || nameLower.includes('트레이닝') || nameLower.includes('training')) {
+            return 'TRAINING';
+        }
+        return 'OTHER';
+    };
+    const collectCoachNamesByCategory = (products) => {
+        const map = {
+            BASEBALL: new Set(),
+            PILATES: new Set(),
+            TRAINING: new Set(),
+            OTHER: new Set()
+        };
+        products.forEach(mp => {
+            if (!mp) return;
+            const coachName = mp.coachName || mp.coach?.name || mp.product?.coach?.name;
+            if (!coachName) return;
+            const categoryKey = getCategoryKey(mp);
+            map[categoryKey].add(String(coachName).trim());
+        });
+        return map;
+    };
+    let categoryMap = null;
+    if (memberProducts.length > 0) {
+        const activeProducts = memberProducts.filter(mp => !mp?.status || mp.status === 'ACTIVE');
+        categoryMap = collectCoachNamesByCategory(activeProducts);
+        const totalActive = Object.values(categoryMap).reduce((sum, set) => sum + set.size, 0);
+        if (totalActive === 0) {
+            categoryMap = collectCoachNamesByCategory(memberProducts);
+        }
+    }
+    if (categoryMap) {
+        const orderedNames = [
+            ...Array.from(categoryMap.BASEBALL),
+            ...Array.from(categoryMap.PILATES),
+            ...Array.from(categoryMap.TRAINING),
+            ...Array.from(categoryMap.OTHER)
+        ];
+        const representativeNames = orderedNames.filter(name => /\[대표\]|\(대표\)|대표/.test(name));
+        const otherNames = orderedNames.filter(name => !/\[대표\]|\(대표\)|대표/.test(name));
+        const finalOrdered = [...representativeNames, ...otherNames];
+        if (orderedNames.length > 0) {
+            return renderCoachNamesWithColorsFromText(finalOrdered.join('\n'));
+        }
+    }
+    const fallback = member.coachNames || member.coach?.name || '';
+    return fallback ? renderCoachNamesWithColorsFromText(fallback) : '-';
 }
 
 // 회원이 만료 임박인지 확인
@@ -495,7 +712,7 @@ function checkMemberExpiring(member) {
                 continue;
             }
             
-            // 횟수권: 남은 횟수 5회 이하
+            // 횟수권: 남은 횟수 3회 이하
             if (productType === 'COUNT_PASS') {
                 let remainingCount = mp.remainingCount;
                 // remainingCount가 null/undefined인 경우 totalCount 사용
@@ -504,13 +721,8 @@ function checkMemberExpiring(member) {
                 }
                 // remainingCount가 여전히 null이면 계산 불가능하므로 건너뜀
                 if (remainingCount !== null && remainingCount !== undefined && 
-                    remainingCount <= 5 && remainingCount > 0) {
-                    console.debug('만료 임박 (횟수권):', {
-                        memberId: member.id,
-                        memberName: member.name,
-                        productName: product.name,
-                        remainingCount: remainingCount
-                    });
+                    remainingCount <= 3 && remainingCount > 0) {
+                    // 만료 임박 (횟수권)
                     return true;
                 }
             }
@@ -535,24 +747,28 @@ function checkMemberExpiring(member) {
                 // 만료일이 오늘 이후이고 7일 이내인 경우
                 if (expiryDate >= today && expiryDate <= expiryThreshold) {
                     const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-                    console.debug('만료 임박 (기간권):', {
-                        memberId: member.id,
-                        memberName: member.name,
-                        productName: product.name,
-                        expiryDate: mp.expiryDate,
-                        daysUntilExpiry: daysUntilExpiry
-                    });
+                    // 만료 임박 (기간권)
                     return true;
                 }
             }
         } catch (e) {
             // 개별 상품 확인 실패해도 계속 진행
-            console.debug('만료 임박 확인 중 오류:', e, member);
             continue;
         }
     }
     
     return false;
+}
+
+// 회원에게 종료/사용완료된 이용권이 있는지 확인 (종료 배지 표시용)
+function checkMemberHasExpired(member) {
+    if (!member || !member.memberProducts || member.memberProducts.length === 0) {
+        return false;
+    }
+    return member.memberProducts.some(function(mp) {
+        var s = (mp && mp.status) ? String(mp.status).toUpperCase() : '';
+        return s === 'USED_UP' || s === 'EXPIRED';
+    });
 }
 
 // 만료일까지 남은 일수에 따른 색상 반환
@@ -595,7 +811,7 @@ function getExpiryDateColor(expiryDate) {
 function renderMemberProducts(member) {
     // 디버깅: 회원 상품 데이터 전체 확인
     if (!member.memberProducts || member.memberProducts.length === 0) {
-        console.log('회원 상품 없음:', {
+        App.log('회원 상품 없음:', {
             memberId: member.id,
             memberNumber: member.memberNumber,
             memberName: member.name,
@@ -604,41 +820,13 @@ function renderMemberProducts(member) {
         return '<span style="color: var(--text-muted);">-</span>';
     }
     
-    // 디버깅: 모든 상품 상태 확인
-    console.log('회원 상품 데이터 확인:', {
-        memberId: member.id,
-        memberNumber: member.memberNumber,
-        memberName: member.name,
-        totalProducts: member.memberProducts.length,
-        allProducts: member.memberProducts.map(mp => ({
-            id: mp.id,
-            status: mp.status,
-            remainingCount: mp.remainingCount,
-            totalCount: mp.totalCount,
-            productName: mp.product?.name || '상품 정보 없음',
-            productId: mp.product?.id || null,
-            productUsageCount: mp.product?.usageCount || null,
-            productType: mp.product?.type || null
-        }))
-    });
-    
     // 활성 상태인 상품만 필터링
     let activeProducts = member.memberProducts.filter(mp => {
-        const isActive = mp.status === 'ACTIVE';
-        if (!isActive) {
-            console.log('비활성 상품 제외:', {
-                memberId: member.id,
-                memberName: member.name,
-                productId: mp.product?.id,
-                productName: mp.product?.name,
-                status: mp.status
-            });
-        }
-        return isActive;
+        return mp.status === 'ACTIVE';
     });
     
     if (activeProducts.length === 0) {
-        console.warn('활성 상품 없음:', {
+        App.warn('활성 상품 없음:', {
             memberId: member.id,
             memberNumber: member.memberNumber,
             memberName: member.name,
@@ -652,7 +840,7 @@ function renderMemberProducts(member) {
     if (activeProducts.length > 0) {
         activeProducts.forEach((mp, index) => {
             if (!mp.product || !mp.product.name) {
-                console.warn(`활성 상품 ${index + 1} - 상품 정보 없음:`, {
+                App.warn(`활성 상품 ${index + 1} - 상품 정보 없음:`, {
                     memberId: member.id,
                     memberName: member.name,
                     memberProduct: mp
@@ -698,7 +886,7 @@ function renderMemberProducts(member) {
     const productLines = activeProducts.map(mp => {
         // product 정보가 없어도 최소한 표시
         if (!mp.product) {
-            console.warn('상품 정보가 없는 MemberProduct:', {
+            App.warn('상품 정보가 없는 MemberProduct:', {
                 memberId: member.id,
                 memberName: member.name,
                 memberProductId: mp.id,
@@ -707,14 +895,14 @@ function renderMemberProducts(member) {
                 totalCount: mp.totalCount
             });
             // product 정보가 없어도 MemberProduct ID라도 표시
-            const productName = `상품 ID: ${mp.id || '알 수 없음'}`;
+            const productName = App.escapeHtml(`상품 ID: ${mp.id || '알 수 없음'}`);
             const displayText = `<span style="color: #ff9800; font-weight: 600;">${productName}</span> <span style="color: var(--text-muted); font-size: 11px;">(상품 정보 없음)</span>`;
             return displayText;
         }
         
         const product = mp.product;
-        // product가 없거나 name이 없으면 '알 수 없음' 표시
-        const productName = product.name || `상품 ID: ${product.id || '알 수 없음'}`;
+        // product가 없거나 name이 없으면 '알 수 없음' 표시 (XSS 방지 이스케이프)
+        const productName = App.escapeHtml(product.name || `상품 ID: ${product.id || '알 수 없음'}`);
         const productType = product.type || '';
         
         // 이용권 이름은 초록색으로 통일
@@ -759,25 +947,30 @@ function renderMemberProducts(member) {
                 periodText = '기간 정보 없음';
             }
             
-            const displayText = `<span style="color: ${productNameColor}; font-weight: 600;">${productName}</span> : <span style="color: ${periodColor}; font-weight: 600;">${periodText}</span>`;
+            const displayText = `<span style="color: ${productNameColor}; font-weight: 600;">${productName}</span> : <span style="color: ${periodColor}; font-weight: 600;">${App.escapeHtml(periodText)}</span>`;
             return displayText;
         }
         
         // 횟수권(COUNT_PASS)인 경우: 남은 횟수 표시
-        // 남은 횟수 계산 (renderMemberProductsRemaining과 동일한 로직)
-        // remainingCount가 null/undefined이거나 0인 경우 totalCount나 usageCount 사용
+        // 남은 횟수 계산 (상태가 USED_UP이면 0으로 표시)
         let remaining = mp.remainingCount;
-        // remainingCount가 null이거나 0이고, totalCount나 usageCount가 있으면 그것을 사용
-        if (remaining === null || remaining === undefined || remaining === 0) {
-            // 우선순위: totalCount > product.usageCount
-            remaining = mp.totalCount;
-            if (remaining === null || remaining === undefined || remaining === 0) {
-                remaining = product.usageCount;
+        const mpStatus = mp.status || 'ACTIVE';
+        
+        // 상태가 USED_UP이면 잔여 횟수는 0
+        if (mpStatus === 'USED_UP') {
+            remaining = 0;
+        }
+        // remainingCount가 null이나 undefined일 때만 대체값 사용 (0은 유효한 값)
+        else if (remaining === null || remaining === undefined) {
+            // 우선순위: product.usageCount > totalCount (상품의 실제 사용 횟수 반영)
+            remaining = product.usageCount;
+            if (remaining === null || remaining === undefined) {
+                remaining = mp.totalCount;
             }
             
-            // remaining이 여전히 null이거나 0이면 경고 로그 출력
-            if (remaining === null || remaining === undefined || remaining === 0) {
-                console.warn('회원 상품 잔여 횟수 정보 없음 - 상품의 usageCount가 설정되지 않음:', {
+            // remaining이 여전히 null이면 경고 로그 출력
+            if (remaining === null || remaining === undefined) {
+                App.warn('회원 상품 잔여 횟수 정보 없음 - 상품의 usageCount가 설정되지 않음:', {
                     memberId: member.id,
                     memberName: member.name,
                     memberProductId: mp.id,
@@ -791,6 +984,7 @@ function renderMemberProducts(member) {
                 remaining = null;
             }
         }
+        // remainingCount가 0이면 0으로 유지 (대체값 사용하지 않음)
         
         // 상품에 지정된 코치 찾기 (MemberProductInfo.coachName 사용)
         let assignedCoachName = mp.coachName || null;
@@ -829,7 +1023,7 @@ function renderMemberProducts(member) {
             remainingDisplay = '<span style="color: #ff9800; font-weight: 600;">정보 없음</span>';
         } else {
             const remainingColor = getRemainingCountColor(remaining);
-            const weight = remaining <= 5 ? '700' : '600';
+            const weight = remaining <= 3 ? '700' : '600';
             remainingDisplay = `<span style="color: ${remainingColor}; font-weight: ${weight};">${remaining}회</span>`;
         }
         const displayText = `<span style="color: ${productNameColor}; font-weight: 600;">${productName}</span> : ${remainingDisplay}`;
@@ -894,7 +1088,7 @@ function openMemberModal(id = null) {
         // 회원 ID와 회원번호를 명시적으로 빈 값으로 설정 (덮어쓰기 방지)
         document.getElementById('member-id').value = '';
         document.getElementById('member-number').value = '';
-        console.log('회원 등록 모달 열림 - ID 및 회원번호 초기화 완료');
+        App.log('회원 등록 모달 열림 - ID 및 회원번호 초기화 완료');
         // 신규 등록 시 회원번호 필드 비우기
         document.getElementById('member-number').value = '';
         // 신규 등록 시 현재 수정 중인 회원 정보 초기화
@@ -911,6 +1105,48 @@ function openMemberModal(id = null) {
             updateProductCoachSelection();
         }, 800);
     }
+}
+
+/** 1~5단계 라디오 그룹 값 설정 (name으로 선택, 기존 상/중/하 호환) */
+function setRadioStage(radioName, value, isStringLevel) {
+    var radios = document.querySelectorAll('input[name="' + radioName + '"]');
+    if (!radios.length) return;
+    var s = '';
+    if (value != null && value !== '') {
+        if (isStringLevel) {
+            var u = String(value).toUpperCase();
+            if (u === 'HIGH' || u === '상') s = '5';
+            else if (u === 'MID' || u === 'MIDDLE' || u === '중') s = '3';
+            else if (u === 'LOW' || u === '하') s = '1';
+            else if (/^[1-5]$/.test(String(value))) s = String(value);
+        } else {
+            var n = Number(value);
+            if (n >= 1 && n <= 5) s = String(Math.round(n));
+        }
+    }
+    radios.forEach(function(r) {
+        r.checked = r.value === s;
+    });
+}
+
+/** 1~5단계 select 값 설정 (기존 상/중/하 또는 숫자 호환) */
+function setStageSelect(elementId, value, isStringLevel) {
+    var el = document.getElementById(elementId);
+    if (!el) return;
+    var s = '';
+    if (value != null && value !== '') {
+        if (isStringLevel) {
+            var u = String(value).toUpperCase();
+            if (u === 'HIGH' || u === '상') s = '5';
+            else if (u === 'MID' || u === 'MIDDLE' || u === '중') s = '3';
+            else if (u === 'LOW' || u === '하') s = '1';
+            else if (/^[1-5]$/.test(String(value))) s = String(value);
+        } else {
+            var n = Number(value);
+            if (n >= 1 && n <= 5) s = String(Math.round(n));
+        }
+    }
+    el.value = s;
 }
 
 function editMember(id) {
@@ -936,10 +1172,14 @@ async function loadMemberData(id) {
         // 주소 및 소속
         document.getElementById('member-address').value = member.address || '';
         document.getElementById('member-school').value = member.school || '';
-        // 야구 기록
-        document.getElementById('member-swing-speed').value = member.swingSpeed || '';
-        document.getElementById('member-exit-velocity').value = member.exitVelocity || '';
-        document.getElementById('member-pitching-speed').value = member.pitchingSpeed || '';
+        // 투수 / 타자 기록 (파워는 타자만 입력, 투수와 공유)
+        document.getElementById('member-pitching-speed').value = member.pitchingSpeed ?? '';
+        setRadioStage('member-pitcher-control', member.pitcherControl, true);
+        setRadioStage('member-running-speed', member.runningSpeed);
+        document.getElementById('member-swing-speed').value = member.swingSpeed ?? '';
+        document.getElementById('member-exit-velocity').value = member.exitVelocity ?? '';
+        setRadioStage('member-batter-power', member.batterPower);
+        setRadioStage('member-flexibility', member.pitcherFlexibility || member.batterFlexibility, true);
         // 가입일
         document.getElementById('member-join-date').value = member.joinDate || '';
         // 등록일시 (소급 등록)
@@ -963,7 +1203,7 @@ async function loadMemberData(id) {
         // loadMemberProducts 내부에서 updateProductCoachSelection을 호출하므로 여기서는 호출하지 않음
         await loadMemberProducts(id);
     } catch (error) {
-        console.error('회원 정보 로드 실패:', error);
+        App.err('회원 정보 로드 실패:', error);
         App.showNotification('회원 정보를 불러오는데 실패했습니다.', 'danger');
     }
 }
@@ -975,7 +1215,7 @@ let lastApplyTime = 0; // 마지막 적용 시간
 function applySelectedProductStyles() {
     const productSelect = document.getElementById('member-products');
     if (!productSelect) {
-        console.warn('applySelectedProductStyles: productSelect를 찾을 수 없습니다.');
+        App.warn('applySelectedProductStyles: productSelect를 찾을 수 없습니다.');
         return;
     }
     
@@ -994,7 +1234,7 @@ function applySelectedProductStyles() {
         const options = Array.from(productSelect.options);
         let selectedCount = 0;
         
-        console.log('applySelectedProductStyles 실행:', {
+        App.log('applySelectedProductStyles 실행:', {
             totalOptions: options.length,
             selectedBefore: options.filter(opt => opt.selected).length
         });
@@ -1047,7 +1287,7 @@ function applySelectedProductStyles() {
                     option.textContent = '✓ ' + originalText;
                 }
                 
-                console.log(`선택된 옵션 스타일 적용: ${option.textContent} (ID: ${option.value})`);
+                App.log(`선택된 옵션 스타일 적용: ${option.textContent} (ID: ${option.value})`);
             } else {
                 // 선택되지 않은 옵션 - 스타일 제거
                 option.style.cssText = '';
@@ -1062,9 +1302,9 @@ function applySelectedProductStyles() {
         productSelect.style.backgroundColor = 'var(--bg-secondary)';
         productSelect.style.borderColor = 'var(--border-color)';
         
-        console.log(`applySelectedProductStyles 완료: 선택된 항목 ${selectedCount}개`);
+        App.log(`applySelectedProductStyles 완료: 선택된 항목 ${selectedCount}개`);
     } catch (error) {
-        console.error('applySelectedProductStyles 오류:', error);
+        App.err('applySelectedProductStyles 오류:', error);
     } finally {
         // 즉시 플래그 해제 (setTimeout 제거)
         isApplyingStyles = false;
@@ -1093,35 +1333,35 @@ function updateTotalPrice() {
         
         totalPriceElement.textContent = App.formatCurrency(totalPrice);
     } catch (error) {
-        console.error('총 금액 계산 오류:', error);
+        App.err('총 금액 계산 오류:', error);
     }
 }
 
 // 선택된 상품별 코치 선택 UI 업데이트
 async function updateProductCoachSelection() {
-    console.log('[updateProductCoachSelection] 시작');
-    console.log('[updateProductCoachSelection] currentEditingMember:', currentEditingMember);
+    App.log('[updateProductCoachSelection] 시작');
+    App.log('[updateProductCoachSelection] currentEditingMember:', currentEditingMember);
     
     const container = document.getElementById('product-coach-selection');
     if (!container) {
-        console.warn('[updateProductCoachSelection] container를 찾을 수 없습니다.');
+        App.warn('[updateProductCoachSelection] container를 찾을 수 없습니다.');
         return;
     }
     
     const productSelect = document.getElementById('member-products');
     if (!productSelect) {
-        console.warn('[updateProductCoachSelection] productSelect를 찾을 수 없습니다.');
+        App.warn('[updateProductCoachSelection] productSelect를 찾을 수 없습니다.');
         return;
     }
     
     const selectedOptions = Array.from(productSelect.selectedOptions).filter(opt => opt.value && opt.value !== '');
-    console.log('[updateProductCoachSelection] 선택된 상품 개수:', selectedOptions.length);
+    App.log('[updateProductCoachSelection] 선택된 상품 개수:', selectedOptions.length);
     
     // 기존 내용 제거
     container.innerHTML = '';
     
     if (selectedOptions.length === 0) {
-        console.log('[updateProductCoachSelection] 선택된 상품이 없어 종료');
+        App.log('[updateProductCoachSelection] 선택된 상품이 없어 종료');
         return;
     }
     
@@ -1131,7 +1371,7 @@ async function updateProductCoachSelection() {
         allCoaches = await App.api.get('/coaches');
         allCoaches = allCoaches.filter(c => c.active !== false);
     } catch (error) {
-        console.error('코치 목록 로드 실패:', error);
+        App.err('코치 목록 로드 실패:', error);
         return;
     }
     
@@ -1144,7 +1384,7 @@ async function updateProductCoachSelection() {
         }
     });
     
-    console.log(`[updateProductCoachSelection] 선택된 상품들의 카테고리:`, Array.from(selectedProductCategories));
+    App.log(`[updateProductCoachSelection] 선택된 상품들의 카테고리:`, Array.from(selectedProductCategories));
     
     // 각 선택된 상품에 대해 코치 선택 드롭다운 생성
     selectedOptions.forEach((option, index) => {
@@ -1171,7 +1411,7 @@ async function updateProductCoachSelection() {
                 if (memberProduct.coachName) {
                     // 공백 정규화 (여러 공백을 하나로)
                     coachNameToFind = String(memberProduct.coachName).replace(/\s+/g, ' ').trim();
-                    console.log(`[방법1-1] coachName에서 찾음: "${coachNameToFind}"`);
+                    App.log(`[방법1-1] coachName에서 찾음: "${coachNameToFind}"`);
                 } 
                 // coachName이 없으면 product.coach에서 찾기
                 else if (memberProduct.product && memberProduct.product.coach) {
@@ -1181,7 +1421,7 @@ async function updateProductCoachSelection() {
                     } else if (typeof productCoach === 'string') {
                         coachNameToFind = productCoach.trim();
                     }
-                    console.log(`[방법1-2] product.coach에서 찾음: "${coachNameToFind}"`);
+                    App.log(`[방법1-2] product.coach에서 찾음: "${coachNameToFind}"`);
                 }
                 // memberProduct.coach에서 직접 찾기
                 else if (memberProduct.coach) {
@@ -1191,11 +1431,11 @@ async function updateProductCoachSelection() {
                     } else if (typeof mpCoach === 'string') {
                         coachNameToFind = mpCoach.trim();
                     }
-                    console.log(`[방법1-3] memberProduct.coach에서 찾음: "${coachNameToFind}"`);
+                    App.log(`[방법1-3] memberProduct.coach에서 찾음: "${coachNameToFind}"`);
                 }
                 
                 if (coachNameToFind) {
-                    console.log(`[방법1] 상품 ID ${productId}의 코치 찾기: "${coachNameToFind}"`);
+                    App.log(`[방법1] 상품 ID ${productId}의 코치 찾기: "${coachNameToFind}"`);
                     
                     // 코치명으로 코치 ID 찾기 (정확한 매칭 또는 부분 매칭)
                     const coach = allCoaches.find(c => {
@@ -1224,14 +1464,14 @@ async function updateProductCoachSelection() {
                     
                     if (coach) {
                         selectedCoachId = String(coach.id);
-                        console.log(`[방법1] 코치 찾음: ${coach.name} (ID: ${coach.id}), selectedCoachId: "${selectedCoachId}"`);
+                        App.log(`[방법1] 코치 찾음: ${coach.name} (ID: ${coach.id}), selectedCoachId: "${selectedCoachId}"`);
                     } else {
-                        console.warn(`[방법1] 코치를 찾을 수 없음: "${coachNameToFind}"`);
-                        console.warn(`[방법1] 사용 가능한 코치 목록:`, allCoaches.map(c => c.name));
+                        App.warn(`[방법1] 코치를 찾을 수 없음: "${coachNameToFind}"`);
+                        App.warn(`[방법1] 사용 가능한 코치 목록:`, allCoaches.map(c => c.name));
                     }
                 } else {
-                    console.warn(`[방법1] 상품 ID ${productId}에 코치 정보가 없음 (coachName, product.coach, coach 모두 없음)`);
-                    console.warn(`[방법1] memberProduct 전체:`, memberProduct);
+                    App.warn(`[방법1] 상품 ID ${productId}에 코치 정보가 없음 (coachName, product.coach, coach 모두 없음)`);
+                    App.warn(`[방법1] memberProduct 전체:`, memberProduct);
                 }
             }
         }
@@ -1240,7 +1480,7 @@ async function updateProductCoachSelection() {
         if (!selectedCoachId && option.dataset.coachName) {
             // 공백 정규화 (여러 공백을 하나로)
             const coachNameToFind = String(option.dataset.coachName).replace(/\s+/g, ' ').trim();
-            console.log(`[방법2] 상품 ID ${productId}의 코치 찾기 (data 속성): "${coachNameToFind}"`);
+            App.log(`[방법2] 상품 ID ${productId}의 코치 찾기 (data 속성): "${coachNameToFind}"`);
             
             const coach = allCoaches.find(c => {
                 // 공백 정규화
@@ -1268,28 +1508,28 @@ async function updateProductCoachSelection() {
             
             if (coach) {
                 selectedCoachId = String(coach.id);
-                console.log(`[방법2] 코치 찾음: ${coach.name} (ID: ${coach.id}), selectedCoachId: "${selectedCoachId}"`);
+                App.log(`[방법2] 코치 찾음: ${coach.name} (ID: ${coach.id}), selectedCoachId: "${selectedCoachId}"`);
             }
         }
         
         // 디버깅: currentEditingMember 상태 확인
         if (!selectedCoachId) {
-            console.log(`[디버깅] 상품 ID ${productId}의 코치를 찾지 못함`);
-            console.log(`[디버깅] currentEditingMember:`, currentEditingMember);
+            App.log(`[디버깅] 상품 ID ${productId}의 코치를 찾지 못함`);
+            App.log(`[디버깅] currentEditingMember:`, currentEditingMember);
             if (currentEditingMember && currentEditingMember.memberProducts) {
-                console.log(`[디버깅] memberProducts:`, currentEditingMember.memberProducts);
+                App.log(`[디버깅] memberProducts:`, currentEditingMember.memberProducts);
                 const memberProduct = currentEditingMember.memberProducts.find(mp => 
                     String(mp.product?.id || mp.productId || '') === String(productId)
                 );
-                console.log(`[디버깅] 찾은 memberProduct:`, memberProduct);
-                console.log(`[디버깅] memberProduct.coachName:`, memberProduct?.coachName);
-                console.log(`[디버깅] memberProduct 전체 키:`, memberProduct ? Object.keys(memberProduct) : 'null');
+                App.log(`[디버깅] 찾은 memberProduct:`, memberProduct);
+                App.log(`[디버깅] memberProduct.coachName:`, memberProduct?.coachName);
+                App.log(`[디버깅] memberProduct 전체 키:`, memberProduct ? Object.keys(memberProduct) : 'null');
                 // coachName이 없으면 다른 경로로 찾기 시도
                 if (memberProduct && !memberProduct.coachName) {
                     // product.coach 또는 다른 경로 확인
-                    console.log(`[디버깅] memberProduct.product:`, memberProduct.product);
+                    App.log(`[디버깅] memberProduct.product:`, memberProduct.product);
                     if (memberProduct.product && memberProduct.product.coach) {
-                        console.log(`[디버깅] product.coach 발견:`, memberProduct.product.coach);
+                        App.log(`[디버깅] product.coach 발견:`, memberProduct.product.coach);
                     }
                 }
             }
@@ -1297,7 +1537,7 @@ async function updateProductCoachSelection() {
         
         // selectedCoachId와 coach.id를 문자열로 비교하여 정확하게 매칭
         const selectedCoachIdStr = String(selectedCoachId || '');
-        console.log(`[드롭다운 생성] 상품 ID ${productId}, selectedCoachId: "${selectedCoachIdStr}"`);
+        App.log(`[드롭다운 생성] 상품 ID ${productId}, selectedCoachId: "${selectedCoachIdStr}"`);
         
         const coachGroup = document.createElement('div');
         coachGroup.className = 'form-group';
@@ -1327,12 +1567,18 @@ async function updateProductCoachSelection() {
         // 코치 필터링: 상품 카테고리에 맞는 코치만 표시
         let filteredCoaches = allCoaches;
         
-        // 상품 카테고리와 코치 담당 종목 매핑 함수
+        // 상품 카테고리와 코치 담당 종목/지점 매핑 함수
         const matchesCategory = (coach, category) => {
-            if (!coach.specialties || !category) return false;
+            const categoryLower = (category || '').toLowerCase();
             
-            const specialties = coach.specialties.toLowerCase();
-            const categoryLower = category.toLowerCase();
+            // 대관(RENTAL): RENTAL 지점에 배정된 담당자만 표시
+            if (categoryLower === 'rental') {
+                var branches = (coach.availableBranches || '').toUpperCase();
+                return branches.indexOf('RENTAL') !== -1;
+            }
+            
+            if (!coach.specialties || !category) return false;
+            var specialties = (coach.specialties || '').toLowerCase();
             
             // 카테고리별 매핑
             if (categoryLower === 'baseball') {
@@ -1348,13 +1594,13 @@ async function updateProductCoachSelection() {
         
         // 이 상품의 카테고리에 맞는 코치만 필터링
         if (productCategory) {
-            filteredCoaches = allCoaches.filter(coach => {
+            filteredCoaches = allCoaches.filter(function(coach) {
                 return matchesCategory(coach, productCategory);
             });
-            console.log(`[드롭다운 필터링] 상품 ID ${productId} (카테고리: ${productCategory}): 전체 코치 ${allCoaches.length}명 중 ${filteredCoaches.length}명 필터링됨`);
+            App.log('[드롭다운 필터링] 상품 ID ' + productId + ' (카테고리: ' + productCategory + '): 전체 코치 ' + allCoaches.length + '명 중 ' + filteredCoaches.length + '명 필터링됨');
         } else {
             // 상품에 카테고리가 없는 경우 모든 코치 표시
-            console.log(`[드롭다운 필터링] 상품 ID ${productId}: 카테고리가 없어 모든 코치 표시`);
+            App.log('[드롭다운 필터링] 상품 ID ' + productId + ': 카테고리가 없어 모든 코치 표시');
         }
         
         // 필터링된 코치 옵션 추가
@@ -1366,7 +1612,7 @@ async function updateProductCoachSelection() {
             const coachIdStr = String(coach.id || '');
             if (coachIdStr === selectedCoachIdStr) {
                 option.selected = true;
-                console.log(`[드롭다운] 상품 ID ${productId}에 코치 "${coach.name}" (ID: ${coach.id}) 선택됨`);
+                App.log(`[드롭다운] 상품 ID ${productId}에 코치 "${coach.name}" (ID: ${coach.id}) 선택됨`);
             }
             
             select.appendChild(option);
@@ -1385,21 +1631,21 @@ async function updateProductCoachSelection() {
             // 선택 확인 (디버깅용)
             const selectedOption = select.querySelector(`option[value="${selectedCoachIdStr}"]`);
             if (selectedOption && (selectedOption.selected || select.value === selectedCoachIdStr)) {
-                console.log(`[확인] 상품 ID ${productId}의 드롭다운에서 코치 ID ${selectedCoachIdStr}가 선택됨 (value: "${select.value}")`);
+                App.log(`[확인] 상품 ID ${productId}의 드롭다운에서 코치 ID ${selectedCoachIdStr}가 선택됨 (value: "${select.value}")`);
             } else {
-                console.warn(`[경고] 상품 ID ${productId}의 드롭다운에서 코치 ID ${selectedCoachIdStr}가 선택되지 않음`);
-                console.warn(`[경고] select.value: "${select.value}", selectedIndex: ${select.selectedIndex}`);
+                App.warn(`[경고] 상품 ID ${productId}의 드롭다운에서 코치 ID ${selectedCoachIdStr}가 선택되지 않음`);
+                App.warn(`[경고] select.value: "${select.value}", selectedIndex: ${select.selectedIndex}`);
                 // 재시도
                 setTimeout(() => {
                     select.value = selectedCoachIdStr;
-                    console.log(`[재시도] 상품 ID ${productId}의 드롭다운 value를 ${selectedCoachIdStr}로 설정`);
+                    App.log(`[재시도] 상품 ID ${productId}의 드롭다운 value를 ${selectedCoachIdStr}로 설정`);
                 }, 10);
             }
         }
         
         // 드롭다운 변경 이벤트 리스너 추가 (디버깅용)
         select.addEventListener('change', function() {
-            console.log(`[드롭다운 변경] 상품 ID ${productId}의 코치가 "${this.value}"로 변경됨 (이전: "${selectedCoachIdStr}")`);
+            App.log(`[드롭다운 변경] 상품 ID ${productId}의 코치가 "${this.value}"로 변경됨 (이전: "${selectedCoachIdStr}")`);
         });
     });
 }
@@ -1410,7 +1656,7 @@ async function loadMemberProducts(memberId) {
         // 상품 목록이 먼저 로드되었는지 확인
         const productSelect = document.getElementById('member-products');
         if (!productSelect) {
-            console.warn('loadMemberProducts: productSelect를 찾을 수 없습니다.');
+            App.warn('loadMemberProducts: productSelect를 찾을 수 없습니다.');
             return;
         }
         
@@ -1427,7 +1673,7 @@ async function loadMemberProducts(memberId) {
         
         // 상품 목록이 여전히 없으면 종료
         if (productSelect.options.length === 0) {
-            console.warn('loadMemberProducts: 상품 목록을 로드할 수 없습니다.');
+            App.warn('loadMemberProducts: 상품 목록을 로드할 수 없습니다.');
             return;
         }
         
@@ -1435,7 +1681,7 @@ async function loadMemberProducts(memberId) {
         let memberProducts = null;
         if (currentEditingMember && currentEditingMember.memberProducts) {
             memberProducts = currentEditingMember.memberProducts;
-            console.log('loadMemberProducts - currentEditingMember에서 상품 정보 사용:', memberProducts);
+            App.log('loadMemberProducts - currentEditingMember에서 상품 정보 사용:', memberProducts);
         } else {
             // 회원 상세 정보에서 memberProducts 가져오기
             const member = await App.api.get(`/members/${memberId}`);
@@ -1448,10 +1694,10 @@ async function loadMemberProducts(memberId) {
                 // currentEditingMember가 없으면 새로 설정
                 currentEditingMember = { memberProducts: memberProducts };
             }
-            console.log('loadMemberProducts - API에서 회원 상품 정보 로드:', memberProducts);
+            App.log('loadMemberProducts - API에서 회원 상품 정보 로드:', memberProducts);
         }
         
-        console.log('loadMemberProducts - 최종 currentEditingMember:', currentEditingMember);
+        App.log('loadMemberProducts - 최종 currentEditingMember:', currentEditingMember);
         
         // 기존 선택 해제
         Array.from(productSelect.options).forEach(option => {
@@ -1470,12 +1716,12 @@ async function loadMemberProducts(memberId) {
                     // 코치 정보를 option의 data 속성에 저장
                     if (mp.coachName) {
                         option.dataset.coachName = mp.coachName;
-                        console.log(`상품 ID ${productId}에 코치 정보 저장: "${mp.coachName}"`);
+                        App.log(`상품 ID ${productId}에 코치 정보 저장: "${mp.coachName}"`);
                     } else {
-                        console.warn(`상품 ID ${productId}에 코치 정보가 없음. memberProduct:`, mp);
+                        App.warn(`상품 ID ${productId}에 코치 정보가 없음. memberProduct:`, mp);
                     }
                 } else {
-                    console.warn(`상품 ID ${productId}에 해당하는 option을 찾을 수 없음`);
+                    App.warn(`상품 ID ${productId}에 해당하는 option을 찾을 수 없음`);
                 }
             });
         }
@@ -1507,7 +1753,7 @@ async function loadMemberProducts(memberId) {
             updateProductCoachSelection();
         }, 200);
     } catch (error) {
-        console.error('회원 상품 목록 로드 실패:', error);
+        App.err('회원 상품 목록 로드 실패:', error);
     }
 }
 
@@ -1547,7 +1793,7 @@ async function saveMember(allowDuplicatePhone = false) {
                 return saveMember(true);
             }
         } catch (error) {
-            console.warn('전화번호 중복 체크 실패:', error);
+            App.warn('전화번호 중복 체크 실패:', error);
             // 체크 실패해도 저장은 시도
         }
     }
@@ -1565,9 +1811,15 @@ async function saveMember(allowDuplicatePhone = false) {
         status: document.getElementById('member-status').value,
         address: document.getElementById('member-address').value,
         school: document.getElementById('member-school').value,
+        pitchingSpeed: document.getElementById('member-pitching-speed').value ? parseFloat(document.getElementById('member-pitching-speed').value) : null,
+        pitcherPower: (function() { var v = document.querySelector('input[name="member-batter-power"]:checked')?.value; return v ? parseFloat(v) : null; })(),
+        pitcherControl: document.querySelector('input[name="member-pitcher-control"]:checked')?.value || null,
+        pitcherFlexibility: document.querySelector('input[name="member-flexibility"]:checked')?.value || null,
+        runningSpeed: (function() { var v = document.querySelector('input[name="member-running-speed"]:checked')?.value; return v ? parseFloat(v) : null; })(),
         swingSpeed: document.getElementById('member-swing-speed').value ? parseFloat(document.getElementById('member-swing-speed').value) : null,
         exitVelocity: document.getElementById('member-exit-velocity').value ? parseFloat(document.getElementById('member-exit-velocity').value) : null,
-        pitchingSpeed: document.getElementById('member-pitching-speed').value ? parseFloat(document.getElementById('member-pitching-speed').value) : null,
+        batterPower: (function() { var v = document.querySelector('input[name="member-batter-power"]:checked')?.value; return v ? parseFloat(v) : null; })(),
+        batterFlexibility: (function() { var v = document.querySelector('input[name="member-flexibility"]:checked')?.value; return v ? parseFloat(v) : null; })(),
         guardianName: document.getElementById('member-guardian-name').value || null,
         guardianPhone: document.getElementById('member-guardian-phone').value || null,
         memo: document.getElementById('member-memo').value || null,
@@ -1609,7 +1861,7 @@ async function saveMember(allowDuplicatePhone = false) {
         } else {
             // 등록 모드 - data 객체에 id가 있으면 제거 (덮어쓰기 방지)
             delete data.id;
-            console.log('회원 등록 요청 - ID 없음 확인:', data);
+            App.log('회원 등록 요청 - ID 없음 확인:', data);
             savedMember = await App.api.post('/members', data);
             App.showNotification('회원이 등록되었습니다.', 'success');
         }
@@ -1620,26 +1872,44 @@ async function saveMember(allowDuplicatePhone = false) {
             .map(option => option.value)
             .filter(id => id && id !== '');
         
-        console.log(`[saveMember] 선택된 상품 IDs:`, selectedProductIds);
-        console.log(`[saveMember] 회원 ID:`, savedMember.id);
+        App.log(`[saveMember] 선택된 상품 IDs:`, selectedProductIds);
+        App.log(`[saveMember] 회원 ID:`, savedMember.id);
+        
+        // 이용권 선택 시 코치 미선택 방지: 모든 선택 이용권에 담당 코치가 선택되어 있어야 저장 가능
+        if (selectedProductIds.length > 0) {
+            const coachSelects = document.querySelectorAll('.product-coach-select');
+            let firstEmptySelect = null;
+            for (const productId of selectedProductIds) {
+                const select = Array.from(coachSelects).find(el => String(el.dataset.productId) === String(productId));
+                if (select && (!select.value || String(select.value).trim() === '')) {
+                    if (!firstEmptySelect) firstEmptySelect = select;
+                }
+            }
+            if (firstEmptySelect) {
+                App.showNotification('이용권별로 담당 코치를 선택해 주세요.', 'warning');
+                firstEmptySelect.focus();
+                firstEmptySelect.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                return; // 코치 미선택 시 저장 중단 (이용권 구매 불가)
+            }
+        }
         
         if (id) {
             // 수정 모드: 상품이 변경되었거나 코치가 변경되었을 수 있으므로 항상 재할당
             if (selectedProductIds.length > 0) {
-                console.log(`[saveMember] 수정 모드 - 상품 할당 시작 (코치 변경 포함)`);
+                App.log(`[saveMember] 수정 모드 - 상품 할당 시작 (코치 변경 포함)`);
                 await assignProductsToMember(savedMember.id, selectedProductIds);
-                console.log(`[saveMember] 수정 모드 - 상품 할당 완료`);
+                App.log(`[saveMember] 수정 모드 - 상품 할당 완료`);
             } else {
                 // 상품이 모두 제거된 경우
-                console.log(`[saveMember] 수정 모드 - 모든 상품 제거`);
+                App.log(`[saveMember] 수정 모드 - 모든 상품 제거`);
                 await App.api.delete(`/members/${savedMember.id}/products`);
             }
         } else {
             // 신규 등록: 상품이 있으면 할당
             if (selectedProductIds.length > 0) {
-                console.log(`[saveMember] 신규 등록 - 상품 할당 시작`);
+                App.log(`[saveMember] 신규 등록 - 상품 할당 시작`);
                 await assignProductsToMember(savedMember.id, selectedProductIds);
-                console.log(`[saveMember] 신규 등록 - 상품 할당 완료`);
+                App.log(`[saveMember] 신규 등록 - 상품 할당 완료`);
             }
         }
         
@@ -1652,32 +1922,32 @@ async function saveMember(allowDuplicatePhone = false) {
 
 // 회원에게 상품 할당 및 결제 생성
 async function assignProductsToMember(memberId, productIds) {
-    console.log(`[assignProductsToMember] 시작 - memberId: ${memberId}, productIds:`, productIds);
+    App.log(`[assignProductsToMember] 시작 - memberId: ${memberId}, productIds:`, productIds);
     try {
         // 기존 상품 할당 제거 후 새로 할당
-        console.log(`[assignProductsToMember] 기존 상품 할당 제거 시작`);
+        App.log(`[assignProductsToMember] 기존 상품 할당 제거 시작`);
         await App.api.delete(`/members/${memberId}/products`);
-        console.log(`[assignProductsToMember] 기존 상품 할당 제거 완료`);
+        App.log(`[assignProductsToMember] 기존 상품 할당 제거 완료`);
         
         // 선택된 상품별 코치 정보 수집
         const productCoachMap = {};
         const coachSelects = document.querySelectorAll('.product-coach-select');
-        console.log(`[assignProductsToMember] 찾은 코치 드롭다운 개수: ${coachSelects.length}`);
+        App.log(`[assignProductsToMember] 찾은 코치 드롭다운 개수: ${coachSelects.length}`);
         
         coachSelects.forEach((select, index) => {
             const productId = select.dataset.productId;
             const coachId = select.value;
-            console.log(`[assignProductsToMember] 드롭다운 ${index + 1}: productId="${productId}", coachId="${coachId}", selectedIndex=${select.selectedIndex}`);
+            App.log(`[assignProductsToMember] 드롭다운 ${index + 1}: productId="${productId}", coachId="${coachId}", selectedIndex=${select.selectedIndex}`);
             
             if (productId && coachId) {
                 productCoachMap[productId] = parseInt(coachId);
-                console.log(`[assignProductsToMember] 상품 ID ${productId}에 코치 ID ${coachId} 매핑됨`);
+                App.log(`[assignProductsToMember] 상품 ID ${productId}에 코치 ID ${coachId} 매핑됨`);
             } else {
-                console.warn(`[assignProductsToMember] 상품 ID ${productId}에 코치가 선택되지 않음 (coachId: "${coachId}")`);
+                App.warn(`[assignProductsToMember] 상품 ID ${productId}에 코치가 선택되지 않음 (coachId: "${coachId}")`);
             }
         });
         
-        console.log(`[assignProductsToMember] 최종 productCoachMap:`, productCoachMap);
+        App.log(`[assignProductsToMember] 최종 productCoachMap:`, productCoachMap);
         
         // 새 상품 할당 및 결제 생성
         for (const productId of productIds) {
@@ -1686,17 +1956,17 @@ async function assignProductsToMember(memberId, productIds) {
                 // 코치가 선택된 경우 추가
                 if (productCoachMap[productId]) {
                     requestData.coachId = productCoachMap[productId];
-                    console.log(`[assignProductsToMember] 상품 ID ${productId}에 코치 ID ${productCoachMap[productId]} 포함하여 할당`);
+                    App.log(`[assignProductsToMember] 상품 ID ${productId}에 코치 ID ${productCoachMap[productId]} 포함하여 할당`);
                 } else {
-                    console.warn(`[assignProductsToMember] 상품 ID ${productId}에 코치가 없음`);
+                    App.warn(`[assignProductsToMember] 상품 ID ${productId}에 코치가 없음`);
                 }
-                console.log(`[assignProductsToMember] 상품 할당 요청:`, requestData);
+                App.log(`[assignProductsToMember] 상품 할당 요청:`, requestData);
                 await App.api.post(`/members/${memberId}/products`, requestData);
-                console.log(`[assignProductsToMember] 상품 ID ${productId} 할당 완료`);
+                App.log(`[assignProductsToMember] 상품 ID ${productId} 할당 완료`);
             } catch (error) {
                 // 에러 응답의 상세 정보 로깅
                 if (error.response && error.response.data) {
-                    console.error('상품 할당 실패 상세:', {
+                    App.err('상품 할당 실패 상세:', {
                         productId: productId,
                         error: error.response.data.error,
                         message: error.response.data.message,
@@ -1706,13 +1976,13 @@ async function assignProductsToMember(memberId, productIds) {
                         productIdFromServer: error.response.data.productId
                     });
                 } else {
-                    console.error('상품 할당 실패:', error);
+                    App.err('상품 할당 실패:', error);
                 }
                 throw error; // 상위로 전파하여 전체 프로세스 중단
             }
         }
     } catch (error) {
-        console.error('상품 할당 실패:', error);
+        App.err('상품 할당 실패:', error);
         // 상품 할당 실패해도 회원 저장은 성공했으므로 경고만 표시
         App.showNotification('상품 할당에 실패했습니다.', 'warning');
     }
@@ -1762,7 +2032,7 @@ async function deleteAllMembers() {
         App.showNotification('모든 회원이 삭제되었습니다.', 'success');
         loadMembers();
     } catch (error) {
-        console.error('회원 전체 삭제 실패:', error);
+        App.err('회원 전체 삭제 실패:', error);
         App.showNotification('회원 전체 삭제에 실패했습니다.', 'danger');
     }
 }
@@ -1824,39 +2094,127 @@ function switchTab(tab, member = null) {
                 content.innerHTML = '<p style="color: var(--text-muted);">회원 정보를 불러올 수 없습니다.</p>';
             }
             break;
+        case 'product-history':
+            if (member?.id) {
+                loadMemberProductHistory(member.id);
+            } else {
+                content.innerHTML = '<p style="color: var(--text-muted);">회원 정보를 불러올 수 없습니다.</p>';
+            }
+            break;
+        case 'stats':
+            content.innerHTML = '<p class="member-stats-loading">능력치 정보 로딩 중...</p>';
+            if (member && member.id) {
+                App.api.get('/members/' + member.id + '/ability-stats-context').then(function(ctx) {
+                    content.innerHTML = renderMemberStats(member, ctx);
+                    setupMemberStatsLegendToggles(content);
+                }).catch(function() {
+                    content.innerHTML = renderMemberStats(member, null);
+                    setupMemberStatsLegendToggles(content);
+                });
+            } else {
+                content.innerHTML = renderMemberStats(member, null);
+                setupMemberStatsLegendToggles(content);
+            }
+            break;
         case 'memo':
             content.innerHTML = renderMemberMemo(member);
             break;
     }
 }
 
+/** 1~5단계 표시: 숫자면 "N단계", 아니면 기존 상/중/하 등 */
+function fmtStageDisplay(v) {
+    if (v == null || v === '') return null;
+    var n = Number(v);
+    if (n >= 1 && n <= 5) return Math.round(n) + '단계';
+    return v;
+}
+function fmtLevelOrStage(s) {
+    if (!s) return null;
+    var u = String(s).toUpperCase();
+    if (u === 'HIGH' || u === '상') return '상';
+    if (u === 'MID' || u === 'MIDDLE' || u === '중') return '중';
+    if (u === 'LOW' || u === '하') return '하';
+    if (/^[1-5]$/.test(String(s))) return String(s) + '단계';
+    return s;
+}
+
+/** 기본 정보 탭용: 투수/타자 등록 능력치 요약 (담당 코치 위에 표시) */
+function renderMemberAbilitySummary(member) {
+    if (!member) return '';
+    var fmtNum = function(v) { return v != null && v !== '' ? Number(v) : null; };
+    var run = fmtNum(member.runningSpeed);
+    var pitcherItems = [
+        { label: '구속', val: member.pitchingSpeed != null ? member.pitchingSpeed + ' km/h' : '-' },
+        { label: '제구력', val: fmtLevelOrStage(member.pitcherControl) || '-' },
+        { label: '유연성', val: fmtLevelOrStage(member.pitcherFlexibility) || '-' },
+        { label: '주력', val: fmtStageDisplay(run) || (run != null ? run : '-') }
+    ];
+    var runB = run != null ? run : fmtNum(member.runningSpeed);
+    var batterItems = [
+        { label: '스윙 스피드', val: member.swingSpeed != null ? member.swingSpeed + ' mph' : '-' },
+        { label: '타구 스피드', val: member.exitVelocity != null ? member.exitVelocity + ' mph' : '-' },
+        { label: '파워', val: fmtStageDisplay(member.batterPower) || '-' },
+        { label: '주력', val: fmtStageDisplay(runB) || (runB != null ? runB : '-') },
+        { label: '유연성', val: fmtStageDisplay(member.batterFlexibility) || '-' }
+    ];
+    var hasAny = pitcherItems.some(function(p) { return p.val !== '-'; }) || batterItems.some(function(p) { return p.val !== '-'; });
+    if (!hasAny) return '';
+    var row = function(items) {
+        return items.map(function(p) {
+            var v = p.val !== '-' && App.escapeHtml ? App.escapeHtml(String(p.val)) : (p.val !== '-' ? String(p.val) : '-');
+            return '<span class="member-ability-item"><span class="member-ability-label">' + p.label + '</span> ' + (p.val !== '-' ? '<span class="member-ability-value">' + v + '</span>' : '-') + '</span>';
+        }).join('');
+    };
+    return `
+        <div class="form-row member-ability-summary-row">
+            <div class="form-group member-ability-summary-col">
+                <label class="form-label">투수 기록</label>
+                <div class="member-ability-summary-block">${row(pitcherItems)}</div>
+            </div>
+            <div class="form-group member-ability-summary-col">
+                <label class="form-label">타자 기록</label>
+                <div class="member-ability-summary-block">${row(batterItems)}</div>
+            </div>
+        </div>
+    `;
+}
+
 function renderMemberInfo(member) {
     if (!member) return '<p>로딩 중...</p>';
+    const coachDisplay = getMemberCoachDisplayFromProducts(member);
     return `
         <div class="form-row">
             <div class="form-group">
                 <label class="form-label">이름</label>
-                <div class="form-control" style="background: var(--bg-tertiary);">${member.name}</div>
+                <div class="form-control" style="background: var(--bg-tertiary);">${App.escapeHtml(member.name || '')}</div>
             </div>
             <div class="form-group">
                 <label class="form-label">전화번호</label>
-                <div class="form-control" style="background: var(--bg-tertiary);">${member.phoneNumber}</div>
+                <div class="form-control" style="background: var(--bg-tertiary);">${App.escapeHtml(member.phoneNumber || '')}</div>
             </div>
         </div>
         <div class="form-row">
             <div class="form-group">
                 <label class="form-label">학교/소속</label>
-                <div class="form-control" style="background: var(--bg-tertiary);">${member.school || '-'}</div>
+                <div class="form-control" style="background: var(--bg-tertiary);">${App.escapeHtml(member.school || '-')}</div>
             </div>
             <div class="form-group">
                 <label class="form-label">등급</label>
                 <div class="form-control" style="background: var(--bg-tertiary);">${getGradeText(member.grade)}</div>
             </div>
         </div>
+        ${renderMemberAbilitySummary(member)}
         <div class="form-row">
             <div class="form-group">
                 <label class="form-label">담당 코치</label>
-                <div class="form-control" style="background: var(--bg-tertiary);">${member.coach?.name || '-'}</div>
+                <div class="form-control" style="background: var(--bg-tertiary); white-space: pre-line; line-height: 1.6;">${coachDisplay}</div>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">누적 결제</label>
+                <div class="form-control" style="background: var(--bg-tertiary); font-weight: 600; color: var(--accent-primary);">${App.formatCurrency(member.totalPayment || 0)}</div>
             </div>
         </div>
         <!-- 추가 정보 표시 -->
@@ -1872,10 +2230,13 @@ async function loadMemberProductsForDetail(memberId) {
     }
     try {
         const products = await App.api.get(`/member-products?memberId=${memberId}`);
-        console.log('이용권 목록 로드:', products);
+        App.log('이용권 목록 로드:', products);
         content.innerHTML = renderProductsList(products);
+        if (typeof window.applyCoachNameColors === 'function') {
+            window.applyCoachNameColors(content);
+        }
     } catch (error) {
-        console.error('이용권 로드 실패:', error);
+        App.err('이용권 로드 실패:', error);
         content.innerHTML = '<p style="color: var(--text-muted);">이용권 내역을 불러올 수 없습니다.</p>';
     }
 }
@@ -1889,15 +2250,27 @@ function renderProductsList(products) {
             ${products.map(p => {
                 const product = p.product || {};
                 const productName = product.name || '알 수 없음';
+                const status = p.status || 'UNKNOWN';
                 
-                // remainingCount 계산
+                // remainingCount 계산 (상태가 USED_UP이면 0으로 표시)
                 let remaining = p.remainingCount;
-                if (remaining === null || remaining === undefined || remaining === 0) {
-                    remaining = p.totalCount;
-                    if (remaining === null || remaining === undefined || remaining === 0) {
-                        remaining = product.usageCount;
+                
+                // 상태가 USED_UP이면 잔여 횟수는 0
+                if (status === 'USED_UP') {
+                    remaining = 0;
+                }
+                // remainingCount가 null이나 undefined일 때만 대체값 사용 (0은 유효한 값)
+                else if (remaining === null || remaining === undefined) {
+                    // 상품의 실제 usageCount를 우선 사용 (데이터 일관성 보장)
+                    remaining = product.usageCount;
+                    if (remaining === null || remaining === undefined) {
+                        remaining = p.totalCount;
+                    }
+                    if (remaining === null || remaining === undefined) {
+                        remaining = 0;
                     }
                 }
+                // remainingCount가 0이면 0으로 유지 (대체값 사용하지 않음)
                 remaining = remaining !== null && remaining !== undefined ? remaining : 0;
                 
                 // totalCount 계산 (totalCount가 null이면 product.usageCount 사용)
@@ -1908,11 +2281,13 @@ function renderProductsList(products) {
                 total = total !== null && total !== undefined ? total : 0;
                 
                 const expiryDate = p.expiryDate ? App.formatDate(p.expiryDate) : '-';
-                const status = p.status || 'UNKNOWN';
                 const productId = p.id;
                 const isCountPass = product.type === 'COUNT_PASS';
                 const isMonthlyPass = product.type === 'MONTHLY_PASS';
                 const startDate = p.purchaseDate ? App.formatDate(p.purchaseDate.split('T')[0]) : '-';
+                
+                const rawCoachName = p.coachName || (p.coach && p.coach.name) || (product.coach && product.coach.name) || '미지정';
+                const coachDisplay = renderCoachNamesWithColorsFromText(rawCoachName);
                 
                 // 패키지 항목별 잔여 횟수 표시
                 let remainingDisplay = '';
@@ -1926,27 +2301,59 @@ function renderProductsList(products) {
                     } catch (e) {
                         // 횟수권인 경우 색상 적용
                         if (isCountPass) {
-                            displayColor = getRemainingCountColor(remaining);
+                            // 잔여 횟수가 0이면 빨간색으로 "이용권 마감" 표시
+                            if (remaining === 0 || status === 'USED_UP') {
+                                displayColor = '#dc3545'; // 빨간색
+                                remainingDisplay = '<span style="color: #dc3545; font-weight: 700;">이용권 마감</span>';
+                            } else {
+                                displayColor = getRemainingCountColor(remaining);
+                                // total이 0이면 "잔여: X회" 형식으로 표시
+                                if (total > 0) {
+                                    remainingDisplay = `잔여: ${remaining}/${total}`;
+                                } else {
+                                    remainingDisplay = `잔여: ${remaining}회`;
+                                }
+                            }
+                        } else {
+                            // total이 0이면 "잔여: X회" 형식으로 표시
+                            if (total > 0) {
+                                remainingDisplay = `잔여: ${remaining}/${total}`;
+                            } else {
+                                remainingDisplay = `잔여: ${remaining}회`;
+                            }
                         }
+                    }
+                } else {
+                    // 횟수권인 경우 색상 적용
+                    if (isCountPass) {
+                        // 잔여 횟수가 0이면 빨간색으로 "이용권 마감" 표시
+                        if (remaining === 0 || status === 'USED_UP') {
+                            displayColor = '#dc3545'; // 빨간색
+                            remainingDisplay = '<span style="color: #dc3545; font-weight: 700;">이용권 마감</span>';
+                        } else {
+                            displayColor = getRemainingCountColor(remaining);
+                            // total이 0이면 "잔여: X회" 형식으로 표시
+                            if (total > 0) {
+                                remainingDisplay = `잔여: ${remaining}/${total}`;
+                            } else {
+                                remainingDisplay = `잔여: ${remaining}회`;
+                            }
+                        }
+                    } else if (isMonthlyPass && p.expiryDate) {
+                        displayColor = getExpiryDateColor(p.expiryDate);
                         // total이 0이면 "잔여: X회" 형식으로 표시
                         if (total > 0) {
                             remainingDisplay = `잔여: ${remaining}/${total}`;
                         } else {
                             remainingDisplay = `잔여: ${remaining}회`;
                         }
-                    }
-                } else {
-                    // 횟수권인 경우 색상 적용
-                    if (isCountPass) {
-                        displayColor = getRemainingCountColor(remaining);
-                    } else if (isMonthlyPass && p.expiryDate) {
-                        displayColor = getExpiryDateColor(p.expiryDate);
-                    }
-                    // total이 0이면 "잔여: X회" 형식으로 표시
-                    if (total > 0) {
-                        remainingDisplay = `잔여: ${remaining}/${total}`;
                     } else {
-                        remainingDisplay = `잔여: ${remaining}회`;
+                        // total이 0이면 "잔여: X회" 형식으로 표시
+                        if (total > 0) {
+                            remainingDisplay = `잔여: ${remaining}/${total}`;
+                        } else {
+                            remainingDisplay = `잔여: ${remaining}회`;
+                        }
                     }
                 }
                 
@@ -1971,16 +2378,28 @@ function renderProductsList(products) {
                     }
                 }
                 
+                // 상태를 한글로 변환
+                const statusText = {
+                    'ACTIVE': '활성',
+                    'EXPIRED': '만료',
+                    'USED_UP': '사용 완료',
+                    'INACTIVE': '비활성'
+                };
+                const statusDisplay = statusText[status] || status;
+                
                 return `
-                <div class="product-item" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid var(--border-color);">
+                <div class="product-item" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid var(--border-color); gap: 12px;">
                     <div class="product-info" style="flex: 1;">
-                        <div class="product-name" style="font-weight: 600; margin-bottom: 4px;">${productName}</div>
+                        <div class="product-name" style="font-weight: 600; margin-bottom: 6px;">${productName}</div>
                         <div class="product-detail" style="font-size: 14px; color: ${displayColor}; font-weight: 600;">
                             ${remainingDisplay}${periodInfo}
                         </div>
+                        <div class="product-coach" style="font-size: 12px; color: var(--text-secondary); margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-color);">
+                            담당 코치/강사: ${coachDisplay}
+                        </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span class="badge badge-${status === 'ACTIVE' ? 'success' : status === 'EXPIRED' ? 'warning' : 'secondary'}">${status}</span>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <span class="badge badge-${status === 'ACTIVE' ? 'success' : status === 'EXPIRED' ? 'warning' : 'secondary'}">${statusDisplay}</span>
                         ${isCountPass ? `
                             <button class="btn btn-sm btn-secondary" onclick="openAdjustCountModal(${productId}, ${remaining})" title="횟수 조정">
                                 조정
@@ -2004,6 +2423,54 @@ function renderProductsList(products) {
 
 // 전역에서 접근 가능하도록 window 객체에 할당
 window.renderProductsList = renderProductsList;
+window.getRemainingCountColor = getRemainingCountColor;
+window.getExpiryDateColor = getExpiryDateColor;
+window.applyCoachNameColors = applyCoachNameColors;
+window.getMemberCoachDisplayFromProducts = getMemberCoachDisplayFromProducts;
+
+// 코치 이름 고유색 재적용 (동적 렌더링 후 사용)
+function applyCoachNameColors(container) {
+    const root = container || document;
+    const coachNameNodes = root.querySelectorAll('.coach-name[data-coach-name]');
+    if (!coachNameNodes || coachNameNodes.length === 0) {
+        // continue to fallback parsing below
+    } else {
+        coachNameNodes.forEach(node => {
+            const coachName = (node.getAttribute('data-coach-name') || '').trim();
+            if (!coachName || !window.App || !App.CoachColors || typeof App.CoachColors.getColor !== 'function') {
+                return;
+            }
+            const color = App.CoachColors.getColor({ name: coachName });
+            if (color) {
+                node.style.setProperty('--coach-color', color);
+                node.style.color = color;
+                node.style.fontWeight = '600';
+            }
+        });
+    }
+
+    // fallback: if plain text is rendered, wrap coach names with spans
+    const coachLineNodes = root.querySelectorAll('.product-coach');
+    if (!coachLineNodes || coachLineNodes.length === 0) {
+        return;
+    }
+    coachLineNodes.forEach(node => {
+        if (node.querySelector('.coach-name')) {
+            return;
+        }
+        const text = (node.textContent || '').trim();
+        const match = text.match(/담당\s*코치\/강사:\s*(.+)$/);
+        if (!match) {
+            return;
+        }
+        const rawCoachText = match[1].trim();
+        if (!rawCoachText) {
+            return;
+        }
+        const rendered = renderCoachNamesWithColorsFromText(rawCoachText);
+        node.innerHTML = `담당 코치/강사: ${rendered}`;
+    });
+}
 
 // 횟수 조정 모달 열기
 async function openAdjustCountModal(productId, currentRemaining) {
@@ -2077,12 +2544,12 @@ function autoCalculateEndDate() {
     const endDateInput = document.getElementById('edit-period-end-date');
     
     if (!startDateInput || !endDateInput) {
-        console.log('입력 필드를 찾을 수 없습니다.');
+        App.log('입력 필드를 찾을 수 없습니다.');
         return;
     }
     
     const value = startDateInput.value;
-    console.log('시작일 변경됨:', value);
+    App.log('시작일 변경됨:', value);
     
     // 유효한 날짜가 입력되었는지 확인
     if (value && value.length >= 10) {
@@ -2096,12 +2563,12 @@ function autoCalculateEndDate() {
                 // YYYY-MM-DD 형식으로 변환
                 const endDateStr = end.toISOString().split('T')[0];
                 endDateInput.value = endDateStr;
-                console.log('종료일 자동 설정:', endDateStr);
+                App.log('종료일 자동 설정:', endDateStr);
             } else {
-                console.log('유효하지 않은 날짜');
+                App.log('유효하지 않은 날짜');
             }
         } catch (e) {
-            console.error('날짜 파싱 오류:', e);
+            App.err('날짜 파싱 오류:', e);
         }
     }
 }
@@ -2118,29 +2585,29 @@ async function openEditPeriodPassModal(productId, startDate, endDate) {
     setTimeout(() => {
         const startDateInput = document.getElementById('edit-period-start-date');
         if (startDateInput) {
-            console.log('시작일 input에 이벤트 리스너 추가');
+            App.log('시작일 input에 이벤트 리스너 추가');
             
             // 기존 이벤트 제거 후 새로 추가
             startDateInput.onchange = null;
             startDateInput.oninput = null;
             
             startDateInput.addEventListener('change', function() {
-                console.log('change 이벤트 발생');
+                App.log('change 이벤트 발생');
                 autoCalculateEndDate();
             });
             
             startDateInput.addEventListener('input', function() {
-                console.log('input 이벤트 발생');
+                App.log('input 이벤트 발생');
                 autoCalculateEndDate();
             });
             
             // 캘린더를 클릭할 때마다 계산 (이미 선택된 날짜를 다시 클릭해도)
             startDateInput.addEventListener('click', function() {
-                console.log('시작일 필드 클릭됨');
+                App.log('시작일 필드 클릭됨');
                 // 약간의 지연 후 계산 (캘린더에서 날짜 선택 완료 후)
                 setTimeout(() => {
                     if (this.value) {
-                        console.log('클릭 후 값 있음, 종료일 계산');
+                        App.log('클릭 후 값 있음, 종료일 계산');
                         autoCalculateEndDate();
                     }
                 }, 50);
@@ -2148,11 +2615,11 @@ async function openEditPeriodPassModal(productId, startDate, endDate) {
             
             // 모달 열릴 때 시작일이 이미 있으면 즉시 종료일 계산
             if (startDateInput.value) {
-                console.log('모달 열릴 때 시작일 있음, 즉시 종료일 계산');
+                App.log('모달 열릴 때 시작일 있음, 즉시 종료일 계산');
                 autoCalculateEndDate();
             }
         } else {
-            console.error('시작일 input을 찾을 수 없음');
+            App.err('시작일 input을 찾을 수 없음');
         }
     }, 100);
 }
@@ -2201,7 +2668,7 @@ async function loadMemberPayments(memberId) {
         const payments = await App.api.get(`/members/${memberId}/payments`);
         content.innerHTML = renderPaymentsList(payments);
     } catch (error) {
-        console.error('결제 내역 로드 실패:', error);
+        App.err('결제 내역 로드 실패:', error);
         content.innerHTML = '<p style="color: var(--text-muted);">결제 내역을 불러올 수 없습니다.</p>';
     }
 }
@@ -2299,6 +2766,11 @@ function renderPaymentsList(payments) {
     `;
 }
 
+// 전역에서 접근 가능하도록 window 객체에 할당
+window.openAdjustCountModal = openAdjustCountModal;
+window.openEditPeriodPassModal = openEditPeriodPassModal;
+window.deleteMemberProduct = deleteMemberProduct;
+
 // 이용권 삭제
 async function deleteMemberProduct(memberProductId, productName) {
     if (!confirm(`"${productName}" 이용권을 삭제하시겠습니까?\n\n주의: 관련된 예약과 결제 정보도 함께 삭제됩니다.`)) {
@@ -2334,7 +2806,7 @@ async function deleteMemberProduct(memberProductId, productName) {
             App.showNotification(response?.error || '이용권 삭제에 실패했습니다.', 'danger');
         }
     } catch (error) {
-        console.error('이용권 삭제 실패:', error);
+        App.err('이용권 삭제 실패:', error);
         const errorMsg = error.response?.data?.error || '이용권 삭제에 실패했습니다.';
         App.showNotification(errorMsg, 'danger');
     }
@@ -2345,6 +2817,9 @@ async function loadMemberBookings(memberId) {
     try {
         const bookings = await App.api.get(`/members/${memberId}/bookings`);
         content.innerHTML = renderBookingsList(bookings);
+        if (typeof window.applyCoachNameColors === 'function') {
+            window.applyCoachNameColors(content);
+        }
     } catch (error) {
         content.innerHTML = '<p style="color: var(--text-muted);">예약 내역을 불러올 수 없습니다.</p>';
     }
@@ -2385,6 +2860,8 @@ function renderBookingsList(bookings) {
                 <thead>
                     <tr>
                         <th>예약번호</th>
+                        <th>상품/이용권</th>
+                        <th>코치</th>
                         <th>시설</th>
                         <th>날짜/시간</th>
                         <th>상태</th>
@@ -2397,10 +2874,15 @@ function renderBookingsList(bookings) {
                         const status = b.status || 'UNKNOWN';
                         const statusText = getBookingStatusText(status);
                         const statusBadge = getBookingStatusBadge(status);
+                        const productName = b.memberProduct?.productName || '-';
+                        const coachName = b.coach?.name || b.coachName || '-';
+                        const coachDisplay = coachName !== '-' ? renderCoachNamesWithColorsFromText(coachName) : '-';
                         
                         return `
                         <tr>
                             <td>${b.id || '-'}</td>
+                            <td>${productName}</td>
+                            <td>${coachDisplay}</td>
                             <td>${facilityName}</td>
                             <td>${startTime}</td>
                             <td><span class="badge badge-${statusBadge}">${statusText}</span></td>
@@ -2459,6 +2941,7 @@ function renderAttendanceList(attendance) {
                         <th>시설</th>
                         <th>체크인 시간</th>
                         <th>체크아웃 시간</th>
+                        <th>출석 내용</th>
                         <th>상태</th>
                     </tr>
                 </thead>
@@ -2466,11 +2949,27 @@ function renderAttendanceList(attendance) {
                     ${attendance.map(a => {
                         const facilityName = a.facility?.name || a.facilityName || '-';
                         const date = a.date ? App.formatDate(a.date) : '-';
-                        const checkInTime = a.checkInTime ? App.formatDateTime(a.checkInTime) : '-';
-                        const checkOutTime = a.checkOutTime ? App.formatDateTime(a.checkOutTime) : '-';
+                        const checkInTime = a.checkInTime ? App.formatDateTime(a.checkInTime) : (a.status === 'PRESENT' ? '<span style="color: var(--text-muted);">체크인 안 함</span>' : '-');
+                        const checkOutTime = a.checkOutTime ? App.formatDateTime(a.checkOutTime) : (a.checkInTime ? '<span style="color: var(--text-muted);">체크아웃 안 함</span>' : '-');
                         const status = a.status || 'UNKNOWN';
                         const statusText = getAttendanceStatusText(status);
                         const statusBadge = getAttendanceStatusBadge(status);
+                        
+                        // 이용권 정보 표시
+                        let productInfo = '-';
+                        if (a.productHistory) {
+                            const productName = a.productHistory.productName || '이용권';
+                            const changeAmount = a.productHistory.changeAmount || 0;
+                            const remaining = a.productHistory.remainingCountAfter || 0;
+                            if (changeAmount < 0) {
+                                productInfo = `${productName} ${changeAmount} (잔여: ${remaining}회)`;
+                            } else {
+                                productInfo = `${productName} +${changeAmount} (잔여: ${remaining}회)`;
+                            }
+                        } else if (a.booking?.memberProduct) {
+                            const productName = a.booking.memberProduct.product?.name || '이용권';
+                            productInfo = `${productName} (사용됨)`;
+                        }
                         
                         return `
                         <tr>
@@ -2478,12 +2977,434 @@ function renderAttendanceList(attendance) {
                             <td>${facilityName}</td>
                             <td>${checkInTime}</td>
                             <td>${checkOutTime}</td>
+                            <td>${productInfo}</td>
                             <td><span class="badge badge-${statusBadge}">${statusText}</span></td>
                         </tr>
                     `;
                     }).join('')}
                 </tbody>
             </table>
+        </div>
+    `;
+}
+
+async function loadMemberProductHistory(memberId) {
+    const content = document.getElementById('detail-tab-content');
+    content.innerHTML = '<p style="text-align: center; color: var(--text-muted);">로딩 중...</p>';
+    
+    try {
+        const [products, history] = await Promise.all([
+            App.api.get(`/members/${memberId}/products`),
+            App.api.get(`/members/${memberId}/product-history`)
+        ]);
+        content.innerHTML = renderPurchaseHistorySection(products) + renderProductHistory(history);
+    } catch (error) {
+        App.err('이용권 히스토리 로드 실패:', error);
+        content.innerHTML = '<p style="color: var(--text-muted);">이용권 히스토리를 불러올 수 없습니다.</p>';
+    }
+}
+
+/** 이용권 구매/종료 이력 테이블 (언제 뭘 샀고, 언제 종료되었는지) */
+function renderPurchaseHistorySection(products) {
+    if (!products || products.length === 0) {
+        return `
+        <div class="card" style="margin-bottom: 20px;">
+            <div class="card-header"><h3 class="card-title">이용권 구매/종료 이력</h3></div>
+            <div class="card-body">
+                <p style="text-align: center; color: var(--text-muted); padding: 24px;">구매 이력이 없습니다.</p>
+            </div>
+        </div>`;
+    }
+    const statusText = (s) => ({ 'ACTIVE': '활성', 'EXPIRED': '만료', 'USED_UP': '소진' }[s] || s || '-');
+    const sorted = [...products].sort((a, b) => {
+        const d1 = a.purchaseDate ? new Date(a.purchaseDate).getTime() : 0;
+        const d2 = b.purchaseDate ? new Date(b.purchaseDate).getTime() : 0;
+        return d2 - d1;
+    });
+    const rows = sorted.map(p => {
+        const product = p.product || {};
+        const name = product.name || '상품';
+        const type = getProductTypeText(product.type) || '-';
+        const purchaseDate = p.purchaseDate ? App.formatDateTime(p.purchaseDate) : '-';
+        const status = statusText(p.status);
+        const statusBadge = p.status === 'ACTIVE' ? 'success' : (p.status === 'USED_UP' ? 'warning' : 'secondary');
+        let endDisplay = '-';
+        if (product.type === 'MONTHLY_PASS' && p.expiryDate) {
+            endDisplay = App.formatDate(p.expiryDate) + ' (만료일)';
+        } else if (p.status === 'USED_UP') {
+            endDisplay = '횟수 소진';
+        } else if (p.status === 'EXPIRED') {
+            endDisplay = p.expiryDate ? App.formatDate(p.expiryDate) + ' 만료' : '만료';
+        }
+        const price = p.actualPurchasePrice != null ? App.formatCurrency(p.actualPurchasePrice) : '-';
+        return `
+        <tr>
+            <td>${purchaseDate}</td>
+            <td>${name}</td>
+            <td>${type}</td>
+            <td><span class="badge badge-${statusBadge}">${status}</span></td>
+            <td>${endDisplay}</td>
+            <td>${price}</td>
+        </tr>`;
+    }).join('');
+    return `
+    <div class="card" style="margin-bottom: 20px;">
+        <div class="card-header"><h3 class="card-title">이용권 구매/종료 이력</h3></div>
+        <div class="card-body">
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">언제 어떤 이용권을 구매했고, 만료/소진 시점을 한눈에 볼 수 있습니다.</p>
+            <div class="table-container">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>구매일시</th>
+                            <th>상품명</th>
+                            <th>유형</th>
+                            <th>상태</th>
+                            <th>종료/만료</th>
+                            <th>구매 금액</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        </div>
+    </div>`;
+}
+
+function renderProductHistory(history) {
+    function getTransactionTypeText(type, description) {
+        if (type === 'CHARGE' && description && (description + '').indexOf('연장') !== -1) return '연장';
+        const typeMap = { 'CHARGE': '구매/충전', 'DEDUCT': '차감', 'ADJUST': '조정' };
+        return typeMap[type] || type;
+    }
+    function getTransactionTypeBadge(type, description) {
+        if (type === 'CHARGE' && description && (description + '').indexOf('연장') !== -1) return 'info';
+        const badgeMap = { 'CHARGE': 'success', 'DEDUCT': 'danger', 'ADJUST': 'warning' };
+        return badgeMap[type] || 'secondary';
+    }
+    function getBranchDisplay(branch, facilityName) {
+        if (facilityName) return facilityName;
+        const branchNames = { SAHA: '사하점', YEONSAN: '연산점', RENTAL: '대관' };
+        return (branch && branchNames[branch]) ? branchNames[branch] : '-';
+    }
+    const list = history && history.length ? history : [];
+    const rows = list.map(h => {
+        const bookingId = h.bookingId != null ? h.bookingId : '-';
+        const date = h.transactionDate ? App.formatDateTime(h.transactionDate) : '-';
+        const productName = (h.memberProduct && (h.memberProduct.name || h.memberProduct.product?.name || h.memberProduct.productName)) || '이용권';
+        const branchDisplay = getBranchDisplay(h.branch, h.facilityName);
+        const type = h.type || 'UNKNOWN';
+        const desc = h.description || '';
+        const typeText = getTransactionTypeText(type, desc);
+        const typeBadge = getTransactionTypeBadge(type, desc);
+        const changeAmount = h.changeAmount || 0;
+        const changeDisplay = changeAmount > 0 ? `+${changeAmount}` : `${changeAmount}`;
+        const remaining = h.remainingCountAfter !== null && h.remainingCountAfter !== undefined ? h.remainingCountAfter : '-';
+        const description = desc || '-';
+        return `
+        <tr>
+            <td>${bookingId}</td>
+            <td>${date}</td>
+            <td>${productName}</td>
+            <td>${branchDisplay}</td>
+            <td><span class="badge badge-${typeBadge}">${typeText}</span></td>
+            <td style="font-weight: ${changeAmount < 0 ? '600' : '400'}; color: ${changeAmount < 0 ? 'var(--danger)' : 'var(--success)'};">${changeDisplay}</td>
+            <td>${remaining}회</td>
+            <td>${description}</td>
+        </tr>`;
+    }).join('');
+    return `
+    <div class="card">
+        <div class="card-header"><h3 class="card-title">변동 내역 (충전/차감/연장 등)</h3></div>
+        <div class="card-body">
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">이용권 횟수 충전(구매/연장), 차감(사용), 조정 기록입니다.</p>
+            <div class="table-container">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>예약번호</th>
+                            <th>일시</th>
+                            <th>이용권</th>
+                            <th>지점</th>
+                            <th>유형</th>
+                            <th>변경량</th>
+                            <th>변경 후 잔여</th>
+                            <th>설명</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows || '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">변동 내역이 없습니다.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>`;
+}
+
+function setupMemberStatsLegendToggles(container) {
+    var wrap = container && container.querySelector ? container.querySelector('.member-stats-ability-wrap') : null;
+    if (!wrap) return;
+    [].forEach.call(wrap.querySelectorAll('.legend-toggle'), function(cb) {
+        cb.addEventListener('change', function() {
+            var layer = this.getAttribute('data-layer');
+            var cls = 'radar-polygon-' + (layer || '');
+            var visible = this.checked;
+            [].forEach.call(wrap.querySelectorAll('.' + cls), function(el) {
+                el.style.visibility = visible ? 'visible' : 'hidden';
+            });
+        });
+    });
+}
+
+function renderMemberStats(member, context) {
+    if (!member) return '<p>로딩 중...</p>';
+    var fmtNum = function(v) { return v != null && v !== '' ? Number(v) : null; };
+    var fmtLevel = function(s) {
+        if (!s) return null;
+        var u = String(s).toUpperCase();
+        if (u === 'HIGH' || u === '상') return '상';
+        if (u === 'MID' || u === 'MIDDLE' || u === '중') return '중';
+        if (u === 'LOW' || u === '하') return '하';
+        if (/^[1-5]$/.test(String(s))) return String(s) + '단계';
+        return s;
+    };
+    /** 1~5단계 또는 상/중/하 -> 0~1 비율 (레이더용) */
+    var levelToRatio = function(s) {
+        if (!s) return 0;
+        var u = String(s).toUpperCase();
+        if (u === 'HIGH' || u === '상') return 1;
+        if (u === 'MID' || u === 'MIDDLE' || u === '중') return 0.6;
+        if (u === 'LOW' || u === '하') return 0.3;
+        var n = parseInt(s, 10);
+        if (n >= 1 && n <= 5) return n / 5;
+        return 0.5;
+    };
+    /** 숫자 값이 1~5면 /5, 아니면 기존 스케일(예: /100, /30) 적용 */
+    var toRatio = function(v, max) {
+        if (v == null) return 0;
+        var n = Number(v);
+        if (n >= 1 && n <= 5) return n / 5;
+        return max ? Math.min(1, n / max) : 0;
+    };
+    var pitchVel = fmtNum(member.pitchingSpeed);
+    var pitchPower = fmtNum(member.batterPower);
+    var pitchCtrl = fmtLevel(member.pitcherControl);
+    var pitchFlex = fmtLevel(member.pitcherFlexibility);
+    var runSpeed = fmtNum(member.runningSpeed);
+    var swingVel = fmtNum(member.swingSpeed);
+    var exitVel = fmtNum(member.exitVelocity);
+    var batPower = fmtNum(member.batterPower);
+    var batFlex = fmtNum(member.batterFlexibility);
+    var runSpeedB = runSpeed != null ? runSpeed : fmtNum(member.runningSpeed);
+    var maxPitchVel = 160; var maxPower = 100; var maxRun = 30;
+    var p1 = pitchVel != null ? Math.min(1, pitchVel / maxPitchVel) : 0;
+    var p2 = toRatio(pitchPower, maxPower);
+    var p3 = levelToRatio(member.pitcherControl);
+    var p4 = levelToRatio(member.pitcherFlexibility);
+    var p5 = toRatio(runSpeed, maxRun);
+    var cx = 80; var cy = 80; var r = 70;
+    var labelGap = 10;
+    var rLabel = r + labelGap;
+    var pentagonOutline = [0,1,2,3,4].map(function(i) {
+        var a = -90 + i * 72;
+        var rad = a * Math.PI / 180;
+        return (cx + r * Math.cos(rad)).toFixed(1) + ',' + (cy + r * Math.sin(rad)).toFixed(1);
+    }).join(' ');
+    var fillPoints = [p1, p2, p3, p4, p5].map(function(v, i) {
+        var a = -90 + i * 72;
+        var rad = a * Math.PI / 180;
+        var r2 = r * (v || 0);
+        return (cx + r2 * Math.cos(rad)).toFixed(1) + ',' + (cy + r2 * Math.sin(rad)).toFixed(1);
+    }).join(' ');
+    var avgToRatio = function(v, max) {
+        if (v == null) return 0;
+        var n = Number(v);
+        if (n >= 1 && n <= 5) return n / 5;
+        return max ? Math.min(1, n / max) : Math.min(1, n);
+    };
+    var avgPitcher = context && context.averages && context.averages.pitcher ? context.averages.pitcher : null;
+    var a1 = 0, a2 = 0, a3 = 0, a4 = 0, a5 = 0;
+    if (avgPitcher) {
+        a1 = avgPitcher.velocity != null ? Math.min(1, Number(avgPitcher.velocity) / maxPitchVel) : 0;
+        a2 = avgToRatio(avgPitcher.power, maxPower);
+        a3 = avgToRatio(avgPitcher.controlRatio, null);
+        a4 = avgToRatio(avgPitcher.flexibilityRatio, null);
+        a5 = avgToRatio(avgPitcher.runningSpeed, maxRun);
+    }
+    var avgFillPoints = [a1, a2, a3, a4, a5].map(function(v, i) {
+        var a = -90 + i * 72;
+        var rad = a * Math.PI / 180;
+        var r2 = r * (v || 0);
+        return (cx + r2 * Math.cos(rad)).toFixed(1) + ',' + (cy + r2 * Math.sin(rad)).toFixed(1);
+    }).join(' ');
+    var rankPitcher = context && context.rankings && context.rankings.pitcher ? context.rankings.pitcher : {};
+    var pitcherRankKeys = ['velocity', 'power', 'control', 'flexibility', 'runningSpeed'];
+    var pitcherLabels = ['구속', '파워', '제구력', '유연성', '주력'];
+    var pitcherVals = [
+        pitchVel != null ? pitchVel + ' km/h' : '-',
+        pitchPower != null ? (pitchPower >= 1 && pitchPower <= 5 ? pitchPower + '단계' : pitchPower) : '-',
+        pitchCtrl || '-',
+        pitchFlex || '-',
+        runSpeed != null ? (runSpeed >= 1 && runSpeed <= 5 ? runSpeed + '단계' : runSpeed) : '-'
+    ];
+    var rankToPercentText = function(val) {
+        if (val == null) return '';
+        var rank = 0, total = 0;
+        if (typeof val === 'object' && val.rank != null && val.total != null) {
+            rank = Number(val.rank);
+            total = Number(val.total);
+        } else if (typeof val === 'number') {
+            rank = val;
+            total = 0;
+        }
+        if (total <= 0) return '';
+        var pct = total <= 1 ? 100 : (rank / total) * 100;
+        var bands = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100];
+        var band = 100;
+        for (var b = 0; b < bands.length; b++) {
+            if (pct <= bands[b]) { band = bands[b]; break; }
+        }
+        var cls = band <= 10 ? 'stat-rank stat-rank-gold' : 'stat-rank';
+        return ' <span class="' + cls + '">(상위 ' + band + '% 이내)</span>';
+    };
+    var rankSuffix = function(i) {
+        var val = rankPitcher[pitcherRankKeys[i]];
+        return rankToPercentText(val);
+    };
+    // 타자: 가장 바깥 오각형 = 기준(중학생) 최대치. 스윙75, 타구150, 파워·주력·유연성 1~5단계 → 꼭짓점 5.
+    var refSwing = 75, refExit = 150, refStage = 5;
+    var toRefRatio = function(val, refMax) {
+        if (val == null || refMax == null) return 0;
+        return Math.min(1, Number(val) / refMax);
+    };
+    var b1 = toRefRatio(swingVel, refSwing);
+    var b2 = toRefRatio(exitVel, refExit);
+    var b3 = toRefRatio(batPower != null ? (batPower >= 1 && batPower <= 5 ? batPower : batPower) : null, refStage);
+    var b4 = toRefRatio(runSpeedB, refStage);
+    var b5 = toRefRatio(batFlex, refStage);
+    // 바깥 오각형 = 기준(1,1,1,1,1) = 최대치 꼭짓점
+    var pentagonOutlineB = [0,1,2,3,4].map(function(i) {
+        var a = -90 + i * 72;
+        var rad = a * Math.PI / 180;
+        return (cx + r * Math.cos(rad)).toFixed(1) + ',' + (cy + r * Math.sin(rad)).toFixed(1);
+    }).join(' ');
+    var bVals = [b1, b2, b3, b4, b5];
+    var fillPointsB = bVals.map(function(v, i) {
+        var a = -90 + i * 72;
+        var rad = a * Math.PI / 180;
+        var r2 = r * (v || 0);
+        return (cx + r2 * Math.cos(rad)).toFixed(1) + ',' + (cy + r2 * Math.sin(rad)).toFixed(1);
+    }).join(' ');
+    var avgBatter = context && context.averages && context.averages.batter ? context.averages.batter : null;
+    var ba1 = 0, ba2 = 0, ba3 = 0, ba4 = 0, ba5 = 0;
+    if (avgBatter) {
+        ba1 = toRefRatio(avgBatter.swingSpeed, refSwing);
+        ba2 = toRefRatio(avgBatter.exitVelocity, refExit);
+        ba3 = toRefRatio(avgBatter.power, refStage);
+        ba4 = toRefRatio(avgBatter.runningSpeed, refStage);
+        ba5 = toRefRatio(avgBatter.flexibility, refStage);
+    }
+    var avgFillPointsB = [ba1, ba2, ba3, ba4, ba5].map(function(v, i) {
+        var a = -90 + i * 72;
+        var rad = a * Math.PI / 180;
+        var r2 = r * (v || 0);
+        return (cx + r2 * Math.cos(rad)).toFixed(1) + ',' + (cy + r2 * Math.sin(rad)).toFixed(1);
+    }).join(' ');
+    // 타자 레이더: concentric 그리드 + 축선 (클래스로 스타일 → 테마 대비)
+    var radarGridB = [0.25, 0.5, 0.75].map(function(ratio) {
+        var pts = [0,1,2,3,4].map(function(i) {
+            var a = -90 + i * 72;
+            var rad = a * Math.PI / 180;
+            var r2 = r * ratio;
+            return (cx + r2 * Math.cos(rad)).toFixed(1) + ',' + (cy + r2 * Math.sin(rad)).toFixed(1);
+        }).join(' ');
+        return '<polygon points="' + pts + '" fill="none" class="radar-grid"/>';
+    }).join('\n                        ');
+    var radarAxesB = [0,1,2,3,4].map(function(i) {
+        var a = -90 + i * 72;
+        var rad = a * Math.PI / 180;
+        var x2 = cx + r * Math.cos(rad);
+        var y2 = cy + r * Math.sin(rad);
+        return '<line x1="' + cx + '" y1="' + cy + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" class="radar-axis"/>';
+    }).join('\n                        ');
+    var rankBatter = context && context.rankings && context.rankings.batter ? context.rankings.batter : {};
+    var batterRankKeys = ['swingSpeed', 'exitVelocity', 'power', 'runningSpeed', 'flexibility'];
+    var batterLabels = ['스윙 스피드', '타구 스피드', '파워', '주력', '유연성'];
+    var batterVals = [
+        swingVel != null ? swingVel + ' mph' : '-',
+        exitVel != null ? exitVel + ' mph' : '-',
+        batPower != null ? (batPower >= 1 && batPower <= 5 ? batPower + '단계' : batPower) : '-',
+        runSpeedB != null ? (runSpeedB >= 1 && runSpeedB <= 5 ? runSpeedB + '단계' : runSpeedB) : '-',
+        batFlex != null ? (batFlex >= 1 && batFlex <= 5 ? batFlex + '단계' : batFlex) : '-'
+    ];
+    var rankSuffixB = function(i) {
+        var val = rankBatter[batterRankKeys[i]];
+        return rankToPercentText(val);
+    };
+    /** 꼭짓점 라벨: 글자 수가 많아도 그래프~한글 간격이 동일하도록, 텍스트 박스 안쪽까지 거리를 보정 */
+    var labelFontH = 10;
+    var labelCharW = 6;
+    var vertexTexts = function(vals) {
+        return [0, 1, 2, 3, 4].map(function(i) {
+            var a = -90 + i * 72;
+            var rad = a * Math.PI / 180;
+            var text = (vals[i] != null && vals[i] !== '') ? String(vals[i]) : '-';
+            var len = text.length;
+            var w = len * labelCharW;
+            var depth = (w / 2) * Math.abs(Math.cos(rad)) + (labelFontH / 2) * Math.abs(Math.sin(rad));
+            var rL = r + labelGap + depth;
+            var x = cx + rL * Math.cos(rad);
+            var y = cy + rL * Math.sin(rad);
+            return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" class="radar-vertex-value" text-anchor="middle" dominant-baseline="middle">' + (App.escapeHtml ? App.escapeHtml(text) : text) + '</text>';
+        }).join('\n                        ');
+    };
+    var pitcherVertexLabels = vertexTexts(pitcherLabels);
+    var batterVertexLabels = vertexTexts(batterLabels);
+    var gradeHtml = (context && context.gradeLabel) ? '<p class="member-stats-grade">소속 등급: <strong>' + (App.escapeHtml ? App.escapeHtml(context.gradeLabel) : context.gradeLabel) + '</strong></p>' : '';
+    var refGradeLabel = (context && context.gradeLabel) ? context.gradeLabel : '중학생';
+    var legendHtml = '<p class="member-stats-legend">' +
+        '<span class="legend-item legend-item-fixed"><span class="legend-dot legend-ref"></span> 기준: ' + (App.escapeHtml ? App.escapeHtml(refGradeLabel) : refGradeLabel) + '</span>' +
+        ' <label class="legend-item legend-item-avg"><input type="checkbox" class="legend-toggle" data-layer="avg" checked><span class="legend-dot legend-avg"></span> 동일 등급 평균</label>' +
+        ' <label class="legend-item legend-item-member"><input type="checkbox" class="legend-toggle" data-layer="member" checked><span class="legend-dot legend-member"></span> 본인</label>' +
+        '</p>';
+    return `
+        <div class="member-stats-ability-wrap">
+            ${gradeHtml}
+            ${legendHtml}
+            <div class="member-stats-ability-col">
+                <h3 class="member-stats-ability-title">투수</h3>
+                <div class="member-stats-radar">
+                    <svg viewBox="-12 -12 184 184" class="radar-svg radar-svg-pitcher">
+                        ${radarGridB}
+                        ${radarAxesB}
+                        <polygon points="${pentagonOutline}" fill="none" class="radar-polygon-ref"/>
+                        ${avgPitcher ? '<polygon points="' + avgFillPoints + '" class="radar-polygon-avg"/>' : ''}
+                        <polygon points="${fillPoints}" class="radar-polygon-member"/>
+                        ${pitcherVertexLabels}
+                    </svg>
+                </div>
+                <ul class="member-stats-list">
+                    ${pitcherLabels.map(function(l, i) { return '<li><span class="stat-label">' + l + '</span><span class="stat-value">' + (pitcherVals[i] || '-') + rankSuffix(i) + '</span></li>'; }).join('')}
+                </ul>
+            </div>
+            <div class="member-stats-ability-col">
+                <h3 class="member-stats-ability-title">타자</h3>
+                <div class="member-stats-radar">
+                    <svg viewBox="-12 -12 184 184" class="radar-svg radar-svg-batter">
+                        ${radarGridB}
+                        ${radarAxesB}
+                        <polygon points="${pentagonOutlineB}" class="radar-polygon-ref" fill="none"/>
+                        ${avgBatter ? '<polygon points="' + avgFillPointsB + '" class="radar-polygon-avg"/>' : ''}
+                        <polygon points="${fillPointsB}" class="radar-polygon-member"/>
+                        ${batterVertexLabels}
+                    </svg>
+                </div>
+                <p class="member-stats-batter-ref-caption">기준: ${App.escapeHtml ? App.escapeHtml(refGradeLabel) : refGradeLabel} (스윙 75, 타구 150, 파워·주력·유연성 5단계)</p>
+                <p class="member-stats-batter-ref-hint" style="color: #22c55e; font-size: 13px; margin-top: 4px;">표시된 영역이 바깥 5각형(기준선)에 가깝게 채워질수록 동일 등급 내 상위 수준에 해당합니다.</p>
+                <ul class="member-stats-list">
+                    ${batterLabels.map(function(l, i) { return '<li><span class="stat-label">' + l + '</span><span class="stat-value">' + (batterVals[i] || '-') + rankSuffixB(i) + '</span></li>'; }).join('')}
+                </ul>
+            </div>
         </div>
     `;
 }
@@ -2520,8 +3441,8 @@ async function openExtendProductModal(memberId) {
         
         const select = document.getElementById('extend-product-select');
         
-        console.log('연장 모달 - 회원 보유 상품 개수:', memberProducts?.length || 0);
-        console.log('연장 모달 - 구매 가능한 상품 개수:', allProducts?.length || 0);
+        App.log('연장 모달 - 회원 보유 상품 개수:', memberProducts?.length || 0);
+        App.log('연장 모달 - 구매 가능한 상품 개수:', allProducts?.length || 0);
         
         select.innerHTML = '<option value="">상품/이용권을 선택하세요...</option>';
         
@@ -2623,7 +3544,7 @@ async function openExtendProductModal(memberId) {
             }
         }
         
-        console.log('연장 모달 - 드롭다운에 추가된 옵션 개수:', freshSelect.options.length - 1); // -1은 기본 옵션 제외
+        App.log('연장 모달 - 드롭다운에 추가된 옵션 개수:', freshSelect.options.length - 1); // -1은 기본 옵션 제외
         
         // 상품/이용권 선택 시 만료일 및 구매 금액 표시, 연장 금액 계산
         freshSelect.addEventListener('change', function() {
@@ -2699,7 +3620,7 @@ async function openExtendProductModal(memberId) {
         
         App.Modal.open('extend-product-modal');
     } catch (error) {
-        console.error('상품/이용권 목록 로드 실패:', error);
+        App.err('상품/이용권 목록 로드 실패:', error);
         App.showNotification('상품/이용권 목록을 불러오는데 실패했습니다.', 'danger');
     }
 }
@@ -2785,7 +3706,7 @@ async function processExtendProduct() {
                     }
                 } catch (error) {
                     // POST 실패 시 (409 Conflict 또는 500 에러) 같은 상품이 있는지 다시 확인하고 연장
-                    console.warn('상품 생성 실패, 기존 상품 확인 중:', error);
+                    App.warn('상품 생성 실패, 기존 상품 확인 중:', error);
                     const retryMemberProducts = await App.api.get(`/members/${memberId}/products`);
                     const retryExistingMemberProduct = retryMemberProducts.find(mp => {
                         const mpProductId = mp.product?.id || mp.productId;
@@ -2826,7 +3747,7 @@ async function processExtendProduct() {
             }
         }
     } catch (error) {
-        console.error('상품/이용권 연장 실패:', error);
+        App.err('상품/이용권 연장 실패:', error);
         App.showNotification('상품/이용권 연장에 실패했습니다.', 'danger');
     }
 }

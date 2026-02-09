@@ -2,12 +2,13 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>통계/분석 - AFBS 센터</title>
     <link rel="stylesheet" href="/css/common.css">
     <link rel="stylesheet" href="/css/analytics.css">
 </head>
-<body>
+<body class="analytics-page">
     <div class="app-container">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -23,25 +24,28 @@
                     <div class="menu-section-title">회원 관리</div>
                     <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
                     <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">출석부</div>
+                    <a href="/attendance.html" class="menu-item menu-item--attendance" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings-without-product.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
                     
                     <!-- 사하점 -->
                     <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 대관 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
                     <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
-                    
-                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">훈련 관리</div>
@@ -50,8 +54,8 @@
                     <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
                 </div>
                 <div class="menu-section">
-                    <div class="menu-section-title">상품/결제</div>
-                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>상품/이용권</span></a>
+                    <div class="menu-section-title">이용권/결제</div>
+                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>이용권</span></a>
                     <a href="/payments.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
                 </div>
                 <div class="menu-section">
@@ -62,6 +66,7 @@
                     <div class="menu-section-title">관리자</div>
                     <a href="/analytics.html" class="menu-item active" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
                     <a href="/announcements.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📢</span><span>공지/메시지</span></a>
+                    <a href="/screenshot-export.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">📷</span><span>스크린샷 발췌</span></a>
                     <a href="/settings.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚙️</span><span>설정</span></a>
                 </div>
             </nav>
@@ -81,17 +86,23 @@
             <div class="content-area">
                 <!-- 기간 선택 -->
                 <div class="card">
-                    <div class="filter-group">
+                    <div class="filter-group" style="flex-wrap: wrap; align-items: center; gap: 8px;">
                         <select class="form-control" id="analytics-period" style="width: 150px;">
                             <option value="today">오늘</option>
                             <option value="week">이번 주</option>
                             <option value="month" selected>이번 달</option>
-                            <option value="year">이번 해</option>
+                            <option value="year">전체</option>
+                            <option value="all">현재까지</option>
                             <option value="custom">기간 선택</option>
                         </select>
-                        <input type="date" class="form-control" id="analytics-start-date" style="width: 150px;" disabled>
-                        <input type="date" class="form-control" id="analytics-end-date" style="width: 150px;" disabled>
-                        <button class="btn btn-secondary" onclick="loadAnalytics()">조회</button>
+                        <select class="form-control" id="analytics-month-picker" style="width: 140px;" title="월별로 보기">
+                            <option value="">월별 보기</option>
+                            <!-- 2026년 1월부터 현재월까지 JS로 채움 -->
+                        </select>
+                        <input type="date" class="form-control" id="analytics-start-date" style="width: 130px;" disabled>
+                        <span style="color: var(--text-muted);">~</span>
+                        <input type="date" class="form-control" id="analytics-end-date" style="width: 130px;" disabled>
+                        <button class="btn btn-primary" onclick="loadAnalytics()">조회</button>
                         <button class="btn btn-secondary" onclick="exportAnalytics()">CSV 다운로드</button>
                     </div>
                 </div>
@@ -102,9 +113,9 @@
                         <h2 class="card-title">운영 지표</h2>
                     </div>
                     <div class="metrics-grid">
-                        <div class="metric-card" style="grid-column: 1 / -1; padding: 20px;">
-                            <div class="metric-label">시설별 가동률</div>
-                            <div id="facility-utilization-chart" class="chart-container">
+                        <div class="metric-card metric-card--content-style" style="grid-column: 1 / -1; padding: 20px;">
+                            <div class="metric-label">🏟️ 시설별 가동률</div>
+                            <div id="facility-utilization-chart" class="chart-container metric-content-wrap">
                                 <p style="color: var(--text-muted);">차트 준비 중...</p>
                             </div>
                         </div>
@@ -117,21 +128,21 @@
                         <h2 class="card-title">매출 지표</h2>
                     </div>
                     <div class="metrics-grid">
-                        <div class="metric-card">
-                            <div class="metric-label">카테고리별 매출</div>
-                            <div id="category-revenue-chart" class="chart-container">
+                        <div class="metric-card metric-card--content-style">
+                            <div class="metric-label">💰 카테고리별 매출</div>
+                            <div id="category-revenue-chart" class="chart-container metric-content-wrap">
                                 <p style="color: var(--text-muted);">차트 준비 중...</p>
                             </div>
                         </div>
-                        <div class="metric-card">
-                            <div class="metric-label" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                                <span>매출 추이</span>
+                        <div class="metric-card metric-card--content-style">
+                            <div class="metric-label metric-label--with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <span>📈 매출 추이</span>
                                 <div style="display: flex; gap: 4px;">
                                     <button id="revenue-trend-filter-week" class="btn btn-sm" style="padding: 4px 12px; font-size: 11px; min-width: 60px;" onclick="setRevenueTrendPeriod('week')">일주일</button>
                                     <button id="revenue-trend-filter-month" class="btn btn-sm btn-secondary" style="padding: 4px 12px; font-size: 11px; min-width: 60px;" onclick="setRevenueTrendPeriod('month')">한달</button>
                                 </div>
                             </div>
-                            <div id="revenue-trend-chart" class="chart-container">
+                            <div id="revenue-trend-chart" class="chart-container metric-content-wrap">
                                 <p style="color: var(--text-muted);">차트 준비 중...</p>
                             </div>
                         </div>
@@ -145,79 +156,119 @@
                     </div>
                     <div class="metrics-grid" style="grid-template-columns: repeat(3, 1fr);">
                         <!-- 회원 KPI (상단 3열) -->
-                        <div class="metric-card" style="min-height: auto; padding: 16px;">
-                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; text-transform: uppercase;">총 회원 수</div>
+                        <div class="metric-card metric-card--total-members metric-card--kpi-label" style="min-height: auto; padding: 16px;">
+                            <div class="metric-kpi-title">총 회원 수</div>
                             <div style="font-size: 32px; font-weight: 800; color: var(--text-primary);" id="total-members">-</div>
                         </div>
-                        <div class="metric-card" style="min-height: auto; padding: 16px;">
-                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; text-transform: uppercase;">활성 회원</div>
-                            <div style="font-size: 32px; font-weight: 800; color: var(--accent-primary);" id="active-members">-</div>
+                        <div class="metric-card metric-card--kpi-label" style="min-height: auto; padding: 16px;">
+                            <div class="metric-kpi-title">활성 회원</div>
+                            <div style="font-size: 32px; font-weight: 800; color: #fff;" id="active-members">-</div>
                         </div>
-                        <div class="metric-card" style="min-height: auto; padding: 16px;">
-                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; text-transform: uppercase;">기간 내 신규</div>
-                            <div style="font-size: 32px; font-weight: 800; color: var(--info);" id="new-members-period">-</div>
+                        <div class="metric-card metric-card--kpi-label" style="min-height: auto; padding: 16px;">
+                            <div class="metric-kpi-title">기간 내 신규</div>
+                            <div style="font-size: 32px; font-weight: 800; color: #fff;" id="new-members-period">-</div>
                             <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;" id="net-change-text">순증감: <span id="net-change-members">-</span></div>
                         </div>
                         
-                        <!-- 카테고리별 회원 통계 -->
-                        <div class="metric-card" style="min-height: auto;">
-                            <div class="metric-label">카테고리별 회원</div>
-                            <div id="category-member-chart" class="chart-container" style="min-height: 150px;">
+                        <!-- 카테고리별 회원 / 등급별 분포 / 등급별 상세: 같은 행, 등급별 상세 높이에 맞춤 -->
+                        <div class="metric-card metric-card--content-style metric-card--member-trio" style="min-height: auto;">
+                            <div class="metric-label">📁 카테고리별 회원</div>
+                            <div id="category-member-chart" class="chart-container metric-content-wrap" style="min-height: 150px;">
                                 <p style="color: var(--text-muted);">차트 준비 중...</p>
                             </div>
                         </div>
                         
-                        <!-- 등급별 분포 -->
-                        <div class="metric-card" style="min-height: auto;">
-                            <div class="metric-label">등급별 분포</div>
-                            <div id="grade-distribution-chart" class="chart-container" style="min-height: 150px;">
+                        <div class="metric-card metric-card--content-style metric-card--member-trio" style="min-height: auto;">
+                            <div class="metric-label">📊 등급별 분포</div>
+                            <div id="grade-distribution-chart" class="chart-container metric-content-wrap" style="min-height: 150px;">
                                 <p style="color: var(--text-muted);">차트 준비 중...</p>
                             </div>
                         </div>
                         
-                        <!-- 등급별 상세 통계 -->
-                        <div class="metric-card" style="min-height: auto;">
-                            <div class="metric-label">등급별 상세</div>
-                            <div id="grade-detail-chart" class="chart-container" style="min-height: 150px;">
+                        <div class="metric-card metric-card--content-style metric-card--grade-detail metric-card--member-trio">
+                            <div class="metric-label">📋 등급별 상세</div>
+                            <div id="grade-detail-chart" class="chart-container metric-content-wrap">
                                 <p style="color: var(--text-muted);">차트 준비 중...</p>
                             </div>
                         </div>
                         
                         <!-- 회원 상태 -->
-                        <div class="metric-card" style="min-height: auto;">
-                            <div class="metric-label">회원 상태</div>
-                            <div id="member-status-chart" class="chart-container" style="min-height: 120px;">
+                        <div class="metric-card metric-card--content-style" style="min-height: auto;">
+                            <div class="metric-label">👥 회원 상태</div>
+                            <div id="member-status-chart" class="chart-container metric-content-wrap" style="min-height: 120px;">
                                 <p style="color: var(--text-muted);">차트 준비 중...</p>
                             </div>
                         </div>
                         
                         <!-- 이용권 통계 -->
-                        <div class="metric-card" style="min-height: auto;">
-                            <div class="metric-label">이용권 통계</div>
-                            <div id="member-product-stats" style="padding: 12px;">
+                        <div class="metric-card metric-card--content-style" style="min-height: auto;">
+                            <div class="metric-label">🎫 이용권 통계</div>
+                            <div id="member-product-stats" class="metric-content-wrap" style="padding: 12px;">
                                 <p style="color: var(--text-muted);">데이터 준비 중...</p>
                             </div>
                         </div>
                         
                         <!-- 학교/소속 현황 -->
-                        <div class="metric-card" style="min-height: auto; padding: 16px;">
-                            <div class="metric-label">학교/소속 현황</div>
-                            <div id="school-stats-container" style="margin-top: 12px; max-height: 200px; overflow-y: auto;">
+                        <div class="metric-card metric-card--content-style" style="min-height: auto; padding: 16px;">
+                            <div class="metric-label">🏫 학교/소속 현황</div>
+                            <div id="school-stats-container" class="metric-content-wrap" style="margin-top: 0; max-height: 360px; overflow-y: auto;">
                                 <p style="color: var(--text-muted); text-align: center; font-size: 12px;">데이터 로딩 중...</p>
                             </div>
                         </div>
                         
-                        <!-- 신규/이탈 추이 -->
-                        <div class="metric-card" style="grid-column: 1 / -1; min-height: auto;">
-                            <div class="metric-label">신규/이탈 추이</div>
-                            <div id="member-trend-chart" class="chart-container" style="min-height: 200px;">
-                                <p style="color: var(--text-muted);">차트 준비 중...</p>
+                        <!-- 개인 결제 TOP(왼쪽) + 신규/이탈 추이(오른쪽) -->
+                        <div style="grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                            <div class="metric-card metric-card--content-style" style="min-height: auto;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
+                                    <span class="metric-label" style="margin-bottom: 0;">💳 개인 결제 TOP</span>
+                                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                        <select class="form-control" id="analytics-top-spenders-scope" style="width: auto; min-width: 90px; font-size: 12px; padding: 4px 8px;" title="결제 집계 기준">
+                                            <option value="all" selected>전체</option>
+                                            <option value="month">해당 월</option>
+                                            <option value="period">기간</option>
+                                        </select>
+                                        <span id="analytics-top-spenders-month-wrap" style="display: none;">
+                                            <select class="form-control" id="analytics-top-spenders-month" style="width: auto; min-width: 100px; font-size: 12px; padding: 4px 8px;" title="연월 선택"> </select>
+                                        </span>
+                                        <span id="analytics-top-spenders-period-wrap" style="display: none;">
+                                            <input type="date" class="form-control" id="analytics-top-spenders-start" style="width: 120px; font-size: 12px;">
+                                            <span style="color: var(--text-muted);">~</span>
+                                            <input type="date" class="form-control" id="analytics-top-spenders-end" style="width: 120px; font-size: 12px;">
+                                        </span>
+                                        <button type="button" class="btn btn-secondary" id="analytics-top-spenders-apply" style="display: none; font-size: 12px; padding: 4px 10px;">조회</button>
+                                    </div>
+                                </div>
+                                <div id="member-top-spenders" class="chart-container metric-content-wrap" style="min-height: 200px;">
+                                    <p style="color: var(--text-muted);">데이터 준비 중...</p>
+                                </div>
+                            </div>
+                            <div class="metric-card" style="min-height: auto;">
+                                <div class="metric-label">신규/이탈 추이</div>
+                                <div id="member-trend-chart" class="chart-container" style="min-height: 200px;">
+                                    <p style="color: var(--text-muted);">차트 준비 중...</p>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
         </main>
+    </div>
+    
+    <!-- 학교/소속별 회원 현황 모달 -->
+    <div class="modal-overlay" id="school-detail-modal" style="display: none;">
+        <div class="modal" style="max-width: 520px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="school-detail-modal-title">소속 현황</h2>
+                <button class="modal-close" onclick="App.Modal.close('school-detail-modal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="school-detail-modal-body" style="max-height: 50vh; overflow-y: auto;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('school-detail-modal')">닫기</button>
+            </div>
+        </div>
     </div>
     
     <script src="/js/common.js"></script>

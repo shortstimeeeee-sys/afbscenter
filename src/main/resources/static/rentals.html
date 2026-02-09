@@ -2,12 +2,13 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>대관 관리 - AFBS 센터</title>
     <link rel="stylesheet" href="/css/common.css">
     <link rel="stylesheet" href="/css/rentals.css">
 </head>
-<body>
+<body class="rentals-page">
     <div class="app-container">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -23,25 +24,28 @@
                     <div class="menu-section-title">회원 관리</div>
                     <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
                     <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">출석부</div>
+                    <a href="/attendance.html" class="menu-item menu-item--attendance" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings-without-product.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
                     
                     <!-- 사하점 -->
                     <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 대관 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
                     <a href="/rentals.html" class="menu-item active" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
-                    
-                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">훈련 관리</div>
@@ -70,32 +74,33 @@
                 <!-- 뷰 전환 버튼 -->
                 <div class="view-controls">
                     <button class="btn btn-secondary active" data-view="calendar" id="btn-calendar">달력</button>
-                    <button class="btn btn-secondary" data-view="list" id="btn-list">목록</button>
+                    <button class="btn btn-secondary" data-view="list" id="btn-list">예약 목록</button>
                     <button class="btn btn-secondary" onclick="openBookingModal()" id="btn-booking-new">대관 등록</button>
                 </div>
                 <!-- 코치 범례 -->
                 <div id="coach-legend" class="coach-legend"></div>
                 
-                <!-- 필터 -->
+                <!-- 필터 (한 행: 왼쪽 필터, 오른쪽 지점별 대관 통계) -->
                 <div class="card">
-                    <div class="filter-group">
-                        <select class="form-control" id="filter-facility" style="width: 200px;">
-                            <option value="">전체 시설</option>
-                            <option value="1">배팅케이지</option>
-                            <option value="2">피칭머신존</option>
-                            <option value="3">실내구장</option>
-                            <option value="4">레슨룸</option>
-                        </select>
-                        <select class="form-control" id="filter-status" style="width: 150px;">
-                            <option value="">전체 상태</option>
-                            <option value="CONFIRMED">확정</option>
-                            <option value="PENDING">대기</option>
-                            <option value="CANCELLED">취소</option>
-                            <option value="COMPLETED">완료</option>
-                        </select>
-                        <input type="date" class="form-control" id="filter-date-start" style="width: 150px;">
-                        <input type="date" class="form-control" id="filter-date-end" style="width: 150px;">
-                        <button class="btn btn-secondary" onclick="applyFilters()">적용</button>
+                    <div class="filter-row">
+                        <div class="filter-row-left">
+                            <div class="filter-group">
+                                <select class="form-control" id="filter-facility" style="width: 110px;">
+                                    <option value="">전체 시설</option>
+                                </select>
+                                <select class="form-control" id="filter-status" style="width: 110px;">
+                                    <option value="">전체 상태</option>
+                                    <option value="CONFIRMED">확정</option>
+                                    <option value="PENDING">대기</option>
+                                    <option value="CANCELLED">취소</option>
+                                    <option value="COMPLETED">완료</option>
+                                </select>
+                                <input type="date" class="form-control" id="filter-date-start" style="width: 130px;">
+                                <input type="date" class="form-control" id="filter-date-end" style="width: 130px;">
+                            </div>
+                            <button type="button" class="btn btn-success" id="rentals-filter-reset" title="지점·시설·상태 필터 초기화 후 전체 보기" style="display: none;">✅ 전체 확인</button>
+                        </div>
+                        <div id="rentals-stats-container" class="filter-row-right rentals-stats-inner"></div>
                     </div>
                 </div>
                 
@@ -113,6 +118,7 @@
                 
                 <!-- 목록 뷰 -->
                 <div id="list-view" class="view-container">
+                    <div id="rentals-record-verification" class="rentals-record-verification" style="display: none;"></div>
                     <div class="table-container">
                         <table class="table">
                             <thead>
@@ -165,7 +171,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="openNonMemberBookingModal()">비회원 예약</button>
+                <button class="btn btn-primary" onclick="openNonMemberBookingModal()">비회원 예약</button>
                 <button class="btn btn-secondary" onclick="App.Modal.close('member-select-modal')">취소</button>
             </div>
         </div>
@@ -216,7 +222,7 @@
                                 <option value="">상품 미선택 (일반 예약)</option>
                             </select>
                             <small style="color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px;">상품을 선택하면 선결제로 처리되며, 횟수권은 자동으로 차감됩니다</small>
-                            <div id="product-info" style="margin-top: 8px; padding: 8px; background: var(--bg-tertiary); border-radius: var(--radius-sm); display: none;">
+                            <div id="product-info" style="margin-top: 8px; margin-bottom: 14px; padding: 8px; background: var(--bg-tertiary); border-radius: var(--radius-sm); display: none;">
                                 <div style="font-size: 12px; color: var(--text-secondary);" id="product-info-text"></div>
                             </div>
                         </div>
@@ -242,10 +248,17 @@
                     
                     <!-- 대관용 간단한 회원 정보 입력 -->
                     <div id="member-select-section">
+                        <div id="rental-member-select-notice" style="display: none; margin-bottom: 10px; padding: 8px 12px; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-size: 12px; color: var(--text-secondary);">회원 선택 시 아래 비회원 입력란은 사용할 수 없습니다.</div>
                         <div class="form-group">
-                            <label class="form-label">예약자 이름 <span style="color: var(--danger);">*</span></label>
-                            <input type="text" class="form-control" id="booking-renter-name" placeholder="예약자 이름 입력" required>
-                            <small style="color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px;">대관 예약자 이름을 입력해주세요</small>
+                            <button type="button" class="btn btn-secondary" onclick="openMemberSelectModal(document.getElementById('booking-date').value || new Date().toISOString().split('T')[0])" style="width: 100%; margin-bottom: 12px;">
+                                회원으로 예약 (이용권 사용)
+                            </button>
+                            <small style="color: var(--text-muted); font-size: 12px; display: block; margin-bottom: 12px;">회원을 선택하면 이용권을 선택할 수 있으며, 회차권은 예약 시 자동 차감됩니다.</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">예약자 이름 (비회원)</label>
+                            <input type="text" class="form-control" id="booking-renter-name" placeholder="비회원일 때만 입력">
+                            <small style="color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px;">비회원일 경우 이름을 직접 입력하세요</small>
                         </div>
                         <div class="form-group">
                             <label class="form-label">연락처</label>
@@ -326,13 +339,12 @@
                             <option value="TRAINING">트레이닝</option>
                         </select>
                     </div>
-                    <!-- 대관에서는 코치 필드 숨김 -->
-                    <div class="form-group" id="coach-group" style="display: none;">
+                    <div class="form-group" id="coach-group">
                         <label class="form-label">담당 코치</label>
                         <select class="form-control" id="booking-coach">
                             <option value="">코치 미지정</option>
                         </select>
-                        <small style="color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px;">레슨인 경우 코치 선택을 권장합니다</small>
+                        <small style="color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px;">이용권에 담당 코치가 있으면 자동 선택됩니다</small>
                     </div>
                     <div class="form-group">
                         <label class="form-label">상태 *</label>
@@ -390,10 +402,26 @@
                 <form id="quick-booking-form">
                     <input type="hidden" id="quick-booking-date">
                     <input type="hidden" id="quick-booking-id">
+                    <input type="hidden" id="quick-selected-member-id">
+                    <input type="hidden" id="quick-selected-member-number">
                     
                     <div class="form-group">
-                        <label class="form-label">이름 <span style="color: var(--danger);">*</span></label>
-                        <input type="text" class="form-control" id="quick-name" placeholder="이름 입력" required autofocus>
+                        <button type="button" class="btn btn-secondary" id="quick-member-select-btn" style="width: 100%; margin-bottom: 8px;">회원 선택 (이용권 사용)</button>
+                        <small style="color: var(--text-muted); font-size: 11px; display: block; margin-bottom: 8px;">회원을 선택하면 사용할 상품/이용권을 선택할 수 있습니다.</small>
+                        <div id="quick-member-info-wrap" style="display: none; margin-bottom: 8px; padding: 10px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">선택된 회원</div>
+                            <div style="font-weight: 600;" id="quick-member-info-text">-</div>
+                            <button type="button" class="btn btn-sm btn-secondary" style="margin-top: 6px;" onclick="clearQuickModalMember()">회원 취소</button>
+                        </div>
+                        <div id="quick-product-wrap" style="display: none;">
+                            <label class="form-label">사용할 상품/이용권 <span style="color: var(--danger);">*</span></label>
+                            <select class="form-control" id="quick-booking-member-product">
+                                <option value="">상품 선택...</option>
+                            </select>
+                            <div id="quick-product-info" style="margin-top: 6px; margin-bottom: 14px; padding: 6px; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-size: 12px; color: var(--text-secondary); display: none;"></div>
+                        </div>
+                        <label class="form-label" id="quick-name-label">이름 (비회원)</label>
+                        <input type="text" class="form-control" id="quick-name" placeholder="비회원일 때만 입력" autofocus>
                     </div>
                     
                     <div class="form-row">
@@ -422,6 +450,16 @@
                             <option value="RENTAL" selected>대관</option>
                         </select>
                         <small style="color: var(--text-muted); font-size: 11px;">대관 등록입니다</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">결제 방식</label>
+                        <select class="form-control" id="quick-booking-payment-method">
+                            <option value="">결제 방법 선택...</option>
+                            <option value="PREPAID">선결제</option>
+                            <option value="ON_SITE">현장</option>
+                            <option value="POSTPAID">후불</option>
+                        </select>
                     </div>
                     
                     <div class="form-group">
@@ -503,6 +541,42 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="App.Modal.close('memo-templates-modal')">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 승인 대기 대관 예약 모달 -->
+    <div class="modal-overlay" id="rentals-pending-approval-modal" style="display: none;">
+        <div class="modal" style="max-width: 720px;">
+            <div class="modal-header">
+                <h2 class="modal-title">승인이 완료되지 않은 대관 예약</h2>
+                <button type="button" class="modal-close" onclick="closePendingApprovalModalRentals()">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="rentals-stats-loading" id="rentals-pending-approval-loading">로딩 중...</p>
+                <div id="rentals-pending-approval-toolbar" style="display: none; margin-bottom: 12px; flex-wrap: wrap; align-items: center; gap: 12px;">
+                    <button type="button" class="btn btn-success btn-sm" id="rentals-pending-approval-bulk-btn">✅ 일괄 승인</button>
+                </div>
+                <div class="table-container" id="rentals-pending-approval-table-wrap" style="display: none; max-height: 360px; overflow-y: auto;">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="rentals-pending-approval-select-all" title="전체 선택"></th>
+                                <th>날짜/시간</th>
+                                <th>시설</th>
+                                <th>지점</th>
+                                <th>회원</th>
+                                <th>코치</th>
+                                <th>작업</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rentals-pending-approval-tbody"></tbody>
+                    </table>
+                </div>
+                <p id="rentals-pending-approval-empty" style="display: none; color: var(--text-muted); margin: 0;">승인 대기 대관 예약이 없습니다.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closePendingApprovalModalRentals()">닫기</button>
             </div>
         </div>
     </div>

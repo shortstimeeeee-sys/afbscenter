@@ -10,7 +10,7 @@ async function loadAnnouncements() {
         const announcements = await App.api.get('/announcements');
         renderAnnouncementsTable(announcements);
     } catch (error) {
-        console.error('공지 목록 로드 실패:', error);
+        App.err('공지 목록 로드 실패:', error);
     }
 }
 
@@ -24,7 +24,7 @@ function renderAnnouncementsTable(announcements) {
     
     tbody.innerHTML = announcements.map(announcement => `
         <tr>
-            <td>${announcement.title}</td>
+            <td>${App.escapeHtml(announcement.title || '')}</td>
             <td>${App.formatDate(announcement.createdAt)}</td>
             <td>${announcement.startDate ? App.formatDate(announcement.startDate) : '-'} ~ ${announcement.endDate ? App.formatDate(announcement.endDate) : '-'}</td>
             <td><span class="badge badge-${announcement.isActive ? 'success' : 'warning'}">${announcement.isActive ? '노출중' : '비노출'}</span></td>
@@ -41,7 +41,7 @@ async function loadMessages() {
         const messages = await App.api.get('/messages');
         renderMessagesTable(messages);
     } catch (error) {
-        console.error('메시지 목록 로드 실패:', error);
+        App.err('메시지 목록 로드 실패:', error);
     }
 }
 
@@ -56,8 +56,8 @@ function renderMessagesTable(messages) {
     tbody.innerHTML = messages.map(message => `
         <tr>
             <td>${App.formatDateTime(message.sentAt)}</td>
-            <td>${getMessageTargetText(message.target)}</td>
-            <td>${message.content.substring(0, 50)}${message.content.length > 50 ? '...' : ''}</td>
+            <td>${App.escapeHtml(getMessageTargetText(message.target))}</td>
+            <td>${App.escapeHtml((message.content || '').substring(0, 50))}${(message.content || '').length > 50 ? '...' : ''}</td>
             <td><span class="badge badge-${message.status === 'SENT' ? 'success' : 'warning'}">${message.status === 'SENT' ? '발송완료' : '대기'}</span></td>
         </tr>
     `).join('');
@@ -116,22 +116,22 @@ async function saveAnnouncement() {
         App.Modal.close('announcement-modal');
         loadAnnouncements();
     } catch (error) {
-        console.error('공지 저장 오류:', error);
-        console.error('오류 상세:', error.response);
+        App.err('공지 저장 오류:', error);
+        App.err('오류 상세:', error.response);
         let errorMessage = '저장에 실패했습니다.';
         if (error.response && error.response.data) {
             const errorData = error.response.data;
-            console.error('오류 데이터 전체:', JSON.stringify(errorData, null, 2));
+            App.err('오류 데이터 전체:', JSON.stringify(errorData, null, 2));
             errorMessage = errorData.error || errorData.message || errorMessage;
             if (errorData.cause) {
-                console.error('오류 원인:', errorData.cause);
+                App.err('오류 원인:', errorData.cause);
                 errorMessage += ' - ' + errorData.cause;
             }
             if (errorData.stackTrace) {
-                console.error('스택 트레이스:', errorData.stackTrace);
+                App.err('스택 트레이스:', errorData.stackTrace);
             }
             if (errorData.errorClass) {
-                console.error('오류 클래스:', errorData.errorClass);
+                App.err('오류 클래스:', errorData.errorClass);
             }
         } else if (error.message) {
             errorMessage = error.message;

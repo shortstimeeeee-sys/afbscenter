@@ -42,4 +42,8 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     // MemberProduct 구매 시 결제 기록 찾기 (구매일 이전의 모든 결제 기록, 대체용)
     @Query("SELECT p FROM Payment p WHERE p.member.id = :memberId AND p.product.id = :productId AND p.category = 'PRODUCT_SALE' AND p.status = 'COMPLETED' AND p.paidAt <= :purchaseDate ORDER BY p.paidAt DESC")
     List<Payment> findPurchasePaymentByMemberAndProductBefore(@Param("memberId") Long memberId, @Param("productId") Long productId, @Param("purchaseDate") LocalDateTime purchaseDate);
+    
+    // 특정 연도의 결제 번호로 시작하는 결제 조회
+    @Query("SELECT p FROM Payment p WHERE p.paymentNumber LIKE :pattern ORDER BY p.paymentNumber DESC")
+    List<Payment> findByPaymentNumberPattern(@Param("pattern") String pattern);
 }

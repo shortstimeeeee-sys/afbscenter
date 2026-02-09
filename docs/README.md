@@ -1,0 +1,14 @@
+# 기타 문서
+
+과거 점검·리팩터링·구조 정리용 문서입니다. 진입용은 루트 [README.md](../README.md)와 [QUICK_START.md](../QUICK_START.md)를 보세요.
+
+| 문서 | 설명 |
+|------|------|
+| [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) | 프로젝트 구조 설명 |
+| [PROJECT_AUDIT_REPORT.md](PROJECT_AUDIT_REPORT.md) | 과거 기능 점검 보고서 |
+| [PROJECT_REVIEW_IMPROVEMENTS.md](PROJECT_REVIEW_IMPROVEMENTS.md) | 개선 제안 정리 |
+| [BULK_AND_GLOBAL_CONTROLS_AUDIT.md](BULK_AND_GLOBAL_CONTROLS_AUDIT.md) | 일괄/전체 통제 버튼 현황 |
+| [HARDCODED_VALUES_REPORT.md](HARDCODED_VALUES_REPORT.md) | 하드코딩 값 조사 |
+| [HARDCODED_VALUES_REFACTORING_PLAN.md](HARDCODED_VALUES_REFACTORING_PLAN.md) | 하드코딩 리팩터링 계획 |
+| [PROJECT_DATA_ISSUES_CHECK.md](PROJECT_DATA_ISSUES_CHECK.md) | 데이터 이슈 점검 |
+| [PERMISSION_TEST_GUIDE.md](PERMISSION_TEST_GUIDE.md) | 권한 테스트 가이드 |

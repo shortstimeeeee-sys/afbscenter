@@ -1,6 +1,9 @@
 // 상품/이용권 페이지 JavaScript
 
 document.addEventListener('DOMContentLoaded', function() {
+    // 이용권 데이터 일괄 수정 버튼은 관리자만 표시
+    var batchBtn = document.getElementById('products-batch-update-btn');
+    if (batchBtn) batchBtn.style.display = (App.currentRole === 'ADMIN') ? '' : 'none';
     // 필터 초기화
     const filterType = document.getElementById('filter-type');
     if (filterType) {
@@ -144,29 +147,160 @@ let allProducts = []; // 전체 상품 저장
 
 async function loadProducts() {
     try {
-        console.log('상품 목록 로드 시작...');
+        App.log('상품 목록 로드 시작...');
         const response = await App.api.get('/products');
-        console.log('API 응답:', response);
-        console.log('응답 타입:', typeof response);
-        console.log('배열 여부:', Array.isArray(response));
+        App.log('API 응답:', response);
+        App.log('응답 타입:', typeof response);
+        App.log('배열 여부:', Array.isArray(response));
         
         if (Array.isArray(response)) {
             allProducts = response;
-            console.log('전체 상품 수:', allProducts.length);
+            App.log('전체 상품 수:', allProducts.length);
             if (allProducts.length > 0) {
-                console.log('첫 번째 상품:', allProducts[0]);
+                App.log('첫 번째 상품:', allProducts[0]);
             }
         } else {
-            console.error('상품 목록이 배열이 아닙니다:', response);
+            App.err('상품 목록이 배열이 아닙니다:', response);
             allProducts = [];
         }
         
+        renderProductStats(allProducts);
         applyFilters(); // 필터 적용하여 렌더링
     } catch (error) {
-        console.error('상품 목록 로드 실패:', error);
-        console.error('에러 상세:', error.message, error.stack);
+        App.err('상품 목록 로드 실패:', error);
+        App.err('에러 상세:', error.message, error.stack);
         allProducts = [];
+        renderProductStats([]);
         applyFilters(); // 빈 목록으로라도 렌더링
+    }
+}
+
+function renderProductStats(products) {
+    const container = document.getElementById('products-stats-container');
+    if (!container) return;
+    const list = Array.isArray(products) ? products : [];
+    const total = list.length;
+    const byType = {};
+    const byCategory = {};
+    list.forEach(p => {
+        const t = p.type || 'UNKNOWN';
+        byType[t] = (byType[t] || 0) + 1;
+        const c = p.category || 'GENERAL';
+        byCategory[c] = (byCategory[c] || 0) + 1;
+    });
+    const typeOrder = ['COUNT_PASS', 'MONTHLY_PASS', 'TIME_PASS', 'SINGLE_USE', 'TEAM_PACKAGE'];
+    const typeLabels = {
+        'SINGLE_USE': '단건 대관',
+        'TIME_PASS': '시간권',
+        'COUNT_PASS': '회차권',
+        'MONTHLY_PASS': '월정기',
+        'TEAM_PACKAGE': '팀 대관',
+        'UNKNOWN': '미분류'
+    };
+    const categoryOrder = ['BASEBALL', 'TRAINING', 'PILATES', 'TRAINING_FITNESS', 'RENTAL', 'GENERAL'];
+    const categoryLabels = {
+        'BASEBALL': '⚾ 야구',
+        'TRAINING': '💪 트레이닝',
+        'PILATES': '🧘 필라테스',
+        'TRAINING_FITNESS': '트레이닝+필라테스',
+        'RENTAL': '🏟️ 대관',
+        'GENERAL': '일반',
+        'UNKNOWN': '미분류'
+    };
+    const typeItems = typeOrder.filter(t => byType[t] > 0).map(t => ({
+        label: typeLabels[t] || t,
+        count: byType[t],
+        itemClass: 'products-stats-item--' + t.toLowerCase().replace(/_/g, '-'),
+        filterType: 'type',
+        filterValue: t
+    }));
+    const categoryItems = categoryOrder.filter(c => byCategory[c] > 0).map(c => ({
+        label: categoryLabels[c] || c,
+        count: byCategory[c],
+        itemClass: 'products-stats-item--' + c.toLowerCase().replace(/_/g, '-'),
+        filterType: 'category',
+        filterValue: c
+    }));
+    const items = [
+        { label: '총 이용권 수', value: total + '개', accent: true, itemClass: '', isTotal: true, filterType: 'all', filterValue: null }
+    ].concat(
+        typeItems.map(c => ({ label: c.label, value: c.count + '개', accent: false, itemClass: c.itemClass, isTotal: false, filterType: 'type', filterValue: c.filterValue })),
+        categoryItems.map(c => ({ label: c.label, value: c.count + '개', accent: false, itemClass: c.itemClass, isTotal: false, filterType: 'category', filterValue: c.filterValue }))
+    );
+    if (items.length === 1 && items[0].label === '총 이용권 수' && total === 0) {
+        container.innerHTML = '<p class="products-stats-loading">등록된 이용권이 없습니다.</p>';
+        return;
+    }
+    container.innerHTML = items.map(item => `
+        <div class="products-stats-item products-stats-item-clickable ${item.itemClass || ''}${item.isTotal ? ' stats-total-item' : ''}"
+             data-filter-type="${App.escapeHtml(item.filterType || '')}"
+             data-filter-value="${App.escapeHtml(item.filterValue != null ? item.filterValue : '')}"
+             data-label="${App.escapeHtml(item.label || '')}"
+             title="클릭하면 목록 보기"
+             role="button"
+             tabindex="0">
+            <div class="products-stats-item-label">${App.escapeHtml(item.label)}</div>
+            <div class="products-stats-item-value${item.accent ? ' accent' : ''}">${App.escapeHtml(item.value)}</div>
+        </div>
+    `).join('');
+    // 이벤트 위임: 컨테이너에서 클릭 처리 (재렌더 후에도 동작 보장)
+    if (!container._productsStatsClickBound) {
+        container._productsStatsClickBound = true;
+        container.addEventListener('click', function(e) {
+            var el = e.target.closest('.products-stats-item-clickable');
+            if (!el) return;
+            var type = el.getAttribute('data-filter-type');
+            var value = el.getAttribute('data-filter-value');
+            var label = el.getAttribute('data-label');
+            openStatsProductModal(type, value, label);
+        });
+        container.addEventListener('keydown', function(e) {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            var el = e.target.closest('.products-stats-item-clickable');
+            if (!el) return;
+            e.preventDefault();
+            var type = el.getAttribute('data-filter-type');
+            var value = el.getAttribute('data-filter-value');
+            var label = el.getAttribute('data-label');
+            openStatsProductModal(type, value, label);
+        });
+    }
+}
+
+/** 통계 항목 클릭 시 해당 조건의 이용권 목록 모달 */
+async function openStatsProductModal(filterType, filterValue, titleLabel) {
+    var modal = document.getElementById('stats-products-modal');
+    var titleEl = document.getElementById('stats-products-modal-title');
+    var bodyEl = document.getElementById('stats-products-modal-body');
+    if (!modal || !titleEl || !bodyEl) return;
+    titleEl.textContent = (titleLabel || '이용권') + ' 목록';
+    bodyEl.innerHTML = '<p class="products-stats-loading">로딩 중...</p>';
+    App.Modal.open('stats-products-modal');
+    var typeLabels = { 'SINGLE_USE': '단건 대관', 'TIME_PASS': '시간권', 'COUNT_PASS': '회차권', 'MONTHLY_PASS': '월정기', 'TEAM_PACKAGE': '팀 대관', 'UNKNOWN': '미분류' };
+    var categoryLabels = { 'BASEBALL': '야구', 'TRAINING': '트레이닝', 'PILATES': '필라테스', 'TRAINING_FITNESS': '트레이닝+필라테스', 'RENTAL': '대관', 'GENERAL': '일반', 'UNKNOWN': '미분류' };
+    try {
+        var list = await App.api.get('/products');
+        var products = Array.isArray(list) ? list : [];
+        if (filterType === 'type' && filterValue) {
+            products = products.filter(function(p) { return (p.type || '') === filterValue; });
+        } else if (filterType === 'category' && filterValue) {
+            products = products.filter(function(p) { return (p.category || 'GENERAL') === filterValue; });
+        }
+        if (products.length === 0) {
+            bodyEl.innerHTML = '<p style="color: var(--text-muted); padding: 16px;">해당 조건의 이용권이 없습니다.</p>';
+            return;
+        }
+        var tableHtml = '<div class="table-container" style="max-height: 60vh; overflow: auto;"><table class="table"><thead><tr><th>이용권명</th><th>유형</th><th>카테고리</th><th>가격</th></tr></thead><tbody>';
+        products.forEach(function(p) {
+            var typeText = typeLabels[p.type] || p.type || '-';
+            var categoryText = categoryLabels[p.category] || p.category || '-';
+            tableHtml += '<tr onclick="App.Modal.close(\'stats-products-modal\'); document.getElementById(\'filter-type\').value=\'' + (p.type || '') + '\'; applyFilters();"><td>' + App.escapeHtml(p.name || '-') + '</td><td>' + App.escapeHtml(typeText) + '</td><td>' + App.escapeHtml(categoryText) + '</td><td>' + App.formatCurrency(p.price || 0) + '</td></tr>';
+        });
+        tableHtml += '</tbody></table></div>';
+        bodyEl.innerHTML = tableHtml;
+    } catch (err) {
+        App.err('통계 이용권 목록 로드 실패:', err);
+        bodyEl.innerHTML = '<p style="color: var(--danger); padding: 16px;">목록을 불러오는데 실패했습니다.</p>';
     }
 }
 
@@ -174,15 +308,15 @@ function renderProductsTable(products) {
     const tbody = document.getElementById('products-table-body');
     
     if (!products || products.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">상품이 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">이용권이 없습니다.</td></tr>';
         return;
     }
     
-    console.log('테이블 렌더링 - 상품 수:', products.length);
+    App.log('테이블 렌더링 - 상품 수:', products.length);
     
     tbody.innerHTML = products.map(product => {
         if (!product.id) {
-            console.warn('상품 ID가 없습니다:', product);
+            App.warn('상품 ID가 없습니다:', product);
         }
         
         // 패키지 구성 표시
@@ -280,7 +414,7 @@ function getCategoryBadgeClass(category) {
         'TRAINING': 'badge-success',        // 트레이닝 - 초록색
         'PILATES': 'badge-info',            // 필라테스 - 하늘색
         'TRAINING_FITNESS': 'badge-success', // 트레이닝+필라테스 - 초록색
-        'RENTAL': 'badge-warning',          // 대관 - 노란색
+        'RENTAL': 'badge-rental',          // 대관 - 보라색
         'GENERAL': 'badge-secondary'        // 일반 - 회색
     };
     return map[category] || 'badge-secondary';
@@ -299,12 +433,12 @@ function openProductModal(id = null) {
     document.getElementById('package-items-container').innerHTML = '';
     
     if (id) {
-        console.log('상품 수정 모드 - ID:', id);
-        title.textContent = '상품 수정';
+        App.log('상품 수정 모드 - ID:', id);
+        title.textContent = '이용권 수정';
         loadProductData(id);
     } else {
-        console.log('상품 추가 모드');
-        title.textContent = '상품 추가';
+        App.log('상품 추가 모드');
+        title.textContent = '이용권 추가';
         // 추가 모드에서는 이미 초기화되었으므로 추가 작업 불필요
     }
     
@@ -337,6 +471,7 @@ function addPackageItem(itemName = '', itemCount = '') {
             <option value="야구" ${itemName === '야구' ? 'selected' : ''}>야구</option>
             <option value="필라테스" ${itemName === '필라테스' ? 'selected' : ''}>필라테스</option>
             <option value="트레이닝" ${itemName === '트레이닝' ? 'selected' : ''}>트레이닝</option>
+            <option value="대관" ${itemName === '대관' ? 'selected' : ''}>대관</option>
         </select>
         <select class="form-control package-item-count" style="flex: 1;" ${isMonthlyPass ? 'disabled' : ''}>
             <option value="">횟수 선택</option>
@@ -364,9 +499,9 @@ function removePackageItem(button) {
 }
 
 function editProduct(id) {
-    console.log('상품 수정 시작 - ID:', id);
+    App.log('상품 수정 시작 - ID:', id);
     if (!id) {
-        console.error('상품 ID가 없습니다!');
+        App.err('상품 ID가 없습니다!');
         App.showNotification('상품 ID를 찾을 수 없습니다.', 'danger');
         return;
     }
@@ -375,9 +510,9 @@ function editProduct(id) {
 
 async function loadProductData(id) {
     try {
-        console.log('상품 데이터 로드 시작 - ID:', id);
+        App.log('상품 데이터 로드 시작 - ID:', id);
         const product = await App.api.get(`/products/${id}`);
-        console.log('로드된 상품 데이터:', product);
+        App.log('로드된 상품 데이터:', product);
         
         document.getElementById('product-id').value = product.id;
         document.getElementById('product-name').value = product.name || '';
@@ -390,7 +525,7 @@ async function loadProductData(id) {
         const usageCountInput = document.getElementById('product-usage-count');
         if (usageCountInput) {
             usageCountInput.value = product.usageCount || '';
-            console.log('상품 usageCount 로드:', {
+            App.log('상품 usageCount 로드:', {
                 productId: product.id,
                 productName: product.name,
                 productType: product.type,
@@ -429,7 +564,7 @@ async function loadProductData(id) {
                     document.getElementById('product-conditions').value = '';
                 }
             } catch (e) {
-                console.warn('사용 조건 항목 파싱 실패:', e);
+                App.warn('사용 조건 항목 파싱 실패:', e);
                 // 파싱 실패 시에도 추가 안내사항 필드는 비워둠
                 document.getElementById('product-conditions').value = '';
             }
@@ -471,9 +606,9 @@ async function loadProductData(id) {
             }
         }
         
-        console.log('상품 데이터 로드 완료');
+        App.log('상품 데이터 로드 완료');
     } catch (error) {
-        console.error('상품 데이터 로드 실패:', error);
+        App.err('상품 데이터 로드 실패:', error);
         App.showNotification('상품 정보를 불러오는데 실패했습니다.', 'danger');
     }
 }
@@ -503,7 +638,7 @@ async function updateAllProducts() {
             }
             
             if (response.fixDetails && response.fixDetails.length > 0) {
-                console.log('수정 상세 정보:', response.fixDetails);
+                App.log('수정 상세 정보:', response.fixDetails);
             }
             
             if (errorCount === 0) {
@@ -520,8 +655,13 @@ async function updateAllProducts() {
             App.showNotification('수정 중 오류가 발생했습니다.', 'danger');
         }
     } catch (error) {
-        console.error('상품 데이터 일괄 수정 실패:', error);
-        App.showNotification('상품 데이터 일괄 수정에 실패했습니다: ' + (error.message || '알 수 없는 오류'), 'danger');
+        App.err('상품 데이터 일괄 수정 실패:', error);
+        var msg = '상품 데이터 일괄 수정에 실패했습니다.';
+        if (error && error.response) {
+            if (error.response.status === 403) msg = '상품 데이터 일괄 수정은 관리자만 사용할 수 있습니다.';
+            else if (error.response.data && error.response.data.error) msg = error.response.data.error;
+        }
+        App.showNotification(msg, 'danger');
     }
 }
 
@@ -551,10 +691,10 @@ async function updateMonthlyPassConditions() {
             
             // 상세 정보가 있으면 콘솔에 출력
             if (response.updateDetails && response.updateDetails.length > 0) {
-                console.log('업데이트 상세 정보:', response.updateDetails);
+                App.log('업데이트 상세 정보:', response.updateDetails);
                 const errorDetails = response.updateDetails.filter(d => d.status === 'error' || d.status === 'failed');
                 if (errorDetails.length > 0) {
-                    console.warn('업데이트 실패 항목:', errorDetails);
+                    App.warn('업데이트 실패 항목:', errorDetails);
                 }
             }
             
@@ -571,13 +711,13 @@ async function updateMonthlyPassConditions() {
         } else if (response && response.error) {
             App.showNotification(`업데이트 실패: ${response.error}`, 'danger');
             if (response.updateDetails) {
-                console.error('업데이트 상세 정보:', response.updateDetails);
+                App.err('업데이트 상세 정보:', response.updateDetails);
             }
         } else {
             App.showNotification('업데이트 중 오류가 발생했습니다.', 'danger');
         }
     } catch (error) {
-        console.error('기간제 상품 업데이트 실패:', error);
+        App.err('기간제 상품 업데이트 실패:', error);
         App.showNotification('기간제 상품 업데이트에 실패했습니다: ' + (error.message || '알 수 없는 오류'), 'danger');
     }
 }
@@ -708,7 +848,7 @@ async function saveProduct() {
             data.conditions = conditionsText + (conditionsText ? ' | ' : '') + additionalConditions;
         }
         
-        console.log('상품 저장 - usageCount 설정:', {
+        App.log('상품 저장 - usageCount 설정:', {
             type: type,
             usageCount: usageCount,
             packageItems: packageItemsArray,
@@ -749,21 +889,21 @@ async function saveProduct() {
     try {
         const id = document.getElementById('product-id').value;
         const idValue = id ? id.trim() : '';
-        console.log('상품 저장 시작 - ID:', idValue, 'ID 타입:', typeof idValue, 'Data:', data);
+        App.log('상품 저장 시작 - ID:', idValue, 'ID 타입:', typeof idValue, 'Data:', data);
         
         if (idValue && idValue !== '' && idValue !== 'undefined') {
             // 수정 모드
-            console.log(`수정 API 호출: PUT /products/${idValue}`);
-            console.log('전송할 데이터:', JSON.stringify(data, null, 2));
+            App.log(`수정 API 호출: PUT /products/${idValue}`);
+            App.log('전송할 데이터:', JSON.stringify(data, null, 2));
             const response = await App.api.put(`/products/${idValue}`, data);
-            console.log('상품 수정 완료:', response);
-            console.log('응답의 usageCount:', response.usageCount);
+            App.log('상품 수정 완료:', response);
+            App.log('응답의 usageCount:', response.usageCount);
             App.showNotification('상품이 수정되었습니다.', 'success');
         } else {
             // 추가 모드
-            console.log('추가 API 호출: POST /products');
+            App.log('추가 API 호출: POST /products');
             const response = await App.api.post('/products', data);
-            console.log('상품 추가 완료:', response);
+            App.log('상품 추가 완료:', response);
             
             // 응답 확인
             if (response && response.id) {
@@ -771,7 +911,7 @@ async function saveProduct() {
             } else if (response && response.error) {
                 throw new Error(response.message || response.error);
             } else {
-                console.warn('상품 추가 응답에 ID가 없습니다:', response);
+                App.warn('상품 추가 응답에 ID가 없습니다:', response);
                 App.showNotification('상품이 추가되었습니다.', 'success');
             }
         }
@@ -781,7 +921,7 @@ async function saveProduct() {
         // 상품 목록 즉시 새로고침
         await loadProducts();
     } catch (error) {
-        console.error('상품 저장 실패:', error);
+        App.err('상품 저장 실패:', error);
         App.showNotification('저장에 실패했습니다: ' + (error.message || '알 수 없는 오류'), 'danger');
     }
 }
@@ -832,6 +972,6 @@ function applyFilters() {
         return nameA.localeCompare(nameB, 'ko');
     });
     
-    console.log('필터링된 상품 수:', filteredProducts.length, '(전체:', allProducts.length + ')');
+    App.log('필터링된 상품 수:', filteredProducts.length, '(전체:', allProducts.length + ')');
     renderProductsTable(filteredProducts);
 }

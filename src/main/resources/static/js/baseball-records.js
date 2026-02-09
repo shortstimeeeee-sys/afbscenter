@@ -29,7 +29,7 @@ async function loadMembers() {
             modalSelect.innerHTML += option;
         });
     } catch (error) {
-        console.error('회원 목록 로드 실패:', error);
+        App.err('회원 목록 로드 실패:', error);
     }
 }
 
@@ -56,7 +56,7 @@ async function loadRecords() {
         const records = await App.api.get(url);
         renderRecordsTable(records);
     } catch (error) {
-        console.error('기록 목록 로드 실패:', error);
+        App.err('기록 목록 로드 실패:', error);
     }
 }
 
@@ -152,7 +152,7 @@ async function editRecord(id) {
         
         App.Modal.open('record-modal');
     } catch (error) {
-        console.error('기록 조회 실패:', error);
+        App.err('기록 조회 실패:', error);
         alert('기록을 불러오는 데 실패했습니다');
     }
 }
@@ -200,7 +200,7 @@ async function handleFormSubmit(e) {
         App.Modal.close('record-modal');
         loadRecords();
     } catch (error) {
-        console.error('기록 저장 실패:', error);
+        App.err('기록 저장 실패:', error);
         alert('기록 저장에 실패했습니다');
     }
 }
@@ -216,7 +216,7 @@ async function deleteRecord(id) {
         alert('기록이 삭제되었습니다');
         loadRecords();
     } catch (error) {
-        console.error('기록 삭제 실패:', error);
+        App.err('기록 삭제 실패:', error);
         alert('기록 삭제에 실패했습니다');
     }
 }

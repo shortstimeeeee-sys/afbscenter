@@ -22,7 +22,9 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.YearMonth;
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 @RestController
@@ -73,461 +75,16 @@ public class AnalyticsController {
         return com.afbscenter.constants.BookingDefaults.DEFAULT_BOOKING_MINUTES;
     }
 
-    // 카테고리별 결제 세부 내역 조회
-    @GetMapping("/revenue/category/{category}")
-    @Transactional(readOnly = true)
-    public ResponseEntity<List<Map<String, Object>>> getCategoryRevenueDetails(
-            @PathVariable String category,
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
-        try {
-            // Spring은 자동으로 URL 디코딩을 처리하므로 category는 이미 디코딩된 상태
-            logger.info("카테고리별 세부 내역 조회 시작: category={}", category);
-            
-            LocalDateTime startDateTime = null;
-            LocalDateTime endDateTime = null;
-            
-            try {
-                if (startDate != null && endDate != null) {
-                    startDateTime = LocalDate.parse(startDate).atStartOfDay();
-                    endDateTime = LocalDate.parse(endDate).atTime(LocalTime.MAX);
-                } else {
-                    // 기본값: 이번 달
-                    LocalDate today = LocalDate.now();
-                    startDateTime = today.withDayOfMonth(1).atStartOfDay();
-                    endDateTime = today.atTime(LocalTime.MAX);
-                }
-            } catch (Exception e) {
-                logger.error("날짜 파싱 실패: startDate={}, endDate={}", startDate, endDate, e);
-                return ResponseEntity.badRequest().build();
-            }
-            
-            // 카테고리 변환 (한글 또는 영문 -> PaymentCategory)
-            Payment.PaymentCategory paymentCategory = null;
-            try {
-                // 먼저 한글 카테고리명 확인
-                switch (category) {
-                    case "대관":
-                        paymentCategory = Payment.PaymentCategory.RENTAL;
-                        break;
-                    case "레슨":
-                        paymentCategory = Payment.PaymentCategory.LESSON;
-                        break;
-                    case "상품판매":
-                        paymentCategory = Payment.PaymentCategory.PRODUCT_SALE;
-                        break;
-                    default:
-                        // 영문 카테고리명 시도 (RENTAL, LESSON, PRODUCT_SALE)
-                        try {
-                            paymentCategory = Payment.PaymentCategory.valueOf(category);
-                        } catch (IllegalArgumentException e) {
-                            logger.warn("알 수 없는 카테고리: {}", category);
-                            return ResponseEntity.badRequest().build();
-                        }
-                }
-            } catch (Exception e) {
-                logger.error("카테고리 변환 실패: category={}", category, e);
-                return ResponseEntity.badRequest().build();
-            }
-            
-            logger.info("카테고리 변환 완료: category={}, paymentCategory={}", category, paymentCategory);
-            
-            // 결제 데이터 조회 (더 안전한 방법)
-            List<Payment> payments;
-            try {
-                // 먼저 모든 결제를 조회하고 필터링
-                List<Payment> allPayments = paymentRepository.findAll();
-                logger.info("전체 결제 건수: {}", allPayments.size());
-                
-                payments = new ArrayList<>();
-                for (Payment p : allPayments) {
-                    try {
-                        // 카테고리 확인
-                        if (p.getCategory() != paymentCategory) {
-                            continue;
-                        }
-                        
-                        // 날짜 확인
-                        if (p.getPaidAt() == null) {
-                            continue;
-                        }
-                        
-                        if (p.getPaidAt().isBefore(startDateTime) || p.getPaidAt().isAfter(endDateTime)) {
-                            continue;
-                        }
-                        
-                        payments.add(p);
-                    } catch (Exception e) {
-                        logger.warn("결제 필터링 중 오류: Payment ID={}", p.getId(), e);
-                        // 개별 결제 필터링 실패는 무시하고 계속 진행
-                    }
-                }
-                
-                logger.info("필터링된 결제 건수: {}", payments.size());
-            } catch (Exception e) {
-                logger.error("결제 데이터 조회 실패", e);
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-            }
-            
-            // Map으로 변환
-            List<Map<String, Object>> result = new ArrayList<>();
-            for (Payment payment : payments) {
-                try {
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("id", payment.getId());
-                    map.put("amount", payment.getAmount());
-                    map.put("refundAmount", payment.getRefundAmount() != null ? payment.getRefundAmount() : 0);
-                    map.put("paidAt", payment.getPaidAt());
-                    map.put("paymentMethod", payment.getPaymentMethod() != null ? payment.getPaymentMethod().name() : null);
-                    map.put("memo", payment.getMemo());
-                    
-                    // 회원 정보 (lazy loading 안전 처리)
-                    try {
-                        if (payment.getMember() != null) {
-                            // 회원 정보를 안전하게 로드
-                            com.afbscenter.model.Member member = payment.getMember();
-                            Map<String, Object> memberMap = new HashMap<>();
-                            memberMap.put("id", member.getId());
-                            try {
-                                memberMap.put("name", member.getName());
-                            } catch (Exception e) {
-                                logger.warn("회원 이름 로드 실패: Member ID={}", member.getId(), e);
-                                memberMap.put("name", null);
-                            }
-                            try {
-                                memberMap.put("memberNumber", member.getMemberNumber());
-                            } catch (Exception e) {
-                                logger.warn("회원번호 로드 실패: Member ID={}", member.getId(), e);
-                                memberMap.put("memberNumber", null);
-                            }
-                            map.put("member", memberMap);
-                        } else {
-                            map.put("member", null);
-                        }
-                    } catch (Exception e) {
-                        logger.warn("회원 정보 로드 실패: Payment ID={}", payment.getId(), e);
-                        map.put("member", null);
-                    }
-                    
-                    // 상품 정보 (lazy loading 안전 처리)
-                    try {
-                        if (payment.getProduct() != null) {
-                            com.afbscenter.model.Product product = payment.getProduct();
-                            Map<String, Object> productMap = new HashMap<>();
-                            productMap.put("id", product.getId());
-                            try {
-                                productMap.put("name", product.getName());
-                            } catch (Exception e) {
-                                logger.warn("상품 이름 로드 실패: Product ID={}", product.getId(), e);
-                                productMap.put("name", null);
-                            }
-                            map.put("product", productMap);
-                        } else {
-                            map.put("product", null);
-                        }
-                    } catch (Exception e) {
-                        logger.warn("상품 정보 로드 실패: Payment ID={}", payment.getId(), e);
-                        map.put("product", null);
-                    }
-                    
-                    // 코치 정보 (lazy loading 안전 처리)
-                    try {
-                        com.afbscenter.model.Coach coach = null;
-                        
-                        // 예약의 코치 확인
-                        try {
-                            if (payment.getBooking() != null) {
-                                com.afbscenter.model.Booking booking = payment.getBooking();
-                                if (booking.getCoach() != null) {
-                                    coach = booking.getCoach();
-                                }
-                            }
-                        } catch (Exception e) {
-                            logger.debug("예약의 코치 로드 실패: Payment ID={}", payment.getId(), e);
-                        }
-                        
-                        // 회원의 담당 코치 확인 (예약의 코치가 없을 때만)
-                        if (coach == null) {
-                            try {
-                                if (payment.getMember() != null) {
-                                    com.afbscenter.model.Member member = payment.getMember();
-                                    if (member.getCoach() != null) {
-                                        coach = member.getCoach();
-                                    }
-                                }
-                            } catch (Exception e) {
-                                logger.debug("회원의 코치 로드 실패: Payment ID={}", payment.getId(), e);
-                            }
-                        }
-                        
-                        if (coach != null) {
-                            Map<String, Object> coachMap = new HashMap<>();
-                            coachMap.put("id", coach.getId());
-                            try {
-                                coachMap.put("name", coach.getName());
-                            } catch (Exception e) {
-                                logger.warn("코치 이름 로드 실패: Coach ID={}", coach.getId(), e);
-                                coachMap.put("name", null);
-                            }
-                            map.put("coach", coachMap);
-                        } else {
-                            map.put("coach", null);
-                        }
-                    } catch (Exception e) {
-                        logger.warn("코치 정보 로드 실패: Payment ID={}", payment.getId(), e);
-                        map.put("coach", null);
-                    }
-                    
-                    result.add(map);
-                } catch (Exception e) {
-                    logger.warn("결제 데이터 변환 실패: Payment ID={}", payment.getId(), e);
-                    // 개별 결제 변환 실패는 무시하고 계속 진행
-                }
-            }
-            
-            logger.info("카테고리별 세부 내역 조회 완료: category={}, 결과 건수={}", category, result.size());
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            logger.error("카테고리별 결제 세부 내역 조회 실패: category={}, error={}", category, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-    
-    // 날짜별 결제 세부 내역 조회
-    @GetMapping("/revenue/date/{date}")
-    @Transactional(readOnly = true)
-    public ResponseEntity<List<Map<String, Object>>> getDateRevenueDetails(@PathVariable String date) {
-        try {
-            LocalDate targetDate = LocalDate.parse(date);
-            LocalDateTime startDateTime = targetDate.atStartOfDay();
-            LocalDateTime endDateTime = targetDate.atTime(LocalTime.MAX);
-            
-            List<Payment> payments = paymentRepository.findAllWithCoach().stream()
-                    .filter(p -> p.getPaidAt() != null &&
-                               !p.getPaidAt().isBefore(startDateTime) &&
-                               !p.getPaidAt().isAfter(endDateTime))
-                    .collect(Collectors.toList());
-            
-            List<Map<String, Object>> result = payments.stream().map(payment -> {
-                Map<String, Object> map = new HashMap<>();
-                map.put("id", payment.getId());
-                map.put("amount", payment.getAmount());
-                map.put("refundAmount", payment.getRefundAmount());
-                map.put("paidAt", payment.getPaidAt());
-                map.put("paymentMethod", payment.getPaymentMethod() != null ? payment.getPaymentMethod().name() : null);
-                map.put("category", payment.getCategory() != null ? payment.getCategory().name() : null);
-                map.put("memo", payment.getMemo());
-                
-                // 회원 정보
-                if (payment.getMember() != null) {
-                    Map<String, Object> memberMap = new HashMap<>();
-                    memberMap.put("id", payment.getMember().getId());
-                    memberMap.put("name", payment.getMember().getName());
-                    memberMap.put("memberNumber", payment.getMember().getMemberNumber());
-                    map.put("member", memberMap);
-                }
-                
-                // 상품 정보
-                if (payment.getProduct() != null) {
-                    Map<String, Object> productMap = new HashMap<>();
-                    productMap.put("id", payment.getProduct().getId());
-                    productMap.put("name", payment.getProduct().getName());
-                    map.put("product", productMap);
-                }
-                
-                // 코치 정보
-                com.afbscenter.model.Coach coach = null;
-                try {
-                    if (payment.getBooking() != null && payment.getBooking().getCoach() != null) {
-                        coach = payment.getBooking().getCoach();
-                    } else if (payment.getMember() != null && payment.getMember().getCoach() != null) {
-                        coach = payment.getMember().getCoach();
-                    }
-                } catch (Exception e) {
-                    logger.warn("코치 정보 로드 실패: Payment ID={}", payment.getId(), e);
-                }
-                
-                if (coach != null) {
-                    Map<String, Object> coachMap = new HashMap<>();
-                    coachMap.put("id", coach.getId());
-                    coachMap.put("name", coach.getName());
-                    map.put("coach", coachMap);
-                }
-                
-                return map;
-            }).collect(Collectors.toList());
-            
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            logger.error("날짜별 결제 세부 내역 조회 실패: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-    
-    // 회원 지표 세부 내역 조회 (코치별)
-    @GetMapping("/members/details")
-    @Transactional(readOnly = true)
-    public ResponseEntity<List<Map<String, Object>>> getMemberDetails(
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
-        try {
-            logger.info("회원 지표 세부 내역 조회 시작");
-            
-            LocalDate start = null;
-            LocalDate end = null;
-            
-            try {
-                if (startDate != null && endDate != null) {
-                    start = LocalDate.parse(startDate);
-                    end = LocalDate.parse(endDate);
-                } else {
-                    LocalDate today = LocalDate.now();
-                    start = today.withDayOfMonth(1);
-                    end = today;
-                }
-            } catch (Exception e) {
-                logger.error("날짜 파싱 실패: startDate={}, endDate={}", startDate, endDate, e);
-                return ResponseEntity.badRequest().build();
-            }
-            
-            logger.info("조회 기간: {} ~ {}", start, end);
-            
-            // 코치 정보를 포함하여 조회 (lazy loading 방지)
-            List<Member> allMembers = memberRepository.findAllOrderByName();
-            logger.info("전체 회원 수: {}", allMembers.size());
-            
-            List<Map<String, Object>> result = new ArrayList<>();
-            for (Member member : allMembers) {
-                try {
-                    // 날짜 필터링
-                    if (member.getCreatedAt() == null) {
-                        continue;
-                    }
-                    
-                    LocalDate memberDate = member.getCreatedAt().toLocalDate();
-                    if (memberDate.isBefore(start) || memberDate.isAfter(end)) {
-                        continue;
-                    }
-                    
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("id", member.getId());
-                    map.put("name", member.getName());
-                    map.put("memberNumber", member.getMemberNumber());
-                    map.put("phoneNumber", member.getPhoneNumber());
-                    map.put("grade", member.getGrade());
-                    map.put("school", member.getSchool());
-                    map.put("createdAt", member.getCreatedAt());
-                    
-                    // 코치 정보 (안전하게 로드)
-                    try {
-                        if (member.getCoach() != null) {
-                            com.afbscenter.model.Coach coach = member.getCoach();
-                            Map<String, Object> coachMap = new HashMap<>();
-                            coachMap.put("id", coach.getId());
-                            coachMap.put("name", coach.getName());
-                            map.put("coach", coachMap);
-                        } else {
-                            map.put("coach", null);
-                        }
-                    } catch (Exception e) {
-                        logger.warn("코치 정보 로드 실패: Member ID={}", member.getId(), e);
-                        map.put("coach", null);
-                    }
-                    
-                    result.add(map);
-                } catch (Exception e) {
-                    logger.warn("회원 데이터 변환 실패: Member ID={}", member.getId(), e);
-                    // 개별 회원 변환 실패는 무시하고 계속 진행
-                }
-            }
-            
-            logger.info("회원 지표 세부 내역 조회 완료: 결과 건수={}", result.size());
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            logger.error("회원 지표 세부 내역 조회 실패: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-    
-    // 운영 지표 세부 내역 조회
-    @GetMapping("/operational/details")
-    @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> getOperationalDetails(
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
-        try {
-            LocalDateTime startDateTime = null;
-            LocalDateTime endDateTime = null;
-            
-            if (startDate != null && endDate != null) {
-                startDateTime = LocalDate.parse(startDate).atStartOfDay();
-                endDateTime = LocalDate.parse(endDate).atTime(LocalTime.MAX);
-            } else {
-                LocalDate today = LocalDate.now();
-                startDateTime = today.withDayOfMonth(1).atStartOfDay();
-                endDateTime = today.atTime(LocalTime.MAX);
-            }
-            
-            List<Booking> bookings = bookingRepository.findByDateRange(startDateTime, endDateTime);
-            List<Facility> facilities = facilityRepository.findByActiveTrue();
-            
-            Map<String, Object> details = new HashMap<>();
-            
-            // 예약 통계
-            long totalBookings = bookings.size();
-            long confirmedBookings = bookings.stream()
-                    .filter(b -> b.getStatus() == Booking.BookingStatus.CONFIRMED)
-                    .count();
-            long completedBookings = bookings.stream()
-                    .filter(b -> b.getStatus() == Booking.BookingStatus.COMPLETED)
-                    .count();
-            long cancelledBookings = bookings.stream()
-                    .filter(b -> b.getStatus() == Booking.BookingStatus.CANCELLED)
-                    .count();
-            long noShowBookings = bookings.stream()
-                    .filter(b -> b.getStatus() == Booking.BookingStatus.NO_SHOW)
-                    .count();
-            
-            details.put("totalBookings", totalBookings);
-            details.put("confirmedBookings", confirmedBookings);
-            details.put("completedBookings", completedBookings);
-            details.put("cancelledBookings", cancelledBookings);
-            details.put("noShowBookings", noShowBookings);
-            
-            // 시설별 상세 정보
-            List<Map<String, Object>> facilityDetails = new ArrayList<>();
-            for (Facility facility : facilities) {
-                List<Booking> facilityBookings = bookings.stream()
-                        .filter(b -> b.getFacility() != null && b.getFacility().getId().equals(facility.getId()))
-                        .collect(Collectors.toList());
-                
-                Map<String, Object> facilityMap = new HashMap<>();
-                facilityMap.put("id", facility.getId());
-                facilityMap.put("name", facility.getName());
-                facilityMap.put("totalBookings", facilityBookings.size());
-                facilityMap.put("confirmedBookings", facilityBookings.stream()
-                        .filter(b -> b.getStatus() == Booking.BookingStatus.CONFIRMED)
-                        .count());
-                facilityMap.put("completedBookings", facilityBookings.stream()
-                        .filter(b -> b.getStatus() == Booking.BookingStatus.COMPLETED)
-                        .count());
-                facilityDetails.add(facilityMap);
-            }
-            details.put("facilities", facilityDetails);
-            
-            return ResponseEntity.ok(details);
-        } catch (Exception e) {
-            logger.error("운영 지표 세부 내역 조회 실패: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-    
     @GetMapping
     @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getAnalytics(
             @RequestParam(required = false) String period,
             @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false, defaultValue = "all") String topSpendersScope,
+            @RequestParam(required = false) String topSpendersMonth,
+            @RequestParam(required = false) String topSpendersStartDate,
+            @RequestParam(required = false) String topSpendersEndDate) {
         try {
             // 기간 계산
             LocalDate start;
@@ -540,6 +97,7 @@ public class AnalyticsController {
                 LocalDate today = LocalDate.now();
                 switch (period != null ? period : "month") {
                     case "day":
+                    case "today":
                         start = today;
                         end = today;
                         break;
@@ -549,15 +107,15 @@ public class AnalyticsController {
                         break;
                     case "month":
                         start = today.withDayOfMonth(1);
-                        end = today;
+                        end = today.withDayOfMonth(today.lengthOfMonth()); // 당월 전체 (대관 등 포함)
                         break;
                     case "year":
                         start = today.withDayOfYear(1);
-                        end = today;
+                        end = today.withDayOfYear(today.lengthOfYear());
                         break;
                     default:
                         start = today.withDayOfMonth(1);
-                        end = today;
+                        end = today.withDayOfMonth(today.lengthOfMonth());
                         break;
                 }
             }
@@ -657,6 +215,70 @@ public class AnalyticsController {
             // 회원 지표
             Map<String, Object> memberMetrics = calculateMemberMetrics(members, start, end);
             
+            // 개인 결제 TOP: scope에 따라 전체 누적 / 해당 월(2026-01~선택) / 기간(날짜 선택)
+            List<Payment> paymentsForTopSpenders;
+            String scope = (topSpendersScope != null && !topSpendersScope.isEmpty()) ? topSpendersScope : "all";
+            Predicate<Payment> completedOnly = p -> p.getStatus() == null || p.getStatus() == Payment.PaymentStatus.COMPLETED;
+            if ("month".equals(scope)) {
+                YearMonth ym = YearMonth.now();
+                if (topSpendersMonth != null && !topSpendersMonth.isEmpty()) {
+                    try {
+                        ym = YearMonth.parse(topSpendersMonth);
+                    } catch (Exception ignored) { }
+                }
+                LocalDateTime monthStart = ym.atDay(1).atStartOfDay();
+                LocalDateTime monthEnd = ym.atEndOfMonth().atTime(LocalTime.MAX);
+                paymentsForTopSpenders = allPayments.stream()
+                        .filter(p -> p.getPaidAt() != null && !p.getPaidAt().isBefore(monthStart) && !p.getPaidAt().isAfter(monthEnd) && completedOnly.test(p))
+                        .collect(Collectors.toList());
+            } else if ("period".equals(scope)) {
+                LocalDateTime periodStart = startDateTime;
+                LocalDateTime periodEnd = endDateTime;
+                if (topSpendersStartDate != null && !topSpendersStartDate.isEmpty() && topSpendersEndDate != null && !topSpendersEndDate.isEmpty()) {
+                    try {
+                        periodStart = LocalDate.parse(topSpendersStartDate).atStartOfDay();
+                        periodEnd = LocalDate.parse(topSpendersEndDate).atTime(LocalTime.MAX);
+                    } catch (Exception ignored) { }
+                }
+                final LocalDateTime ps = periodStart;
+                final LocalDateTime pe = periodEnd;
+                paymentsForTopSpenders = allPayments.stream()
+                        .filter(p -> p.getPaidAt() != null && !p.getPaidAt().isBefore(ps) && !p.getPaidAt().isAfter(pe) && completedOnly.test(p))
+                        .collect(Collectors.toList());
+            } else {
+                // all: 전체 누적
+                paymentsForTopSpenders = allPayments.stream()
+                        .filter(p -> p.getPaidAt() != null && completedOnly.test(p))
+                        .collect(Collectors.toList());
+            }
+            Map<Long, Integer> memberTotalInPeriod = new HashMap<>();
+            for (Payment p : paymentsForTopSpenders) {
+                if (p.getMember() == null) continue;
+                Long mid = p.getMember().getId();
+                int amount = p.getAmount() != null ? p.getAmount() : 0;
+                int refund = p.getRefundAmount() != null ? p.getRefundAmount() : 0;
+                memberTotalInPeriod.merge(mid, amount - refund, Integer::sum);
+            }
+            List<Map<String, Object>> topSpenders = memberTotalInPeriod.entrySet().stream()
+                    .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                    .limit(15)
+                    .map(e -> {
+                        Long memberId = e.getKey();
+                        Member member = members.stream()
+                                .filter(m -> m != null && memberId.equals(m.getId()))
+                                .findFirst()
+                                .orElse(null);
+                        Map<String, Object> item = new HashMap<>();
+                        item.put("memberId", memberId);
+                        item.put("totalAmount", e.getValue());
+                        item.put("memberName", member != null ? member.getName() : "-");
+                        item.put("memberNumber", member != null ? member.getMemberNumber() : "-");
+                        return item;
+                    })
+                    .collect(Collectors.toList());
+            memberMetrics.put("topSpenders", topSpenders);
+            memberMetrics.put("topSpendersScope", scope);
+            
             Map<String, Object> analytics = new HashMap<>();
             analytics.put("operational", operational);
             analytics.put("revenue", revenue);
@@ -672,6 +294,7 @@ public class AnalyticsController {
             Map<String, Object> errorMemberMetrics = new HashMap<>();
             errorMemberMetrics.put("activeCount", 0L);
             errorMemberMetrics.put("trend", new ArrayList<>());
+            errorMemberMetrics.put("topSpenders", new ArrayList<>());
             errorAnalytics.put("members", errorMemberMetrics);
             return ResponseEntity.ok(errorAnalytics);
         }
@@ -779,6 +402,31 @@ public class AnalyticsController {
             }
             int usedDays = bookingDates.size();
             
+            // 대관(RENTAL) 예약 발생 횟수 / 사용 완료 횟수 및 사용 시간 계산
+            long rentalBookedMinutes = 0;
+            int rentalCount = 0;           // 예약 발생 건수 (대관 예약 전체)
+            int rentalCompletedCount = 0; // 사용 완료 건수 (상태 COMPLETED)
+            for (Booking booking : facilityBookings) {
+                if (booking.getPurpose() != null && booking.getPurpose() == Booking.BookingPurpose.RENTAL) {
+                    rentalCount++;
+                    if (booking.getStatus() == Booking.BookingStatus.COMPLETED) {
+                        rentalCompletedCount++;
+                    }
+                    try {
+                        if (booking.getStartTime() != null && booking.getEndTime() != null) {
+                            long minutes = java.time.Duration.between(booking.getStartTime(), booking.getEndTime()).toMinutes();
+                            if (minutes <= 0) minutes = getDefaultSessionDuration();
+                            rentalBookedMinutes += minutes;
+                        } else {
+                            rentalBookedMinutes += getDefaultSessionDuration();
+                        }
+                    } catch (Exception e) {
+                        rentalBookedMinutes += getDefaultSessionDuration();
+                    }
+                }
+            }
+            double rentalHours = Math.round(rentalBookedMinutes / 60.0 * 10.0) / 10.0;
+            
             // 운영 가능 시간 계산 (분 단위)
             long totalAvailableMinutes = 0;
             int totalDaysInPeriod = (int) java.time.temporal.ChronoUnit.DAYS.between(start, end) + 1;
@@ -852,6 +500,17 @@ public class AnalyticsController {
                 facilityData.put("bookingCount", facilityBookings.size());
                 facilityData.put("totalHours", Math.round(totalBookedMinutes / 60.0 * 10.0) / 10.0); // 시간 단위로 변환
                 facilityData.put("availableHours", Math.round(totalAvailableMinutes / 60.0 * 10.0) / 10.0); // 시간 단위로 변환
+                facilityData.put("rentalCount", rentalCount);
+                facilityData.put("rentalCompletedCount", rentalCompletedCount);
+                facilityData.put("rentalHours", rentalHours);
+                // 운영시간(시) - 시간대별 그리드에서 운영시간 구간만 표시용
+                if (facility.getOpenTime() != null && facility.getCloseTime() != null) {
+                    facilityData.put("openHour", facility.getOpenTime().getHour());
+                    facilityData.put("closeHour", facility.getCloseTime().getHour());
+                } else {
+                    facilityData.put("openHour", 0);
+                    facilityData.put("closeHour", 23);
+                }
                 
                 // 시간대별 통계 (시간대별 예약 횟수와 시간)
                 List<Map<String, Object>> hourlyStats = new ArrayList<>();
@@ -1190,13 +849,7 @@ public class AnalyticsController {
             
             try {
                 // 기간 내의 모든 MemberProduct 조회
-                List<com.afbscenter.model.MemberProduct> memberProducts = memberProductRepository.findAll().stream()
-                        .filter(mp -> {
-                            if (mp.getPurchaseDate() == null) return false;
-                            LocalDateTime purchaseDateTime = mp.getPurchaseDate();
-                            return !purchaseDateTime.isBefore(startDateTime) && !purchaseDateTime.isAfter(endDateTime);
-                        })
-                        .collect(Collectors.toList());
+                List<com.afbscenter.model.MemberProduct> memberProducts = memberProductRepository.findByPurchaseDateRange(startDateTime, endDateTime);
                 
                 logger.info("MemberProduct 기반 매출 계산 - 기간 내 MemberProduct 수: {}건", memberProducts.size());
                 
@@ -1237,14 +890,7 @@ public class AnalyticsController {
                 
                 // 전월 MemberProduct 기반 매출 계산
                 Map<String, Integer> prevMemberProductByCategory = new HashMap<>();
-                List<com.afbscenter.model.MemberProduct> prevMemberProducts = memberProductRepository.findAll().stream()
-                        .filter(mp -> {
-                            if (mp.getPurchaseDate() == null) return false;
-                            LocalDateTime purchaseDateTime = mp.getPurchaseDate();
-                            return !purchaseDateTime.isBefore(prevStartDateTime) && 
-                                   !purchaseDateTime.isAfter(prevEndDateTime);
-                        })
-                        .collect(Collectors.toList());
+                List<com.afbscenter.model.MemberProduct> prevMemberProducts = memberProductRepository.findByPurchaseDateRange(prevStartDateTime, prevEndDateTime);
                 
                 for (com.afbscenter.model.MemberProduct mp : prevMemberProducts) {
                     try {

@@ -1,5 +1,13 @@
 /* 예약/대관 관리 페이지 스타일 */
 
+/* 타이틀 영역 위쪽 공백 제거 */
+body.booking-page .main-content {
+    padding-top: 0 !important;
+    align-content: flex-start;
+}
+body.booking-page .topbar { margin-top: 0 !important; }
+body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
+
 .view-controls {
     display: flex;
     gap: 12px;
@@ -8,51 +16,7 @@
     flex-wrap: wrap;
 }
 
-/* 코치 범례 스타일 */
-.coach-legend {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 6px 12px;
-    margin-bottom: 20px;
-    background-color: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    white-space: nowrap;
-    width: 100%;
-}
-
-.legend-title {
-    font-size: 12px;
-    color: var(--text-secondary);
-    font-weight: 500;
-    margin-right: 2px;
-    flex-shrink: 0;
-}
-
-.legend-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
-}
-
-.legend-color {
-    display: inline-block;
-    width: 14px;
-    height: 14px;
-    border-radius: 3px;
-    border: 1px solid var(--border-color);
-    flex-shrink: 0;
-}
-
-.legend-name {
-    font-size: 11px;
-    color: var(--text-primary);
-    white-space: nowrap;
-}
+/* 코치 범례: 글씨체/레이아웃은 common.css .coach-legend 에서 통일 관리 */
 
 .view-container {
     display: none;
@@ -62,11 +26,130 @@
     display: block;
 }
 
+/* 필터 한 행: 왼쪽 5.7 : 오른쪽 4.3 비율 */
+.filter-row {
+    display: grid;
+    grid-template-columns: 5.7fr 4.3fr;
+    align-items: center;
+    gap: 0;
+    min-height: 48px;
+}
+.filter-row-left {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 12px;
+    padding-right: 48px;
+    padding-left: 4px;
+    border-right: 1px solid var(--border-color);
+    min-width: 0;
+}
 .filter-group {
     display: flex;
-    gap: 12px;
+    flex-wrap: nowrap;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+}
+/* 전체 코치 드롭다운 영역 조금 크게 */
+#filter-coach {
+    width: 150px;
+    min-width: 150px;
+}
+.filter-row-right {
+    display: flex;
     align-items: center;
     flex-wrap: wrap;
+    justify-content: flex-start;
+    padding-left: 56px;
+    padding-right: 24px;
+}
+@media (max-width: 900px) {
+    .filter-row {
+        grid-template-columns: 1fr;
+    }
+    .filter-row-left {
+        flex-wrap: wrap;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding-right: 0;
+        padding-bottom: 12px;
+    }
+    .filter-group {
+        flex-wrap: wrap;
+    }
+    .filter-row-right {
+        padding-left: 0;
+        padding-top: 12px;
+    }
+}
+
+/* 예약 통계 (같은 행 오른쪽) - padding은 .filter-row-right에서 지정 */
+.bookings-stats-inner {
+    margin: 0;
+}
+.bookings-stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 16px 24px;
+}
+.bookings-stats-total {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+.bookings-stats-total .bookings-stats-label {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+.bookings-stats-total .bookings-stats-value {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--accent-primary);
+}
+.bookings-stats-pending {
+    font-size: 13px;
+    color: var(--info);
+    cursor: pointer;
+    text-decoration: underline;
+    margin-left: 8px;
+}
+.bookings-stats-pending:hover {
+    color: var(--accent-primary);
+}
+.bookings-stats-by-coach {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+}
+.bookings-stats-by-coach .bookings-stats-label {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin-right: 4px;
+}
+.bookings-stats-coach-item {
+    font-size: 13px;
+    color: var(--text-primary);
+    padding: 4px 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: opacity 0.2s, box-shadow 0.2s;
+}
+.bookings-stats-coach-item:hover {
+    opacity: 0.9;
+}
+.bookings-stats-coach-item--selected {
+    box-shadow: 0 0 0 2px var(--accent-primary);
+    opacity: 1;
+}
+.bookings-stats-loading {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-muted);
 }
 
 .calendar-container {
@@ -89,6 +172,20 @@
     color: var(--text-primary);
 }
 
+/* 코치 필터 시 예약 없음 안내 (달력 바로 위) */
+.calendar-empty-message {
+    display: none;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
 .calendar-grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
@@ -102,6 +199,26 @@
     font-size: 12px;
     color: var(--text-secondary);
     text-transform: uppercase;
+    background-color: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+}
+
+/* 일요일: 빨간색 + 배경 */
+.calendar-day-header.calendar-day-header-sun {
+    color: #d32f2f;
+    background-color: rgba(211, 47, 47, 0.12);
+}
+.calendar-day.calendar-day-sun .calendar-day-number {
+    color: #d32f2f;
+}
+
+/* 토요일: 파란색 계열 + 배경 */
+.calendar-day-header.calendar-day-header-sat {
+    color: #1976d2;
+    background-color: rgba(25, 118, 210, 0.12);
+}
+.calendar-day.calendar-day-sat .calendar-day-number {
+    color: #1976d2;
 }
 
 .calendar-day {
@@ -228,4 +345,22 @@
 .day-schedule-icon:hover {
     opacity: 1;
     background-color: var(--bg-hover);
+}
+
+/* 3.5 모바일/반응형: 캘린더·필터 */
+@media (max-width: 768px) {
+    .calendar-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .calendar-grid {
+        min-width: 480px;
+    }
+    .filter-row {
+        grid-template-columns: 1fr;
+    }
+    .filter-row-left {
+        border-right: none;
+        padding-right: 0;
+    }
 }

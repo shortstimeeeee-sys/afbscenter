@@ -1,0 +1,17 @@
+# PowerShell 스크립트 파일 인코딩 고정 (UTF-8 with BOM)
+*.ps1 text eol=crlf working-tree-encoding=UTF-8-BOM
+
+# VBScript 파일 인코딩 고정 (UTF-8)
+*.vbs text eol=crlf working-tree-encoding=UTF-8
+
+# Java 소스 파일 인코딩 고정 (UTF-8)
+*.java text eol=lf working-tree-encoding=UTF-8
+
+# 기타 텍스트 파일 기본 설정
+*.txt text eol=crlf
+*.md text eol=lf
+*.json text eol=lf
+*.xml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf

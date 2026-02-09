@@ -2,12 +2,13 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <title>상품/이용권 - AFBS 센터</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>이용권 - AFBS 센터</title>
     <link rel="stylesheet" href="/css/common.css">
     <link rel="stylesheet" href="/css/products.css">
 </head>
-<body>
+<body class="products-page">
     <div class="app-container">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -23,25 +24,28 @@
                     <div class="menu-section-title">회원 관리</div>
                     <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
                     <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">출석부</div>
+                    <a href="/attendance.html" class="menu-item menu-item--attendance" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings-without-product.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
                     
                     <!-- 사하점 -->
                     <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 대관 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
                     <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
-                    
-                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">훈련 관리</div>
@@ -50,8 +54,8 @@
                     <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
                 </div>
                 <div class="menu-section">
-                    <div class="menu-section-title">상품/결제</div>
-                    <a href="/products.html" class="menu-item active" data-role="Manager"><span class="menu-item-icon">🎁</span><span>상품/이용권</span></a>
+                    <div class="menu-section-title">이용권/결제</div>
+                    <a href="/products.html" class="menu-item active" data-role="Manager"><span class="menu-item-icon">🎁</span><span>이용권</span></a>
                     <a href="/payments.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
                 </div>
             </nav>
@@ -60,7 +64,7 @@
         <main class="main-content">
             <header class="topbar">
                 <div class="topbar-left">
-                    <h1 class="page-title">상품/이용권</h1>
+                    <h1 class="page-title">이용권</h1>
                     <div class="search-box">
                         <input type="text" placeholder="검색..." id="product-search">
                     </div>
@@ -72,14 +76,33 @@
             </header>
             
             <div class="content-area">
+                <!-- 이용권 기본 통계 (별도 구역) -->
+                <div class="card products-stats-card">
+                    <div class="card-header">
+                        <h2 class="card-title">📊 이용권 기본 통계</h2>
+                    </div>
+                    <div id="products-stats-container" class="products-stats-body">
+                        <p class="products-stats-loading">로딩 중...</p>
+                    </div>
+                </div>
+                <!-- 통계 클릭 시 이용권 목록 모달 -->
+                <div class="modal-overlay" id="stats-products-modal" style="display: none;">
+                    <div class="modal" style="max-width: 720px;">
+                        <div class="modal-header">
+                            <h2 class="modal-title" id="stats-products-modal-title">이용권 목록</h2>
+                            <button class="modal-close" onclick="App.Modal.close('stats-products-modal')">×</button>
+                        </div>
+                        <div class="modal-body" id="stats-products-modal-body"></div>
+                    </div>
+                </div>
                 <div class="card">
                     <div class="card-header">
-                        <h2 class="card-title">상품 목록</h2>
+                        <h2 class="card-title">이용권 목록</h2>
                         <div style="display: flex; gap: 8px;">
-                            <button class="btn btn-secondary" onclick="updateAllProducts()" title="모든 상품의 데이터 정합성 수정 및 기간제 상품 사용 조건 업데이트">
-                                🔧 상품 데이터 일괄 수정
+                            <button class="btn btn-secondary" id="products-batch-update-btn" onclick="updateAllProducts()" title="모든 이용권의 데이터 정합성 수정 및 기간제 이용권 사용 조건 업데이트">
+                                🔧 이용권 데이터 일괄 수정
                             </button>
-                            <button class="btn btn-primary" onclick="openProductModal()">상품 추가</button>
+                            <button class="btn btn-primary" onclick="openProductModal()">이용권 추가</button>
                         </div>
                     </div>
                     <div class="filter-group" style="margin-bottom: 20px;">
@@ -91,13 +114,13 @@
                             <option value="MONTHLY_PASS">월정기</option>
                             <option value="TEAM_PACKAGE">팀 대관 패키지</option>
                         </select>
-                        <button class="btn btn-secondary" onclick="applyFilters()">필터 적용</button>
+                        <button class="btn btn-primary" onclick="applyFilters()">필터 적용</button>
                     </div>
                     <div class="table-container">
                         <table class="table products-table">
                             <thead>
                                 <tr>
-                                    <th>상품명</th>
+                                    <th>이용권명</th>
                                     <th>유형</th>
                                     <th>카테고리</th>
                                     <th>가격</th>
@@ -115,18 +138,18 @@
         </main>
     </div>
     
-    <!-- 상품 등록/수정 모달 -->
+    <!-- 이용권 등록/수정 모달 -->
     <div class="modal-overlay" id="product-modal">
         <div class="modal" style="max-width: 700px;">
             <div class="modal-header">
-                <h2 class="modal-title" id="product-modal-title">상품 추가</h2>
+                <h2 class="modal-title" id="product-modal-title">이용권 추가</h2>
                 <button class="modal-close">×</button>
             </div>
             <div class="modal-body">
                 <form id="product-form">
                     <input type="hidden" id="product-id">
                     <div class="form-group">
-                        <label class="form-label">상품명 *</label>
+                        <label class="form-label">이용권명 *</label>
                         <input type="text" class="form-control" id="product-name" required>
                     </div>
                     <div class="form-group">

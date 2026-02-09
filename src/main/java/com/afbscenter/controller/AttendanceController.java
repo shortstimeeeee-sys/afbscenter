@@ -1,9 +1,13 @@
 package com.afbscenter.controller;
 
+import com.afbscenter.model.ActionAuditLog;
 import com.afbscenter.model.Attendance;
 import com.afbscenter.model.LessonCategory;
 import com.afbscenter.model.Member;
 import com.afbscenter.model.MemberProduct;
+import com.afbscenter.model.MemberProductHistory;
+import com.afbscenter.model.Payment;
+import com.afbscenter.repository.ActionAuditLogRepository;
 import com.afbscenter.repository.AttendanceRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.FacilityRepository;
@@ -15,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import jakarta.validation.Valid;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,8 +42,10 @@ public class AttendanceController {
     private final MemberProductRepository memberProductRepository;
     private final com.afbscenter.repository.BookingRepository bookingRepository;
     private final com.afbscenter.repository.TrainingLogRepository trainingLogRepository;
+    private final com.afbscenter.repository.MemberProductHistoryRepository memberProductHistoryRepository;
     private final MemberService memberService;
     private final JdbcTemplate jdbcTemplate;
+    private final ActionAuditLogRepository actionAuditLogRepository;
 
     public AttendanceController(AttendanceRepository attendanceRepository,
                                 MemberRepository memberRepository,
@@ -46,16 +53,20 @@ public class AttendanceController {
                                 MemberProductRepository memberProductRepository,
                                 com.afbscenter.repository.BookingRepository bookingRepository,
                                 com.afbscenter.repository.TrainingLogRepository trainingLogRepository,
+                                com.afbscenter.repository.MemberProductHistoryRepository memberProductHistoryRepository,
                                 MemberService memberService,
-                                JdbcTemplate jdbcTemplate) {
+                                JdbcTemplate jdbcTemplate,
+                                ActionAuditLogRepository actionAuditLogRepository) {
         this.attendanceRepository = attendanceRepository;
         this.memberRepository = memberRepository;
         this.facilityRepository = facilityRepository;
         this.memberProductRepository = memberProductRepository;
         this.bookingRepository = bookingRepository;
         this.trainingLogRepository = trainingLogRepository;
+        this.memberProductHistoryRepository = memberProductHistoryRepository;
         this.memberService = memberService;
         this.jdbcTemplate = jdbcTemplate;
+        this.actionAuditLogRepository = actionAuditLogRepository;
     }
 
     @GetMapping
@@ -199,6 +210,51 @@ public class AttendanceController {
                     bookingMap.put("coach", coachMap);
                 }
                 
+                // 이용권(MemberProduct) 정보 (체크인 시 사용된 이용권)
+                if (attendance.getBooking().getMemberProduct() != null) {
+                    try {
+                        com.afbscenter.model.MemberProduct memberProduct = attendance.getBooking().getMemberProduct();
+                        java.util.Map<String, Object> memberProductMap = new java.util.HashMap<>();
+                        memberProductMap.put("id", memberProduct.getId());
+                        
+                        // 상품 정보
+                        if (memberProduct.getProduct() != null) {
+                            java.util.Map<String, Object> productMap = new java.util.HashMap<>();
+                            productMap.put("id", memberProduct.getProduct().getId());
+                            productMap.put("name", memberProduct.getProduct().getName());
+                            productMap.put("type", memberProduct.getProduct().getType() != null ? memberProduct.getProduct().getType().name() : null);
+                            memberProductMap.put("product", productMap);
+                        }
+                        
+                        // 이용권에 지정된 코치 정보 (우선순위: MemberProduct.coach -> Product.coach)
+                        java.util.Map<String, Object> memberProductCoachMap = null;
+                        try {
+                            if (memberProduct.getCoach() != null) {
+                                memberProductCoachMap = new java.util.HashMap<>();
+                                memberProductCoachMap.put("id", memberProduct.getCoach().getId());
+                                memberProductCoachMap.put("name", memberProduct.getCoach().getName());
+                            } else if (memberProduct.getProduct() != null && memberProduct.getProduct().getCoach() != null) {
+                                memberProductCoachMap = new java.util.HashMap<>();
+                                memberProductCoachMap.put("id", memberProduct.getProduct().getCoach().getId());
+                                memberProductCoachMap.put("name", memberProduct.getProduct().getCoach().getName());
+                            }
+                        } catch (Exception e) {
+                            logger.warn("이용권 코치 정보 읽기 실패: {}", e.getMessage());
+                        }
+                        
+                        if (memberProductCoachMap != null) {
+                            memberProductMap.put("coach", memberProductCoachMap);
+                        }
+                        
+                        bookingMap.put("memberProduct", memberProductMap);
+                    } catch (Exception e) {
+                        logger.warn("이용권 정보 읽기 실패: {}", e.getMessage());
+                        bookingMap.put("memberProduct", null);
+                    }
+                } else {
+                    bookingMap.put("memberProduct", null);
+                }
+                
                 map.put("booking", bookingMap);
             } else {
                 map.put("booking", null);
@@ -250,7 +306,13 @@ public class AttendanceController {
                     com.afbscenter.model.MemberProduct memberProductToUse = (attendance.getBooking() != null && attendance.getBooking().getMemberProduct() != null)
                         ? attendance.getBooking().getMemberProduct()
                         : null;
-                    decreaseCountPassUsage(member.getId(), lessonCategory, memberProductToUse);
+                    java.util.Map.Entry<MemberProduct, Integer> deductResult = decreaseCountPassUsage(member.getId(), lessonCategory, memberProductToUse);
+                    
+                    // 히스토리 저장
+                    if (deductResult != null) {
+                        saveProductHistory(member.getId(), deductResult.getKey(), deductResult.getValue(), 
+                            deductResult.getKey().getRemainingCount(), attendance, null, "체크인으로 인한 차감");
+                    }
                 } catch (Exception e) {
                     logger.warn("상품권 횟수 차감 실패: Member ID={}", member.getId(), e);
                     // 상품권 차감 실패해도 출석 기록은 저장됨
@@ -272,7 +334,11 @@ public class AttendanceController {
      * 횟수권 사용 차감
      * 가장 오래된 활성 횟수권부터 차감
      */
-    private void decreaseCountPassUsage(Long memberId, LessonCategory lessonCategory, MemberProduct specifiedMemberProduct) {
+    private java.util.Map.Entry<MemberProduct, Integer> decreaseCountPassUsage(Long memberId, LessonCategory lessonCategory, MemberProduct specifiedMemberProduct) {
+        logger.info("회권 차감 시작: Member ID={}, LessonCategory={}, SpecifiedMemberProduct={}", 
+            memberId, lessonCategory != null ? lessonCategory.name() : "null", 
+            specifiedMemberProduct != null ? specifiedMemberProduct.getId() : "null");
+        
         MemberProduct memberProduct = null;
         
         // 예약에 지정된 memberProduct가 있으면 해당 상품 사용
@@ -321,20 +387,62 @@ public class AttendanceController {
             
             if (countPassProducts.isEmpty()) {
                 logger.warn("체크인 시 차감할 활성 횟수권이 없음: Member ID={}", memberId);
-                return; // 횟수권이 없으면 차감하지 않음
+                return null; // 횟수권이 없으면 차감하지 않음
             }
             
-            // 가장 오래된 횟수권부터 사용 (구매일 기준)
-            countPassProducts.sort((a, b) -> a.getPurchaseDate().compareTo(b.getPurchaseDate()));
-            memberProduct = countPassProducts.get(0);
-            logger.info("체크인 시 회원의 활성 횟수권 중 첫 번째 사용: MemberProduct ID={}", memberProduct.getId());
+            // 레슨 카테고리와 맞는 횟수권 우선 사용
+            List<MemberProduct> filteredByCategory = countPassProducts;
+            if (lessonCategory != null) {
+                filteredByCategory = countPassProducts.stream()
+                    .filter(mp -> matchesLessonCategory(mp, lessonCategory))
+                    .collect(java.util.stream.Collectors.toList());
+                if (filteredByCategory.isEmpty()) {
+                    filteredByCategory = countPassProducts;
+                }
+            }
+            
+            // 잔여 횟수가 적은 상품 우선, 그 다음 구매일 기준
+            // remainingCount가 null이거나 0인 경우도 포함 (나중에 초기화 가능)
+            filteredByCategory.sort((a, b) -> {
+                Integer aRemaining = a.getRemainingCount() != null ? a.getRemainingCount() : Integer.MAX_VALUE;
+                Integer bRemaining = b.getRemainingCount() != null ? b.getRemainingCount() : Integer.MAX_VALUE;
+                int remainingCompare = Integer.compare(aRemaining, bRemaining);
+                if (remainingCompare != 0) {
+                    return remainingCompare;
+                }
+                if (a.getPurchaseDate() == null && b.getPurchaseDate() == null) return 0;
+                if (a.getPurchaseDate() == null) return 1;
+                if (b.getPurchaseDate() == null) return -1;
+                return a.getPurchaseDate().compareTo(b.getPurchaseDate());
+            });
+            memberProduct = filteredByCategory.get(0);
+            logger.info("체크인 시 회원의 활성 횟수권 선택: MemberProduct ID={}, Product Name={}, RemainingCount={}, LessonCategory={}", 
+                memberProduct.getId(), 
+                memberProduct.getProduct() != null ? memberProduct.getProduct().getName() : "unknown",
+                memberProduct.getRemainingCount(),
+                lessonCategory != null ? lessonCategory.name() : "null");
         }
         
         // LessonCategory를 레슨명으로 변환
         String lessonName = convertLessonCategoryToName(lessonCategory);
         
         // 패키지 상품인 경우 해당 레슨의 카운터만 차감
-        if (memberProduct.getPackageItemsRemaining() != null && !memberProduct.getPackageItemsRemaining().isEmpty()) {
+        // packageItemsRemaining이 있고 일반 횟수권이 아닌 경우 패키지 로직 사용
+        // (일반 횟수권은 COUNT_PASS 타입이므로 패키지 로직을 사용하지 않음)
+        com.afbscenter.model.Product productForType = null;
+        try {
+            productForType = memberProduct.getProduct();
+        } catch (Exception e) {
+            logger.warn("Product 로드 실패: MemberProduct ID={}, {}", memberProduct.getId(), e.getMessage());
+        }
+        
+        // 일반 횟수권(COUNT_PASS)이 아니고 packageItemsRemaining이 있으면 패키지 상품으로 간주
+        boolean isPackageProduct = productForType != null && 
+                                   productForType.getType() != com.afbscenter.model.Product.ProductType.COUNT_PASS &&
+                                   memberProduct.getPackageItemsRemaining() != null && 
+                                   !memberProduct.getPackageItemsRemaining().isEmpty();
+        
+        if (isPackageProduct) {
             try {
                 ObjectMapper mapper = new ObjectMapper();
                 List<Map<String, Object>> items = mapper.readValue(
@@ -356,6 +464,18 @@ public class AttendanceController {
                 }
                 
                 if (updated) {
+                    // 차감 후 remaining 값을 가져오기 위해 다시 계산
+                    Integer beforeRemaining = null;
+                    for (Map<String, Object> item : items) {
+                        if (lessonName.equals(item.get("name"))) {
+                            beforeRemaining = ((Number) item.get("remaining")).intValue() + 1; // 차감 전 값
+                            break;
+                        }
+                    }
+                    if (beforeRemaining == null) {
+                        beforeRemaining = 0;
+                    }
+                    
                     memberProduct.setPackageItemsRemaining(mapper.writeValueAsString(items));
                     
                     // 모든 항목이 0이 되면 상태 변경
@@ -366,23 +486,172 @@ public class AttendanceController {
                     }
                     
                     memberProductRepository.save(memberProduct);
-                    logger.debug("상품권 패키지 횟수 차감: MemberProduct ID={}, 레슨={}", memberProduct.getId(), lessonName);
+                    logger.info("상품권 패키지 횟수 차감 완료: MemberProduct ID={}, Product Name={}, 레슨={}, 차감 전: {}회", 
+                        memberProduct.getId(), 
+                        memberProduct.getProduct() != null ? memberProduct.getProduct().getName() : "unknown",
+                        lessonName, beforeRemaining);
+                    
+                    return new java.util.AbstractMap.SimpleEntry<>(memberProduct, beforeRemaining);
+                } else {
+                    logger.warn("패키지 레슨 차감 실패: 해당 레슨의 잔여 횟수가 0. MemberProduct ID={}, 레슨={}", 
+                        memberProduct.getId(), lessonName);
+                    return null;
                 }
             } catch (Exception e) {
                 logger.error("패키지 횟수 차감 실패", e);
+                return null;
             }
         }
         // 일반 횟수권인 경우
-        else if (memberProduct.getRemainingCount() != null && memberProduct.getRemainingCount() > 0) {
-            memberProduct.setRemainingCount(memberProduct.getRemainingCount() - 1);
+        else {
+            // remainingCount가 null이거나 0이면 totalCount나 product의 usageCount로 초기화
+            Integer currentRemaining = memberProduct.getRemainingCount();
+            boolean needsInitialization = (currentRemaining == null || currentRemaining == 0);
             
-            // 횟수가 0이 되면 상태 변경
-            if (memberProduct.getRemainingCount() == 0) {
-                memberProduct.setStatus(MemberProduct.Status.USED_UP);
+            if (needsInitialization) {
+                final MemberProduct finalMemberProduct = memberProduct; // final 변수로 복사
+                logger.info("회권 remainingCount 초기화 필요: MemberProduct ID={}, 현재 remainingCount={}", 
+                    finalMemberProduct.getId(), currentRemaining);
+                
+                // totalCount 확인
+                currentRemaining = finalMemberProduct.getTotalCount();
+                if (currentRemaining == null || currentRemaining <= 0) {
+                    // product의 usageCount 확인
+                    try {
+                        com.afbscenter.model.Product product = finalMemberProduct.getProduct();
+                        if (product != null && product.getUsageCount() != null && product.getUsageCount() > 0) {
+                            currentRemaining = product.getUsageCount();
+                            logger.info("Product의 usageCount로 초기화: MemberProduct ID={}, usageCount={}", 
+                                finalMemberProduct.getId(), currentRemaining);
+                        } else {
+                            logger.warn("회권 차감 실패: remainingCount가 null/0이고 totalCount/usageCount도 없음. MemberProduct ID={}, Product Name={}", 
+                                finalMemberProduct.getId(),
+                                product != null ? product.getName() : "unknown");
+                            return null; // 차감할 수 없음
+                        }
+                    } catch (Exception e) {
+                        logger.error("Product 로드 실패: MemberProduct ID={}", finalMemberProduct.getId(), e);
+                        return null;
+                    }
+                } else {
+                    logger.info("totalCount로 초기화: MemberProduct ID={}, totalCount={}", 
+                        finalMemberProduct.getId(), currentRemaining);
+                }
+                
+                // 사용 기록 확인하여 실제 잔여 횟수 계산
+                // 체크인된 출석 기록은 모두 카운트 (체크인 시 이미 차감되었으므로)
+                try {
+                    final Long memberProductId = finalMemberProduct.getId(); // final 변수로 복사
+                    
+                    // 체크인 완료된 출석 기록 카운트 (체크인만 되어도 차감되었으므로 모두 카운트)
+                    Long usedCountByAttendance = 0L;
+                    try {
+                        List<com.afbscenter.model.Attendance> checkedInAttendances = 
+                            attendanceRepository.findByMemberId(memberId).stream()
+                                .filter(a -> a.getBooking() != null && 
+                                           a.getBooking().getMemberProduct() != null &&
+                                           a.getBooking().getMemberProduct().getId().equals(memberProductId) &&
+                                           a.getCheckInTime() != null) // 체크인만 되어도 차감되었으므로 모두 카운트
+                                .collect(java.util.stream.Collectors.toList());
+                        usedCountByAttendance = (long) checkedInAttendances.size();
+                    } catch (Exception e) {
+                        logger.warn("출석 기록 확인 실패: {}", e.getMessage());
+                    }
+                    
+                    // booking의 confirmed 상태도 확인 (예약 확정 시 차감되는 경우 대비)
+                    Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(memberProductId);
+                    if (usedCountByBooking == null) usedCountByBooking = 0L;
+                    
+                    // attendance와 booking 중 더 큰 값 사용 (중복 방지)
+                    // 체크인된 출석 기록이 더 정확하므로 우선 사용
+                    Long actualUsedCount = Math.max(usedCountByAttendance, usedCountByBooking);
+                    Integer calculatedRemaining = Math.max(0, currentRemaining - actualUsedCount.intValue());
+                    
+                    logger.info("사용 기록 기반 재계산: MemberProduct ID={}, totalCount={}, usedCountByBooking={}, usedCountByAttendance={}, actualUsedCount={}, calculatedRemaining={}", 
+                        memberProductId, currentRemaining, usedCountByBooking, usedCountByAttendance, actualUsedCount, calculatedRemaining);
+                    
+                    currentRemaining = calculatedRemaining;
+                } catch (Exception e) {
+                    logger.warn("사용 기록 확인 실패, totalCount/usageCount 사용: {}", e.getMessage());
+                }
+                
+                memberProduct.setRemainingCount(currentRemaining);
+                if (memberProduct.getTotalCount() == null || memberProduct.getTotalCount() <= 0) {
+                    // totalCount도 설정 (usageCount에서 가져온 경우)
+                    try {
+                        com.afbscenter.model.Product product = memberProduct.getProduct();
+                        if (product != null && product.getUsageCount() != null && product.getUsageCount() > 0) {
+                            memberProduct.setTotalCount(product.getUsageCount());
+                        }
+                    } catch (Exception e) {
+                        // 무시
+                    }
+                }
+            } else {
+                // 초기화가 필요 없는 경우, 현재 remainingCount 사용
+                currentRemaining = memberProduct.getRemainingCount();
             }
             
-            memberProductRepository.save(memberProduct);
-            logger.debug("상품권 횟수 차감: MemberProduct ID={}, 잔여={}회", memberProduct.getId(), memberProduct.getRemainingCount());
+            // remainingCount가 0보다 크면 차감
+            // 초기화 후에도 0이면 차감 불가
+            if (currentRemaining == null) {
+                currentRemaining = memberProduct.getRemainingCount();
+            }
+            
+            if (currentRemaining != null && currentRemaining > 0) {
+                Integer beforeRemaining = currentRemaining;
+                memberProduct.setRemainingCount(currentRemaining - 1);
+                
+                // 횟수가 0이 되면 상태 변경
+                if (memberProduct.getRemainingCount() == 0) {
+                    memberProduct.setStatus(MemberProduct.Status.USED_UP);
+                }
+                
+                memberProductRepository.save(memberProduct);
+                logger.info("상품권 횟수 차감 완료: MemberProduct ID={}, Product Name={}, totalCount={}, 잔여={}회 (차감 전: {}회)", 
+                    memberProduct.getId(), 
+                    memberProduct.getProduct() != null ? memberProduct.getProduct().getName() : "unknown",
+                    memberProduct.getTotalCount(),
+                    memberProduct.getRemainingCount(), beforeRemaining);
+                
+                // 히스토리 저장을 위해 반환값으로 변경 정보 전달
+                // 히스토리는 호출하는 쪽에서 저장 (attendance 정보 필요)
+                return new java.util.AbstractMap.SimpleEntry<>(memberProduct, beforeRemaining);
+            } else if (currentRemaining == null || currentRemaining == 0) {
+                // remainingCount가 0이면 이미 사용 완료된 상품
+                logger.warn("회권 차감 실패: remainingCount가 0 또는 null (이미 사용 완료 또는 초기화 실패). MemberProduct ID={}, Product Name={}, totalCount={}, currentRemaining={}", 
+                    memberProduct.getId(),
+                    memberProduct.getProduct() != null ? memberProduct.getProduct().getName() : "unknown",
+                    memberProduct.getTotalCount(),
+                    currentRemaining);
+                return null;
+            } else {
+                logger.warn("회권 차감 실패: remainingCount가 음수. MemberProduct ID={}, remainingCount={}", 
+                    memberProduct.getId(), currentRemaining);
+                return null;
+            }
+        }
+    }
+    
+    // 이용권 히스토리 저장
+    private void saveProductHistory(Long memberId, MemberProduct memberProduct, Integer beforeRemaining, 
+                                    Integer afterRemaining, Attendance attendance, Payment payment, String description) {
+        try {
+            MemberProductHistory history = new MemberProductHistory();
+            history.setMemberProduct(memberProduct);
+            history.setMember(memberRepository.findById(memberId).orElse(null));
+            history.setAttendance(attendance);
+            history.setPayment(payment);
+            history.setTransactionDate(java.time.LocalDateTime.now());
+            history.setType(payment != null ? MemberProductHistory.TransactionType.CHARGE : MemberProductHistory.TransactionType.DEDUCT);
+            history.setChangeAmount(afterRemaining - beforeRemaining);
+            history.setRemainingCountAfter(afterRemaining);
+            history.setDescription(description);
+            memberProductHistoryRepository.save(history);
+            logger.debug("이용권 히스토리 저장: MemberProduct ID={}, Change={}, After={}", 
+                memberProduct.getId(), history.getChangeAmount(), afterRemaining);
+        } catch (Exception e) {
+            logger.warn("이용권 히스토리 저장 실패: {}", e.getMessage());
         }
     }
     
@@ -391,9 +660,44 @@ public class AttendanceController {
         if (category == null) return "";
         switch (category) {
             case BASEBALL: return "야구";
+            case YOUTH_BASEBALL: return "유소년 야구";
             case PILATES: return "필라테스";
             case TRAINING: return "트레이닝";
             default: return "";
+        }
+    }
+
+    private boolean matchesLessonCategory(MemberProduct memberProduct, LessonCategory lessonCategory) {
+        if (memberProduct == null || lessonCategory == null) return false;
+        try {
+            com.afbscenter.model.Product product = memberProduct.getProduct();
+            if (product == null) return false;
+            // 카테고리 우선 매칭
+            if (product.getCategory() != null) {
+                String category = product.getCategory().name();
+                if (lessonCategory == LessonCategory.BASEBALL && "BASEBALL".equals(category)) return true;
+                if (lessonCategory == LessonCategory.YOUTH_BASEBALL && ("YOUTH_BASEBALL".equals(category) || "BASEBALL".equals(category))) return true;
+                if (lessonCategory == LessonCategory.PILATES && "PILATES".equals(category)) return true;
+                if (lessonCategory == LessonCategory.TRAINING &&
+                    ("TRAINING".equals(category) || "TRAINING_FITNESS".equals(category))) return true;
+            }
+            
+            // 상품명으로 보조 매칭
+            String productName = product.getName() != null ? product.getName().toLowerCase() : "";
+            switch (lessonCategory) {
+                case BASEBALL:
+                    return productName.contains("야구") || productName.contains("baseball");
+                case YOUTH_BASEBALL:
+                    return productName.contains("유소년") || productName.contains("야구") || productName.contains("youth") || productName.contains("baseball");
+                case PILATES:
+                    return productName.contains("필라테스") || productName.contains("pilates");
+                case TRAINING:
+                    return productName.contains("트레이닝") || productName.contains("training");
+                default:
+                    return false;
+            }
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -445,20 +749,31 @@ public class AttendanceController {
         }
     }
     
-    // 체크인만 있고 체크아웃이 없는 출석 기록 일괄 삭제 (체크인 전 상태로 리셋)
+    // 체크인만 있고 체크아웃이 없는 출석 기록 일괄 삭제 (관리자만 가능, DB 로그 저장)
     @DeleteMapping("/reset-incomplete")
     @Transactional
-    public ResponseEntity<java.util.Map<String, Object>> resetIncompleteAttendances() {
+    public ResponseEntity<java.util.Map<String, Object>> resetIncompleteAttendances(HttpServletRequest request) {
+        String role = (String) request.getAttribute("role");
+        if (role == null || !role.equals("ADMIN")) {
+            logger.warn("이용중 출석 리셋 권한 없음: role={}", role);
+            java.util.Map<String, Object> err = new java.util.HashMap<>();
+            err.put("error", "이용중 출석 기록 리셋은 관리자만 사용할 수 있습니다.");
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(err);
+        }
         try {
             // 체크인은 있지만 체크아웃이 없는 출석 기록 조회
-            List<Attendance> incompleteAttendances = attendanceRepository.findAll().stream()
-                    .filter(a -> a.getCheckInTime() != null && a.getCheckOutTime() == null)
-                    .collect(java.util.stream.Collectors.toList());
+            List<Attendance> incompleteAttendances = attendanceRepository.findIncompleteAttendances();
             
             if (incompleteAttendances.isEmpty()) {
                 java.util.Map<String, Object> result = new java.util.HashMap<>();
                 result.put("message", "리셋할 출석 기록이 없습니다.");
                 result.put("deletedCount", 0);
+                String username = (String) request.getAttribute("username");
+                try {
+                    actionAuditLogRepository.save(ActionAuditLog.of(username, "RESET_INCOMPLETE_ATTENDANCES", "{\"deletedCount\":0}"));
+                } catch (Exception logEx) {
+                    logger.warn("출석 리셋 감사 로그 저장 실패: {}", logEx.getMessage());
+                }
                 return ResponseEntity.ok(result);
             }
             
@@ -476,6 +791,14 @@ public class AttendanceController {
                 }
             }
             
+            String username = (String) request.getAttribute("username");
+            try {
+                String details = new ObjectMapper().writeValueAsString(java.util.Map.of("deletedCount", deletedCount));
+                actionAuditLogRepository.save(ActionAuditLog.of(username, "RESET_INCOMPLETE_ATTENDANCES", details));
+            } catch (Exception logEx) {
+                logger.warn("출석 리셋 감사 로그 저장 실패: {}", logEx.getMessage());
+            }
+            
             java.util.Map<String, Object> result = new java.util.HashMap<>();
             result.put("message", String.format("%d개의 이용중 출석 기록이 삭제되었습니다.", deletedCount));
             result.put("deletedCount", deletedCount);
@@ -490,227 +813,6 @@ public class AttendanceController {
         }
     }
 
-    // 체크인된 출석 기록 조회 (훈련 기록 입력용)
-    @GetMapping("/checked-in")
-    @Transactional(readOnly = true)
-    public ResponseEntity<List<java.util.Map<String, Object>>> getCheckedInAttendances(
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
-        try {
-            logger.info("체크인된 출석 기록 조회 시작: startDate={}, endDate={}", startDate, endDate);
-            List<Attendance> attendances;
-            
-            try {
-                if (startDate != null && endDate != null) {
-                    LocalDate start = LocalDate.parse(startDate);
-                    LocalDate end = LocalDate.parse(endDate);
-                    attendances = attendanceRepository.findCheckedInByDateRange(start, end);
-                    logger.info("날짜 범위로 조회: {}건", attendances != null ? attendances.size() : 0);
-                } else {
-                    attendances = attendanceRepository.findCheckedInAttendances();
-                    logger.info("전체 조회: {}건", attendances != null ? attendances.size() : 0);
-                }
-            } catch (Exception e) {
-                logger.error("출석 기록 조회 실패: {}", e.getMessage(), e);
-                return ResponseEntity.ok(new java.util.ArrayList<>());
-            }
-            
-            if (attendances == null) {
-                attendances = new java.util.ArrayList<>();
-            }
-            
-            // 훈련이 끝난 내용만 필터링 (예약 종료 시간이 지났거나 예약 상태가 완료인 것만)
-            // 이미 훈련 기록이 있는 체크인 기록은 제외
-            LocalDateTime now = LocalDateTime.now();
-            List<Attendance> filteredAttendances = new java.util.ArrayList<>();
-            for (Attendance attendance : attendances) {
-                try {
-                    // 예약 정보 확인: 예약이 있고 종료 시간이 지났거나 상태가 완료인 것만 포함
-                    boolean isTrainingCompleted = false;
-                    try {
-                        com.afbscenter.model.Booking booking = attendance.getBooking();
-                        if (booking != null) {
-                            // 예약 종료 시간이 지났거나 예약 상태가 완료인 경우
-                            try {
-                                if (booking.getEndTime() != null && booking.getEndTime().isBefore(now)) {
-                                    isTrainingCompleted = true;
-                                } else {
-                                    try {
-                                        if (booking.getStatus() == com.afbscenter.model.Booking.BookingStatus.COMPLETED) {
-                                            isTrainingCompleted = true;
-                                        }
-                                    } catch (Exception e) {
-                                        logger.warn("예약 상태 확인 실패 (Attendance ID: {}, Booking ID: {}): {}", 
-                                            attendance.getId(), booking.getId(), e.getMessage());
-                                    }
-                                }
-                            } catch (Exception e) {
-                                logger.warn("예약 종료 시간 확인 실패 (Attendance ID: {}, Booking ID: {}): {}", 
-                                    attendance.getId(), booking.getId(), e.getMessage());
-                            }
-                        } else {
-                            // 예약 정보가 없는 경우, 체크인 시간이 현재보다 이전이면 포함
-                            if (attendance.getCheckInTime() != null && attendance.getCheckInTime().isBefore(now)) {
-                                isTrainingCompleted = true;
-                            }
-                        }
-                    } catch (Exception e) {
-                        logger.warn("예약 정보 확인 실패 (Attendance ID: {}): {}", attendance.getId(), e.getMessage());
-                        // 예약 정보 확인 실패 시, 체크인 시간으로 판단
-                        if (attendance.getCheckInTime() != null && attendance.getCheckInTime().isBefore(now)) {
-                            isTrainingCompleted = true;
-                        }
-                    }
-                    
-                    // 훈련이 끝나지 않았으면 제외
-                    if (!isTrainingCompleted) {
-                        continue;
-                    }
-                    
-                    if (attendance.getMember() == null) {
-                        filteredAttendances.add(attendance); // 회원 정보가 없으면 포함
-                        continue;
-                    }
-                    
-                    // 체크인 기록의 날짜 결정 (예약 날짜 우선, 없으면 체크인 날짜)
-                    // 람다 표현식에서 사용하기 위해 final 변수로 계산
-                    LocalDate attendanceDate = attendance.getDate(); // 기본값 설정
-                    try {
-                        com.afbscenter.model.Booking booking = attendance.getBooking();
-                        if (booking != null) {
-                            try {
-                                if (booking.getStartTime() != null) {
-                                    attendanceDate = booking.getStartTime().toLocalDate();
-                                }
-                            } catch (Exception e) {
-                                logger.warn("예약 시작 시간 읽기 실패 (Attendance ID: {}, Booking ID: {}): {}", 
-                                    attendance.getId(), booking.getId(), e.getMessage());
-                                // 기본값(attendance.getDate()) 유지
-                            }
-                        }
-                    } catch (Exception e) {
-                        logger.warn("출석 기록 날짜 읽기 실패 (Attendance ID: {}): {}", attendance.getId(), e.getMessage());
-                        // 기본값(attendance.getDate()) 유지
-                    }
-                    final LocalDate finalAttendanceDate = attendanceDate;
-                    
-                    // 해당 날짜와 회원에 대한 훈련 기록이 있는지 확인
-                    boolean hasTrainingLog = false;
-                    try {
-                        List<com.afbscenter.model.TrainingLog> existingLogs = 
-                            trainingLogRepository.findByMemberId(attendance.getMember().getId());
-                        
-                        if (existingLogs != null) {
-                            hasTrainingLog = existingLogs.stream()
-                                    .anyMatch(log -> log != null && log.getRecordDate() != null && 
-                                                   log.getRecordDate().equals(finalAttendanceDate));
-                        }
-                    } catch (Exception e) {
-                        logger.warn("훈련 기록 확인 실패 (Attendance ID: {}): {}", attendance.getId(), e.getMessage());
-                        // 확인 실패 시 포함 (안전하게 처리)
-                    }
-                    
-                    // 훈련 기록이 없으면 포함 (목록에 표시)
-                    if (!hasTrainingLog) {
-                        filteredAttendances.add(attendance);
-                    }
-                } catch (Exception e) {
-                    logger.warn("출석 기록 필터링 실패 (Attendance ID: {}): {}", attendance.getId(), e.getMessage());
-                    // 필터링 실패 시 제외 (안전하게 처리)
-                }
-            }
-            
-            // JSON 직렬화를 위해 Map으로 변환 (예약 정보 포함)
-            List<java.util.Map<String, Object>> result = new java.util.ArrayList<>();
-            for (Attendance attendance : filteredAttendances) {
-                try {
-                    java.util.Map<String, Object> map = new java.util.HashMap<>();
-                    map.put("id", attendance.getId());
-                    map.put("date", attendance.getDate());
-                    map.put("checkInTime", attendance.getCheckInTime());
-                    map.put("checkOutTime", attendance.getCheckOutTime());
-                    map.put("status", attendance.getStatus() != null ? attendance.getStatus().name() : null);
-                    
-                    // 회원 정보
-                    if (attendance.getMember() != null) {
-                        java.util.Map<String, Object> memberMap = new java.util.HashMap<>();
-                        memberMap.put("id", attendance.getMember().getId());
-                        memberMap.put("name", attendance.getMember().getName());
-                        map.put("member", memberMap);
-                    } else {
-                        map.put("member", null);
-                    }
-                    
-                    // 시설 정보
-                    if (attendance.getFacility() != null) {
-                        java.util.Map<String, Object> facilityMap = new java.util.HashMap<>();
-                        facilityMap.put("id", attendance.getFacility().getId());
-                        facilityMap.put("name", attendance.getFacility().getName());
-                        map.put("facility", facilityMap);
-                    } else {
-                        map.put("facility", null);
-                    }
-                    
-                    // 예약 정보 (있는 경우)
-                    try {
-                        com.afbscenter.model.Booking booking = attendance.getBooking();
-                        if (booking != null) {
-                            java.util.Map<String, Object> bookingMap = new java.util.HashMap<>();
-                            try {
-                                bookingMap.put("id", booking.getId());
-                                bookingMap.put("startTime", booking.getStartTime());
-                                bookingMap.put("endTime", booking.getEndTime());
-                                bookingMap.put("purpose", booking.getPurpose() != null ? booking.getPurpose().name() : null);
-                                bookingMap.put("lessonCategory", booking.getLessonCategory() != null ? booking.getLessonCategory().name() : null);
-                                
-                                // 코치 정보
-                                try {
-                                    if (booking.getCoach() != null) {
-                                        java.util.Map<String, Object> coachMap = new java.util.HashMap<>();
-                                        coachMap.put("id", booking.getCoach().getId());
-                                        coachMap.put("name", booking.getCoach().getName());
-                                        coachMap.put("specialties", booking.getCoach().getSpecialties());
-                                        bookingMap.put("coach", coachMap);
-                                    } else {
-                                        bookingMap.put("coach", null);
-                                    }
-                                } catch (Exception e) {
-                                    logger.warn("코치 정보 읽기 실패 (Attendance ID: {}, Booking ID: {}): {}", 
-                                        attendance.getId(), booking.getId(), e.getMessage());
-                                    bookingMap.put("coach", null);
-                                }
-                                
-                                map.put("booking", bookingMap);
-                            } catch (Exception e) {
-                                logger.warn("예약 정보 읽기 실패 (Attendance ID: {}, Booking ID: {}): {}", 
-                                    attendance.getId(), booking.getId(), e.getMessage());
-                                map.put("booking", null);
-                            }
-                        } else {
-                            map.put("booking", null);
-                        }
-                    } catch (Exception e) {
-                        logger.warn("예약 접근 실패 (Attendance ID: {}): {}", attendance.getId(), e.getMessage());
-                        map.put("booking", null);
-                    }
-                    
-                    result.add(map);
-                } catch (Exception e) {
-                    logger.warn("출석 기록 변환 실패 (Attendance ID: {}): {}", attendance.getId(), e.getMessage());
-                    // 해당 항목만 건너뛰고 계속 진행
-                }
-            }
-            
-            logger.info("체크인된 출석 기록 조회 완료: {}건", result.size());
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            logger.error("체크인된 출석 기록 조회 중 오류 발생: {}", e.getMessage(), e);
-            logger.error("오류 상세:", e);
-            // 오류 발생 시 빈 리스트 반환 (서비스 중단 방지)
-            return ResponseEntity.ok(new java.util.ArrayList<>());
-        }
-    }
-    
     // 체크인 처리 (예약 기반)
     @PostMapping("/checkin")
     @Transactional
@@ -738,10 +840,16 @@ public class AttendanceController {
             
             com.afbscenter.model.Booking booking = null;
             try {
-                booking = bookingRepository.findByIdWithFacilityAndMember(finalBookingId);
-                logger.debug("findByIdWithFacilityAndMember로 예약 조회 성공: Booking ID={}", finalBookingId);
+                booking = bookingRepository.findByIdWithAllRelations(finalBookingId);
+                logger.debug("findByIdWithAllRelations로 예약 조회 성공: Booking ID={}", finalBookingId);
             } catch (Exception e) {
-                logger.warn("findByIdWithFacilityAndMember 실패, findById 시도: {}", e.getMessage());
+                logger.warn("findByIdWithAllRelations 실패, findByIdWithFacilityAndMember 시도: {}", e.getMessage());
+                try {
+                    booking = bookingRepository.findByIdWithFacilityAndMember(finalBookingId);
+                    logger.debug("findByIdWithFacilityAndMember로 예약 조회 성공: Booking ID={}", finalBookingId);
+                } catch (Exception e2) {
+                    logger.warn("findByIdWithFacilityAndMember 실패, findById 시도: {}", e2.getMessage());
+                }
             }
             
             if (booking == null) {
@@ -805,11 +913,21 @@ public class AttendanceController {
             } catch (Exception e) {
                 logger.warn("Booking의 MemberProduct 조회 실패: {}", e.getMessage());
             }
+
+            // memberProduct가 없으면 전체 관계로 재조회 시도
+            if (bookingMemberProduct == null) {
+                try {
+                    com.afbscenter.model.Booking bookingWithAll = bookingRepository.findByIdWithAllRelations(finalBookingId);
+                    if (bookingWithAll != null && bookingWithAll.getMemberProduct() != null) {
+                        bookingMemberProduct = bookingWithAll.getMemberProduct();
+                    }
+                } catch (Exception e) {
+                    logger.debug("memberProduct 재조회 실패 (무시): {}", e.getMessage());
+                }
+            }
             
             // 이미 출석 기록이 있는지 확인
-            java.util.Optional<Attendance> existingAttendance = attendanceRepository.findAll().stream()
-                    .filter(a -> a.getBooking() != null && a.getBooking().getId().equals(finalBookingId))
-                    .findFirst();
+            java.util.Optional<Attendance> existingAttendance = attendanceRepository.findByBookingId(finalBookingId);
             
             Attendance attendance;
             boolean isNewAttendance = false;
@@ -821,6 +939,12 @@ public class AttendanceController {
                 bookingDate = java.time.LocalDate.now();
             }
             
+            // 차감 정보 저장용 변수 (응답에 포함하기 위해 상위 스코프에 선언)
+            java.util.Map.Entry<MemberProduct, Integer> deductResultForResponse = null;
+            // 차감 실패/건너뜀 정보 저장용 변수
+            String deductSkipReason = null;
+            String deductFailReason = null;
+            
             if (existingAttendance.isPresent()) {
                 // 기존 출석 기록이 있으면 업데이트
                 attendance = existingAttendance.get();
@@ -831,10 +955,14 @@ public class AttendanceController {
                     error.put("error", "이미 체크인된 예약입니다.");
                     return ResponseEntity.badRequest().body(error);
                 }
+                // 기존 출석 기록이지만 아직 체크인하지 않은 경우, 차감을 위해 isNewAttendance를 true로 설정
+                isNewAttendance = true;
                 // 기존 출석 기록의 날짜도 예약 날짜로 업데이트 (캘린더와 일치시키기 위해)
                 attendance.setDate(bookingDate);
                 attendance.setCheckInTime(java.time.LocalDateTime.now());
                 attendance.setStatus(Attendance.AttendanceStatus.PRESENT);
+                logger.info("기존 출석 기록에 체크인 처리: Attendance ID={}, Booking ID={}, 체크인 시간이 null이었으므로 차감 진행", 
+                    attendance.getId(), finalBookingId);
             } else {
                 // 새로운 출석 기록 생성
                 isNewAttendance = true;
@@ -869,32 +997,116 @@ public class AttendanceController {
                     boolean isRental = booking.getPurpose() != null && 
                                       booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.RENTAL;
                     
+                    logger.info("체크인 이용권 차감 조건 확인: autoDeduct={}, isNewAttendance={}, isRental={}, Booking ID={}", 
+                        autoDeduct, isNewAttendance, isRental, finalBookingId);
+                    
                     if (autoDeduct && isNewAttendance && !isRental) {
                         try {
                             // 예약에 지정된 memberProduct가 있으면 해당 상품 사용, 없으면 회원의 활성 횟수권 중 첫 번째 사용
                             com.afbscenter.model.MemberProduct memberProductToUse = bookingMemberProduct;
                             
-                            if (memberProductToUse != null) {
-                                logger.info("체크인 시 예약에 지정된 상품 사용: MemberProduct ID={}, Booking ID={}", 
-                                    memberProductToUse.getId(), finalBookingId);
+                            if (memberProductToUse == null) {
+                                List<MemberProduct> countPassProducts = 
+                                    memberProductRepository.findActiveCountPassByMemberId(member.getId());
+                                
+                                logger.info("체크인 시 활성 횟수권 조회: Member ID={}, 조회된 횟수권 수={}, Booking ID={}", 
+                                    member.getId(), countPassProducts != null ? countPassProducts.size() : 0, finalBookingId);
+                                
+                                if (countPassProducts != null && !countPassProducts.isEmpty()) {
+                                    // 레슨 카테고리와 맞는 횟수권 우선 사용
+                                    LessonCategory lessonCategory = booking.getLessonCategory();
+                                    List<MemberProduct> filteredByCategory = countPassProducts;
+                                    if (lessonCategory != null) {
+                                        filteredByCategory = countPassProducts.stream()
+                                            .filter(mp -> matchesLessonCategory(mp, lessonCategory))
+                                            .collect(java.util.stream.Collectors.toList());
+                                        if (filteredByCategory.isEmpty()) {
+                                            filteredByCategory = countPassProducts;
+                                        }
+                                    }
+                                    
+                                    // 잔여 횟수가 적은 상품 우선, 그 다음 구매일 기준
+                                    filteredByCategory.sort((a, b) -> {
+                                        Integer aRemaining = a.getRemainingCount() != null ? a.getRemainingCount() : Integer.MAX_VALUE;
+                                        Integer bRemaining = b.getRemainingCount() != null ? b.getRemainingCount() : Integer.MAX_VALUE;
+                                        int remainingCompare = Integer.compare(aRemaining, bRemaining);
+                                        if (remainingCompare != 0) {
+                                            return remainingCompare;
+                                        }
+                                        if (a.getPurchaseDate() == null && b.getPurchaseDate() == null) return 0;
+                                        if (a.getPurchaseDate() == null) return 1;
+                                        if (b.getPurchaseDate() == null) return -1;
+                                        return a.getPurchaseDate().compareTo(b.getPurchaseDate());
+                                    });
+                                    
+                                    memberProductToUse = filteredByCategory.get(0);
+                                    logger.info("체크인 시 기본 횟수권 지정: MemberProduct ID={}, Product Name={}, RemainingCount={}, TotalCount={}, Booking ID={}", 
+                                        memberProductToUse.getId(), 
+                                        memberProductToUse.getProduct() != null ? memberProductToUse.getProduct().getName() : "unknown",
+                                        memberProductToUse.getRemainingCount(),
+                                        memberProductToUse.getTotalCount(),
+                                        finalBookingId);
+                                    
+                                    // 예약에 상품이 없으면 연결하여 추적 가능하게 설정
+                                    if (booking.getMemberProduct() == null) {
+                                        booking.setMemberProduct(memberProductToUse);
+                                        bookingRepository.save(booking);
+                                    }
+                                } else {
+                                    logger.warn("체크인 시 차감할 활성 횟수권이 없음: Member ID={}, Booking ID={}", 
+                                        member.getId(), finalBookingId);
+                                }
+                            } else {
+                                logger.info("체크인 시 예약에 지정된 상품 사용: MemberProduct ID={}, Product Name={}, RemainingCount={}, Booking ID={}", 
+                                    memberProductToUse.getId(),
+                                    memberProductToUse.getProduct() != null ? memberProductToUse.getProduct().getName() : "unknown",
+                                    memberProductToUse.getRemainingCount(),
+                                    finalBookingId);
                             }
                             
-                            LessonCategory lessonCategory = booking.getLessonCategory();
-                            if (lessonCategory == null) {
-                                logger.warn("예약의 LessonCategory가 null입니다. Booking ID={}", finalBookingId);
-                                // lessonCategory가 null이면 기본값 사용하지 않고 건너뜀
+                            if (memberProductToUse != null) {
+                                LessonCategory lessonCategory = booking.getLessonCategory();
+                                if (lessonCategory == null) {
+                                    logger.warn("예약의 LessonCategory가 null입니다. Booking ID={}", finalBookingId);
+                                }
+                                java.util.Map.Entry<MemberProduct, Integer> deductResult = decreaseCountPassUsage(member.getId(), lessonCategory, memberProductToUse);
+                                
+                                // 히스토리 저장
+                                if (deductResult != null) {
+                                    deductResultForResponse = deductResult; // 응답용으로 저장
+                                    saveProductHistory(member.getId(), deductResult.getKey(), deductResult.getValue(), 
+                                        deductResult.getKey().getRemainingCount(), attendance, null, "체크인으로 인한 차감");
+                                    logger.info("상품권 횟수 차감 완료: Member ID={}, Booking ID={}, MemberProduct ID={}, 차감 전: {}회, 차감 후: {}회", 
+                                        member.getId(), finalBookingId, deductResult.getKey().getId(), 
+                                        deductResult.getValue(), deductResult.getKey().getRemainingCount());
+                                } else {
+                                    logger.warn("이용권 차감 실패: decreaseCountPassUsage가 null 반환. Member ID={}, Booking ID={}, MemberProduct ID={}", 
+                                        member.getId(), finalBookingId, memberProductToUse.getId());
+                                    // 차감 실패 이유 저장
+                                    deductFailReason = "이용권 차감 실패 (remainingCount가 0이거나 차감할 수 없음)";
+                                }
                             } else {
-                                decreaseCountPassUsage(member.getId(), lessonCategory, memberProductToUse);
-                                logger.info("상품권 횟수 차감 완료: Member ID={}, Booking ID={}", member.getId(), finalBookingId);
+                                logger.warn("이용권 차감 실패: 사용할 MemberProduct가 없음. Member ID={}, Booking ID={}", 
+                                    member.getId(), finalBookingId);
+                                // 차감 실패 이유 저장
+                                deductFailReason = "활성 횟수권이 없음";
                             }
                         } catch (Exception e) {
                             logger.error("상품권 횟수 차감 실패: Member ID={}, Booking ID={}", member.getId(), finalBookingId, e);
                             // 상품권 차감 실패해도 출석 기록은 저장됨
                         }
-                    } else if (!isNewAttendance) {
-                        logger.debug("기존 출석 기록 업데이트 - 횟수권 차감 건너뜀: Attendance ID={}", attendance.getId());
-                    } else if (isRental) {
-                        logger.debug("대관 예약 - 횟수권 차감 건너뜀: Booking ID={}", finalBookingId);
+                    } else {
+                        if (!autoDeduct) {
+                            deductSkipReason = "autoDeduct가 false로 설정됨";
+                            logger.info("autoDeduct가 false로 설정되어 이용권 차감을 건너뜁니다. Booking ID={}", finalBookingId);
+                        } else if (!isNewAttendance) {
+                            deductSkipReason = "기존 출석 기록 업데이트";
+                            logger.info("기존 출석 기록 업데이트 - 횟수권 차감 건너뜀: Attendance ID={}, Booking ID={}", 
+                                attendance.getId(), finalBookingId);
+                        } else if (isRental) {
+                            deductSkipReason = "대관 예약";
+                            logger.info("대관 예약 - 횟수권 차감 건너뜀: Booking ID={}", finalBookingId);
+                        }
                     }
                 }
             } else {
@@ -911,8 +1123,75 @@ public class AttendanceController {
             result.put("status", saved.getStatus() != null ? saved.getStatus().name() : null);
             result.put("message", "체크인이 완료되었습니다.");
             
-            logger.info("체크인 완료: Attendance ID={}, Booking ID={}, Member ID={}", 
-                    saved.getId(), finalBookingId, attendance.getMember() != null ? attendance.getMember().getId() : null);
+            // 차감 실패/건너뜀 정보 추가
+            if (deductFailReason != null) {
+                result.put("deductFailed", true);
+                result.put("deductFailReason", deductFailReason);
+            } else if (deductSkipReason != null) {
+                result.put("deductSkipped", true);
+                result.put("deductSkipReason", deductSkipReason);
+            }
+            
+            // 이용권 차감 정보 추가
+            if (deductResultForResponse != null) {
+                try {
+                    MemberProduct deductedProduct = deductResultForResponse.getKey();
+                    Integer beforeCount = deductResultForResponse.getValue(); // 차감 전 횟수
+                    Integer afterCount = deductedProduct.getRemainingCount(); // 차감 후 횟수
+                    
+                    // 같은 상품을 여러 번 구매한 경우 총 횟수 합산
+                    Integer totalCount = deductedProduct.getTotalCount();
+                    if (deductedProduct.getProduct() != null && deductedProduct.getMember() != null) {
+                        try {
+                            List<MemberProduct> sameProducts = memberProductRepository.findByMemberIdAndProductId(
+                                deductedProduct.getMember().getId(), 
+                                deductedProduct.getProduct().getId()
+                            );
+                            if (sameProducts != null && !sameProducts.isEmpty()) {
+                                // 같은 상품의 모든 구매의 totalCount 합산
+                                totalCount = sameProducts.stream()
+                                    .filter(mp -> mp.getTotalCount() != null)
+                                    .mapToInt(MemberProduct::getTotalCount)
+                                    .sum();
+                                logger.info("같은 상품 여러 구매 합산: Product ID={}, 구매 수={}, 총 횟수={}", 
+                                    deductedProduct.getProduct().getId(), sameProducts.size(), totalCount);
+                            }
+                        } catch (Exception e) {
+                            logger.warn("같은 상품 구매 조회 실패, 단일 구매 totalCount 사용: {}", e.getMessage());
+                        }
+                    }
+                    
+                    java.util.Map<String, Object> productDeducted = new java.util.HashMap<>();
+                    productDeducted.put("productName", deductedProduct.getProduct() != null ? 
+                        deductedProduct.getProduct().getName() : "이용권");
+                    productDeducted.put("remainingCount", afterCount);
+                    productDeducted.put("totalCount", totalCount);
+                    productDeducted.put("beforeCount", beforeCount);
+                    
+                    result.put("productDeducted", productDeducted);
+                    
+                    logger.info("체크인 완료: Attendance ID={}, Booking ID={}, Member ID={}, ProductDeducted={}, ProductName={}, Before={}, After={}", 
+                        saved.getId(), finalBookingId, attendance.getMember() != null ? attendance.getMember().getId() : null,
+                        "예", productDeducted.get("productName"), beforeCount, afterCount);
+                } catch (Exception e) {
+                    logger.error("이용권 차감 정보 추가 실패: {}", e.getMessage(), e);
+                }
+            } else {
+                // 차감이 실행되지 않은 이유 로깅
+                if (attendance.getMember() != null) {
+                    Boolean autoDeduct = checkinData.get("autoDeduct") != null ? 
+                            Boolean.parseBoolean(checkinData.get("autoDeduct").toString()) : true;
+                    boolean isRental = booking != null && booking.getPurpose() != null && 
+                                      booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.RENTAL;
+                    
+                    logger.info("체크인 완료 (차감 없음): Attendance ID={}, Booking ID={}, Member ID={}, autoDeduct={}, isNewAttendance={}, isRental={}", 
+                        saved.getId(), finalBookingId, attendance.getMember() != null ? attendance.getMember().getId() : null,
+                        autoDeduct, isNewAttendance, isRental);
+                } else {
+                    logger.info("체크인 완료 (비회원): Attendance ID={}, Booking ID={}", 
+                        saved.getId(), finalBookingId);
+                }
+            }
             
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
@@ -928,7 +1207,6 @@ public class AttendanceController {
                 ((Number) checkinData.get("bookingId")).longValue() : null;
             logger.error("체크인 처리 중 오류 발생: Booking ID={}, 오류 타입: {}, 메시지: {}", 
                 errorBookingId, e.getClass().getName(), e.getMessage(), e);
-            e.printStackTrace(); // 스택 트레이스 출력
             java.util.Map<String, Object> error = new java.util.HashMap<>();
             error.put("error", "체크인 처리 중 오류가 발생했습니다: " + e.getMessage());
             error.put("errorType", e.getClass().getSimpleName());
@@ -938,119 +1216,6 @@ public class AttendanceController {
                 error.put("cause", e.getCause().getMessage());
             }
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
-        }
-    }
-    
-    // 체크인 미처리 예약 목록 조회 (예약은 있지만 출석 기록이 없는 확정된 예약)
-    // 오늘 날짜와 과거 날짜 예약만 반환 (미래 날짜 제외)
-    @GetMapping("/unchecked-bookings")
-    @Transactional(readOnly = true)
-    public ResponseEntity<List<java.util.Map<String, Object>>> getUncheckedBookings() {
-        try {
-            // 오늘 날짜 (시간 제외)
-            java.time.LocalDate today = java.time.LocalDate.now();
-            
-            // 모든 확정된 예약 조회
-            List<com.afbscenter.model.Booking> confirmedBookings = bookingRepository.findByStatus(
-                    com.afbscenter.model.Booking.BookingStatus.CONFIRMED);
-            
-            // 완료된 예약도 포함 (과거 예약 체크인 처리용)
-            List<com.afbscenter.model.Booking> completedBookings = bookingRepository.findByStatus(
-                    com.afbscenter.model.Booking.BookingStatus.COMPLETED);
-            
-            // 두 목록 합치기
-            List<com.afbscenter.model.Booking> allBookings = new java.util.ArrayList<>();
-            allBookings.addAll(confirmedBookings);
-            allBookings.addAll(completedBookings);
-            
-            // 과거 날짜 예약만 필터링 (오늘 날짜와 미래 날짜 제외)
-            final java.time.LocalDate finalToday = today;
-            allBookings = allBookings.stream()
-                    .filter(booking -> {
-                        if (booking.getStartTime() == null) {
-                            return false;
-                        }
-                        java.time.LocalDate bookingDate = booking.getStartTime().toLocalDate();
-                        // 과거 날짜인 경우만 포함 (오늘 날짜 제외)
-                        return bookingDate.isBefore(finalToday);
-                    })
-                    .collect(java.util.stream.Collectors.toList());
-            
-            logger.debug("체크인 미처리 예약 조회: 전체 {}건 중 과거 날짜 {}건", 
-                confirmedBookings.size() + completedBookings.size(), allBookings.size());
-            
-            // 모든 출석 기록 조회 (booking_id가 있는 것만)
-            List<Attendance> allAttendances = attendanceRepository.findAll();
-            java.util.Set<Long> bookingsWithAttendance = new java.util.HashSet<>();
-            for (Attendance attendance : allAttendances) {
-                if (attendance.getBooking() != null) {
-                    bookingsWithAttendance.add(attendance.getBooking().getId());
-                }
-            }
-            
-            // 출석 기록이 없는 예약만 필터링
-            final java.util.Set<Long> finalBookingsWithAttendance = bookingsWithAttendance;
-            List<com.afbscenter.model.Booking> uncheckedBookings = allBookings.stream()
-                    .filter(booking -> !finalBookingsWithAttendance.contains(booking.getId()))
-                    .sorted((a, b) -> {
-                        if (a.getStartTime() == null && b.getStartTime() == null) return 0;
-                        if (a.getStartTime() == null) return 1;
-                        if (b.getStartTime() == null) return -1;
-                        return b.getStartTime().compareTo(a.getStartTime()); // 최신순
-                    })
-                    .collect(java.util.stream.Collectors.toList());
-            
-            // Map으로 변환하여 반환
-            List<java.util.Map<String, Object>> result = uncheckedBookings.stream().map(booking -> {
-                java.util.Map<String, Object> map = new java.util.HashMap<>();
-                map.put("id", booking.getId());
-                map.put("startTime", booking.getStartTime());
-                map.put("endTime", booking.getEndTime());
-                map.put("participants", booking.getParticipants());
-                map.put("status", booking.getStatus() != null ? booking.getStatus().name() : null);
-                map.put("purpose", booking.getPurpose() != null ? booking.getPurpose().name() : null);
-                map.put("lessonCategory", booking.getLessonCategory() != null ? booking.getLessonCategory().name() : null);
-                
-                // Facility 정보
-                if (booking.getFacility() != null) {
-                    try {
-                        java.util.Map<String, Object> facilityMap = new java.util.HashMap<>();
-                        facilityMap.put("id", booking.getFacility().getId());
-                        facilityMap.put("name", booking.getFacility().getName());
-                        map.put("facility", facilityMap);
-                    } catch (Exception e) {
-                        logger.warn("Facility 로드 실패: Booking ID={}", booking.getId(), e);
-                        map.put("facility", null);
-                    }
-                } else {
-                    map.put("facility", null);
-                }
-                
-                // Member 정보
-                if (booking.getMember() != null) {
-                    try {
-                        java.util.Map<String, Object> memberMap = new java.util.HashMap<>();
-                        memberMap.put("id", booking.getMember().getId());
-                        memberMap.put("name", booking.getMember().getName());
-                        memberMap.put("memberNumber", booking.getMember().getMemberNumber());
-                        map.put("member", memberMap);
-                    } catch (Exception e) {
-                        logger.warn("Member 로드 실패: Booking ID={}", booking.getId(), e);
-                        map.put("member", null);
-                    }
-                } else {
-                    map.put("member", null);
-                    map.put("nonMemberName", booking.getNonMemberName());
-                    map.put("nonMemberPhone", booking.getNonMemberPhone());
-                }
-                
-                return map;
-            }).collect(java.util.stream.Collectors.toList());
-            
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            logger.error("체크인 미처리 예약 조회 중 오류 발생", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
     
@@ -1100,6 +1265,14 @@ public class AttendanceController {
             // 체크아웃 여부는 checkOutTime이 null인지로 판단
             
             Attendance saved = attendanceRepository.save(attendance);
+            
+            // 대관(RENTAL) 예약인 경우 체크아웃 시 예약 상태를 완료(COMPLETED)로 변경
+            com.afbscenter.model.Booking booking = saved.getBooking();
+            if (booking != null && booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.RENTAL) {
+                booking.setStatus(com.afbscenter.model.Booking.BookingStatus.COMPLETED);
+                bookingRepository.save(booking);
+                logger.info("대관 예약 완료 처리: Booking ID={}", booking.getId());
+            }
             
             java.util.Map<String, Object> result = new java.util.HashMap<>();
             result.put("id", saved.getId());

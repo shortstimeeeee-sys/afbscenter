@@ -3,7 +3,6 @@ package com.afbscenter.controller;
 import com.afbscenter.model.Coach;
 import com.afbscenter.service.CoachService;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,16 +26,22 @@ public class CoachController {
             @RequestParam(required = false) String branch) {
         List<Coach> coaches = coachService.getAllCoaches();
         
-        // branch 파라미터가 있으면 해당 지점에 배정된 코치만 필터링
+        // branch 파라미터가 있으면 해당 지점에 배정된 코치만 필터링 (쉼표 분리 후 정확 매칭)
         if (branch != null && !branch.trim().isEmpty()) {
+            String branchUpper = branch.trim().toUpperCase();
             coaches = coaches.stream()
                 .filter(coach -> {
                     String availableBranches = coach.getAvailableBranches();
                     if (availableBranches == null || availableBranches.trim().isEmpty()) {
                         return false; // 배정된 지점이 없으면 제외
                     }
-                    // 쉼표로 구분된 지점 목록에 해당 지점이 포함되어 있는지 확인
-                    return availableBranches.toUpperCase().contains(branch.toUpperCase());
+                    String[] parts = availableBranches.split("[,，]");
+                    for (String part : parts) {
+                        if (part.trim().equalsIgnoreCase(branchUpper)) {
+                            return true;
+                        }
+                    }
+                    return false;
                 })
                 .collect(java.util.stream.Collectors.toList());
         }

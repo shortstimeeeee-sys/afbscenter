@@ -46,7 +46,7 @@ async function loadFacilities() {
         renderFacilitiesTable(facilities);
         renderFacilitySelect(facilities);
     } catch (error) {
-        console.error('시설 목록 로드 실패:', error);
+        App.err('시설 목록 로드 실패:', error);
     }
 }
 
@@ -109,6 +109,8 @@ function renderFacilitySelect(facilities) {
     });
 }
 
+let lastLoadedSlots = [];
+
 async function loadSlots() {
     const facilityId = document.getElementById('facility-select').value;
     if (!facilityId) {
@@ -118,15 +120,38 @@ async function loadSlots() {
     
     try {
         const slots = await App.api.get(`/facilities/${facilityId}/slots`);
-        renderSlots(slots);
+        lastLoadedSlots = Array.isArray(slots) ? slots : [];
+        renderSlots(lastLoadedSlots);
     } catch (error) {
-        console.error('슬롯 로드 실패:', error);
+        App.err('슬롯 로드 실패:', error);
+    }
+}
+
+async function saveSlots() {
+    const facilityId = document.getElementById('facility-select').value;
+    if (!facilityId || lastLoadedSlots.length === 0) {
+        App.showNotification('시설을 선택하고 슬롯을 로드한 뒤 저장해 주세요.', 'info');
+        return;
+    }
+    const body = lastLoadedSlots.map(s => ({
+        dayOfWeek: s.dayOfWeek,
+        startTime: s.startTime || null,
+        endTime: s.endTime || null,
+        isOpen: s.isOpen !== false
+    }));
+    try {
+        await App.api.put(`/facilities/${facilityId}/slots`, body);
+        App.showNotification('슬롯이 저장되었습니다. 예약은 이 운영시간 내에서만 가능합니다.', 'success');
+        loadSlots();
+    } catch (error) {
+        App.showApiError(error);
     }
 }
 
 function renderSlots(slots) {
     const container = document.getElementById('slots-container');
     const days = ['월', '화', '수', '목', '금', '토', '일'];
+    const facilityId = document.getElementById('facility-select').value;
     
     container.innerHTML = `
         <div class="slot-grid">
@@ -143,6 +168,7 @@ function renderSlots(slots) {
                 `;
             }).join('')}
         </div>
+        ${facilityId ? '<div style="margin-top: 16px;"><button type="button" class="btn btn-primary" onclick="saveSlots()">현재 슬롯을 DB에 저장</button></div>' : ''}
     `;
 }
 
@@ -177,7 +203,7 @@ async function loadFacilityData(id) {
         const facility = await App.api.get(`/facilities/${id}`);
         
         // ID 확인 로그
-        console.log(`시설 수정 - ID: ${id}, 이름: ${facility.name}, 위치: ${facility.location || '없음'}`);
+        App.log(`시설 수정 - ID: ${id}, 이름: ${facility.name}, 위치: ${facility.location || '없음'}`);
         
         document.getElementById('facility-id').value = facility.id;
         document.getElementById('facility-id-value').textContent = facility.id;
@@ -221,7 +247,7 @@ async function loadFacilityData(id) {
             title.textContent = `시설 수정 (ID: ${facility.id} - ${facility.name})`;
         }
     } catch (error) {
-        console.error('시설 정보 로드 실패:', error);
+        App.err('시설 정보 로드 실패:', error);
         App.showNotification('시설 정보를 불러오는데 실패했습니다.', 'danger');
     }
 }
@@ -295,7 +321,7 @@ async function saveFacility() {
         App.Modal.close('facility-modal');
         loadFacilities();
     } catch (error) {
-        console.error('시설 저장 실패:', error);
+        App.err('시설 저장 실패:', error);
         App.showNotification('저장에 실패했습니다.', 'danger');
     }
 }

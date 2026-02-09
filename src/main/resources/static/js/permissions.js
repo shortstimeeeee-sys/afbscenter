@@ -128,7 +128,7 @@ async function loadPermissions() {
         allPermissions = response.permissions || {};
         renderPermissions('ADMIN');
     } catch (error) {
-        console.error('권한 목록 로드 실패:', error);
+        App.err('권한 목록 로드 실패:', error);
         App.showNotification('권한 목록을 불러오는데 실패했습니다.', 'error');
     }
 }
@@ -203,14 +203,23 @@ async function savePermissions() {
         // 현재 선택된 역할의 권한 저장
         const rolePermission = allPermissions[currentRole] || {};
         
-        await App.api.put(`/role-permissions/${currentRole}`, rolePermission);
+        // role 필드를 제거하고 Boolean 값만 있는 객체 생성
+        const permissionsToSave = {};
+        for (const key in rolePermission) {
+            if (key !== 'role' && key !== 'id' && key !== 'updatedAt' && typeof rolePermission[key] === 'boolean') {
+                permissionsToSave[key] = rolePermission[key];
+            }
+        }
+        
+        App.log('저장할 권한 데이터:', permissionsToSave);
+        await App.api.put(`/role-permissions/${currentRole}`, permissionsToSave);
         App.showNotification(`${getRoleName(currentRole)} 권한이 저장되었습니다.`, 'success');
         
         // 권한 목록 다시 로드
         await loadPermissions();
     } catch (error) {
-        console.error('권한 저장 실패:', error);
-        const errorMsg = error.response?.data?.error || '권한 저장에 실패했습니다.';
+        App.err('권한 저장 실패:', error);
+        const errorMsg = error.response?.data?.error || error.response?.data?.message || '권한 저장에 실패했습니다.';
         App.showNotification(errorMsg, 'error');
     }
 }
@@ -226,7 +235,7 @@ async function resetPermissions() {
         await loadPermissions();
         App.showNotification('권한이 초기화되었습니다.', 'success');
     } catch (error) {
-        console.error('권한 초기화 실패:', error);
+        App.err('권한 초기화 실패:', error);
         App.showNotification('권한 초기화에 실패했습니다.', 'error');
     }
 }

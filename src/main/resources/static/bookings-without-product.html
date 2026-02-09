@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>이용권 미연결 예약 관리 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/bookings.css">
+</head>
+<body class="booking-page">
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">출석부</div>
+                    <a href="/attendance.html" class="menu-item menu-item--attendance" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings-without-product.html" class="menu-item active" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
+                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
+                    <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">훈련 관리</div>
+                    <a href="/training-logs.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
+                    <a href="/rankings.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">🏆</span><span>훈련 랭킹</span></a>
+                    <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
+                </div>
+            </nav>
+        </aside>
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">이용권 미연결 예약 관리</h1>
+                    <div class="search-box">
+                        <input type="text" placeholder="검색..." id="global-search">
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn">🔔</button>
+                    <button class="user-menu-btn">👤</button>
+                </div>
+            </header>
+            <div class="content-area">
+                <div class="card">
+                    <div class="card-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+                        <div>
+                            <h2 class="card-title">⚠️ 이용권이 연결되지 않은 회원 예약</h2>
+                            <p class="card-desc" style="margin: 4px 0 0 0; font-size: 13px; color: var(--text-muted);">수정에서 이용권을 선택·저장하면 연결되며, 이 목록에서 사라집니다. 수정 후 아래 새로고침을 누르면 반영됩니다.</p>
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-shrink: 0;">
+                            <button type="button" class="btn btn-primary btn-sm" id="btn-bulk-link">🔗 1개 보유 회원 일괄 연결</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh-list">🔄 목록 새로고침</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="loading" class="members-stats-loading" style="padding: 24px; text-align: center;">로딩 중...</div>
+                        <div id="error" style="display: none; padding: 24px; color: var(--danger);"></div>
+                        <div id="empty" style="display: none; padding: 24px; text-align: center; color: var(--text-muted);">이용권이 연결되지 않은 회원 예약이 없습니다.</div>
+                        <div id="table-wrap" style="display: none;">
+                            <div class="table-container">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>예약 ID</th>
+                                            <th>날짜</th>
+                                            <th>시간</th>
+                                            <th>회원</th>
+                                            <th>연락처</th>
+                                            <th>시설</th>
+                                            <th>상태</th>
+                                            <th>수정</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbody"></tbody>
+                                </table>
+                            </div>
+                            <p id="count-msg" style="margin-top: 12px; font-size: 13px; color: var(--text-muted);"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="/js/common.js"></script>
+    <script>
+(function() {
+    // 관리자(Admin)만 접근 가능
+    var role = (typeof App !== 'undefined' && App.currentRole) ? String(App.currentRole).toUpperCase() : '';
+    if (role !== 'ADMIN') {
+        var main = document.querySelector('.main-content');
+        if (main) {
+            var content = main.querySelector('.content-area');
+            if (content) {
+                content.innerHTML = '<div class="card" style="padding: 24px; text-align: center;"><p style="color: var(--text-muted); margin: 0;">이용권 미연결 예약 관리는 관리자만 이용할 수 있습니다.</p><p style="margin-top: 12px;"><a href="/" class="btn btn-primary">대시보드로 이동</a></p></div>';
+            }
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof App !== 'undefined' && App.showNotification) {
+                App.showNotification('관리자만 접근할 수 있는 메뉴입니다.', 'error');
+            }
+        });
+        return;
+    }
+
+    const loading = document.getElementById('loading');
+    const errorEl = document.getElementById('error');
+    const emptyEl = document.getElementById('empty');
+    const tableWrap = document.getElementById('table-wrap');
+    const tbody = document.getElementById('tbody');
+    const countMsg = document.getElementById('count-msg');
+
+    function formatDate(d) {
+        if (!d) return '-';
+        const dt = new Date(d);
+        return dt.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    }
+    function formatTime(d) {
+        if (!d) return '-';
+        const dt = new Date(d);
+        return dt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+    function escapeHtml(s) {
+        if (s == null || s === '') return '';
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+    }
+
+    async function load() {
+        loading.style.display = 'block';
+        errorEl.style.display = 'none';
+        emptyEl.style.display = 'none';
+        tableWrap.style.display = 'none';
+        tbody.innerHTML = '';
+
+        try {
+            const list = await App.api.get('/bookings/without-member-product');
+            loading.style.display = 'none';
+
+            if (!list || list.length === 0) {
+                emptyEl.style.display = 'block';
+                countMsg.textContent = '총 0건';
+                return;
+            }
+
+            // 지점(branch) + 시설타입(facilityType)에 맞는 예약 페이지로 연결 (해당 예약 내용이 그대로 로드되도록)
+            function getEditPage(branch, facilityType) {
+                const b = (branch || '').toUpperCase();
+                const t = (facilityType || '').toUpperCase();
+                if (t === 'RENTAL') return '/rentals.html';
+                if (b === 'SAHA') {
+                    if (t === 'TRAINING_FITNESS') return '/bookings-saha-training.html';
+                    return '/bookings.html';
+                }
+                if (b === 'YEONSAN') {
+                    if (t === 'TRAINING_FITNESS') return '/bookings-yeonsan-training.html';
+                    return '/bookings-yeonsan.html';
+                }
+                return '/bookings.html';
+            }
+            list.forEach(function(b) {
+                const facility = b.facility || {};
+                const member = b.member || {};
+                const branch = facility.branch || 'SAHA';
+                const facilityType = facility.facilityType || '';
+                const editUrl = getEditPage(branch, facilityType) + '?edit=' + b.id;
+                const tr = document.createElement('tr');
+                tr.innerHTML =
+                    '<td>' + escapeHtml(String(b.id)) + '</td>' +
+                    '<td>' + escapeHtml(formatDate(b.startTime)) + '</td>' +
+                    '<td>' + escapeHtml(formatTime(b.startTime) + '~' + formatTime(b.endTime)) + '</td>' +
+                    '<td>' + escapeHtml(member.name || '-') + ' <span style="color:var(--text-muted); font-size:12px;">(' + escapeHtml(member.memberNumber || '') + ')</span></td>' +
+                    '<td>' + escapeHtml(member.phoneNumber || '-') + '</td>' +
+                    '<td>' + escapeHtml(facility.name || '-') + '</td>' +
+                    '<td>' + escapeHtml(b.status || '-') + '</td>' +
+                    '<td><a href="' + escapeHtml(editUrl) + '" class="btn btn-sm btn-secondary">수정</a></td>';
+                tbody.appendChild(tr);
+            });
+
+            tableWrap.style.display = 'block';
+            countMsg.textContent = '총 ' + list.length + '건. 수정 페이지에서 해당 예약을 열어 이용권을 선택·저장하면 연결됩니다.';
+        } catch (e) {
+            loading.style.display = 'none';
+            errorEl.style.display = 'block';
+            errorEl.textContent = '목록을 불러오지 못했습니다: ' + (e.message || e);
+        }
+    }
+
+    var refreshBtn = document.getElementById('btn-refresh-list');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            load();
+            if (typeof App !== 'undefined' && App.showNotification) {
+                App.showNotification('목록을 새로 불러왔습니다.', 'success');
+            }
+        });
+    }
+
+    // 1개 보유 회원 일괄 연결: 보유 이용권이 1개인 예약만 자동 연결, 2개 이상은 수동 선택 안내
+    var bulkLinkBtn = document.getElementById('btn-bulk-link');
+    if (bulkLinkBtn) {
+        bulkLinkBtn.addEventListener('click', function() {
+            (async function() {
+                bulkLinkBtn.disabled = true;
+                try {
+                    var list = await App.api.get('/bookings/without-member-product');
+                    if (!list || list.length === 0) {
+                        if (window.App && App.showNotification) App.showNotification('연결할 미연결 예약이 없습니다.', 'info');
+                        return;
+                    }
+                    var memberProductsCache = {};
+                    function getUsableProducts(memberId) {
+                        if (memberProductsCache[memberId] !== undefined) return Promise.resolve(memberProductsCache[memberId]);
+                        return App.api.get('/member-products?memberId=' + encodeURIComponent(memberId) + '&status=ACTIVE')
+                            .then(function(arr) {
+                                var usable = (arr || []).filter(function(mp) {
+                                    if ((mp.status || '').toUpperCase() !== 'ACTIVE') return false;
+                                    if (mp.isActuallyExpired === true) return false;
+                                    var rem = mp.remainingCount;
+                                    if (rem != null && rem !== '' && Number(rem) <= 0) return false;
+                                    return true;
+                                });
+                                memberProductsCache[memberId] = usable;
+                                return usable;
+                            });
+                    }
+                    var linked = 0, multiple = 0, zero = 0;
+                    for (var i = 0; i < list.length; i++) {
+                        var b = list[i];
+                        var memberId = (b.member || {}).id;
+                        if (!memberId) { zero++; continue; }
+                        var usable = await getUsableProducts(memberId);
+                        if (usable.length === 1) {
+                            await App.api.put('/bookings/' + b.id, { memberProductId: usable[0].id });
+                            linked++;
+                        } else if (usable.length === 0) {
+                            zero++;
+                        } else {
+                            multiple++;
+                        }
+                    }
+                    var msg = linked + '건 연결됨.';
+                    if (multiple > 0) msg += ' 이용권 2개 이상인 예약 ' + multiple + '건은 수정에서 선택해 주세요.';
+                    if (zero > 0) msg += ' 보유 이용권 없음 ' + zero + '건은 수정에서 확인해 주세요.';
+                    if (window.App && App.showNotification) App.showNotification(msg, linked > 0 ? 'success' : 'info');
+                    load();
+                } catch (e) {
+                    if (window.App && App.showNotification) App.showNotification('일괄 연결 실패: ' + (e.message || e), 'error');
+                } finally {
+                    bulkLinkBtn.disabled = false;
+                }
+            })();
+        });
+    }
+
+    if (typeof App !== 'undefined' && App.api) {
+        load();
+    } else {
+        document.addEventListener('DOMContentLoaded', function() {
+            if (window.App && window.App.api) load();
+            else setTimeout(load, 500);
+        });
+    }
+})();
+    </script>
+</body>
+</html>

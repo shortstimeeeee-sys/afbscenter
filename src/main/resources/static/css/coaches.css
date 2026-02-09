@@ -1,5 +1,112 @@
 /* 코치/레슨 관리 페이지 스타일 */
 
+/* 타이틀 영역 위쪽 공백 제거 */
+body.coaches-page .main-content {
+    padding-top: 0;
+}
+body.coaches-page .topbar {
+    margin-top: 0;
+}
+
+/* 코치 기본 통계 */
+.coaches-stats-card {
+    margin-bottom: 16px;
+}
+.coaches-stats-card .card-header {
+    padding: 12px 16px;
+}
+.coaches-stats-card .card-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.coaches-stats-body {
+    padding: 16px;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+}
+.coaches-stats-loading {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+.coaches-stats-item {
+    padding: 12px 14px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+}
+.coaches-stats-item-clickable {
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+.coaches-stats-item-clickable:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-hover);
+}
+.coaches-stats-item-label {
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    font-size: 14px;
+}
+.coaches-stats-item-value {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+.coaches-stats-item--total { border-left: 4px solid var(--accent-primary); background: rgba(94, 106, 210, 0.08); }
+.coaches-stats-item--total .coaches-stats-item-value { font-size: 1.35rem; font-weight: 700; color: var(--accent-primary); }
+.coaches-stats-item--baseball { border-left: 4px solid #6E7AE8; background: rgba(94, 106, 210, 0.08); }
+.coaches-stats-item--baseball .coaches-stats-item-value { color: #6E7AE8; }
+.coaches-stats-item--pilates { border-left: 4px solid #5DADE2; background: rgba(52, 152, 219, 0.08); }
+.coaches-stats-item--pilates .coaches-stats-item-value { color: #5DADE2; }
+.coaches-stats-item--training { border-left: 4px solid #2ECC71; background: rgba(46, 204, 113, 0.08); }
+.coaches-stats-item--training .coaches-stats-item-value { color: #2ECC71; }
+.coaches-stats-item--youth { border-left: 4px solid #84cc16; background: rgba(132, 204, 22, 0.08); }
+.coaches-stats-item--youth .coaches-stats-item-value { color: #84cc16; }
+.coaches-stats-item--rental { border-left: 4px solid #9B59B6; background: rgba(155, 89, 182, 0.08); }
+.coaches-stats-item--rental .coaches-stats-item-value { color: #9B59B6; }
+
+/* 코치 목록 테이블 - 담당 종목: 셀 테두리/배경 + 항목별 글자색 */
+.coaches-page .table td.coach-specialty--baseball {
+    border-left: 4px solid #6E7AE8;
+    background: rgba(94, 106, 210, 0.1);
+    font-weight: 500;
+}
+.coaches-page .table td.coach-specialty--pilates {
+    border-left: 4px solid #5DADE2;
+    background: rgba(52, 152, 219, 0.1);
+    font-weight: 500;
+}
+.coaches-page .table td.coach-specialty--training {
+    border-left: 4px solid #2ECC71;
+    background: rgba(46, 204, 113, 0.1);
+    font-weight: 500;
+}
+.coaches-page .table td.coach-specialty--rental {
+    border-left: 4px solid #9B59B6;
+    background: rgba(155, 89, 182, 0.1);
+    font-weight: 500;
+}
+.coaches-page .table td.coach-specialty-cell .spec-item { font-weight: 500; }
+.coaches-page .table td.coach-specialty-cell .spec-color--baseball { color: #6E7AE8; }
+.coaches-page .table td.coach-specialty-cell .spec-color--youth { color: #84cc16; }
+.coaches-page .table td.coach-specialty-cell .spec-color--training { color: #2ECC71; }
+.coaches-page .table td.coach-specialty-cell .spec-color--pilates { color: #5DADE2; }
+.coaches-page .table td.coach-specialty-cell .spec-color--rental { color: #9B59B6; }
+
+/* 배정 지점 - 대관 관리 페이지와 동일 고유색 (사하점/연산점), 대관은 흰색(기본) */
+.coaches-page .table td .branch-label { font-weight: 500; }
+.coaches-page .table td .branch-label--saha { color: #1E8449; }
+.coaches-page .table td .branch-label--yeonsan { color: #DAA520; }
+.coaches-page .table td .branch-label--rental { color: #9B59B6; }
+
 /* 코치 목록 테이블 스크롤바 */
 .coaches-page .table-container {
     max-height: 600px;

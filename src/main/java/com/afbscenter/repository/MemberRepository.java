@@ -39,4 +39,9 @@ public interface MemberRepository extends JpaRepository<Member, Long> {
     
     @Query("SELECT COUNT(m) FROM Member m WHERE m.joinDate >= :startDate AND m.joinDate <= :endDate")
     Long countByJoinDateRange(@Param("startDate") java.time.LocalDate startDate, @Param("endDate") java.time.LocalDate endDate);
+
+    long countByStatus(Member.MemberStatus status);
+    long countByGrade(Member.MemberGrade grade);
+
+    List<Member> findByGrade(Member.MemberGrade grade);
 }

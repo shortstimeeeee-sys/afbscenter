@@ -79,3 +79,7 @@ ngrok.exe
 
 # One-time SQL scripts
 *.sql
+
+# 로컬/개발 전용 설정 (시크릿 포함 가능)
+application-dev.properties
+application-local.properties

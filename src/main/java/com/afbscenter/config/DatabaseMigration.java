@@ -1,12 +1,15 @@
 package com.afbscenter.config;
 
 import com.afbscenter.model.Facility;
+import com.afbscenter.model.FacilitySlot;
 import com.afbscenter.model.Member;
 import com.afbscenter.model.MemberProduct;
 import com.afbscenter.model.Payment;
 import com.afbscenter.model.Product;
 import com.afbscenter.model.User;
+import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.FacilityRepository;
+import com.afbscenter.repository.FacilitySlotRepository;
 import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.PaymentRepository;
@@ -23,11 +26,13 @@ import org.springframework.context.ApplicationListener;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 데이터베이스 마이그레이션 컴포넌트
@@ -50,8 +55,14 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
     private FacilityRepository facilityRepository;
     
     @Autowired
+    private FacilitySlotRepository facilitySlotRepository;
+    
+    @Autowired
     private MemberRepository memberRepository;
     
+    @Autowired
+    private BookingRepository bookingRepository;
+
     @Autowired
     private MemberProductRepository memberProductRepository;
     
@@ -97,6 +108,9 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
     
     @Value("${facility.init.yeonsan.hourly-rate:0}")
     private Integer yeonsanFacilityHourlyRate;
+    
+    @Value("${admin.init.password:admin123}")
+    private String adminInitPassword;
 
     @Override
     public void onApplicationEvent(ApplicationReadyEvent event) {
@@ -177,6 +191,19 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             } catch (Exception e) {
                 logger.warn("시설 데이터 초기화 중 오류 (무시): {}", e.getMessage());
             }
+            try {
+                ensureFacilitySlots();
+            } catch (Exception e) {
+                logger.warn("시설 슬롯 기본값 생성 중 오류 (무시): {}", e.getMessage());
+            }
+            
+            try {
+                logger.info("불필요한 FACILITY_SLOTS_COPY_* 테이블 정리 실행");
+                dropUnusedFacilitySlotsCopyTables();
+                logger.info("불필요한 FACILITY_SLOTS_COPY_* 테이블 정리 완료");
+            } catch (Exception e) {
+                logger.warn("FACILITY_SLOTS_COPY_* 테이블 정리 중 오류 (무시): {}", e.getMessage());
+            }
             
             try {
                 logger.info("애플리케이션 시작 시 Members 테이블 컬럼명 마이그레이션 실행");
@@ -200,6 +227,14 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                 logger.info("Users 테이블 approved 컬럼 마이그레이션 완료");
             } catch (Exception e) {
                 logger.warn("Users 테이블 approved 컬럼 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 횟수권(COUNT_PASS) remaining_count 동기화 실행");
+                syncMemberProductRemainingCountFromEndedBookings();
+                logger.info("횟수권 remaining_count 동기화 완료");
+            } catch (Exception e) {
+                logger.warn("횟수권 remaining_count 동기화 중 오류 (무시): {}", e.getMessage());
             }
             
             migrationExecuted = true;
@@ -393,6 +428,54 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
         }
     }
     
+    /** 슬롯이 하나도 없는 시설에 대해 기본 운영시간으로 요일별 슬롯 7건 생성 */
+    @Transactional
+    public void ensureFacilitySlots() {
+        List<Facility> facilities = facilityRepository.findAll();
+        for (Facility f : facilities) {
+            if (facilitySlotRepository.findByFacilityIdOrderByDayOfWeek(f.getId()).isEmpty()) {
+                LocalTime open = f.getOpenTime() != null ? f.getOpenTime() : LocalTime.of(9, 0);
+                LocalTime close = f.getCloseTime() != null ? f.getCloseTime() : LocalTime.of(18, 0);
+                for (int day = 1; day <= 7; day++) {
+                    FacilitySlot slot = new FacilitySlot();
+                    slot.setFacility(f);
+                    slot.setDayOfWeek(day);
+                    slot.setStartTime(open);
+                    slot.setEndTime(close);
+                    slot.setIsOpen(true);
+                    facilitySlotRepository.save(slot);
+                }
+                logger.info("시설 ID={} 에 기본 슬롯 7건 생성 ({}~{})", f.getId(), open, close);
+            }
+        }
+    }
+    
+    /**
+     * 불필요한 FACILITY_SLOTS_COPY_* 테이블 삭제 (과거 마이그레이션 잔여물, 사용 안 함)
+     * INFORMATION_SCHEMA에서 패턴에 맞는 테이블을 찾아 모두 DROP
+     */
+    private void dropUnusedFacilitySlotsCopyTables() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES " +
+                "WHERE TABLE_SCHEMA = 'PUBLIC' AND TABLE_NAME LIKE 'FACILITY_SLOTS_COPY%'"
+            );
+            for (Map<String, Object> row : tables) {
+                String tableName = (String) row.get("TABLE_NAME");
+                if (tableName != null && !tableName.isEmpty()) {
+                    try {
+                        jdbcTemplate.execute("DROP TABLE IF EXISTS \"" + tableName + "\"");
+                        logger.info("불필요한 테이블 삭제: {}", tableName);
+                    } catch (Exception e) {
+                        logger.debug("테이블 {} 삭제 스킵: {}", tableName, e.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("FACILITY_SLOTS_COPY 테이블 조회/삭제 중 오류 (무시): {}", e.getMessage());
+        }
+    }
+    
     /**
      * Members 테이블의 guardian_name, guardian_phone 컬럼을 student_name, student_phone으로 변경
      * 보호자 정보 필드를 수강생 정보 필드로 용도 변경
@@ -530,6 +613,7 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
      * 누락된 결제(Payment) 자동 생성
      * MemberProduct가 있지만 Payment가 없는 경우 자동으로 Payment를 생성합니다.
      */
+    @Transactional(readOnly = false)
     private void createMissingPayments() {
         try {
             logger.info("누락된 결제 자동 생성 시작");
@@ -549,8 +633,44 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                     
                     for (MemberProduct memberProduct : memberProducts) {
                         try {
-                            // Product 정보 확인
-                            Product product = memberProduct.getProduct();
+                            // Product 정보 확인 (Lazy Loading 문제 해결을 위해 명시적으로 조회)
+                            Product product = null;
+                            try {
+                                // MemberProduct에서 product_id를 가져와서 직접 조회
+                                Long productId = null;
+                                try {
+                                    // 먼저 프록시로 접근 시도
+                                    Product proxyProduct = memberProduct.getProduct();
+                                    if (proxyProduct != null) {
+                                        productId = proxyProduct.getId();
+                                    }
+                                } catch (Exception e) {
+                                    // 프록시 접근 실패 시 product_id를 직접 조회
+                                    // MemberProduct의 product_id 컬럼을 직접 읽기
+                                    logger.debug("Product 프록시 접근 실패, 직접 조회 시도: MemberProduct ID={}", 
+                                        memberProduct.getId());
+                                }
+                                
+                                // productId가 없으면 건너뜀
+                                if (productId == null) {
+                                    continue;
+                                }
+                                
+                                // Product를 명시적으로 조회
+                                product = productRepository.findById(productId).orElse(null);
+                                if (product == null) {
+                                    logger.debug("Product를 찾을 수 없음: Product ID={}, MemberProduct ID={}", 
+                                        productId, memberProduct.getId());
+                                    totalErrors++;
+                                    continue;
+                                }
+                            } catch (Exception e) {
+                                logger.debug("Product 조회 실패: MemberProduct ID={}, 오류: {}", 
+                                    memberProduct.getId(), e.getMessage());
+                                totalErrors++;
+                                continue;
+                            }
+                            
                             if (product == null || product.getPrice() == null || product.getPrice() <= 0) {
                                 continue;
                             }
@@ -572,9 +692,9 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                             payment.setMember(member);
                             payment.setProduct(product);
                             payment.setAmount(product.getPrice());
-                            payment.setPaymentMethod(com.afbscenter.constants.PaymentDefaults.DEFAULT_PAYMENT_METHOD);
-                            payment.setStatus(com.afbscenter.constants.PaymentDefaults.DEFAULT_PAYMENT_STATUS);
-                            payment.setCategory(com.afbscenter.constants.PaymentDefaults.DEFAULT_PAYMENT_CATEGORY);
+                            payment.setPaymentMethod(com.afbscenter.constants.PaymentDefaults.getDefaultPaymentMethod());
+                            payment.setStatus(com.afbscenter.constants.PaymentDefaults.getDefaultPaymentStatus());
+                            payment.setCategory(com.afbscenter.constants.PaymentDefaults.getDefaultPaymentCategory());
                             String productName = product.getName() != null ? 
                                 product.getName() : "상품 ID: " + productId;
                             payment.setMemo("상품 할당 (자동 생성): " + productName);
@@ -611,6 +731,53 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
         } catch (Exception e) {
             logger.error("누락된 결제 자동 생성 중 오류 발생: {}", e.getMessage(), e);
             throw e;
+        }
+    }
+
+    /**
+     * 횟수권(COUNT_PASS) 이용권의 remaining_count를 '이미 종료된 예약 수' 기준으로 동기화.
+     * 같은 이용권(member_product_id) + 같은 회원·상품 기준 둘 다 반영해 사용 횟수를 세고, 잔여를 맞춤.
+     */
+    @Transactional(readOnly = false)
+    private void syncMemberProductRemainingCountFromEndedBookings() {
+        List<MemberProduct> list = memberProductRepository.findAllCountPassWithProductAndMember();
+        LocalDateTime now = LocalDateTime.now();
+        int updated = 0;
+        for (MemberProduct mp : list) {
+            try {
+                Integer totalCount = mp.getTotalCount();
+                if (totalCount == null && mp.getProduct() != null && mp.getProduct().getUsageCount() != null) {
+                    totalCount = mp.getProduct().getUsageCount();
+                }
+                if (totalCount == null || totalCount <= 0) continue;
+                long byMp = bookingRepository.countByMemberProductEndedBefore(mp.getId(), now);
+                long byMemberProduct = 0;
+                if (mp.getMember() != null && mp.getProduct() != null) {
+                    byMemberProduct = bookingRepository.countByMemberIdAndProductIdEndedBefore(
+                            mp.getMember().getId(), mp.getProduct().getId(), now);
+                }
+                long endedCount = Math.max(byMp, byMemberProduct);
+                int usedCount = (int) Math.min(endedCount, totalCount);
+                int newRemaining = Math.max(0, totalCount - usedCount);
+                Integer currentRemaining = mp.getRemainingCount();
+                // 이미 더 적게 남은 값(수동 보정 등)이 있으면 덮어쓰지 않음. 사용만 늘어난 경우에만 감소 반영
+                if (currentRemaining != null && newRemaining > currentRemaining) {
+                    continue; // 이력 없이 N회부터 쓴 경우 등 수동 설정 유지
+                }
+                if (!Objects.equals(currentRemaining, newRemaining)) {
+                    int oldRemaining = currentRemaining != null ? currentRemaining : -1;
+                    mp.setRemainingCount(newRemaining);
+                    memberProductRepository.save(mp);
+                    updated++;
+                    logger.info("remaining_count 동기화: MemberProduct ID={}, totalCount={}, 사용={}(byMp={}, byMemberProduct={}), remaining {} -> {}",
+                            mp.getId(), totalCount, usedCount, byMp, byMemberProduct, oldRemaining, newRemaining);
+                }
+            } catch (Exception e) {
+                logger.debug("MemberProduct ID={} 동기화 중 오류 (무시): {}", mp.getId(), e.getMessage());
+            }
+        }
+        if (updated > 0) {
+            logger.info("횟수권 remaining_count 동기화: {}건 수정됨", updated);
         }
     }
 
@@ -696,14 +863,14 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             if (!userRepository.existsByUsername("admin")) {
                 User admin = new User();
                 admin.setUsername("admin");
-                String encodedPassword = passwordEncoder.encode("admin123");
-                admin.setPassword(encodedPassword); // 기본 비밀번호: admin123
+                String encodedPassword = passwordEncoder.encode(adminInitPassword);
+                admin.setPassword(encodedPassword);
                 admin.setRole(User.Role.ADMIN);
                 admin.setName("관리자");
                 admin.setActive(true);
                 admin.setApproved(true); // 관리자는 자동 승인
                 userRepository.save(admin);
-                logger.info("✅ 기본 관리자 계정 생성 완료: username=admin, password=admin123");
+                logger.info("✅ 기본 관리자 계정 생성 완료: username=admin (초기 비밀번호는 설정값 사용)");
                 logger.info("암호화된 비밀번호 길이: {}", encodedPassword.length());
             } else {
                 logger.info("기본 관리자 계정이 이미 존재합니다.");

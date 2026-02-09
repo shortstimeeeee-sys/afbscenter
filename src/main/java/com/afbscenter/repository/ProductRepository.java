@@ -18,4 +18,11 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     
     @Query("SELECT p FROM Product p LEFT JOIN FETCH p.coach WHERE p.id = :id")
     Optional<Product> findByIdWithCoach(Long id);
+    
+    // 타입별 상품 조회
+    List<Product> findByType(Product.ProductType type);
+    
+    // 중복 체크: 이름, 가격, 카테고리가 모두 동일한 상품 조회
+    @Query("SELECT p FROM Product p WHERE p.name = :name AND p.price = :price AND p.category = :category")
+    List<Product> findByNameAndPriceAndCategory(String name, Integer price, Product.ProductCategory category);
 }

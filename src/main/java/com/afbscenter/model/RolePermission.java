@@ -8,7 +8,9 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "role_permissions")
+@Table(name = "role_permissions", uniqueConstraints = {
+    @UniqueConstraint(columnNames = {"role"})
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -18,7 +20,7 @@ public class RolePermission {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "role", nullable = false, length = 20)
+    @Column(name = "role", nullable = false, unique = true, length = 20)
     private String role; // ADMIN, MANAGER, COACH, FRONT
 
     // 권한 항목들 (JSON 형태로 저장하거나 개별 필드로)

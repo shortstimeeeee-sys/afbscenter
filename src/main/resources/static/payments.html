@@ -2,12 +2,13 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>결제/정산 - AFBS 센터</title>
     <link rel="stylesheet" href="/css/common.css">
     <link rel="stylesheet" href="/css/payments.css">
 </head>
-<body>
+<body class="payments-page">
     <div class="app-container">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -23,25 +24,28 @@
                     <div class="menu-section-title">회원 관리</div>
                     <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
                     <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">출석부</div>
+                    <a href="/attendance.html" class="menu-item menu-item--attendance" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings-without-product.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
                     
                     <!-- 사하점 -->
                     <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 대관 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
                     <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
-                    
-                    <a href="/attendance.html" class="menu-item" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">훈련 관리</div>
@@ -50,8 +54,8 @@
                     <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
                 </div>
                 <div class="menu-section">
-                    <div class="menu-section-title">상품/결제</div>
-                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>상품/이용권</span></a>
+                    <div class="menu-section-title">이용권/결제</div>
+                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>이용권</span></a>
                     <a href="/payments.html" class="menu-item active" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
                 </div>
             </nav>
@@ -96,10 +100,14 @@
                     </div>
                 </div>
                 
-                <!-- 결제 방법별 통계 -->
-                <div class="card" style="margin-bottom: 24px;">
-                    <h3 style="margin-bottom: 16px;">결제 방법별 통계</h3>
-                    <div id="payment-method-statistics"></div>
+                <!-- 결제 방법별 통계 (코치 기본 통계와 동일 카드 형태) -->
+                <div class="card payment-method-stats-card" style="margin-bottom: 24px;">
+                    <div class="card-header">
+                        <h2 class="card-title">📊 결제 방법별 통계</h2>
+                    </div>
+                    <div id="payment-method-statistics" class="payment-method-stats-body">
+                        <p class="payment-method-stats-loading">로딩 중...</p>
+                    </div>
                 </div>
                 
                 <!-- 필터 -->
@@ -124,16 +132,17 @@
                             <option value="LESSON">레슨</option>
                             <option value="PRODUCT">상품판매</option>
                         </select>
-                        <input type="date" class="form-control" id="filter-date-start" style="width: 150px;">
-                        <input type="date" class="form-control" id="filter-date-end" style="width: 150px;">
-                        <button class="btn btn-secondary" onclick="applyFilters()">적용</button>
+                        <input type="date" class="form-control" id="filter-date-start" style="width: 130px;">
+                        <input type="date" class="form-control" id="filter-date-end" style="width: 130px;">
+                        <button class="btn btn-primary" onclick="applyFilters()">적용</button>
                         <button class="btn btn-secondary" onclick="exportReport()">정산 리포트</button>
-                        <button class="btn btn-primary" onclick="createMissingPayments()" style="margin-left: 10px;">📝 기존 상품 할당 결제 생성</button>
+                        <button class="btn btn-primary" id="payments-create-missing-btn" onclick="createMissingPayments()" style="margin-left: 10px;">📝 기존 상품 할당 결제 생성</button>
                     </div>
                 </div>
                 
                 <!-- 결제 목록 -->
                 <div class="card">
+                    <div id="payment-list-summary" class="payment-list-summary" style="display: none; margin-bottom: 12px; font-size: 13px; text-align: right; font-weight: 600;" title="클릭하면 미지정 결제 목록 보기"><a href="javascript:void(0)" onclick="openPaymentCoachUnassignedModal(); return false;" style="color: var(--success); text-decoration: underline; cursor: pointer;"><span>결제 시 코치 미지정</span>: <span id="payment-coach-unassigned-count">0</span>건</a></div>
                     <div class="table-container">
                         <table class="table">
                             <thead>
@@ -255,6 +264,22 @@
         </div>
     </div>
     
+    <!-- 결제 방법별 목록 모달 (통계 카드 클릭 시) -->
+    <div class="modal-overlay" id="payment-method-list-modal">
+        <div class="modal" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="payment-method-list-modal-title">결제 목록</h2>
+                <button class="modal-close" onclick="App.Modal.close('payment-method-list-modal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="payment-method-list-modal-body" class="table-container" style="max-height: 60vh; overflow: auto;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('payment-method-list-modal')">닫기</button>
+            </div>
+        </div>
+    </div>
+    
     <!-- 미수금 상세 내역 모달 -->
     <div class="modal-overlay" id="unpaid-details-modal">
         <div class="modal" style="max-width: 900px;">
@@ -267,6 +292,39 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="App.Modal.close('unpaid-details-modal')">닫기</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 회원 이용권/코치 정보 모달 -->
+    <div class="modal-overlay" id="member-info-modal">
+        <div class="modal member-info-modal-box">
+            <div class="modal-header">
+                <h2 class="modal-title">회원 이용권 및 코치 정보</h2>
+                <button class="modal-close" onclick="App.Modal.close('member-info-modal')">×</button>
+            </div>
+            <div class="modal-body member-info-modal-body">
+                <div id="member-info-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('member-info-modal')">닫기</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 결제 시 코치 미지정 목록 모달 -->
+    <div class="modal-overlay" id="payment-coach-unassigned-modal">
+        <div class="modal" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2 class="modal-title">결제 시 코치 미지정 목록</h2>
+                <button class="modal-close" onclick="App.Modal.close('payment-coach-unassigned-modal')">×</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">예약·회원 담당 코치가 없어 결제 목록에 코치가 '-'로 표시된 건입니다.</p>
+                <div id="payment-coach-unassigned-list" class="table-container" style="max-height: 60vh; overflow: auto;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('payment-coach-unassigned-modal')">닫기</button>
             </div>
         </div>
     </div>

@@ -7,6 +7,7 @@ import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.CoachRepository;
 import com.afbscenter.repository.AnnouncementRepository;
+import com.afbscenter.model.Booking;
 import com.afbscenter.model.MemberProduct;
 import com.afbscenter.model.Product;
 import com.afbscenter.model.Announcement;
@@ -140,14 +141,7 @@ public class DashboardController {
                 // Payment 데이터가 없으면 MemberProduct 기반으로 계산
                 if (todayRevenue == 0) {
                     try {
-                        List<com.afbscenter.model.MemberProduct> memberProducts = memberProductRepository.findAll().stream()
-                                .filter(mp -> {
-                                    if (mp.getPurchaseDate() == null) return false;
-                                    LocalDateTime purchaseDateTime = mp.getPurchaseDate();
-                                    return !purchaseDateTime.isBefore(startOfDay) && 
-                                           !purchaseDateTime.isAfter(endOfDay);
-                                })
-                                .collect(Collectors.toList());
+                        List<com.afbscenter.model.MemberProduct> memberProducts = memberProductRepository.findByPurchaseDateRange(startOfDay, endOfDay);
                         
                         int memberProductRevenue = 0;
                         for (com.afbscenter.model.MemberProduct mp : memberProducts) {
@@ -211,14 +205,7 @@ public class DashboardController {
                 // Payment 데이터가 없으면 MemberProduct 기반으로 계산
                 if (monthlyRevenue == 0) {
                     try {
-                        List<com.afbscenter.model.MemberProduct> memberProducts = memberProductRepository.findAll().stream()
-                                .filter(mp -> {
-                                    if (mp.getPurchaseDate() == null) return false;
-                                    LocalDateTime purchaseDateTime = mp.getPurchaseDate();
-                                    return !purchaseDateTime.isBefore(startOfMonth) && 
-                                           !purchaseDateTime.isAfter(endOfMonth);
-                                })
-                                .collect(Collectors.toList());
+                        List<com.afbscenter.model.MemberProduct> memberProducts = memberProductRepository.findByPurchaseDateRange(startOfMonth, endOfMonth);
                         
                         int memberProductRevenue = 0;
                         for (com.afbscenter.model.MemberProduct mp : memberProducts) {
@@ -245,6 +232,32 @@ public class DashboardController {
                 monthlyRevenue = 0;
             }
 
+            // 이번 달 총 예약 건수 (사하 + 연산 + 대관) 및 지점별 비회원 수
+            long totalBookingsMonth = 0L;
+            Map<String, Long> bookingsByBranch = new HashMap<>();
+            bookingsByBranch.put("SAHA", 0L);
+            bookingsByBranch.put("YEONSAN", 0L);
+            bookingsByBranch.put("RENTAL", 0L);
+            Map<String, Long> bookingsNonMemberByBranch = new HashMap<>();
+            bookingsNonMemberByBranch.put("SAHA", 0L);
+            bookingsNonMemberByBranch.put("YEONSAN", 0L);
+            bookingsNonMemberByBranch.put("RENTAL", 0L);
+            try {
+                List<Booking> monthBookings = bookingRepository.findByDateRange(startOfMonth, endOfMonth);
+                totalBookingsMonth = monthBookings.size();
+                for (Booking b : monthBookings) {
+                    if (b.getBranch() != null) {
+                        String key = b.getBranch().name();
+                        bookingsByBranch.merge(key, 1L, Long::sum);
+                        if (b.getMember() == null) {
+                            bookingsNonMemberByBranch.merge(key, 1L, Long::sum);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("이번 달 예약 건수 조회 실패: {}", e.getMessage());
+            }
+
             Map<String, Object> kpi = new HashMap<>();
             kpi.put("totalMembers", totalMembers);       // 총 회원 수
             kpi.put("monthlyNewMembers", monthlyNewMembers); // 월 가입자 수
@@ -262,6 +275,9 @@ public class DashboardController {
                 avgRevenuePerMember = monthlyRevenue / (int)totalMembers;
             }
             kpi.put("avgRevenuePerMember", avgRevenuePerMember); // 평균 회원당 매출
+            kpi.put("totalBookingsMonth", totalBookingsMonth);   // 이번 달 총 예약 건수 (사하+연산+대관)
+            kpi.put("bookingsByBranch", bookingsByBranch);      // 지점별 예약 건수 (SAHA, YEONSAN, RENTAL)
+            kpi.put("bookingsNonMemberByBranch", bookingsNonMemberByBranch); // 지점별 비회원 예약 건수
             
             // 만료 임박 및 종료 회원 수 계산
             long expiringMembersCount = 0L;
@@ -288,7 +304,7 @@ public class DashboardController {
                         // 만료 임박 확인
                         for (MemberProduct mp : activeProducts) {
                             try {
-                                // 횟수권: 남은 횟수 5회 이하
+                                // 횟수권: 남은 횟수 3회 이하
                                 if (mp.getProduct() != null && 
                                     mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
                                     Integer remainingCount = mp.getRemainingCount();
@@ -298,7 +314,7 @@ public class DashboardController {
                                         if (totalCount == null || totalCount <= 0) {
                                             totalCount = mp.getProduct().getUsageCount();
                                             if (totalCount == null || totalCount <= 0) {
-                                                totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                                                totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                                             }
                                         }
                                         
@@ -314,7 +330,7 @@ public class DashboardController {
                                         if (remainingCount < 0) remainingCount = 0;
                                     }
                                     
-                                    if (remainingCount != null && remainingCount <= 5 && remainingCount > 0) {
+                                    if (remainingCount != null && remainingCount <= 3 && remainingCount > 0) {
                                         isExpiring = true;
                                         break;
                                     }
@@ -339,11 +355,15 @@ public class DashboardController {
                         // 종료 회원 확인:
                         // 1. 이용권이 전혀 없는 경우
                         // 2. 활성 이용권이 없고 모든 이용권이 만료/사용 완료된 경우
+                        // 3. USED_UP 상품이 있는 경우 (활성 상품이 있어도 종료된 상품으로 표시)
                         if (allMemberProducts == null || allMemberProducts.isEmpty()) {
                             // 이용권이 전혀 없는 경우
                             isExpired = true;
                         } else if (activeProducts == null || activeProducts.isEmpty()) {
                             // 활성 이용권이 없는 경우
+                            isExpired = true;
+                        } else if (!usedUpMemberProducts.isEmpty()) {
+                            // USED_UP 상품이 있으면 종료된 회원으로 분류
                             isExpired = true;
                         }
                         
@@ -372,417 +392,6 @@ public class DashboardController {
         }
     }
     
-    @GetMapping("/expiring-members")
-    @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> getExpiringMembers() {
-        try {
-            LocalDate today = LocalDate.now();
-            LocalDate expiryThreshold = today.plusDays(7); // 7일 이내 만료
-            
-            List<com.afbscenter.model.Member> allMembers = memberRepository.findAll();
-            List<Map<String, Object>> expiringMembersList = new ArrayList<>();
-            List<Map<String, Object>> expiredMembersList = new ArrayList<>();
-            
-            for (com.afbscenter.model.Member member : allMembers) {
-                try {
-                    // 활성 상태와 만료 상태 모두 확인
-                    List<MemberProduct> activeProducts = memberProductRepository.findByMemberIdAndStatus(
-                        member.getId(), MemberProduct.Status.ACTIVE);
-                    List<MemberProduct> expiredMemberProducts = memberProductRepository.findByMemberIdAndStatus(
-                        member.getId(), MemberProduct.Status.EXPIRED);
-                    List<MemberProduct> usedUpMemberProducts = memberProductRepository.findByMemberIdAndStatus(
-                        member.getId(), MemberProduct.Status.USED_UP);
-                    
-                    // 회원의 모든 이용권 조회 (이용권이 없는 경우 확인용)
-                    List<MemberProduct> allMemberProducts = memberProductRepository.findByMemberId(member.getId());
-                    
-                    // 만료 임박 상품
-                    boolean isExpiring = false;
-                    List<Map<String, Object>> expiringProducts = new ArrayList<>();
-                    
-                    // 종료 상품
-                    boolean isExpired = false;
-                    List<Map<String, Object>> expiredProducts = new ArrayList<>();
-                    
-                    // 활성 상품 중 만료 임박 확인
-                    for (MemberProduct mp : activeProducts) {
-                        try {
-                            Map<String, Object> productInfo = new HashMap<>();
-                            boolean productExpiring = false;
-                            String expiryReason = "";
-                            
-                            // 횟수권: 남은 횟수 5회 이하
-                            if (mp.getProduct() != null && 
-                                mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
-                                Integer remainingCount = mp.getRemainingCount();
-                                
-                                // remainingCount가 null이면 실제 사용 횟수를 계산
-                                if (remainingCount == null) {
-                                    Integer totalCount = mp.getTotalCount();
-                                    if (totalCount == null || totalCount <= 0) {
-                                        totalCount = mp.getProduct().getUsageCount();
-                                        if (totalCount == null || totalCount <= 0) {
-                                            totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
-                                        }
-                                    }
-                                    
-                                    // 실제 사용된 횟수 계산
-                                    Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
-                                    if (usedCountByBooking == null) usedCountByBooking = 0L;
-                                    
-                                    Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(
-                                        member.getId(), mp.getId());
-                                    if (usedCountByAttendance == null) usedCountByAttendance = 0L;
-                                    
-                                    // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용
-                                    Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
-                                    remainingCount = totalCount - actualUsedCount.intValue();
-                                    if (remainingCount < 0) remainingCount = 0;
-                                }
-                                
-                                if (remainingCount != null && remainingCount <= 5 && remainingCount > 0) {
-                                    productExpiring = true;
-                                    expiryReason = "남은 횟수: " + remainingCount + "회";
-                                    productInfo.put("remainingCount", remainingCount);
-                                }
-                            }
-                            
-                            // 기간권: 만료일이 7일 이내
-                            if (mp.getProduct() != null && 
-                                mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS) {
-                                if (mp.getExpiryDate() != null) {
-                                    // 만료일이 오늘 이후이고 7일 이내인 경우만 만료 임박으로 표시
-                                    if (!mp.getExpiryDate().isBefore(today) && 
-                                        !mp.getExpiryDate().isAfter(expiryThreshold)) {
-                                        productExpiring = true;
-                                        // 만료일까지 남은 일수 계산 (오늘 포함하지 않음)
-                                        long daysUntilExpiry = java.time.temporal.ChronoUnit.DAYS.between(today, mp.getExpiryDate());
-                                        
-                                        // 만료일이 오늘과 같으면 "오늘 만료", 내일이면 "내일 만료", 그 외는 "N일"
-                                        if (daysUntilExpiry == 0) {
-                                            expiryReason = "오늘 만료";
-                                        } else if (daysUntilExpiry == 1) {
-                                            expiryReason = "내일 만료";
-                                        } else {
-                                            expiryReason = "만료까지 " + daysUntilExpiry + "일";
-                                        }
-                                        
-                                        productInfo.put("expiryDate", mp.getExpiryDate().toString());
-                                        productInfo.put("daysUntilExpiry", daysUntilExpiry);
-                                    }
-                                }
-                            }
-                            
-                            if (productExpiring) {
-                                isExpiring = true;
-                                productInfo.put("id", mp.getId());
-                                productInfo.put("productName", mp.getProduct() != null ? mp.getProduct().getName() : "알 수 없음");
-                                productInfo.put("productType", mp.getProduct() != null ? mp.getProduct().getType().toString() : "");
-                                productInfo.put("expiryReason", expiryReason);
-                                expiringProducts.add(productInfo);
-                            }
-                        } catch (Exception e) {
-                            logger.debug("MemberProduct 만료 확인 실패: MemberProduct ID={}, 오류: {}", 
-                                mp.getId(), e.getMessage());
-                        }
-                    }
-                    
-                    // 종료 회원 확인: 
-                    // 1. 이용권이 전혀 없는 경우
-                    // 2. 모든 이용권이 만료되었거나 사용 완료된 경우
-                    if (allMemberProducts == null || allMemberProducts.isEmpty()) {
-                        // 이용권이 전혀 없는 경우
-                        isExpired = true;
-                        Map<String, Object> productInfo = new HashMap<>();
-                        productInfo.put("id", null);
-                        productInfo.put("productName", "이용권 없음");
-                        productInfo.put("productType", "NONE");
-                        productInfo.put("expiryReason", "등록된 이용권이 없습니다");
-                        productInfo.put("status", "NO_PRODUCT");
-                        expiredProducts.add(productInfo);
-                    } else {
-                        // 활성 이용권이 하나도 없는 경우 (모두 만료/사용 완료)
-                        if (activeProducts == null || activeProducts.isEmpty()) {
-                            // 만료/사용 완료 상품 확인
-                            List<MemberProduct> allExpiredProducts = new ArrayList<>();
-                            allExpiredProducts.addAll(expiredMemberProducts);
-                            allExpiredProducts.addAll(usedUpMemberProducts);
-                            
-                            if (!allExpiredProducts.isEmpty()) {
-                                // 최근에 만료된 이용권 정보 표시
-                                for (MemberProduct mp : allExpiredProducts) {
-                                    try {
-                                        Map<String, Object> productInfo = new HashMap<>();
-                                        String expiryReason = "";
-                                        
-                                        if (mp.getProduct() != null) {
-                                            if (mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
-                                                expiryReason = "횟수 소진";
-                                            } else if (mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS) {
-                                                if (mp.getExpiryDate() != null) {
-                                                    long daysSinceExpiry = java.time.temporal.ChronoUnit.DAYS.between(mp.getExpiryDate(), today);
-                                                    if (daysSinceExpiry == 0) {
-                                                        expiryReason = "오늘 만료됨";
-                                                    } else if (daysSinceExpiry > 0) {
-                                                        expiryReason = daysSinceExpiry + "일 전 만료됨";
-                                                    } else {
-                                                        expiryReason = "만료됨";
-                                                    }
-                                                } else {
-                                                    expiryReason = "만료됨";
-                                                }
-                                            }
-                                            
-                                            isExpired = true;
-                                            productInfo.put("id", mp.getId());
-                                            productInfo.put("productName", mp.getProduct().getName());
-                                            productInfo.put("productType", mp.getProduct().getType().toString());
-                                            productInfo.put("expiryReason", expiryReason);
-                                            productInfo.put("status", mp.getStatus() != null ? mp.getStatus().toString() : "");
-                                            expiredProducts.add(productInfo);
-                                        }
-                                    } catch (Exception e) {
-                                        logger.debug("MemberProduct 종료 확인 실패: MemberProduct ID={}, 오류: {}", 
-                                            mp.getId(), e.getMessage());
-                                    }
-                                }
-                            } else {
-                                // 이용권이 있지만 상태가 불명확한 경우
-                                isExpired = true;
-                                Map<String, Object> productInfo = new HashMap<>();
-                                productInfo.put("id", null);
-                                productInfo.put("productName", "활성 이용권 없음");
-                                productInfo.put("productType", "NONE");
-                                productInfo.put("expiryReason", "활성 상태의 이용권이 없습니다");
-                                productInfo.put("status", "NO_ACTIVE");
-                                expiredProducts.add(productInfo);
-                            }
-                        }
-                    }
-                    
-                    if (isExpiring) {
-                        Map<String, Object> memberMap = new HashMap<>();
-                        memberMap.put("id", member.getId());
-                        memberMap.put("memberNumber", member.getMemberNumber());
-                        memberMap.put("name", member.getName());
-                        memberMap.put("phoneNumber", member.getPhoneNumber());
-                        memberMap.put("grade", member.getGrade());
-                        memberMap.put("school", member.getSchool());
-                        memberMap.put("expiringProducts", expiringProducts);
-                        expiringMembersList.add(memberMap);
-                    }
-                    
-                    if (isExpired) {
-                        Map<String, Object> memberMap = new HashMap<>();
-                        memberMap.put("id", member.getId());
-                        memberMap.put("memberNumber", member.getMemberNumber());
-                        memberMap.put("name", member.getName());
-                        memberMap.put("phoneNumber", member.getPhoneNumber());
-                        memberMap.put("grade", member.getGrade());
-                        memberMap.put("school", member.getSchool());
-                        memberMap.put("expiredProducts", expiredProducts);
-                        expiredMembersList.add(memberMap);
-                    }
-                } catch (Exception e) {
-                    logger.debug("회원 만료 확인 실패: Member ID={}, 오류: {}", 
-                        member.getId(), e.getMessage());
-                }
-            }
-            
-            Map<String, Object> result = new HashMap<>();
-            result.put("expiring", expiringMembersList);
-            result.put("expired", expiredMembersList);
-            
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            logger.error("만료 임박 및 종료 회원 목록 조회 중 오류 발생", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
-    // 레슨 카테고리가 없는 예약들을 자동으로 업데이트 (내부 메서드)
-    @Transactional
-    private void updateMissingLessonCategoriesForBookings(List<com.afbscenter.model.Booking> bookings) {
-        try {
-            for (com.afbscenter.model.Booking booking : bookings) {
-                if (booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.LESSON && 
-                    booking.getLessonCategory() == null) {
-                    com.afbscenter.model.Coach coach = booking.getCoach();
-                    if (coach == null && booking.getMember() != null && booking.getMember().getCoach() != null) {
-                        coach = booking.getMember().getCoach();
-                    }
-                    
-                    if (coach != null) {
-                        com.afbscenter.model.LessonCategory category = LessonCategoryUtil.fromCoachSpecialties(coach);
-                        if (category != null) {
-                            booking.setLessonCategory(category);
-                            bookingRepository.save(booking);
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // 조용히 실패 (로그만 출력)
-            logger.warn("레슨 카테고리 자동 업데이트 실패: {}", e.getMessage(), e);
-        }
-    }
-
-    @GetMapping("/today-schedule")
-    @Transactional(readOnly = true)
-    public ResponseEntity<List<Map<String, Object>>> getTodaySchedule() {
-        LocalDate today = LocalDate.now();
-        LocalDateTime startOfDay = today.atStartOfDay();
-        LocalDateTime endOfDay = today.atTime(LocalTime.MAX);
-        LocalDateTime now = LocalDateTime.now();
-
-        List<com.afbscenter.model.Booking> bookings = bookingRepository.findByDateRange(startOfDay, endOfDay);
-        
-        // 레슨 카테고리가 없는 예약들을 자동으로 업데이트
-        updateMissingLessonCategoriesForBookings(bookings);
-        
-        // 종료 시간이 지난 확정 예약을 자동으로 완료 상태로 변경
-        int autoCompletedCount = 0;
-        for (com.afbscenter.model.Booking booking : bookings) {
-            if (booking.getEndTime() != null && 
-                booking.getStatus() == com.afbscenter.model.Booking.BookingStatus.CONFIRMED &&
-                booking.getEndTime().isBefore(now)) {
-                booking.setStatus(com.afbscenter.model.Booking.BookingStatus.COMPLETED);
-                bookingRepository.save(booking);
-                autoCompletedCount++;
-            }
-        }
-        if (autoCompletedCount > 0) {
-            logger.debug("오늘 일정 조회 시 {}개의 예약이 자동으로 완료 상태로 변경되었습니다.", autoCompletedCount);
-        }
-
-        // 확정 및 완료된 예약 필터링 (대기, 취소, 노쇼 제외)
-        List<Map<String, Object>> schedule = bookings.stream()
-                .filter(booking -> booking.getStatus() == com.afbscenter.model.Booking.BookingStatus.CONFIRMED ||
-                                 booking.getStatus() == com.afbscenter.model.Booking.BookingStatus.COMPLETED)
-                .map(booking -> {
-                    Map<String, Object> item = new HashMap<>();
-                    item.put("id", booking.getId());
-                    
-                    // 시간 포맷팅 (HH:mm)
-                    String timeStr = booking.getStartTime().toLocalTime().toString();
-                    if (timeStr.length() > 5) {
-                        timeStr = timeStr.substring(0, 5);
-                    }
-                    item.put("time", timeStr);
-                    
-                    // 종료 시간 포맷팅
-                    String endTimeStr = "";
-                    if (booking.getEndTime() != null) {
-                        endTimeStr = booking.getEndTime().toLocalTime().toString();
-                        if (endTimeStr.length() > 5) {
-                            endTimeStr = endTimeStr.substring(0, 5);
-                        }
-                    }
-                    item.put("endTime", endTimeStr);
-                    
-                    // 종료 여부 확인 (종료 시간이 현재 시간보다 이전이면 종료됨)
-                    boolean isCompleted = booking.getEndTime() != null && booking.getEndTime().isBefore(now);
-                    item.put("isCompleted", isCompleted);
-                    
-                    // 시설 이름
-                    item.put("facility", booking.getFacility() != null ? booking.getFacility().getName() : "-");
-                    
-                    // 회원 이름
-                    String memberName = booking.getMember() != null ? booking.getMember().getName() : 
-                                      (booking.getNonMemberName() != null ? booking.getNonMemberName() : "비회원");
-                    item.put("memberName", memberName);
-                    
-                    // 레슨 카테고리 (레슨인 경우만)
-                    String lessonCategory = "";
-                    if (booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.LESSON) {
-                        // 먼저 예약에 저장된 레슨 카테고리 확인
-                        if (booking.getLessonCategory() != null) {
-                            lessonCategory = LessonCategoryUtil.toKoreanText(booking.getLessonCategory());
-                        } else {
-                            // 레슨 카테고리가 없으면 코치의 담당 종목으로 자동 설정
-                            com.afbscenter.model.Coach coach = null;
-                            if (booking.getCoach() != null) {
-                                coach = booking.getCoach();
-                            } else if (booking.getMember() != null && booking.getMember().getCoach() != null) {
-                                coach = booking.getMember().getCoach();
-                            }
-                            
-                            if (coach != null) {
-                                com.afbscenter.model.LessonCategory category = LessonCategoryUtil.fromCoachSpecialties(coach);
-                                if (category != null) {
-                                    lessonCategory = LessonCategoryUtil.toKoreanText(category);
-                                }
-                            }
-                        }
-                    }
-                    item.put("lessonCategory", lessonCategory);
-                    
-                    // 코치 정보 (예약에 직접 할당된 코치 우선, 없으면 회원의 코치)
-                    String coachName = "";
-                    Long coachId = null;
-                    if (booking.getCoach() != null) {
-                        coachName = booking.getCoach().getName();
-                        coachId = booking.getCoach().getId();
-                    } else if (booking.getMember() != null && booking.getMember().getCoach() != null) {
-                        coachName = booking.getMember().getCoach().getName();
-                        coachId = booking.getMember().getCoach().getId();
-                    }
-                    item.put("coachName", coachName);
-                    item.put("coachId", coachId);
-                    
-                    item.put("status", booking.getStatus().name());
-                    return item;
-                })
-                .collect(Collectors.toList());
-
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/alerts")
-    @Transactional(readOnly = true)
-    public ResponseEntity<List<Map<String, Object>>> getAlerts() {
-        // 대기 예약
-        List<com.afbscenter.model.Booking> pendingBookings = bookingRepository.findByStatus(
-                com.afbscenter.model.Booking.BookingStatus.PENDING);
-
-        List<Map<String, Object>> alerts = pendingBookings.stream().map(booking -> {
-            Map<String, Object> alert = new HashMap<>();
-            alert.put("type", "warning");
-            alert.put("title", "대기 예약 승인 필요");
-            alert.put("message", booking.getFacility().getName() + " - " + 
-                    (booking.getMember() != null ? booking.getMember().getName() : booking.getNonMemberName()));
-            return alert;
-        }).collect(Collectors.toList());
-
-        return ResponseEntity.ok(alerts);
-    }
-
-    @GetMapping("/announcements")
-    @Transactional(readOnly = true)
-    public ResponseEntity<List<Map<String, Object>>> getActiveAnnouncements() {
-        try {
-            LocalDate currentDate = LocalDate.now();
-            List<Announcement> announcements = announcementRepository.findActiveAnnouncements(currentDate);
-            
-            List<Map<String, Object>> result = new ArrayList<>();
-            for (Announcement announcement : announcements) {
-                Map<String, Object> map = new HashMap<>();
-                map.put("id", announcement.getId());
-                map.put("title", announcement.getTitle());
-                map.put("content", announcement.getContent());
-                map.put("startDate", announcement.getStartDate());
-                map.put("endDate", announcement.getEndDate());
-                map.put("createdAt", announcement.getCreatedAt());
-                result.add(map);
-            }
-            
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            logger.error("활성 공지사항 조회 중 오류 발생: {}", e.getMessage(), e);
-            return ResponseEntity.ok(new ArrayList<>()); // 오류 시 빈 리스트 반환
-        }
-    }
-
     @GetMapping("/revenue-metrics")
     @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getRevenueMetrics() {
@@ -865,14 +474,7 @@ public class DashboardController {
             // Payment 데이터가 없으면 MemberProduct 기반으로 계산
             if (payments.isEmpty()) {
                 try {
-                    List<com.afbscenter.model.MemberProduct> memberProducts = memberProductRepository.findAll().stream()
-                            .filter(mp -> {
-                                if (mp.getPurchaseDate() == null) return false;
-                                LocalDateTime purchaseDateTime = mp.getPurchaseDate();
-                                return !purchaseDateTime.isBefore(startOfMonth) && 
-                                       !purchaseDateTime.isAfter(endOfMonth);
-                            })
-                            .collect(Collectors.toList());
+                    List<com.afbscenter.model.MemberProduct> memberProducts = memberProductRepository.findByPurchaseDateRange(startOfMonth, endOfMonth);
                     
                     for (com.afbscenter.model.MemberProduct mp : memberProducts) {
                         try {

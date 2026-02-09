@@ -65,6 +65,7 @@ public class TrainingLogController {
                     map.put("part", log.getPart() != null ? log.getPart().name() : null);
                     
                     // 타격 기록
+                    map.put("swingSpeed", log.getSwingSpeed());
                     map.put("swingCount", log.getSwingCount());
                     map.put("ballSpeed", log.getBallSpeed());
                     map.put("launchAngle", log.getLaunchAngle());
@@ -131,6 +132,7 @@ public class TrainingLogController {
             map.put("part", log.getPart() != null ? log.getPart().name() : null);
             
             // 타격 기록
+            map.put("swingSpeed", log.getSwingSpeed());
             map.put("swingCount", log.getSwingCount());
             map.put("ballSpeed", log.getBallSpeed());
             map.put("launchAngle", log.getLaunchAngle());
@@ -250,6 +252,18 @@ public class TrainingLogController {
             }
             
             // 타격 기록
+            if (data.get("swingSpeed") != null) {
+                try {
+                    Object swingSpeedObj = data.get("swingSpeed");
+                    if (swingSpeedObj instanceof Number) {
+                        trainingLog.setSwingSpeed(((Number) swingSpeedObj).doubleValue());
+                    } else if (swingSpeedObj instanceof String && !((String) swingSpeedObj).trim().isEmpty()) {
+                        trainingLog.setSwingSpeed(Double.parseDouble((String) swingSpeedObj));
+                    }
+                } catch (Exception e) {
+                    logger.warn("swingSpeed 파싱 실패: {}", data.get("swingSpeed"), e);
+                }
+            }
             if (data.get("swingCount") != null) {
                 try {
                     Object swingCountObj = data.get("swingCount");
@@ -400,6 +414,7 @@ public class TrainingLogController {
             result.put("recordDate", saved.getRecordDate());
             result.put("type", saved.getType() != null ? saved.getType().name() : null);
             result.put("part", saved.getPart() != null ? saved.getPart().name() : null);
+            result.put("swingSpeed", saved.getSwingSpeed());
             result.put("swingCount", saved.getSwingCount());
             result.put("ballSpeed", saved.getBallSpeed());
             result.put("launchAngle", saved.getLaunchAngle());
@@ -499,6 +514,21 @@ public class TrainingLogController {
             }
             
             // 타격 기록 업데이트
+            if (data.get("swingSpeed") != null) {
+                try {
+                    Object swingSpeedObj = data.get("swingSpeed");
+                    if (swingSpeedObj instanceof Number) {
+                        log.setSwingSpeed(((Number) swingSpeedObj).doubleValue());
+                    } else if (swingSpeedObj instanceof String && !((String) swingSpeedObj).trim().isEmpty()) {
+                        log.setSwingSpeed(Double.parseDouble((String) swingSpeedObj));
+                    }
+                } catch (Exception e) {
+                    logger.warn("swingSpeed 업데이트 실패: {}", data.get("swingSpeed"), e);
+                }
+            } else {
+                // null이 명시적으로 전달되면 null로 설정
+                log.setSwingSpeed(null);
+            }
             if (data.get("swingCount") != null) {
                 try {
                     Object swingCountObj = data.get("swingCount");
@@ -652,6 +682,7 @@ public class TrainingLogController {
             result.put("recordDate", saved.getRecordDate());
             result.put("type", saved.getType() != null ? saved.getType().name() : null);
             result.put("part", saved.getPart() != null ? saved.getPart().name() : null);
+            result.put("swingSpeed", saved.getSwingSpeed());
             result.put("swingCount", saved.getSwingCount());
             result.put("ballSpeed", saved.getBallSpeed());
             result.put("launchAngle", saved.getLaunchAngle());
@@ -704,171 +735,6 @@ public class TrainingLogController {
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
             logger.error("훈련 기록 삭제 중 오류 발생. ID: {}", id, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-    
-    // 회원별 훈련 기록 랭킹 조회
-    @GetMapping("/rankings")
-    @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> getRankings(
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate,
-            @RequestParam(defaultValue = "30") int days,
-            @RequestParam(required = false) String grade) {
-        try {
-            LocalDate end = endDate != null ? LocalDate.parse(endDate) : LocalDate.now();
-            LocalDate start = startDate != null ? LocalDate.parse(startDate) : end.minusDays(days - 1);
-            
-            // 기간 내 모든 훈련 기록 조회
-            List<TrainingLog> logs = trainingLogRepository.findByDateRange(start, end);
-            
-            // 회원 등급 필터링
-            if (grade != null && !grade.isEmpty() && !grade.equals("ALL")) {
-                Member.MemberGrade filterGrade = Member.MemberGrade.valueOf(grade);
-                logs = logs.stream()
-                    .filter(log -> log.getMember() != null && log.getMember().getGrade() == filterGrade)
-                    .collect(Collectors.toList());
-            }
-            
-            // 회원별 통계 계산
-            Map<Long, Map<String, Object>> memberStats = new HashMap<>();
-            
-            for (TrainingLog log : logs) {
-                if (log.getMember() == null) continue;
-                
-                Long memberId = log.getMember().getId();
-                Map<String, Object> stats = memberStats.computeIfAbsent(memberId, k -> {
-                    Map<String, Object> newStats = new HashMap<>();
-                    newStats.put("memberId", memberId);
-                    newStats.put("memberName", log.getMember().getName());
-                    newStats.put("memberNumber", log.getMember().getMemberNumber());
-                    newStats.put("memberGrade", log.getMember().getGrade() != null ? log.getMember().getGrade().name() : "SOCIAL");
-                    newStats.put("totalRecords", 0);
-                    newStats.put("ballSpeedMax", 0.0);
-                    newStats.put("ballSpeedAvg", 0.0);
-                    newStats.put("ballSpeedCount", 0);
-                    newStats.put("ballSpeedSum", 0.0);
-                    newStats.put("pitchSpeedMax", 0.0);
-                    newStats.put("pitchSpeedAvg", 0.0);
-                    newStats.put("pitchSpeedCount", 0);
-                    newStats.put("pitchSpeedSum", 0.0);
-                    newStats.put("contactRateMax", 0.0);
-                    newStats.put("contactRateAvg", 0.0);
-                    newStats.put("contactRateCount", 0);
-                    newStats.put("contactRateSum", 0.0);
-                    newStats.put("strikeRateMax", 0.0);
-                    newStats.put("strikeRateAvg", 0.0);
-                    newStats.put("strikeRateCount", 0);
-                    newStats.put("strikeRateSum", 0.0);
-                    return newStats;
-                });
-                
-                // 기록 수 증가
-                stats.put("totalRecords", (Integer) stats.get("totalRecords") + 1);
-                
-                // 타구속도
-                if (log.getBallSpeed() != null && log.getBallSpeed() > 0) {
-                    double currentMax = (Double) stats.get("ballSpeedMax");
-                    stats.put("ballSpeedMax", Math.max(currentMax, log.getBallSpeed()));
-                    stats.put("ballSpeedSum", (Double) stats.get("ballSpeedSum") + log.getBallSpeed());
-                    stats.put("ballSpeedCount", (Integer) stats.get("ballSpeedCount") + 1);
-                }
-                
-                // 구속
-                if (log.getPitchSpeed() != null && log.getPitchSpeed() > 0) {
-                    double currentMax = (Double) stats.get("pitchSpeedMax");
-                    stats.put("pitchSpeedMax", Math.max(currentMax, log.getPitchSpeed()));
-                    stats.put("pitchSpeedSum", (Double) stats.get("pitchSpeedSum") + log.getPitchSpeed());
-                    stats.put("pitchSpeedCount", (Integer) stats.get("pitchSpeedCount") + 1);
-                }
-                
-                // 컨택률
-                if (log.getContactRate() != null && log.getContactRate() > 0) {
-                    double currentMax = (Double) stats.get("contactRateMax");
-                    stats.put("contactRateMax", Math.max(currentMax, log.getContactRate()));
-                    stats.put("contactRateSum", (Double) stats.get("contactRateSum") + log.getContactRate());
-                    stats.put("contactRateCount", (Integer) stats.get("contactRateCount") + 1);
-                }
-                
-                // 스트라이크율
-                if (log.getStrikeRate() != null && log.getStrikeRate() > 0) {
-                    double currentMax = (Double) stats.get("strikeRateMax");
-                    stats.put("strikeRateMax", Math.max(currentMax, log.getStrikeRate()));
-                    stats.put("strikeRateSum", (Double) stats.get("strikeRateSum") + log.getStrikeRate());
-                    stats.put("strikeRateCount", (Integer) stats.get("strikeRateCount") + 1);
-                }
-            }
-            
-            // 평균 계산
-            for (Map<String, Object> stats : memberStats.values()) {
-                int ballSpeedCount = (Integer) stats.get("ballSpeedCount");
-                if (ballSpeedCount > 0) {
-                    stats.put("ballSpeedAvg", (Double) stats.get("ballSpeedSum") / ballSpeedCount);
-                }
-                
-                int pitchSpeedCount = (Integer) stats.get("pitchSpeedCount");
-                if (pitchSpeedCount > 0) {
-                    stats.put("pitchSpeedAvg", (Double) stats.get("pitchSpeedSum") / pitchSpeedCount);
-                }
-                
-                int contactRateCount = (Integer) stats.get("contactRateCount");
-                if (contactRateCount > 0) {
-                    stats.put("contactRateAvg", (Double) stats.get("contactRateSum") / contactRateCount);
-                }
-                
-                int strikeRateCount = (Integer) stats.get("strikeRateCount");
-                if (strikeRateCount > 0) {
-                    stats.put("strikeRateAvg", (Double) stats.get("strikeRateSum") / strikeRateCount);
-                }
-            }
-            
-            // 통계 리스트로 변환
-            List<Map<String, Object>> statsList = new ArrayList<>(memberStats.values());
-            
-            // 랭킹별 정렬
-            Map<String, Object> result = new HashMap<>();
-            result.put("period", Map.of("start", start.toString(), "end", end.toString(), "days", days));
-            result.put("totalMembers", statsList.size());
-            result.put("filterGrade", grade != null ? grade : "ALL");
-            
-            // 타구속도 랭킹 (최고 속도 기준)
-            List<Map<String, Object>> ballSpeedRanking = statsList.stream()
-                .filter(s -> (Double) s.get("ballSpeedMax") > 0)
-                .sorted((a, b) -> Double.compare((Double) b.get("ballSpeedMax"), (Double) a.get("ballSpeedMax")))
-                .collect(Collectors.toList());
-            result.put("ballSpeedRanking", ballSpeedRanking);
-            
-            // 구속 랭킹 (최고 속도 기준)
-            List<Map<String, Object>> pitchSpeedRanking = statsList.stream()
-                .filter(s -> (Double) s.get("pitchSpeedMax") > 0)
-                .sorted((a, b) -> Double.compare((Double) b.get("pitchSpeedMax"), (Double) a.get("pitchSpeedMax")))
-                .collect(Collectors.toList());
-            result.put("pitchSpeedRanking", pitchSpeedRanking);
-            
-            // 컨택률 랭킹 (최고 기록 기준)
-            List<Map<String, Object>> contactRateRanking = statsList.stream()
-                .filter(s -> (Double) s.get("contactRateMax") > 0)
-                .sorted((a, b) -> Double.compare((Double) b.get("contactRateMax"), (Double) a.get("contactRateMax")))
-                .collect(Collectors.toList());
-            result.put("contactRateRanking", contactRateRanking);
-            
-            // 스트라이크율 랭킹 (최고 기록 기준)
-            List<Map<String, Object>> strikeRateRanking = statsList.stream()
-                .filter(s -> (Double) s.get("strikeRateMax") > 0)
-                .sorted((a, b) -> Double.compare((Double) b.get("strikeRateMax"), (Double) a.get("strikeRateMax")))
-                .collect(Collectors.toList());
-            result.put("strikeRateRanking", strikeRateRanking);
-            
-            // 훈련 횟수 랭킹
-            List<Map<String, Object>> recordCountRanking = statsList.stream()
-                .sorted((a, b) -> Integer.compare((Integer) b.get("totalRecords"), (Integer) a.get("totalRecords")))
-                .collect(Collectors.toList());
-            result.put("recordCountRanking", recordCountRanking);
-            
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            logger.error("랭킹 조회 중 오류 발생", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

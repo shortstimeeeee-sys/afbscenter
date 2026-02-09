@@ -68,7 +68,9 @@ public class PaymentController {
             if (payments == null) {
                 payments = new java.util.ArrayList<>();
             }
-            logger.info("결제 목록 조회: 전체 {}건", payments.size());
+            // 삭제된 회원의 결제는 목록/매출에 노출하지 않음 (회원 삭제 시 결제는 DB에서 삭제되지만, 회원이 null인 건 제외)
+            payments = payments.stream().filter(p -> p.getMember() != null).collect(Collectors.toList());
+            logger.info("결제 목록 조회: 전체 {}건 (회원 존재 건만)", payments.size());
             
             // 필터링
             if (paymentMethod != null && !paymentMethod.isEmpty()) {
@@ -278,117 +280,6 @@ public class PaymentController {
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             logger.error("결제 목록 조회 중 오류 발생", e);
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
-    @GetMapping("/summary")
-    @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> getPaymentSummary() {
-        try {
-            LocalDate today = LocalDate.now();
-            LocalDateTime startOfDay = today.atStartOfDay();
-            LocalDateTime endOfDay = today.atTime(LocalTime.MAX);
-            
-            // 오늘 매출
-            Integer todayRevenue = paymentRepository.sumAmountByDateRange(startOfDay, endOfDay);
-            if (todayRevenue == null) todayRevenue = 0;
-            
-            // 이번 달 매출
-            LocalDate monthStart = today.withDayOfMonth(1);
-            LocalDateTime monthStartDateTime = monthStart.atStartOfDay();
-            LocalDateTime monthEndDateTime = today.atTime(LocalTime.MAX);
-            Integer monthRevenue = paymentRepository.sumAmountByDateRange(monthStartDateTime, monthEndDateTime);
-            if (monthRevenue == null) monthRevenue = 0;
-            
-            // 전일 매출 (전일 대비 계산용)
-            LocalDate yesterday = today.minusDays(1);
-            LocalDateTime startOfYesterday = yesterday.atStartOfDay();
-            LocalDateTime endOfYesterday = yesterday.atTime(LocalTime.MAX);
-            Integer yesterdayRevenue = paymentRepository.sumAmountByDateRange(startOfYesterday, endOfYesterday);
-            if (yesterdayRevenue == null) yesterdayRevenue = 0;
-            
-            // 전월 매출 (전월 대비 계산용)
-            LocalDate lastMonthEnd = monthStart.minusDays(1);
-            LocalDate lastMonthStart = lastMonthEnd.withDayOfMonth(1);
-            LocalDateTime lastMonthStartDateTime = lastMonthStart.atStartOfDay();
-            LocalDateTime lastMonthEndDateTime = lastMonthEnd.atTime(LocalTime.MAX);
-            Integer lastMonthRevenue = paymentRepository.sumAmountByDateRange(lastMonthStartDateTime, lastMonthEndDateTime);
-            if (lastMonthRevenue == null) lastMonthRevenue = 0;
-            
-            // 미수금 계산 (확정된 예약 중 미결제)
-            // 실제로 결제가 필요한 예약만 카운트
-            Integer unpaid = 0;
-            try {
-                List<Booking> confirmedBookings = new java.util.ArrayList<>();
-                confirmedBookings.addAll(bookingRepository.findByStatus(Booking.BookingStatus.CONFIRMED));
-                confirmedBookings.addAll(bookingRepository.findByStatus(Booking.BookingStatus.COMPLETED));
-                
-                for (Booking booking : confirmedBookings) {
-                    // MemberProduct(이용권)를 사용한 예약은 제외 (이미 상품 구매 시 결제됨)
-                    if (booking.getMemberProduct() != null) {
-                        continue; // 이용권 사용 예약은 미수금에서 제외
-                    }
-                    
-                    // 해당 예약에 대한 결제가 있는지 확인
-                    List<Payment> bookingPayments = paymentRepository.findByBookingId(booking.getId());
-                    if (bookingPayments == null || bookingPayments.isEmpty()) {
-                        // 결제가 없고, 선결제(PREPAID)인 경우만 미수금으로 카운트
-                        // 후불(ON_SITE, POSTPAID)은 아직 결제하지 않았을 수 있으므로 제외
-                        if (booking.getPaymentMethod() == Booking.PaymentMethod.PREPAID) {
-                            unpaid++; // 미수금 건수만 카운트 (금액 정보가 없으므로)
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                logger.warn("미수금 계산 중 오류 발생", e);
-            }
-            
-            // 환불 대기 (REFUNDED 상태가 아닌 결제 중 refundAmount가 설정된 것)
-            Integer refundPending = 0;
-            try {
-                List<Payment> allPayments = paymentRepository.findAll();
-                refundPending = (int) allPayments.stream()
-                    .filter(p -> p.getRefundAmount() != null && p.getRefundAmount() > 0 && 
-                                p.getStatus() != Payment.PaymentStatus.REFUNDED)
-                    .count();
-            } catch (Exception e) {
-                logger.warn("환불 대기 계산 중 오류 발생", e);
-            }
-            
-            Map<String, Object> summary = new HashMap<>();
-            // 전일 대비 증감률 계산
-            double todayChangeRate = 0.0;
-            if (yesterdayRevenue > 0) {
-                todayChangeRate = ((double)(todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 100;
-            } else if (todayRevenue > 0) {
-                todayChangeRate = 100.0; // 전일 0원, 오늘 매출 있음
-            }
-            
-            // 전월 대비 증감률 계산
-            double monthChangeRate = 0.0;
-            if (lastMonthRevenue > 0) {
-                monthChangeRate = ((double)(monthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100;
-            } else if (monthRevenue > 0) {
-                monthChangeRate = 100.0; // 전월 0원, 이번달 매출 있음
-            }
-            
-            summary.put("todayRevenue", todayRevenue);
-            summary.put("monthRevenue", monthRevenue);
-            summary.put("yesterdayRevenue", yesterdayRevenue);
-            summary.put("lastMonthRevenue", lastMonthRevenue);
-            summary.put("todayChangeRate", Math.round(todayChangeRate * 10.0) / 10.0);
-            summary.put("monthChangeRate", Math.round(monthChangeRate * 10.0) / 10.0);
-            summary.put("unpaid", unpaid);
-            summary.put("refundPending", refundPending);
-            
-            logger.debug("결제 요약 조회 완료: 오늘={}, 이번달={}, 전일={}, 전월={}, 오늘증감률={}%, 이번달증감률={}%, 미수금={}, 환불대기={}", 
-                todayRevenue, monthRevenue, yesterdayRevenue, lastMonthRevenue, todayChangeRate, monthChangeRate, unpaid, refundPending);
-            
-            return ResponseEntity.ok(summary);
-        } catch (Exception e) {
-            logger.error("결제 요약 조회 중 오류 발생", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -496,7 +387,6 @@ public class PaymentController {
             return ResponseEntity.ok(map);
         } catch (Exception e) {
             logger.error("결제 조회 중 오류 발생. ID: {}", id, e);
-            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -767,10 +657,7 @@ public class PaymentController {
             int year = LocalDate.now().getYear();
             
             // 올해 결제 중 가장 큰 번호 찾기
-            List<Payment> thisYearPayments = paymentRepository.findAll().stream()
-                    .filter(p -> p.getPaymentNumber() != null && 
-                               p.getPaymentNumber().startsWith("PAY-" + year + "-"))
-                    .collect(Collectors.toList());
+            List<Payment> thisYearPayments = paymentRepository.findByPaymentNumberPattern("PAY-" + year + "-%");
             
             int maxNumber = 0;
             for (Payment p : thisYearPayments) {
@@ -792,235 +679,6 @@ public class PaymentController {
             logger.warn("결제 관리 번호 생성 실패, 기본 번호 사용", e);
             // 실패 시 타임스탬프 기반 번호 생성
             return "PAY-" + System.currentTimeMillis();
-        }
-    }
-    
-    // 결제 방법별 통계
-    @GetMapping("/statistics/method")
-    @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> getPaymentMethodStatistics(
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
-        try {
-            List<Payment> payments = paymentRepository.findAllWithCoach();
-            if (payments == null) {
-                payments = new ArrayList<>();
-            }
-            
-            // 날짜 필터링
-            if (startDate != null && endDate != null) {
-                LocalDate start = LocalDate.parse(startDate);
-                LocalDate end = LocalDate.parse(endDate);
-                LocalDateTime startDateTime = start.atStartOfDay();
-                LocalDateTime endDateTime = end.atTime(LocalTime.MAX);
-                
-                payments = payments.stream()
-                        .filter(p -> {
-                            LocalDateTime paidAt = p.getPaidAt();
-                            return paidAt != null && !paidAt.isBefore(startDateTime) && !paidAt.isAfter(endDateTime);
-                        })
-                        .collect(Collectors.toList());
-            }
-            
-            Map<String, Integer> methodCount = new HashMap<>();
-            Map<String, Integer> methodAmount = new HashMap<>();
-            int totalCount = payments.size();
-            int totalAmount = 0;
-            
-            for (Payment payment : payments) {
-                if (payment.getPaymentMethod() != null && payment.getAmount() != null) {
-                    String method = payment.getPaymentMethod().name();
-                    methodCount.put(method, methodCount.getOrDefault(method, 0) + 1);
-                    methodAmount.put(method, methodAmount.getOrDefault(method, 0) + payment.getAmount());
-                    totalAmount += payment.getAmount();
-                }
-            }
-            
-            Map<String, Object> statistics = new HashMap<>();
-            statistics.put("methodCount", methodCount);
-            statistics.put("methodAmount", methodAmount);
-            statistics.put("totalCount", totalCount);
-            statistics.put("totalAmount", totalAmount);
-            
-            return ResponseEntity.ok(statistics);
-        } catch (Exception e) {
-            logger.error("결제 방법별 통계 조회 중 오류 발생", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-    
-    // 미수금 상세 내역
-    @GetMapping("/unpaid/details")
-    @Transactional(readOnly = true)
-    public ResponseEntity<List<Map<String, Object>>> getUnpaidDetails() {
-        try {
-            // CONFIRMED 또는 COMPLETED 상태의 예약 중 결제가 없는 것들
-            List<Booking> confirmedBookings = new ArrayList<>();
-            confirmedBookings.addAll(bookingRepository.findByStatus(Booking.BookingStatus.CONFIRMED));
-            confirmedBookings.addAll(bookingRepository.findByStatus(Booking.BookingStatus.COMPLETED));
-            
-            List<Map<String, Object>> unpaidDetails = new ArrayList<>();
-            
-            for (Booking booking : confirmedBookings) {
-                // MemberProduct(이용권)를 사용한 예약은 제외 (이미 상품 구매 시 결제됨)
-                if (booking.getMemberProduct() != null) {
-                    continue; // 이용권 사용 예약은 미수금에서 제외
-                }
-                
-                List<Payment> bookingPayments = paymentRepository.findByBookingId(booking.getId());
-                if (bookingPayments == null || bookingPayments.isEmpty()) {
-                    // 선결제(PREPAID)인 경우만 미수금으로 표시
-                    // 후불(ON_SITE, POSTPAID)은 아직 결제하지 않았을 수 있으므로 제외
-                    if (booking.getPaymentMethod() == Booking.PaymentMethod.PREPAID) {
-                        Map<String, Object> detail = new HashMap<>();
-                        detail.put("bookingId", booking.getId());
-                        detail.put("startTime", booking.getStartTime());
-                        detail.put("endTime", booking.getEndTime());
-                        detail.put("paymentMethod", booking.getPaymentMethod() != null ? booking.getPaymentMethod().name() : null);
-                        detail.put("purpose", booking.getPurpose() != null ? booking.getPurpose().name() : null);
-                        if (booking.getMember() != null) {
-                            Map<String, Object> memberMap = new HashMap<>();
-                            memberMap.put("id", booking.getMember().getId());
-                            memberMap.put("name", booking.getMember().getName());
-                            detail.put("member", memberMap);
-                        } else {
-                            // 비회원 정보
-                            detail.put("nonMemberName", booking.getNonMemberName());
-                            detail.put("nonMemberPhone", booking.getNonMemberPhone());
-                        }
-                        if (booking.getFacility() != null) {
-                            Map<String, Object> facilityMap = new HashMap<>();
-                            facilityMap.put("id", booking.getFacility().getId());
-                            facilityMap.put("name", booking.getFacility().getName());
-                            detail.put("facility", facilityMap);
-                        }
-                        unpaidDetails.add(detail);
-                    }
-                }
-            }
-            
-            return ResponseEntity.ok(unpaidDetails);
-        } catch (Exception e) {
-            logger.error("미수금 상세 내역 조회 중 오류 발생", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-    
-    // 엑셀 다운로드
-    @GetMapping("/export/excel")
-    @Transactional(readOnly = true)
-    public ResponseEntity<org.springframework.core.io.Resource> exportToExcel(
-            @RequestParam(required = false) String paymentMethod,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) String category,
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
-        try {
-            // 필터링된 결제 목록 가져오기 (getAllPayments 로직 재사용)
-            List<Payment> payments = paymentRepository.findAllWithCoach();
-            if (payments == null) {
-                payments = new ArrayList<>();
-            }
-            
-            // 필터링 적용
-            if (paymentMethod != null && !paymentMethod.isEmpty()) {
-                try {
-                    Payment.PaymentMethod method = Payment.PaymentMethod.valueOf(paymentMethod);
-                    payments = payments.stream()
-                            .filter(p -> p.getPaymentMethod() == method)
-                            .collect(Collectors.toList());
-                } catch (IllegalArgumentException e) {}
-            }
-            
-            if (status != null && !status.isEmpty()) {
-                try {
-                    Payment.PaymentStatus paymentStatus = Payment.PaymentStatus.valueOf(status);
-                    payments = payments.stream()
-                            .filter(p -> p.getStatus() == paymentStatus)
-                            .collect(Collectors.toList());
-                } catch (IllegalArgumentException e) {}
-            }
-            
-            if (category != null && !category.isEmpty()) {
-                try {
-                    Payment.PaymentCategory paymentCategory = Payment.PaymentCategory.valueOf(category);
-                    payments = payments.stream()
-                            .filter(p -> p.getCategory() == paymentCategory)
-                            .collect(Collectors.toList());
-                } catch (IllegalArgumentException e) {}
-            }
-            
-            if (startDate != null && endDate != null) {
-                LocalDate start = LocalDate.parse(startDate);
-                LocalDate end = LocalDate.parse(endDate);
-                LocalDateTime startDateTime = start.atStartOfDay();
-                LocalDateTime endDateTime = end.atTime(LocalTime.MAX);
-                
-                payments = payments.stream()
-                        .filter(p -> {
-                            LocalDateTime paidAt = p.getPaidAt();
-                            return paidAt != null && !paidAt.isBefore(startDateTime) && !paidAt.isAfter(endDateTime);
-                        })
-                        .collect(Collectors.toList());
-            }
-            
-            // 엑셀 파일 생성
-            org.apache.poi.ss.usermodel.Workbook workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook();
-            org.apache.poi.ss.usermodel.Sheet sheet = workbook.createSheet("결제 내역");
-            
-            // 헤더 생성
-            org.apache.poi.ss.usermodel.Row headerRow = sheet.createRow(0);
-            String[] headers = {"결제번호", "날짜/시간", "회원", "코치", "분류", "결제수단", "금액", "상태", "환불금액", "메모"};
-            for (int i = 0; i < headers.length; i++) {
-                org.apache.poi.ss.usermodel.Cell cell = headerRow.createCell(i);
-                cell.setCellValue(headers[i]);
-            }
-            
-            // 데이터 행 생성
-            int rowNum = 1;
-            for (Payment payment : payments) {
-                org.apache.poi.ss.usermodel.Row row = sheet.createRow(rowNum++);
-                
-                row.createCell(0).setCellValue(payment.getId() != null ? payment.getId().toString() : "");
-                row.createCell(1).setCellValue(payment.getPaidAt() != null ? payment.getPaidAt().toString() : "");
-                row.createCell(2).setCellValue(payment.getMember() != null && payment.getMember().getName() != null 
-                        ? payment.getMember().getName() : "");
-                row.createCell(3).setCellValue(
-                        (payment.getBooking() != null && payment.getBooking().getCoach() != null) 
-                                ? payment.getBooking().getCoach().getName() 
-                                : (payment.getMember() != null && payment.getMember().getCoach() != null 
-                                        ? payment.getMember().getCoach().getName() : ""));
-                row.createCell(4).setCellValue(payment.getCategory() != null ? payment.getCategory().name() : "");
-                row.createCell(5).setCellValue(payment.getPaymentMethod() != null ? payment.getPaymentMethod().name() : "");
-                row.createCell(6).setCellValue(payment.getAmount() != null ? payment.getAmount() : 0);
-                row.createCell(7).setCellValue(payment.getStatus() != null ? payment.getStatus().name() : "");
-                row.createCell(8).setCellValue(payment.getRefundAmount() != null ? payment.getRefundAmount() : 0);
-                row.createCell(9).setCellValue(payment.getMemo() != null ? payment.getMemo() : "");
-            }
-            
-            // 컬럼 너비 자동 조정
-            for (int i = 0; i < headers.length; i++) {
-                sheet.autoSizeColumn(i);
-            }
-            
-            // 파일을 임시 파일로 저장
-            java.io.File tempFile = java.io.File.createTempFile("payments_export_", ".xlsx");
-            try (java.io.FileOutputStream outputStream = new java.io.FileOutputStream(tempFile)) {
-                workbook.write(outputStream);
-            }
-            workbook.close();
-            
-            org.springframework.core.io.Resource resource = new org.springframework.core.io.FileSystemResource(tempFile);
-            
-            return ResponseEntity.ok()
-                    .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, 
-                            "attachment; filename=\"결제내역_" + LocalDate.now() + ".xlsx\"")
-                    .header(org.springframework.http.HttpHeaders.CONTENT_TYPE, 
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    .body(resource);
-        } catch (Exception e) {
-            logger.error("엑셀 다운로드 중 오류 발생", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 }

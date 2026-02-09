@@ -1,5 +1,9 @@
 /* 설정 페이지 스타일 */
 
+/* 타이틀 영역 위쪽 공백 제거 */
+body.settings-page .main-content { padding-top: 0; }
+body.settings-page .topbar { margin-top: 0; }
+
 .form-actions {
     margin-top: 24px;
     display: flex;

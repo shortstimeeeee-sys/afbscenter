@@ -1,0 +1,12 @@
+# 개발 환경 설정 샘플
+# 이 파일을 application-dev.properties 로 복사한 뒤 사용하세요.
+# application-dev.properties 는 .gitignore 대상이므로 저장소에 올리지 않습니다.
+
+# 데이터베이스 (필요 시 수정)
+spring.datasource.url=jdbc:h2:file:./data/afbscenter;MODE=MySQL;AUTO_SERVER=TRUE
+spring.datasource.username=sa
+spring.datasource.password=
+
+# 환경 변수 사용 권장: JWT_SECRET, ADMIN_INIT_PASSWORD
+# Windows: set JWT_SECRET=your-secret
+# Linux/Mac: export JWT_SECRET=your-secret

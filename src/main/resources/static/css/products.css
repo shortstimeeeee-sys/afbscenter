@@ -1,4 +1,133 @@
-/* 상품/이용권 페이지 스타일 */
+/* 이용권 페이지 스타일 */
+
+/* 타이틀 영역 위쪽 공백 제거 */
+body.products-page .main-content { padding-top: 0; }
+body.products-page .topbar { margin-top: 0; }
+
+/* 이용권 기본 통계 (별도 구역, 이용권 목록 카드와 동일 카드/테마) */
+.products-stats-card {
+    margin-bottom: 16px;
+}
+.products-stats-card .card-header {
+    padding: 12px 16px;
+}
+.products-stats-card .card-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.products-stats-body {
+    padding: 16px;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+}
+.products-stats-loading {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+.products-stats-item {
+    padding: 12px 14px;
+}
+.products-stats-item-clickable {
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s, box-shadow 0.2s;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    background: var(--bg-secondary);
+}
+.products-stats-item-clickable:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-hover);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.products-stats-item-clickable:focus {
+    outline: none;
+    border-color: var(--accent-primary, #3498db);
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.25);
+}
+.products-stats-item:not(.products-stats-item-clickable) {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+}
+.products-stats-item-label {
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    font-size: 14px;
+}
+.products-stats-item-value {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+.products-stats-item-value.accent {
+    color: var(--accent-primary);
+}
+
+/* 이용권 통계 유형·카테고리별 고유색 */
+.products-stats-item--count-pass {
+    border-left: 4px solid #3498DB;
+    background: rgba(52, 152, 219, 0.08);
+}
+.products-stats-item--count-pass .products-stats-item-value { color: #2980b9; }
+.products-stats-item--monthly-pass {
+    border-left: 4px solid #8e44ad;
+    background: rgba(155, 89, 182, 0.08);
+}
+.products-stats-item--monthly-pass .products-stats-item-value { color: #8e44ad; }
+.products-stats-item--time-pass {
+    border-left: 4px solid #009688;
+    background: rgba(0, 150, 136, 0.08);
+}
+.products-stats-item--time-pass .products-stats-item-value { color: #009688; }
+.products-stats-item--single-use {
+    border-left: 4px solid #e67e22;
+    background: rgba(230, 126, 34, 0.08);
+}
+.products-stats-item--single-use .products-stats-item-value { color: #e67e22; }
+.products-stats-item--team-package {
+    border-left: 4px solid #95a5a6;
+    background: rgba(149, 165, 166, 0.08);
+}
+.products-stats-item--team-package .products-stats-item-value { color: #95a5a6; }
+.products-stats-item--baseball {
+    border-left: 4px solid #6E7AE8;
+    background: rgba(94, 106, 210, 0.08);
+}
+.products-stats-item--baseball .products-stats-item-value { color: #6E7AE8; }
+.products-stats-item--training {
+    border-left: 4px solid #2ECC71;
+    background: rgba(46, 204, 113, 0.08);
+}
+.products-stats-item--training .products-stats-item-value { color: #2ECC71; }
+.products-stats-item--pilates {
+    border-left: 4px solid #5DADE2;
+    background: rgba(52, 152, 219, 0.08);
+}
+.products-stats-item--pilates .products-stats-item-value { color: #5DADE2; }
+.products-stats-item--training-fitness {
+    border-left: 4px solid #27ae60;
+    background: rgba(39, 174, 96, 0.08);
+}
+.products-stats-item--training-fitness .products-stats-item-value { color: #27ae60; }
+.products-stats-item--rental {
+    border-left: 4px solid #f39c12;
+    background: rgba(243, 156, 18, 0.08);
+}
+.products-stats-item--rental .products-stats-item-value { color: #f39c12; }
+.products-stats-item--general {
+    border-left: 4px solid #95a5a6;
+    background: rgba(149, 165, 166, 0.08);
+}
+.products-stats-item--general .products-stats-item-value { color: #95a5a6; }
 
 /* 카테고리별 색상 강화 - 야구, 필라테스, 트레이닝 */
 #products-table-body .badge-primary {

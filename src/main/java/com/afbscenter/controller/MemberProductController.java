@@ -33,85 +33,20 @@ public class MemberProductController {
     private final com.afbscenter.repository.BookingRepository bookingRepository;
     private final PaymentRepository paymentRepository;
     private final AttendanceRepository attendanceRepository;
+    private final com.afbscenter.repository.CoachRepository coachRepository;
 
     public MemberProductController(MemberProductRepository memberProductRepository,
                                    ProductRepository productRepository,
                                    com.afbscenter.repository.BookingRepository bookingRepository,
                                    PaymentRepository paymentRepository,
-                                   AttendanceRepository attendanceRepository) {
+                                   AttendanceRepository attendanceRepository,
+                                   com.afbscenter.repository.CoachRepository coachRepository) {
         this.memberProductRepository = memberProductRepository;
         this.productRepository = productRepository;
         this.bookingRepository = bookingRepository;
         this.paymentRepository = paymentRepository;
         this.attendanceRepository = attendanceRepository;
-    }
-
-    // 상품권 통계 조회
-    @GetMapping("/statistics")
-    @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> getStatistics() {
-        try {
-            List<MemberProduct> allProducts = memberProductRepository.findAll();
-            
-            // 전체 통계
-            long totalIssued = allProducts.size();
-            long activeCount = allProducts.stream()
-                    .filter(mp -> mp.getStatus() == MemberProduct.Status.ACTIVE)
-                    .count();
-            long expiredCount = allProducts.stream()
-                    .filter(mp -> mp.getStatus() == MemberProduct.Status.EXPIRED)
-                    .count();
-            long usedUpCount = allProducts.stream()
-                    .filter(mp -> mp.getStatus() == MemberProduct.Status.USED_UP)
-                    .count();
-            
-            // 만료된 상품권 (상태가 ACTIVE이지만 expiryDate가 지난 경우)
-            long actuallyExpired = allProducts.stream()
-                    .filter(mp -> mp.getStatus() == MemberProduct.Status.ACTIVE)
-                    .filter(mp -> mp.getExpiryDate() != null && mp.getExpiryDate().isBefore(LocalDate.now()))
-                    .count();
-            
-            Map<String, Object> statistics = new HashMap<>();
-            statistics.put("totalIssued", totalIssued); // 전체 발급 수
-            statistics.put("activeCount", activeCount); // 활성 상태 수
-            statistics.put("expiredCount", expiredCount + actuallyExpired); // 만료 수 (상태 + 실제 만료)
-            statistics.put("usedUpCount", usedUpCount); // 소진 수
-            
-            // 상품 유형별 통계
-            Map<String, Map<String, Long>> byProductType = new HashMap<>();
-            allProducts.stream()
-                    .collect(Collectors.groupingBy(
-                            mp -> mp.getProduct() != null ? mp.getProduct().getType().name() : "UNKNOWN",
-                            Collectors.counting()
-                    ))
-                    .forEach((type, count) -> {
-                        Map<String, Long> typeStats = new HashMap<>();
-                        typeStats.put("total", count);
-                        typeStats.put("active", allProducts.stream()
-                                .filter(mp -> mp.getProduct() != null && mp.getProduct().getType().name().equals(type))
-                                .filter(mp -> mp.getStatus() == MemberProduct.Status.ACTIVE)
-                                .count());
-                        typeStats.put("expired", allProducts.stream()
-                                .filter(mp -> mp.getProduct() != null && mp.getProduct().getType().name().equals(type))
-                                .filter(mp -> mp.getStatus() == MemberProduct.Status.EXPIRED || 
-                                            (mp.getStatus() == MemberProduct.Status.ACTIVE && 
-                                             mp.getExpiryDate() != null && 
-                                             mp.getExpiryDate().isBefore(LocalDate.now())))
-                                .count());
-                        typeStats.put("usedUp", allProducts.stream()
-                                .filter(mp -> mp.getProduct() != null && mp.getProduct().getType().name().equals(type))
-                                .filter(mp -> mp.getStatus() == MemberProduct.Status.USED_UP)
-                                .count());
-                        byProductType.put(type, typeStats);
-                    });
-            
-            statistics.put("byProductType", byProductType);
-            
-            return ResponseEntity.ok(statistics);
-        } catch (Exception e) {
-            logger.error("상품권 통계 조회 중 오류 발생", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        this.coachRepository = coachRepository;
     }
 
     // 상품권 목록 조회 (필터링 가능)
@@ -132,6 +67,14 @@ public class MemberProductController {
                 }
             } else if (memberId != null) {
                 memberProducts = memberProductRepository.findByMemberId(memberId);
+            } else if (status != null) {
+                // status만 있는 경우 (활성 이용권 전체 조회 등)
+                try {
+                    MemberProduct.Status productStatus = MemberProduct.Status.valueOf(status);
+                    memberProducts = memberProductRepository.findByStatusWithProductAndCoach(productStatus);
+                } catch (IllegalArgumentException e) {
+                    memberProducts = memberProductRepository.findAll();
+                }
             } else {
                 memberProducts = memberProductRepository.findAll();
             }
@@ -152,7 +95,7 @@ public class MemberProductController {
                     if (totalCount == null || totalCount <= 0) {
                         totalCount = mp.getProduct().getUsageCount();
                         if (totalCount == null || totalCount <= 0) {
-                            totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                            totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                         }
                     }
                     
@@ -278,22 +221,20 @@ public class MemberProductController {
                     map.put("product", null);
                 }
                 
-                // MemberProduct의 코치 정보 (우선순위: MemberProduct.coach > Product.coach)
+                // MemberProduct에 직접 배정된 코치만 반환 (미배정 집계용). Product 기본 코치는 product.coach에만 있음.
+                Long memberProductCoachId = null;
                 Map<String, Object> coachMap = null;
                 try {
                     if (mp.getCoach() != null) {
+                        memberProductCoachId = mp.getCoach().getId();
                         coachMap = new HashMap<>();
-                        coachMap.put("id", mp.getCoach().getId());
+                        coachMap.put("id", memberProductCoachId);
                         coachMap.put("name", mp.getCoach().getName());
-                    } else if (mp.getProduct() != null && mp.getProduct().getCoach() != null) {
-                        // MemberProduct에 코치가 없으면 Product의 코치 사용
-                        coachMap = new HashMap<>();
-                        coachMap.put("id", mp.getProduct().getCoach().getId());
-                        coachMap.put("name", mp.getProduct().getCoach().getName());
                     }
                 } catch (Exception e) {
                     logger.warn("Coach 로드 실패: MemberProduct ID={}", mp.getId(), e);
                 }
+                map.put("coachId", memberProductCoachId); // 이용권에 직접 배정된 코치 ID (null이면 미배정)
                 map.put("coach", coachMap);
                 
                 return map;
@@ -349,7 +290,7 @@ public class MemberProductController {
                 if (totalCount == null || totalCount <= 0) {
                     totalCount = memberProduct.getProduct().getUsageCount();
                     if (totalCount == null || totalCount <= 0) {
-                        totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                        totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                     }
                     memberProduct.setTotalCount(totalCount);
                 }
@@ -438,7 +379,7 @@ public class MemberProductController {
                             productTotalCount = totalCount; // MemberProduct의 totalCount 사용
                         }
                         if (productTotalCount == null || productTotalCount <= 0) {
-                            productTotalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                            productTotalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                         }
                         
                         // 단가 계산 (실제 구매 금액 / 총 횟수)
@@ -457,9 +398,9 @@ public class MemberProductController {
                         payment.setMember(memberProduct.getMember());
                         payment.setProduct(memberProduct.getProduct());
                         payment.setAmount(totalPrice);
-                        payment.setPaymentMethod(com.afbscenter.constants.PaymentDefaults.DEFAULT_PAYMENT_METHOD);
-                        payment.setStatus(com.afbscenter.constants.PaymentDefaults.DEFAULT_PAYMENT_STATUS);
-                        payment.setCategory(com.afbscenter.constants.PaymentDefaults.DEFAULT_PAYMENT_CATEGORY);
+                        payment.setPaymentMethod(com.afbscenter.constants.PaymentDefaults.getDefaultPaymentMethod());
+                        payment.setStatus(com.afbscenter.constants.PaymentDefaults.getDefaultPaymentStatus());
+                        payment.setCategory(com.afbscenter.constants.PaymentDefaults.getDefaultPaymentCategory());
                         payment.setMemo("이용권 연장: " + memberProduct.getProduct().getName() + " (" + extendDays + "회 추가)");
                         payment.setPaidAt(LocalDateTime.now());
                         payment.setCreatedAt(LocalDateTime.now());
@@ -628,7 +569,7 @@ public class MemberProductController {
             if (totalCount == null || totalCount <= 0) {
                 totalCount = memberProduct.getProduct().getUsageCount();
                 if (totalCount == null || totalCount <= 0) {
-                    totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                    totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                 }
             }
             
@@ -709,12 +650,14 @@ public class MemberProductController {
                 if (memberProduct.getProduct() != null && 
                     memberProduct.getProduct().getType() == Product.ProductType.COUNT_PASS) {
                     
-                    // 총 횟수 계산
-                    Integer totalCount = memberProduct.getTotalCount();
+                    // 총 횟수 계산: product.usageCount를 우선 사용 (상품의 실제 사용 횟수 반영, 데이터 일관성 보장)
+                    Integer totalCount = memberProduct.getProduct().getUsageCount();
                     if (totalCount == null || totalCount <= 0) {
-                        totalCount = memberProduct.getProduct().getUsageCount();
+                        // product.usageCount가 없으면 memberProduct.totalCount 사용
+                        totalCount = memberProduct.getTotalCount();
                         if (totalCount == null || totalCount <= 0) {
-                            totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                            // 그것도 없으면 기본값 사용
+                            totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                         }
                     }
                     
@@ -813,27 +756,23 @@ public class MemberProductController {
                 currentRemaining = 0;
             }
             
-            // 총 횟수 확인
+            // 총 횟수 확인 (변경하지 않음: 10회권은 total=10 유지)
             Integer totalCount = memberProduct.getTotalCount();
             if (totalCount == null || totalCount <= 0) {
                 totalCount = memberProduct.getProduct().getUsageCount();
                 if (totalCount == null || totalCount <= 0) {
-                    totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                    totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                 }
             }
             
-            // 잔여 횟수를 직접 설정할 때는 총 횟수도 함께 업데이트
-            // (수동 조정된 값을 기준으로 새로운 기준선 설정)
-            totalCount = newCount;
-            memberProduct.setTotalCount(totalCount);
-            
-            // 업데이트
+            // 잔여만 설정. 총 횟수는 유지 (10회권 잔여 4회 → remaining=4, total=10)
+            if (newCount > totalCount) {
+                newCount = totalCount;
+                logger.info("잔여가 총 횟수를 초과하여 총 횟수로 제한: {}회", newCount);
+            }
             memberProduct.setRemainingCount(newCount);
             
-            logger.info("총 횟수도 함께 업데이트: {}회 → {}회", 
-                    memberProduct.getTotalCount(), totalCount);
-            
-            logger.info("저장 전 - 잔여: {}회, 총: {}회", newCount, totalCount);
+            logger.info("저장 전 - 잔여: {}회, 총: {}회 (총 횟수 유지)", newCount, totalCount);
             
             // 상태 업데이트
             if (newCount == 0) {
@@ -925,7 +864,7 @@ public class MemberProductController {
             if (totalCount == null || totalCount <= 0) {
                 totalCount = memberProduct.getProduct().getUsageCount();
                 if (totalCount == null || totalCount <= 0) {
-                    totalCount = com.afbscenter.constants.ProductDefaults.DEFAULT_TOTAL_COUNT;
+                    totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                 }
             }
             
@@ -1128,6 +1067,69 @@ public class MemberProductController {
             Map<String, Object> error = new HashMap<>();
             error.put("success", false);
             error.put("error", "이용권 삭제 중 오류가 발생했습니다: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        }
+    }
+    
+    // MemberProduct 코치 업데이트
+    @PutMapping("/{id}/coach")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updateMemberProductCoach(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> request) {
+        try {
+            MemberProduct memberProduct = memberProductRepository.findById(id)
+                    .orElseThrow(() -> new IllegalArgumentException("이용권을 찾을 수 없습니다."));
+            
+            // 코치 ID 가져오기
+            Long coachId = null;
+            if (request.get("coachId") != null) {
+                Object coachIdObj = request.get("coachId");
+                if (coachIdObj instanceof Number) {
+                    coachId = ((Number) coachIdObj).longValue();
+                } else if (coachIdObj instanceof String) {
+                    String coachIdStr = (String) coachIdObj;
+                    if (!coachIdStr.trim().isEmpty() && !coachIdStr.equals("null")) {
+                        try {
+                            coachId = Long.parseLong(coachIdStr);
+                        } catch (NumberFormatException e) {
+                            logger.warn("코치 ID 형식이 올바르지 않습니다: {}", coachIdStr);
+                        }
+                    }
+                }
+            }
+            
+            // 코치 설정 또는 제거
+            if (coachId != null && coachId > 0) {
+                com.afbscenter.model.Coach coach = coachRepository.findById(coachId)
+                        .orElse(null);
+                
+                if (coach != null) {
+                    memberProduct.setCoach(coach);
+                    logger.info("이용권 코치 업데이트: MemberProduct ID={}, Coach ID={}, Coach Name={}", 
+                            id, coachId, coach.getName());
+                } else {
+                    Map<String, Object> error = new HashMap<>();
+                    error.put("error", "코치를 찾을 수 없습니다.");
+                    return ResponseEntity.badRequest().body(error);
+                }
+            } else {
+                // 코치 제거
+                memberProduct.setCoach(null);
+                logger.info("이용권 코치 제거: MemberProduct ID={}", id);
+            }
+            
+            memberProductRepository.save(memberProduct);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "코치가 업데이트되었습니다.");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("이용권 코치 업데이트 중 오류 발생. ID: {}", id, e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("success", false);
+            error.put("error", "코치 업데이트 중 오류가 발생했습니다: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
     }

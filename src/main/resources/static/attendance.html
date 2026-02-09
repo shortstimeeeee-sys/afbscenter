@@ -2,12 +2,13 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">`n    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>출석/이용 기록 - AFBS 센터</title>
     <link rel="stylesheet" href="/css/common.css">
     <link rel="stylesheet" href="/css/attendance.css">
 </head>
-<body>
+<body class="attendance-page">
     <div class="app-container">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -23,25 +24,28 @@
                     <div class="menu-section-title">회원 관리</div>
                     <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
                     <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                    <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">출석부</div>
+                    <a href="/attendance.html" class="menu-item menu-item--attendance active" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings-without-product.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
                     
                     <!-- 사하점 -->
                     <div style="margin-left: 12px; margin-top: 8px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
                     <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
                     
                     <!-- 대관 -->
                     <div style="margin-left: 12px; margin-top: 12px; margin-bottom: 4px; font-size: 11px; color: var(--text-secondary); font-weight: 600;">🏟️ 대관</div>
                     <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
-                    
-                    <a href="/attendance.html" class="menu-item active" data-role="Front" style="margin-top: 12px;"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
                 </div>
                 <div class="menu-section">
                     <div class="menu-section-title">훈련 관리</div>
@@ -73,7 +77,7 @@
                         <h2 class="card-title">체크인 미처리 현황</h2>
                         <div style="display: flex; gap: 10px;">
                             <button class="btn btn-secondary" onclick="loadUncheckedBookings()">새로고침</button>
-                            <button class="btn btn-primary" onclick="checkinAllUncheckedBookings()">✅ 전체 체크인 완료</button>
+                            <button class="btn btn-primary" id="bulk-checkin-btn" onclick="openBulkCheckinModal()">✅ 전체 체크인</button>
                         </div>
                     </div>
                     <div class="table-container">
@@ -126,10 +130,10 @@
                     <div class="card-header">
                         <h2 class="card-title">출석 기록</h2>
                         <div class="filter-group" style="display: flex; gap: 10px; align-items: center;">
-                            <input type="date" class="form-control" id="filter-date-start" style="width: 150px;">
-                            <input type="date" class="form-control" id="filter-date-end" style="width: 150px;">
-                            <button class="btn btn-secondary" onclick="loadAttendanceRecords()">조회</button>
-                            <button class="btn btn-danger" onclick="resetIncompleteAttendances()">이용중 기록 모두 리셋</button>
+                            <input type="date" class="form-control" id="filter-date-start" style="width: 130px;">
+                            <input type="date" class="form-control" id="filter-date-end" style="width: 130px;">
+                            <button class="btn btn-primary" onclick="loadAttendanceRecords()">조회</button>
+                            <button class="btn btn-danger" id="reset-incomplete-attendances-btn" onclick="resetIncompleteAttendances()">이용중 기록 모두 리셋</button>
                         </div>
                     </div>
                     <div class="table-container">
@@ -189,6 +193,49 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="App.Modal.close('checkin-modal')">취소</button>
                 <button class="btn btn-primary" onclick="processCheckin()">체크인</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 전체 체크인 범위 선택 모달 -->
+    <div class="modal-overlay" id="bulk-checkin-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">전체 체크인 범위 선택</h2>
+                <button class="modal-close" type="button" aria-label="닫기">×</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 16px; color: var(--text-secondary);">체크인할 구역을 선택한 뒤 확인을 누르면 해당 구역만 일괄 체크인됩니다.</p>
+                <div class="bulk-checkin-options" style="display: flex; flex-direction: column; gap: 12px;">
+                    <label class="bulk-checkin-option" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); cursor: pointer;">
+                        <input type="radio" name="bulk-checkin-scope" value="unchecked" style="margin-top: 3px;">
+                        <div>
+                            <strong>체크인 미처리 현황만</strong>
+                            <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">위 「체크인 미처리 현황」 테이블에 있는 예약만 체크인 (오늘·과거 미처리 전부)</div>
+                            <div class="bulk-checkin-count" data-scope="unchecked" style="margin-top: 6px; font-size: 12px; color: var(--accent-primary);">0건</div>
+                        </div>
+                    </label>
+                    <label class="bulk-checkin-option" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); cursor: pointer;">
+                        <input type="radio" name="bulk-checkin-scope" value="today" style="margin-top: 3px;">
+                        <div>
+                            <strong>예약 목록(오늘)만</strong>
+                            <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">아래 「예약 목록」에 있는 오늘 예약 중 체크인 안 된 것만 체크인</div>
+                            <div class="bulk-checkin-count" data-scope="today" style="margin-top: 6px; font-size: 12px; color: var(--accent-primary);">0건</div>
+                        </div>
+                    </label>
+                    <label class="bulk-checkin-option" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); cursor: pointer;">
+                        <input type="radio" name="bulk-checkin-scope" value="all" style="margin-top: 3px;">
+                        <div>
+                            <strong>전체 (미처리 현황 전부)</strong>
+                            <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">체크인 미처리 현황에 있는 모든 예약(오늘+과거) 일괄 체크인</div>
+                            <div class="bulk-checkin-count" data-scope="all" style="margin-top: 6px; font-size: 12px; color: var(--accent-primary);">0건</div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('bulk-checkin-modal')">취소</button>
+                <button class="btn btn-primary" onclick="confirmBulkCheckin()">선택 구역 체크인 실행</button>
             </div>
         </div>
     </div>

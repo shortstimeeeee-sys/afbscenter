@@ -1,5 +1,9 @@
 /* 통계/분석 페이지 스타일 */
 
+/* 타이틀 영역 위쪽 공백 제거 */
+body.analytics-page .main-content { padding-top: 0; }
+body.analytics-page .topbar { margin-top: 0; }
+
 .metrics-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -24,11 +28,29 @@
     max-height: 800px;
 }
 
+/* 회원 지표 - 총 회원 수 카드: 노란색 음영 */
+.metric-card--total-members {
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.15) 0%, var(--bg-tertiary) 100%);
+    border-left: 4px solid var(--warning);
+}
+.metric-card--total-members #total-members {
+    color: var(--warning);
+}
+
+/* 회원 지표 KPI 카드 타이틀: 초록색 */
+.metric-card--kpi-label .metric-kpi-title {
+    font-size: 14px;
+    color: var(--success);
+    margin-bottom: 8px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
 .metric-card .chart-container {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    overflow-x: hidden;
+    overflow-x: auto;
 }
 
 .metric-card .chart-container::-webkit-scrollbar {
@@ -49,13 +71,40 @@
     background: var(--text-muted);
 }
 
+/* 카테고리별 회원·등급별 분포·등급별 상세: 등급별 상세 높이에 맞춰 세 카드 동일 높이 */
+.metric-card--member-trio {
+    max-height: none;
+}
+/* 등급별 상세: 내용 전체 표시(스크롤 없음) */
+.metric-card--grade-detail {
+    min-height: auto;
+    max-height: none;
+}
+.metric-card--grade-detail .chart-container {
+    overflow: visible;
+    min-height: 0;
+}
+
 .metric-label {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 600;
     color: var(--text-secondary);
     margin-bottom: 16px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+/* 개인 결제 TOP과 동일한 콘텐츠 스타일: 패딩·서브타이틀 */
+.metric-card--content-style .metric-label {
+    margin-bottom: 8px;
+}
+.metric-card--content-style .metric-content-wrap {
+    padding: 8px 0;
+}
+.metric-content-subtitle {
+    font-size: 13px;
+    color: var(--success);
+    margin-bottom: 8px;
 }
 
 .metric-value {
@@ -71,3 +120,62 @@
     align-items: stretch;
     justify-content: flex-start;
 }
+
+.hour-bar-cell:hover {
+    opacity: 0.9;
+}
+.hour-bar-cell:hover > div:first-of-type {
+    opacity: 1 !important;
+}
+
+/* 기간 내 개인 결제 TOP - 1~3위 금·은·동 */
+.top-spender-row {
+    background: var(--bg-hover);
+}
+.top-spender-rank {
+    min-width: 24px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+.top-spender-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+.top-spender-number {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.top-spender-amount {
+    font-weight: 700;
+    color: var(--accent-primary);
+    font-size: 18px;
+}
+
+.top-spender-row--gold {
+    background: linear-gradient(90deg, rgba(255, 215, 0, 0.28) 0%, rgba(255, 215, 0, 0.08) 50%, transparent 100%);
+    border-left-color: #d4af37 !important;
+}
+.top-spender-row--gold .top-spender-rank { color: #FFD700; }
+.top-spender-row--gold .top-spender-name { color: #d4af37; }
+.top-spender-row--gold .top-spender-number { color: #9a7b2a; }
+.top-spender-row--gold .top-spender-amount { color: #b8860b; }
+
+.top-spender-row--silver {
+    background: linear-gradient(90deg, rgba(192, 192, 192, 0.32) 0%, rgba(192, 192, 192, 0.1) 50%, transparent 100%);
+    border-left-color: #a8a8a8 !important;
+}
+.top-spender-row--silver .top-spender-rank { color: #C0C0C0; }
+.top-spender-row--silver .top-spender-name { color: #a8a8a8; }
+.top-spender-row--silver .top-spender-number { color: #6b6b6b; }
+.top-spender-row--silver .top-spender-amount { color: #808080; }
+
+.top-spender-row--bronze {
+    background: linear-gradient(90deg, rgba(205, 127, 50, 0.28) 0%, rgba(205, 127, 50, 0.08) 50%, transparent 100%);
+    border-left-color: #b87333 !important;
+}
+.top-spender-row--bronze .top-spender-rank { color: #CD7F32; }
+.top-spender-row--bronze .top-spender-name { color: #b87333; }
+.top-spender-row--bronze .top-spender-number { color: #7a4e24; }
+.top-spender-row--bronze .top-spender-amount { color: #8b5a2b; }

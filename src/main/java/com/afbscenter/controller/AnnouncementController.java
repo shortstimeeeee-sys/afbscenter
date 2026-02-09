@@ -229,8 +229,7 @@ public class AnnouncementController {
         } catch (Exception e) {
             logger.error("공지 생성 중 오류 발생", e);
             logger.error("오류 클래스: {}", e.getClass().getName());
-            logger.error("오류 메시지: {}", e.getMessage());
-            e.printStackTrace();
+            logger.error("오류 메시지: {}", e.getMessage(), e);
             
             Throwable cause = e.getCause();
             int depth = 0;

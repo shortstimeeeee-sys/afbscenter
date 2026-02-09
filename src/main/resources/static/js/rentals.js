@@ -4,6 +4,53 @@ let currentDate = new Date();
 let currentView = 'calendar';
 let currentPage = 1;
 let selectedBooking = null; // 현재 선택된 예약
+// 대관 지점 필터: null = 전체, 'SAHA' = 사하점만, 'YEONSAN' = 연산점만
+window.rentalsFilterBranch = window.rentalsFilterBranch || null;
+// 예약 없음 모달 예약 타이머 (지점 변경 시 취소용)
+window._rentalsEmptyModalTimeout = null;
+
+function clearRentalsEmptyModalTimeout() {
+    if (window._rentalsEmptyModalTimeout) {
+        clearTimeout(window._rentalsEmptyModalTimeout);
+        window._rentalsEmptyModalTimeout = null;
+    }
+}
+
+/** 대관 필터 적용 시 예약이 없을 때 모달로 안내 */
+function showRentalsEmptyModal(message) {
+    if (!message) message = '해당 조건의 대관 예약이 없습니다.';
+    const existing = document.getElementById('rentals-empty-modal');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'rentals-empty-modal';
+    overlay.className = 'modal-overlay active';
+    overlay.style.display = 'flex';
+    overlay.style.alignItems = 'center';
+    overlay.style.justifyContent = 'center';
+    overlay.style.backgroundColor = 'rgba(0,0,0,0.6)';
+    overlay.style.zIndex = '9999';
+    overlay.innerHTML = `
+        <div class="modal" style="max-width: 360px; margin: 20px;">
+            <div class="modal-header" style="border-bottom: 1px solid var(--border-color); padding: 16px 20px;">
+                <h2 class="modal-title" style="margin: 0; font-size: 18px;">안내</h2>
+                <button type="button" class="modal-close" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-secondary); line-height: 1;">×</button>
+            </div>
+            <div class="modal-body" style="padding: 24px 20px;">
+                <p style="margin: 0 0 20px; font-size: 15px; color: var(--text-primary);">${App.escapeHtml(message)}</p>
+                <button type="button" class="btn btn-primary" style="width: 100%;">확인</button>
+            </div>
+        </div>
+    `;
+    const close = function() {
+        overlay.remove();
+        document.body.style.overflow = '';
+    };
+    overlay.querySelector('.modal-close').onclick = close;
+    overlay.querySelector('.btn.btn-primary').onclick = close;
+    overlay.onclick = function(e) { if (e.target === overlay) close(); };
+    document.body.style.overflow = 'hidden';
+    document.body.appendChild(overlay);
+}
 
 // 목적 변경 시 레슨 카테고리 필드 표시/숨김
 function toggleLessonCategory() {
@@ -53,8 +100,65 @@ function getDayBackgroundColor(coachColors) {
     return coachColors[0] + '15'; // 15 = 약 8% 투명도
 }
 
+// 대관: 시작 시간(HH:MM) 입력 시 종료 시간을 시작+2시간으로 반환
+function getRentalEndTimeTwoHoursLater(startTimeStr) {
+    if (!startTimeStr || typeof startTimeStr !== 'string') return '';
+    const trimmed = startTimeStr.trim();
+    const match = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return '';
+    let h = parseInt(match[1], 10);
+    let m = parseInt(match[2], 10);
+    if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) return '';
+    h = (h + 2) % 24;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     initializeBookings();
+    
+    // 대관: 시작 시간 입력 시 종료 시간을 무조건 2시간 후로 설정
+    const bookingStartTime = document.getElementById('booking-start-time');
+    const bookingEndTime = document.getElementById('booking-end-time');
+    if (bookingStartTime && bookingEndTime) {
+        bookingStartTime.addEventListener('input', function() {
+            const end = getRentalEndTimeTwoHoursLater(this.value);
+            if (end) bookingEndTime.value = end;
+        });
+        bookingStartTime.addEventListener('change', function() {
+            const end = getRentalEndTimeTwoHoursLater(this.value);
+            if (end) bookingEndTime.value = end;
+        });
+    }
+    const quickStartTime = document.getElementById('quick-start-time');
+    const quickEndTime = document.getElementById('quick-end-time');
+    if (quickStartTime && quickEndTime) {
+        quickStartTime.addEventListener('input', function() {
+            const end = getRentalEndTimeTwoHoursLater(this.value);
+            if (end) quickEndTime.value = end;
+        });
+        quickStartTime.addEventListener('change', function() {
+            const end = getRentalEndTimeTwoHoursLater(this.value);
+            if (end) quickEndTime.value = end;
+        });
+    }
+    
+    // 필터 셀렉트/날짜 변경 시 적용 버튼 없이 바로 반영
+    const filterFacility = document.getElementById('filter-facility');
+    const filterStatus = document.getElementById('filter-status');
+    const filterDateStart = document.getElementById('filter-date-start');
+    const filterDateEnd = document.getElementById('filter-date-end');
+    if (filterFacility) filterFacility.addEventListener('change', applyFilters);
+    if (filterStatus) filterStatus.addEventListener('change', applyFilters);
+    if (filterDateStart) filterDateStart.addEventListener('change', applyFilters);
+    if (filterDateEnd) filterDateEnd.addEventListener('change', applyFilters);
+    
+    // 전체 확인: 현재 필터에 맞는 대기 예약 일괄 확정 (예약 목록 탭에서만 표시)
+    const filterResetBtn = document.getElementById('rentals-filter-reset');
+    if (filterResetBtn) {
+        filterResetBtn.addEventListener('click', function() {
+            confirmAllPendingRentals();
+        });
+    }
     
     // Delete 키로 예약 삭제
     document.addEventListener('keydown', function(e) {
@@ -65,6 +169,38 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// 필터용 시설 드롭다운 로드 (사하점·연산점만 표시)
+async function loadFilterFacilities() {
+    const select = document.getElementById('filter-facility');
+    if (!select) return;
+    try {
+        const params = new URLSearchParams();
+        const config = window.BOOKING_PAGE_CONFIG || { facilityType: 'RENTAL' };
+        if (config.facilityType) params.append('facilityType', config.facilityType);
+        const facilities = await App.api.get(`/facilities?${params.toString()}`);
+        if (!facilities || !Array.isArray(facilities)) return;
+        const allowed = ['SAHA', 'YEONSAN'];
+        const filtered = facilities.filter(f => {
+            const b = (f.branch && f.branch.toString().toUpperCase()) || '';
+            return allowed.includes(b);
+        });
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">전체 시설</option>';
+        filtered.forEach(f => {
+            if (!f.id || !f.name) return;
+            const opt = document.createElement('option');
+            opt.value = f.id.toString();
+            opt.textContent = f.name;
+            select.appendChild(opt);
+        });
+        if (currentValue && filtered.some(f => f.id.toString() === currentValue)) {
+            select.value = currentValue;
+        }
+    } catch (error) {
+        App.err('필터 시설 목록 로드 실패:', error);
+    }
+}
+
 async function initializeBookings() {
     // 뷰 전환 이벤트
     document.querySelectorAll('[data-view]').forEach(btn => {
@@ -73,6 +209,9 @@ async function initializeBookings() {
             switchView(view);
         });
     });
+    
+    // 필터용 시설 목록 로드 (사하점·연산점만)
+    await loadFilterFacilities();
     
     // 시설 목록 로드
     await loadFacilities();
@@ -88,6 +227,290 @@ async function initializeBookings() {
     } else {
         loadBookingsList();
     }
+    await loadRentalStats();
+}
+
+// 대관 통계 로드 (기간 내 총 예약 + 지점별 예약)
+async function loadRentalStats() {
+    const container = document.getElementById('rentals-stats-container');
+    if (!container) return;
+    try {
+        const filterStart = document.getElementById('filter-date-start')?.value || '';
+        const filterEnd = document.getElementById('filter-date-end')?.value || '';
+        let startISO, endISO;
+        if (filterStart && filterEnd) {
+            const start = new Date(filterStart);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(filterEnd);
+            end.setHours(23, 59, 59, 999);
+            startISO = start.toISOString();
+            endISO = end.toISOString();
+        } else {
+            const now = new Date();
+            const first = new Date(now.getFullYear(), now.getMonth(), 1);
+            const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            last.setHours(23, 59, 59, 999);
+            startISO = first.toISOString();
+            endISO = last.toISOString();
+        }
+        window.rentalsStatsPeriod = { start: startISO, end: endISO };
+        const params = new URLSearchParams({ start: startISO, end: endISO });
+        const data = await App.api.get(`/bookings/stats/rentals?${params.toString()}`);
+        renderRentalStats(data);
+    } catch (error) {
+        App.err('대관 통계 로드 실패:', error);
+        container.innerHTML = '<p class="rentals-stats-loading">대관 통계를 불러올 수 없습니다.</p>';
+    }
+}
+
+function renderRentalStats(data) {
+    const container = document.getElementById('rentals-stats-container');
+    if (!container) return;
+    window.lastRentalStatsData = data;
+    const monthLabel = data.monthLabel || '';
+    const total = data.totalCount != null ? data.totalCount : 0;
+    const totalConfirmed = data.totalConfirmedCount != null ? data.totalConfirmedCount : 0;
+    const totalPending = data.totalPendingCount != null ? data.totalPendingCount : 0;
+    const byBranch = Array.isArray(data.byBranch) ? data.byBranch : [];
+    const filterBranch = window.rentalsFilterBranch;
+    if (!monthLabel && total === 0 && byBranch.length === 0) {
+        container.innerHTML = '<p class="rentals-stats-loading">기간을 선택 후 적용하면 통계가 표시됩니다.</p>';
+        return;
+    }
+    const totalStatusText = `확정 : ${totalConfirmed}건 / 대기 : ${totalPending}건`;
+    let html = '<div class="rentals-stats-row">';
+    const totalSelectedClass = !filterBranch ? ' rentals-stats-total--selected' : '';
+    html += `<div class="rentals-stats-total${totalSelectedClass}" data-branch="" role="button" tabindex="0" title="클릭: 전체 보기"><span class="rentals-stats-label">${monthLabel} 총 대관</span><span class="rentals-stats-value">${total}건</span><span class="rentals-stats-status">${totalStatusText}</span></div>`;
+    html += '<span class="rentals-stats-pending" role="button" tabindex="0" data-pending-count="' + totalPending + '" title="클릭 시 승인 대기 목록 보기">승인이 완료되지 않은 예약 ' + totalPending + '건</span>';
+    if (byBranch.length > 0) {
+        const totalForRatio = total > 0 ? total : 0;
+        html += '<div class="rentals-stats-by-branch">';
+        html += byBranch.map(b => {
+            const branchClass = (b.branch === 'SAHA') ? 'rentals-stats-branch--saha' : (b.branch === 'YEONSAN') ? 'rentals-stats-branch--yeonsan' : '';
+            const selectedClass = (filterBranch === b.branch) ? ' rentals-stats-branch-item--selected' : '';
+            const count = b.count || 0;
+            const pct = totalForRatio > 0 ? Math.round((count / totalForRatio) * 100) : 0;
+            const ratioText = totalForRatio > 0 ? ` (${pct}%)` : '';
+            return `<span class="rentals-stats-branch-item ${branchClass}${selectedClass}" data-branch="${(b.branch || '').replace(/"/g, '&quot;')}" role="button" tabindex="0" title="클릭: 해당 지점만 보기">${App.escapeHtml(b.branchName || b.branch || '')} ${count}건${ratioText}</span>`;
+        }).join('');
+        html += '</div>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
+    if (!container._rentalsFilterBound) {
+        container._rentalsFilterBound = true;
+        container.addEventListener('click', function(e) {
+            if (e.target.closest('.rentals-stats-pending')) {
+                openPendingApprovalModalRentals();
+                return;
+            }
+            const totalEl = e.target.closest('.rentals-stats-total[data-branch]');
+            const branchEl = e.target.closest('.rentals-stats-branch-item[data-branch]');
+            const branch = totalEl ? '' : (branchEl ? branchEl.getAttribute('data-branch') : null);
+            if (totalEl || branchEl) {
+                const current = window.rentalsFilterBranch;
+                const next = (branch === '' || !branch) ? null : branch;
+                window.rentalsFilterBranch = (next && current === next) ? null : next;
+                renderRentalStats(window.lastRentalStatsData || {});
+                renderCalendar();
+                if (currentView === 'list') loadBookingsList();
+            }
+        });
+        container.addEventListener('keydown', function(e) {
+            if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('.rentals-stats-pending')) {
+                e.preventDefault();
+                openPendingApprovalModalRentals();
+                return;
+            }
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const totalEl = e.target.closest('.rentals-stats-total[data-branch]');
+            const branchEl = e.target.closest('.rentals-stats-branch-item[data-branch]');
+            const branch = totalEl ? '' : (branchEl ? branchEl.getAttribute('data-branch') : null);
+            if (totalEl || branchEl) {
+                e.preventDefault();
+                const current = window.rentalsFilterBranch;
+                const next = (branch === '' || !branch) ? null : branch;
+                window.rentalsFilterBranch = (next && current === next) ? null : next;
+                renderRentalStats(window.lastRentalStatsData || {});
+                renderCalendar();
+                if (currentView === 'list') loadBookingsList();
+            }
+        });
+    }
+}
+
+function getRentalsStatsParams() {
+    var filterStart = document.getElementById('filter-date-start') && document.getElementById('filter-date-start').value;
+    var filterEnd = document.getElementById('filter-date-end') && document.getElementById('filter-date-end').value;
+    var startISO, endISO;
+    if (filterStart && filterEnd) {
+        var start = new Date(filterStart);
+        start.setHours(0, 0, 0, 0);
+        var end = new Date(filterEnd);
+        end.setHours(23, 59, 59, 999);
+        startISO = start.toISOString();
+        endISO = end.toISOString();
+    } else {
+        var now = new Date();
+        var first = new Date(now.getFullYear(), now.getMonth(), 1);
+        var last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        last.setHours(23, 59, 59, 999);
+        startISO = first.toISOString();
+        endISO = last.toISOString();
+    }
+    return new URLSearchParams({ start: startISO, end: endISO });
+}
+
+function openPendingApprovalModalRentals() {
+    var modal = document.getElementById('rentals-pending-approval-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    document.getElementById('rentals-pending-approval-loading').style.display = 'block';
+    document.getElementById('rentals-pending-approval-toolbar').style.display = 'none';
+    document.getElementById('rentals-pending-approval-table-wrap').style.display = 'none';
+    document.getElementById('rentals-pending-approval-empty').style.display = 'none';
+    loadPendingRentalsForModal();
+}
+
+function closePendingApprovalModalRentals() {
+    var modal = document.getElementById('rentals-pending-approval-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function loadPendingRentalsForModal() {
+    var loadingEl = document.getElementById('rentals-pending-approval-loading');
+    var toolbarEl = document.getElementById('rentals-pending-approval-toolbar');
+    var tableWrap = document.getElementById('rentals-pending-approval-table-wrap');
+    var tbody = document.getElementById('rentals-pending-approval-tbody');
+    var emptyEl = document.getElementById('rentals-pending-approval-empty');
+    if (!tbody) return;
+    try {
+        var params = getRentalsStatsParams();
+        var list = await App.api.get('/bookings/pending/rentals?' + params.toString());
+        loadingEl.style.display = 'none';
+        if (!list || list.length === 0) {
+            tableWrap.style.display = 'none';
+            toolbarEl.style.display = 'none';
+            emptyEl.style.display = 'block';
+            return;
+        }
+        emptyEl.style.display = 'none';
+        toolbarEl.style.display = 'flex';
+        tableWrap.style.display = 'block';
+        var branchNames = { 'SAHA': '사하점', 'YEONSAN': '연산점', 'RENTAL': '대관' };
+        tbody.innerHTML = list.map(function(b) {
+            var startStr = b.startTime && typeof b.startTime === 'string' ? b.startTime : (b.startTime ? String(b.startTime) : '');
+            var start = startStr ? startStr.replace('T', ' ').slice(0, 16) : '-';
+            var facilityName = (b.facility && b.facility.name) ? App.escapeHtml(b.facility.name) : '-';
+            var branchName = (b.branch && branchNames[b.branch]) ? branchNames[b.branch] : (b.branch || '-');
+            var memberName = (b.memberName != null && b.memberName !== '') ? App.escapeHtml(b.memberName) : '-';
+            var coachName = (b.coachName != null && b.coachName !== '') ? App.escapeHtml(b.coachName) : '-';
+            return '<tr><td><input type="checkbox" class="rentals-pending-approval-cb" data-booking-id="' + b.id + '"></td><td>' + start + '</td><td>' + facilityName + '</td><td>' + branchName + '</td><td>' + memberName + '</td><td>' + coachName + '</td><td><button type="button" class="btn btn-success btn-sm" data-booking-id="' + b.id + '">승인</button></td></tr>';
+        }).join('');
+        document.getElementById('rentals-pending-approval-select-all').checked = false;
+        document.getElementById('rentals-pending-approval-select-all').onclick = function() {
+            tbody.querySelectorAll('.rentals-pending-approval-cb').forEach(function(cb) { cb.checked = this.checked; }.bind(this));
+        };
+        var rentalsBulkBtn = document.getElementById('rentals-pending-approval-bulk-btn');
+        if (rentalsBulkBtn) {
+            rentalsBulkBtn.style.display = (App.currentRole === 'ADMIN') ? '' : 'none';
+            rentalsBulkBtn.onclick = function() {
+                var ids = Array.from(tbody.querySelectorAll('.rentals-pending-approval-cb:checked')).map(function(cb) { return parseInt(cb.getAttribute('data-booking-id'), 10); });
+                if (ids.length === 0) {
+                    App.showNotification('승인할 예약을 선택해 주세요.', 'warning');
+                    return;
+                }
+                approvePendingRentalIds(ids);
+            };
+        }
+        tbody.querySelectorAll('button[data-booking-id]').forEach(function(btn) {
+            btn.onclick = function() {
+                var id = parseInt(this.getAttribute('data-booking-id'), 10);
+                approvePendingRentalIds([id]);
+            };
+        });
+    } catch (err) {
+        App.err('승인 대기 대관 목록 로드 실패:', err);
+        loadingEl.style.display = 'none';
+        emptyEl.textContent = '목록을 불러오지 못했습니다.';
+        emptyEl.style.display = 'block';
+    }
+}
+
+async function approvePendingRentalIds(bookingIds) {
+    if (!bookingIds || bookingIds.length === 0) return;
+    try {
+        var res = await App.api.post('/bookings/bulk-confirm', { bookingIds: bookingIds });
+        var updated = (res && res.updatedCount != null) ? res.updatedCount : 0;
+        App.showNotification(updated + '건 승인 완료되었습니다.', 'success');
+        await loadPendingRentalsForModal();
+        await loadRentalStats();
+        if (currentView === 'list') loadBookingsList();
+        else await renderCalendar();
+    } catch (err) {
+        App.err('일괄 승인 실패:', err);
+        var msg = '승인 처리에 실패했습니다.';
+        if (err && err.response) {
+            if (err.response.status === 403) msg = '일괄 승인은 관리자만 사용할 수 있습니다.';
+            else if (err.response.data && err.response.data.message) msg = err.response.data.message;
+        }
+        App.showNotification(msg, 'danger');
+    }
+}
+
+/** 현재 필터에 맞는 대기 예약 전체 확정 (대관 관리 예약 목록 탭) */
+async function confirmAllPendingRentals() {
+    try {
+        let bookings = await App.api.get('/bookings?branch=RENTAL');
+        if (!bookings || !Array.isArray(bookings)) bookings = [];
+        var branchFilter = window.rentalsFilterBranch;
+        if (branchFilter) {
+            bookings = bookings.filter(function(b) {
+                var fb = b.facility && b.facility.branch ? String(b.facility.branch).toUpperCase() : '';
+                return fb === branchFilter;
+            });
+        }
+        var facilitySelect = document.getElementById('filter-facility');
+        var filterFacilityId = facilitySelect ? (facilitySelect.value || '').trim() : '';
+        if (filterFacilityId) {
+            bookings = bookings.filter(function(b) { return b.facility && String(b.facility.id) === filterFacilityId; });
+        }
+        var filterStatusEl = document.getElementById('filter-status');
+        var filterStatus = filterStatusEl ? (filterStatusEl.value || '').trim() : '';
+        if (filterStatus) {
+            bookings = bookings.filter(function(b) { return (b.status || '') === filterStatus; });
+        }
+        var filterDateStart = document.getElementById('filter-date-start');
+        var filterDateEnd = document.getElementById('filter-date-end');
+        if (filterDateStart && filterDateStart.value) {
+            var startDate = new Date(filterDateStart.value);
+            bookings = bookings.filter(function(b) {
+                var bookingDate = new Date(b.startTime);
+                return bookingDate >= startDate;
+            });
+        }
+        if (filterDateEnd && filterDateEnd.value) {
+            var endDate = new Date(filterDateEnd.value);
+            endDate.setHours(23, 59, 59, 999);
+            bookings = bookings.filter(function(b) {
+                var bookingDate = new Date(b.startTime);
+                return bookingDate <= endDate;
+            });
+        }
+        var pendingBookings = bookings.filter(function(b) { return (b.status || '') === 'PENDING'; });
+        if (pendingBookings.length === 0) {
+            App.showNotification('확정할 대기 예약이 없습니다.', 'info');
+            return;
+        }
+        if (!confirm('총 ' + pendingBookings.length + '건의 대기 예약을 확정하시겠습니까?')) {
+            return;
+        }
+        var ids = pendingBookings.map(function(b) { return b.id; });
+        await approvePendingRentalIds(ids);
+    } catch (err) {
+        App.err('전체 확인 조회 실패:', err);
+        App.showNotification('대기 예약 목록을 불러오지 못했습니다.', 'danger');
+    }
 }
 
 // 시설 목록 로드
@@ -95,25 +518,22 @@ async function loadFacilities() {
     try {
         const select = document.getElementById('booking-facility');
         if (!select) {
-            console.error('[시설 로드] 시설 선택 필드를 찾을 수 없습니다.');
+            App.err('[시설 로드] 시설 선택 필드를 찾을 수 없습니다.');
             return;
         }
         
-        // 페이지별 설정 읽기
+        // 대관 페이지: 시설은 무조건 사하점(SAHA)으로 고정
         const config = window.BOOKING_PAGE_CONFIG || { branch: 'RENTAL', facilityType: 'RENTAL' };
-        
-        // 대관 페이지에서는 branch 필터링하지 않음 (모든 지점의 대관 시설 표시)
-        // facilityType만 필터링
         const params = new URLSearchParams();
+        params.append('branch', 'SAHA');
         if (config.facilityType) {
             params.append('facilityType', config.facilityType);
         }
-        // branch는 대관 페이지에서는 보내지 않음 (모든 지점의 시설 표시)
         
         const facilities = await App.api.get(`/facilities?${params.toString()}`);
         
         if (!facilities || !Array.isArray(facilities)) {
-            console.error('[시설 로드] 시설 목록이 배열이 아닙니다:', facilities);
+            App.err('[시설 로드] 시설 목록이 배열이 아닙니다:', facilities);
             select.innerHTML = '<option value="">시설 목록을 불러올 수 없습니다</option>';
             return;
         }
@@ -122,14 +542,18 @@ async function loadFacilities() {
         facilities.forEach(facility => {
             const option = document.createElement('option');
             option.value = facility.id;
-            // 지점 정보도 함께 표시 (대관은 모든 지점의 시설이 표시되므로)
             const branchText = facility.branch ? `[${facility.branch === 'SAHA' ? '사하점' : facility.branch === 'YEONSAN' ? '연산점' : facility.branch}]` : '';
             option.textContent = `${facility.name} ${branchText}`.trim();
             select.appendChild(option);
         });
-        console.log(`[시설 로드] ${config.facilityType} 시설 ${facilities.length}개 로드됨 (모든 지점)`);
+        // 사하점 시설 1개 이상이면 첫 번째로 고정하고 선택 비활성화
+        if (facilities.length > 0) {
+            select.selectedIndex = 1;
+            select.disabled = true;
+        }
+        App.log(`[시설 로드] 사하점 대관 시설 ${facilities.length}개 로드됨 (사하점 고정)`);
     } catch (error) {
-        console.error('[시설 로드] 시설 목록 로드 실패:', error);
+        App.err('[시설 로드] 시설 목록 로드 실패:', error);
         const select = document.getElementById('booking-facility');
         if (select) {
             select.innerHTML = '<option value="">시설 목록 로드 실패</option>';
@@ -154,7 +578,7 @@ async function loadCoachesForBooking() {
             select.appendChild(option);
         });
     } catch (error) {
-        console.error('코치 목록 로드 실패:', error);
+        App.err('코치 목록 로드 실패:', error);
     }
 }
 
@@ -175,12 +599,12 @@ async function loadCoachesForBookingNonMember() {
             select.appendChild(option);
         });
     } catch (error) {
-        console.error('비회원 코치 목록 로드 실패:', error);
+        App.err('비회원 코치 목록 로드 실패:', error);
     }
 }
 
 
-// 회원의 상품/이용권 목록 로드
+// 회원의 상품/이용권 목록 로드 (대관 페이지: RENTAL 카테고리만 표시)
 async function loadMemberProducts(memberId) {
     try {
         const memberProducts = await App.api.get(`/member-products?memberId=${memberId}`);
@@ -191,9 +615,29 @@ async function loadMemberProducts(memberId) {
         if (!select) return;
         
         // 활성 상태인 상품만 필터링
-        const activeProducts = memberProducts.filter(mp => mp.status === 'ACTIVE');
+        let activeProducts = memberProducts.filter(mp => mp.status === 'ACTIVE');
+        // 대관 페이지: 대관(RENTAL) 이용권만 표시 (category는 문자열 또는 객체로 올 수 있음)
+        const categoryStr = (mp) => {
+            if (!mp.product || mp.product.category == null) return '';
+            const c = mp.product.category;
+            return (typeof c === 'string' ? c : (c.name || c || '')).toString().toUpperCase();
+        };
+        const rentalProducts = activeProducts.filter(mp => categoryStr(mp) === 'RENTAL');
+        // 대관 페이지: RENTAL 이용권만 표시 (없으면 빈 목록)
+        activeProducts = rentalProducts.length > 0 ? rentalProducts : [];
         
-        select.innerHTML = '<option value="">상품 미선택 (일반 예약)</option>';
+        const paymentMethodSelect = document.getElementById('booking-payment-method');
+        const eligibleProducts = activeProducts.filter(mp => {
+            const type = mp.product?.type;
+            return type === 'COUNT_PASS' || type === 'MONTHLY_PASS' || type === 'TIME_PASS';
+        });
+        // 이용권이 하나라도 있으면 결제방식 무조건 선결제로 고정
+        if (paymentMethodSelect && activeProducts.length > 0) {
+            paymentMethodSelect.value = 'PREPAID';
+            paymentMethodSelect.disabled = true;
+        }
+        
+        select.innerHTML = activeProducts.length === 0 ? '<option value="">대관 이용권 없음</option>' : '<option value="">상품 선택...</option>';
         
         if (activeProducts.length === 0) {
             if (productInfo) productInfo.style.display = 'none';
@@ -213,14 +657,15 @@ async function loadMemberProducts(memberId) {
             // 잔여 횟수는 dataset에만 저장 (표시는 하지 않음)
             if (product.type === 'COUNT_PASS') {
                 // 백엔드에서 계산된 remainingCount 사용 (실제 예약 데이터 기반)
-                // remainingCount가 있으면 사용, 없으면 totalCount 사용, 그것도 없으면 product.usageCount 사용
+                // remainingCount가 있으면 사용, 없으면 product.usageCount를 우선 사용 (상품의 실제 사용 횟수 반영)
                 let remaining;
                 if (mp.remainingCount !== null && mp.remainingCount !== undefined) {
                     remaining = mp.remainingCount;
+                } else if (product.usageCount !== null && product.usageCount !== undefined) {
+                    // 상품의 실제 usageCount를 우선 사용 (데이터 일관성 보장)
+                    remaining = product.usageCount;
                 } else if (mp.totalCount !== null && mp.totalCount !== undefined) {
                     remaining = mp.totalCount;
-                } else if (product.usageCount !== null && product.usageCount !== undefined) {
-                    remaining = product.usageCount;
                 } else {
                     // 모든 값이 없을 때만 기본값 10 사용
                     remaining = 10;
@@ -232,18 +677,30 @@ async function loadMemberProducts(memberId) {
             
             option.textContent = text;
             option.dataset.productType = product.type;
+            if (product.coach && (product.coach.id || product.coach)) {
+                option.dataset.coachId = String(product.coach.id || product.coach);
+            }
             select.appendChild(option);
         });
         
-        // 상품 선택 시 결제 방식 자동 설정 및 정보 표시
+        // 상품 선택 시 결제 방식 자동 설정, 담당 코치 설정, 정보 표시
         select.onchange = function() {
             const selectedOption = this.options[this.selectedIndex];
             const paymentMethodSelect = document.getElementById('booking-payment-method');
+            const coachSelect = document.getElementById('booking-coach');
             
             if (selectedOption.value) {
-                // 상품 선택 시 선결제로 자동 설정
+                // 상품 선택 시 선결제로 자동 설정 및 고정 (이용권 사용 시 무조건 선결제)
                 if (paymentMethodSelect) {
                     paymentMethodSelect.value = 'PREPAID';
+                    paymentMethodSelect.disabled = true;
+                }
+                // 이용권 담당 코치가 있으면 코치 선택란에 반영
+                if (coachSelect && selectedOption.dataset.coachId) {
+                    const coachId = selectedOption.dataset.coachId;
+                    if (Array.from(coachSelect.options).some(function(o) { return o.value === coachId; })) {
+                        coachSelect.value = coachId;
+                    }
                 }
                 
                 // 상품 정보 표시
@@ -266,9 +723,13 @@ async function loadMemberProducts(memberId) {
                     }
                 }
             } else {
-                // 상품 미선택 시 결제 방식 초기화 및 정보 숨김
+                // 상품 미선택 시 결제 방식·코치 초기화 및 정보 숨김
                 if (paymentMethodSelect) {
                     paymentMethodSelect.value = '';
+                    paymentMethodSelect.disabled = false;
+                }
+                if (coachSelect) {
+                    coachSelect.value = '';
                 }
                 if (productInfo) {
                     productInfo.style.display = 'none';
@@ -276,79 +737,108 @@ async function loadMemberProducts(memberId) {
             }
         };
         
+        // 대관: 이용권이 있으면 첫 번째 항목 자동 선택 (다른 예약 페이지처럼)
+        if (select.options.length > 1) {
+            const firstVal = select.options[1].value;
+            select.value = firstVal;
+            select.selectedIndex = 1;
+            if (paymentMethodSelect) {
+                paymentMethodSelect.value = 'PREPAID';
+                paymentMethodSelect.disabled = true;
+            }
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        
     } catch (error) {
-        console.error('회원 상품 목록 로드 실패:', error);
+        App.err('회원 상품 목록 로드 실패:', error);
         const select = document.getElementById('booking-member-product');
         if (select) {
-            select.innerHTML = '<option value="">상품 미선택 (일반 예약)</option>';
+            select.innerHTML = '<option value="">상품 선택...</option>';
         }
     }
 }
 
-// 지점별 색상 가져오기
+// 지점별 색상 (대관 관리 페이지 기준 고유색)
 function getBranchColor(branch) {
     if (!branch) return null;
     if (branch === 'SAHA' || branch === '사하점') {
-        return '#1E8449'; // 더 진한 초록색
+        return '#1E8449'; // 사하점 고유색
     } else if (branch === 'YEONSAN' || branch === '연산점') {
-        return '#DAA520'; // 골드색
+        return '#DAA520'; // 연산점 고유색
     }
     return null;
 }
 
-// 코치 범례 로드
+// 코치 범례 로드 (코치/레슨 관리의 배정 지점=대관(RENTAL)인 코치와 동일하게 표시)
 async function loadCoachLegend() {
     try {
-        // 모든 코치를 조회 (branch 필터 제거)
-        const coaches = await App.api.get('/coaches');
+        const config = window.BOOKING_PAGE_CONFIG || {};
+        const branch = config.branch || 'RENTAL';
+        const url = '/coaches?branch=' + encodeURIComponent(branch);
+        const coaches = await App.api.get(url);
         const legendContainer = document.getElementById('coach-legend');
         if (!legendContainer) return;
         
-        // 활성 코치 중 서정민, 박준현만 필터링
-        const activeCoaches = coaches.filter(c => {
-            if (c.active === false) return false;
-            const name = c.name || '';
-            return name.includes('서정민') || name.includes('박준현');
+        const activeCoaches = (Array.isArray(coaches) ? coaches : []).filter(c => c.active !== false);
+        activeCoaches.sort((a, b) => {
+            const orderA = App.CoachSortOrder ? App.CoachSortOrder(a) : 6;
+            const orderB = App.CoachSortOrder ? App.CoachSortOrder(b) : 6;
+            if (orderA !== orderB) return orderA - orderB;
+            return (a.name || '').localeCompare(b.name || '');
         });
         
-        let legendHTML = '<div class="legend-title">범례:</div>';
-        
-        // 지점 색상 범례 추가
         const sahaColor = getBranchColor('SAHA');
         const yeonsanColor = getBranchColor('YEONSAN');
-        
+        const filterBranch = window.rentalsFilterBranch;
+        let legendHTML = '<div class="legend-section">';
+        legendHTML += '<div class="legend-title">관리 지점:</div>';
         if (sahaColor) {
-            legendHTML += `
-                <div class="legend-item">
-                    <span class="legend-color" style="background-color: ${sahaColor}"></span>
-                    <span class="legend-name">사하점</span>
-                </div>
-            `;
+            const selClass = filterBranch === 'SAHA' ? ' legend-item--selected' : '';
+            legendHTML += `<div class="legend-item${selClass}" data-branch="SAHA" role="button" tabindex="0" title="클릭: 사하점만 보기"><span class="legend-color" style="background-color: ${sahaColor}"></span><span class="legend-name">사하점</span></div>`;
         }
-        
         if (yeonsanColor) {
-            legendHTML += `
-                <div class="legend-item">
-                    <span class="legend-color" style="background-color: ${yeonsanColor}"></span>
-                    <span class="legend-name">연산점</span>
-                </div>
-            `;
+            const selClass = filterBranch === 'YEONSAN' ? ' legend-item--selected' : '';
+            legendHTML += `<div class="legend-item${selClass}" data-branch="YEONSAN" role="button" tabindex="0" title="클릭: 연산점만 보기"><span class="legend-color" style="background-color: ${yeonsanColor}"></span><span class="legend-name">연산점</span></div>`;
         }
-        
-        // 코치 범례 추가
+        legendHTML += '</div>';
+        legendHTML += '<div class="legend-divider"></div>';
+        legendHTML += '<div class="legend-section">';
+        legendHTML += '<div class="legend-title">담당 코치:</div>';
         activeCoaches.forEach(coach => {
             const color = App.CoachColors.getColor(coach);
-            legendHTML += `
-                <div class="legend-item">
-                    <span class="legend-color" style="background-color: ${color}"></span>
-                    <span class="legend-name">${coach.name}</span>
-                </div>
-            `;
+            legendHTML += `<div class="legend-item"><span class="legend-color" style="background-color: ${color}"></span><span class="legend-name" style="color: ${color}; font-weight: 600;">${App.escapeHtml(coach.name || '')}</span></div>`;
         });
-        
+        legendHTML += '</div>';
         legendContainer.innerHTML = legendHTML;
+        if (!legendContainer._legendBranchFilterBound) {
+            legendContainer._legendBranchFilterBound = true;
+            legendContainer.addEventListener('click', function(e) {
+                const item = e.target.closest('.legend-item[data-branch]');
+                if (!item) return;
+                const branch = item.getAttribute('data-branch') || '';
+                const current = window.rentalsFilterBranch;
+                window.rentalsFilterBranch = (branch && current === branch) ? null : (branch || null);
+                loadCoachLegend();
+                if (window.lastRentalStatsData) renderRentalStats(window.lastRentalStatsData);
+                renderCalendar();
+                if (currentView === 'list') loadBookingsList();
+            });
+            legendContainer.addEventListener('keydown', function(e) {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                const item = e.target.closest('.legend-item[data-branch]');
+                if (!item) return;
+                e.preventDefault();
+                const branch = item.getAttribute('data-branch') || '';
+                const current = window.rentalsFilterBranch;
+                window.rentalsFilterBranch = (branch && current === branch) ? null : (branch || null);
+                loadCoachLegend();
+                if (window.lastRentalStatsData) renderRentalStats(window.lastRentalStatsData);
+                renderCalendar();
+                if (currentView === 'list') loadBookingsList();
+            });
+        }
     } catch (error) {
-        console.error('코치 범례 로드 실패:', error);
+        App.err('코치 범례 로드 실패:', error);
         // 범례 로드 실패해도 계속 진행
     }
 }
@@ -377,6 +867,12 @@ function switchView(view) {
         container.classList.toggle('active', container.id === `${view}-view`);
     });
     
+    // 전체 확인 버튼: 예약 목록 탭에서만 표시, 달력 탭에서는 숨김
+    const filterResetBtn = document.getElementById('rentals-filter-reset');
+    if (filterResetBtn) {
+        filterResetBtn.style.display = view === 'list' ? '' : 'none';
+    }
+    
     if (view === 'calendar') {
         renderCalendar();
     } else {
@@ -385,6 +881,7 @@ function switchView(view) {
 }
 
 async function renderCalendar() {
+    clearRentalsEmptyModalTimeout();
     // 캘린더 렌더링 전에 자동으로 날짜/시간 기준으로 예약 번호 재정렬
     await reorderBookingIdsSilent();
     
@@ -398,17 +895,22 @@ async function renderCalendar() {
     const lastDay = new Date(year, month + 1, 0);
     const startDate = new Date(firstDay);
     startDate.setDate(startDate.getDate() - startDate.getDay()); // 주의 첫날 (일요일)
-    const endDate = new Date(lastDay);
-    endDate.setDate(endDate.getDate() + (6 - endDate.getDay())); // 주의 마지막날 (토요일)
+    // 해당 달 + 빈칸만 채우는 최소 행 수 (다음달 2줄 넘게 나오지 않도록)
+    const blankAtStart = firstDay.getDay();
+    const daysInMonth = lastDay.getDate();
+    const numRows = Math.ceil((blankAtStart + daysInMonth) / 7);
+    const totalCells = numRows * 7;
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + totalCells - 1);
     
     const grid = document.getElementById('calendar-grid');
     grid.innerHTML = '';
     
-    // 요일 헤더
+    // 요일 헤더 (일: 빨간색, 토: 파란색)
     const days = ['일', '월', '화', '수', '목', '금', '토'];
-    days.forEach(day => {
+    days.forEach((day, idx) => {
         const header = document.createElement('div');
-        header.className = 'calendar-day-header';
+        header.className = 'calendar-day-header' + (idx === 0 ? ' calendar-day-header-sun' : idx === 6 ? ' calendar-day-header-sat' : '');
         header.textContent = day;
         grid.appendChild(header);
     });
@@ -427,20 +929,41 @@ async function renderCalendar() {
         // ISO 형식으로 변환 (UTC 시간대 포함)
         const startISO = queryStart.toISOString();
         const endISO = queryEnd.toISOString();
-        console.log(`예약 데이터 요청: ${startISO} ~ ${endISO}`);
-        console.log(`현재 월: ${year}년 ${month + 1}월`);
-        console.log(`조회 범위: ${queryStart.toLocaleDateString()} ~ ${queryEnd.toLocaleDateString()}`);
+        App.log(`예약 데이터 요청: ${startISO} ~ ${endISO}`);
+        App.log(`현재 월: ${year}년 ${month + 1}월`);
+        App.log(`조회 범위: ${queryStart.toLocaleDateString()} ~ ${queryEnd.toLocaleDateString()}`);
         
         const response = await App.api.get(`/bookings?start=${startISO}&end=${endISO}&branch=RENTAL`);
-        bookings = response || [];
-        console.log(`캘린더 로드: ${bookings.length}개의 예약 발견`, bookings);
-        
-        // 예약이 없으면 전체 예약도 확인 (디버깅용)
-        if (bookings.length === 0) {
-            console.log('날짜 범위 내 예약 없음, 전체 예약 확인 중...');
+        bookings = (response && Array.isArray(response) ? response : (response && Array.isArray(response.data) ? response.data : [])) || [];
+        const branchFilter = window.rentalsFilterBranch;
+        if (branchFilter) {
+            bookings = bookings.filter(b => {
+                const fb = b.facility && b.facility.branch ? String(b.facility.branch).toUpperCase() : '';
+                return fb === branchFilter;
+            });
+            App.log(`캘린더 지점 필터 적용 (${branchFilter}): ${bookings.length}건`);
+        }
+        const facilitySelect = document.getElementById('filter-facility');
+        const filterFacilityId = facilitySelect ? (facilitySelect.value || '').trim() : '';
+        if (filterFacilityId) {
+            bookings = bookings.filter(b => b.facility && String(b.facility.id) === filterFacilityId);
+            App.log(`캘린더 시설 필터 적용 (facilityId=${filterFacilityId}): ${bookings.length}건`);
+        }
+        App.log(`캘린더 로드: ${bookings.length}개의 예약 발견`, bookings);
+        if (bookings.length === 0 && (branchFilter || filterFacilityId)) {
+            clearRentalsEmptyModalTimeout();
+            var msg = branchFilter && filterFacilityId ? '해당 지점·시설의 대관 예약이 없습니다.' : (branchFilter ? '해당 지점의 대관 예약이 없습니다.' : '해당 시설의 대관 예약이 없습니다.');
+            window._rentalsEmptyModalTimeout = setTimeout(function() {
+                window._rentalsEmptyModalTimeout = null;
+                showRentalsEmptyModal(msg);
+            }, 80);
+        }
+        // 예약이 없으면 전체 예약도 확인 (디버깅용, 지점/시설 필터 중일 때는 제외)
+        if (bookings.length === 0 && !branchFilter && !filterFacilityId) {
+            App.log('날짜 범위 내 예약 없음, 전체 예약 확인 중...');
             try {
                 const allBookings = await App.api.get('/bookings?branch=RENTAL');
-                console.log(`전체 예약 (대관): ${allBookings ? allBookings.length : 0}개`, allBookings);
+                App.log(`전체 예약 (대관): ${allBookings ? allBookings.length : 0}개`, allBookings);
                 // 전체 예약 중 현재 월에 해당하는 예약 찾기
                 if (allBookings && allBookings.length > 0) {
                     const monthBookings = allBookings.filter(b => {
@@ -449,14 +972,14 @@ async function renderCalendar() {
                             const bookingDate = new Date(b.startTime);
                             const bookingYear = bookingDate.getFullYear();
                             const bookingMonth = bookingDate.getMonth();
-                            console.log(`예약 날짜 확인: ${bookingYear}-${bookingMonth + 1}-${bookingDate.getDate()}, 현재 월: ${year}-${month + 1}`);
+                            App.log(`예약 날짜 확인: ${bookingYear}-${bookingMonth + 1}-${bookingDate.getDate()}, 현재 월: ${year}-${month + 1}`);
                             return bookingYear === year && bookingMonth === month;
                         } catch (e) {
-                            console.error('예약 날짜 파싱 오류:', b.startTime, e);
+                            App.err('예약 날짜 파싱 오류:', b.startTime, e);
                             return false;
                         }
                     });
-                    console.log(`현재 월에 해당하는 예약: ${monthBookings.length}개`, monthBookings);
+                    App.log(`현재 월에 해당하는 예약: ${monthBookings.length}개`, monthBookings);
                     // 현재 월 예약이 있으면 사용
                     if (monthBookings.length > 0) {
                         bookings = monthBookings;
@@ -476,25 +999,28 @@ async function renderCalendar() {
                                 new Date(a.startTime) - new Date(b.startTime)
                             )[0];
                             const earliestDate = new Date(earliestBooking.startTime);
-                            console.log(`현재 월에 예약 없음. 가장 가까운 예약: ${earliestDate.getFullYear()}년 ${earliestDate.getMonth() + 1}월`);
+                            App.log(`현재 월에 예약 없음. 가장 가까운 예약: ${earliestDate.getFullYear()}년 ${earliestDate.getMonth() + 1}월`);
                         }
                     }
                 }
             } catch (e) {
-                console.error('전체 예약 조회 실패:', e);
+                App.err('전체 예약 조회 실패:', e);
             }
         }
     } catch (error) {
-        console.error('예약 데이터 로드 실패:', error);
+        App.err('예약 데이터 로드 실패:', error);
     }
     
     // 날짜 셀
     const today = new Date();
     const current = new Date(startDate);
     
-    for (let i = 0; i < 42; i++) {
+    for (let i = 0; i < totalCells; i++) {
         const dayCell = document.createElement('div');
         dayCell.className = 'calendar-day';
+        const dayOfWeek = current.getDay();
+        if (dayOfWeek === 0) dayCell.classList.add('calendar-day-sun');
+        else if (dayOfWeek === 6) dayCell.classList.add('calendar-day-sat');
         
         if (current.getMonth() !== month) {
             dayCell.classList.add('other-month');
@@ -522,19 +1048,19 @@ async function renderCalendar() {
                                bookingDay === currentDay;
                 
                 if (matches) {
-                    console.log(`예약 매칭: ${bookingYear}-${bookingMonth + 1}-${bookingDay} === ${currentYear}-${currentMonth + 1}-${currentDay}`);
+                    App.log(`예약 매칭: ${bookingYear}-${bookingMonth + 1}-${bookingDay} === ${currentYear}-${currentMonth + 1}-${currentDay}`);
                 }
                 
                 return matches;
             } catch (e) {
-                console.error('날짜 파싱 오류:', b, e);
+                App.err('날짜 파싱 오류:', b, e);
                 return false;
             }
         });
         
         // 디버깅: 예약이 있는 날짜 로그
         if (dayBookings.length > 0) {
-            console.log(`날짜 ${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}에 ${dayBookings.length}개 예약 발견:`, dayBookings);
+            App.log(`날짜 ${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}에 ${dayBookings.length}개 예약 발견:`, dayBookings);
         }
         
         // 날짜 헤더 생성 (날짜 번호 + 스케줄 아이콘)
@@ -575,11 +1101,6 @@ async function renderCalendar() {
         
         dayCell.appendChild(dayHeader);
         
-        // 예약이 있으면 배경 음영 적용 (기본 색상만)
-        if (dayBookings.length > 0) {
-            dayCell.style.backgroundColor = 'rgba(94, 106, 210, 0.1)';
-        }
-        
         // 각 예약을 시간대별로 표시
         dayBookings.forEach(booking => {
             try {
@@ -594,16 +1115,32 @@ async function renderCalendar() {
                 // 이름 추출
                 const memberName = booking.member ? booking.member.name : (booking.nonMemberName || '비회원');
                 
+                // 대관 횟수권 회차: API sessionNumber와 (total - remaining + 1) 중 큰 값으로 표시
+                let sessionLabel = '';
+                const mp = booking.memberProduct;
+                if (mp) {
+                    const total = (Number(mp.totalCount) || Number(mp.total_count) || 0);
+                    let remaining = Number(mp.remainingCount);
+                    if (Number.isNaN(remaining)) remaining = Number(mp.remaining_count);
+                    if (Number.isNaN(remaining) && total > 0) remaining = total;
+                    const sessionNum = (mp.sessionNumber != null && mp.sessionNumber !== '') ? parseInt(mp.sessionNumber, 10) : 0;
+                    const usedCount = total > 0 && !Number.isNaN(remaining) && remaining >= 0 ? (total - remaining) : 0;
+                    const fromRemaining = total > 0 && remaining < total ? (usedCount + 1) : 0;
+                    const n = Math.max(sessionNum, fromRemaining, 1);
+                    if (n > 0) sessionLabel = ' (' + n + '회차)';
+                }
+                const displayName = memberName + sessionLabel;
+                
                 // 지점 색상 적용 (시설의 지점 정보 사용)
                 let eventColor = '#5E6AD2'; // 기본 색상
                 if (booking.facility && booking.facility.branch) {
                     const branchColor = getBranchColor(booking.facility.branch);
                     if (branchColor) {
                         eventColor = branchColor;
-                        console.log(`[대관 예약 색상] 예약 ID: ${booking.id}, 지점: ${booking.facility.branch}, 색상: ${branchColor}`);
+                        App.log(`[대관 예약 색상] 예약 ID: ${booking.id}, 지점: ${booking.facility.branch}, 색상: ${branchColor}`);
                     }
                 } else {
-                    console.warn(`[대관 예약 색상] 예약 ID: ${booking.id}, 시설 정보 없음 또는 지점 정보 없음`, booking.facility);
+                    App.warn(`[대관 예약 색상] 예약 ID: ${booking.id}, 시설 정보 없음 또는 지점 정보 없음`, booking.facility);
                 }
                 
                 event.style.backgroundColor = eventColor;
@@ -626,16 +1163,15 @@ async function renderCalendar() {
                     statusIconStyle = 'display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; background-color: #3498DB; border-radius: 50%; color: white; font-size: 11px; font-weight: 900; margin-right: 5px; vertical-align: middle; flex-shrink: 0;';
                 }
                 
-                // 이벤트 내용 설정 (한 줄로 표시: 아이콘 + 시간 / 이름)
+                // 이벤트 내용 설정 (한 줄로 표시: 아이콘 + 시간 / 이름 또는 이름 N회차)
                 if (statusIcon || statusIconStyle) {
                     if (status === 'COMPLETED' || isEnded) {
-                        // 완료된 예약: CSS ::after로 흰색 원 추가
-                        event.innerHTML = `<span style="${statusIconStyle}"></span>${timeStr} / ${memberName}`;
+                        event.innerHTML = `<span style="${statusIconStyle}"></span>${timeStr} / ${displayName}`;
                     } else {
-                        event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${timeStr} / ${memberName}`;
+                        event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${timeStr} / ${displayName}`;
                     }
                 } else {
-                    event.innerHTML = `${timeStr} / ${memberName}`;
+                    event.innerHTML = `${timeStr} / ${displayName}`;
                 }
                 
                 // 드래그 앤 드롭 기능 추가
@@ -699,7 +1235,7 @@ async function renderCalendar() {
                 
                 dayCell.appendChild(event);
             } catch (error) {
-                console.error('예약 표시 오류:', booking, error);
+                App.err('예약 표시 오류:', booking, error);
             }
         });
         
@@ -733,9 +1269,9 @@ async function renderCalendar() {
                 const sourceBooking = data.booking;
                 
                 // 드롭된 날짜로 예약 복사
-                await copyBookingToDate(sourceBookingId, sourceBooking, cellDateStr);
+                await copyBookingToDateAndRefresh(sourceBookingId, sourceBooking, cellDateStr);
             } catch (error) {
-                console.error('예약 복사 실패:', error);
+                App.err('예약 복사 실패:', error);
                 App.showNotification('예약 복사에 실패했습니다.', 'danger');
             }
         });
@@ -746,7 +1282,7 @@ async function renderCalendar() {
                 !e.target.closest('.day-schedule-icon') &&
                 !e.target.classList.contains('calendar-event')) {
                 // 고정된 날짜 값 사용 (클로저 문제 해결)
-                console.log('캘린더 날짜 클릭:', cellDateStr, '년:', cellYear, '월:', cellMonth + 1, '일:', cellDay);
+                App.log('캘린더 날짜 클릭:', cellDateStr, '년:', cellYear, '월:', cellMonth + 1, '일:', cellDay);
                 openQuickBookingModal(cellDateStr);
             }
         };
@@ -796,7 +1332,7 @@ async function openDayScheduleModal(dateStr) {
         
         App.Modal.open('day-schedule-modal');
     } catch (error) {
-        console.error('스케줄 로드 실패:', error);
+        App.err('스케줄 로드 실패:', error);
         App.showNotification('스케줄을 불러오는데 실패했습니다.', 'danger');
     }
 }
@@ -848,7 +1384,7 @@ function renderDaySchedule(bookings) {
         
         const startTime = new Date(booking.startTime);
         if (isNaN(startTime.getTime())) {
-            console.warn('유효하지 않은 예약 시간:', booking.startTime);
+            App.warn('유효하지 않은 예약 시간:', booking.startTime);
             return '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">예약 시간 오류</td></tr>';
         }
         
@@ -910,15 +1446,81 @@ function changeMonth(delta) {
 
 async function loadBookingsList() {
     try {
+        clearRentalsEmptyModalTimeout();
         // 예약 목록 로드 전에 자동으로 날짜/시간 기준으로 예약 번호 재정렬
         await reorderBookingIdsSilent();
         
         // page 파라미터 제거 (백엔드에서 처리하지 않음)
-        const bookings = await App.api.get(`/bookings?branch=RENTAL`);
-        console.log('예약 목록 조회 결과:', bookings?.length || 0, '건');
+        let bookings = await App.api.get(`/bookings?branch=RENTAL`);
+        const branchFilter = window.rentalsFilterBranch;
+        if (branchFilter) {
+            bookings = (bookings || []).filter(b => {
+                const fb = b.facility && b.facility.branch ? String(b.facility.branch).toUpperCase() : '';
+                return fb === branchFilter;
+            });
+            App.log('목록 뷰 지점 필터 적용:', bookings.length, '건');
+        }
+        const facilitySelect = document.getElementById('filter-facility');
+        const filterFacilityId = facilitySelect ? (facilitySelect.value || '').trim() : '';
+        if (filterFacilityId) {
+            bookings = (bookings || []).filter(b => b.facility && String(b.facility.id) === filterFacilityId);
+            App.log('목록 뷰 시설 필터 적용:', bookings.length, '건');
+        }
+        App.log('예약 목록 조회 결과:', bookings?.length || 0, '건');
         renderBookingsTable(bookings);
+        updateRentalsRecordVerification(bookings || [], branchFilter, filterFacilityId);
+        if ((bookings || []).length === 0 && (branchFilter || filterFacilityId)) {
+            clearRentalsEmptyModalTimeout();
+            var msg = branchFilter && filterFacilityId ? '해당 지점·시설의 대관 예약이 없습니다.' : (branchFilter ? '해당 지점의 대관 예약이 없습니다.' : '해당 시설의 대관 예약이 없습니다.');
+            window._rentalsEmptyModalTimeout = setTimeout(function() {
+                window._rentalsEmptyModalTimeout = null;
+                showRentalsEmptyModal(msg);
+            }, 80);
+        }
     } catch (error) {
-        console.error('예약 목록 로드 실패:', error);
+        App.err('예약 목록 로드 실패:', error);
+    }
+}
+
+/** 통계 기간 내 목록 건수와 통계 건수 비교 후 기록 검증 문구 표시 */
+function updateRentalsRecordVerification(bookings, branchFilter, filterFacilityId) {
+    const el = document.getElementById('rentals-record-verification');
+    if (!el) return;
+    const stats = window.lastRentalStatsData;
+    const period = window.rentalsStatsPeriod;
+    if (!stats || !period || !period.start || !period.end) {
+        el.style.display = 'none';
+        return;
+    }
+    const periodStart = new Date(period.start).getTime();
+    const periodEnd = new Date(period.end).getTime();
+    let inPeriod = (bookings || []).filter(b => {
+        if (!b.startTime) return false;
+        const t = new Date(b.startTime).getTime();
+        return t >= periodStart && t <= periodEnd;
+    });
+    if (branchFilter) {
+        inPeriod = inPeriod.filter(b => {
+            const fb = b.facility && b.facility.branch ? String(b.facility.branch).toUpperCase() : '';
+            return fb === branchFilter;
+        });
+    }
+    if (filterFacilityId) {
+        inPeriod = inPeriod.filter(b => b.facility && String(b.facility.id) === filterFacilityId);
+    }
+    const listCount = inPeriod.length;
+    const listConfirmed = inPeriod.filter(b => (b.status || '') === 'CONFIRMED').length;
+    const statTotal = stats.totalCount != null ? stats.totalCount : 0;
+    const statConfirmed = stats.totalConfirmedCount != null ? stats.totalConfirmedCount : 0;
+    const monthLabel = stats.monthLabel || '';
+    const match = (listCount === statTotal && listConfirmed === statConfirmed);
+    el.style.display = 'block';
+    if (match) {
+        el.innerHTML = '<span class="rentals-verification-ok">✓ 기록 검증: 통계와 목록 일치 (' + monthLabel + ' 기준 ' + statTotal + '건, 확정 ' + statConfirmed + '건)</span>';
+        el.className = 'rentals-record-verification rentals-record-verification--ok';
+    } else {
+        el.innerHTML = '<span class="rentals-verification-warn">⚠ 통계 ' + statTotal + '건 (확정 ' + statConfirmed + '건) / 목록(기간 내) ' + listCount + '건 (확정 ' + listConfirmed + '건) - 불일치 시 기간·지점 필터를 확인하세요.</span>';
+        el.className = 'rentals-record-verification rentals-record-verification--warn';
     }
 }
 
@@ -937,7 +1539,7 @@ function renderBookingsTable(bookings) {
         
         const startTime = new Date(booking.startTime);
         if (isNaN(startTime.getTime())) {
-            console.warn('유효하지 않은 예약 시간:', booking.startTime);
+            App.warn('유효하지 않은 예약 시간:', booking.startTime);
             return '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">예약 시간 오류</td></tr>';
         }
         
@@ -1024,7 +1626,7 @@ let selectedBookingDate = null;
 // 회원 선택 모달 열기
 async function openMemberSelectModal(date = null) {
     selectedBookingDate = date || new Date().toISOString().split('T')[0];
-    console.log('회원 선택 모달 열기 - selectedBookingDate 설정:', selectedBookingDate, '입력된 date:', date);
+    App.log('회원 선택 모달 열기 - selectedBookingDate 설정:', selectedBookingDate, '입력된 date:', date);
     
     // 회원 목록 로드
     await loadMembersForSelect();
@@ -1039,13 +1641,13 @@ async function openMemberSelectModal(date = null) {
     App.Modal.open('member-select-modal');
 }
 
-// 회원 목록 로드
+// 회원 목록 로드 (대관 예약용: 대관권 보유 회원만 표시)
 async function loadMembersForSelect() {
     try {
-        const members = await App.api.get('/members');
+        const members = await App.api.get('/members?productCategory=RENTAL');
         renderMemberSelectTable(members);
     } catch (error) {
-        console.error('회원 목록 로드 실패:', error);
+        App.err('회원 목록 로드 실패:', error);
         App.showNotification('회원 목록을 불러오는데 실패했습니다.', 'danger');
     }
 }
@@ -1118,7 +1720,7 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
     
     // 날짜 저장 (reset 전에 저장)
     const dateToSet = selectedBookingDate || new Date().toISOString().split('T')[0];
-    console.log('회원 선택 - 설정할 날짜:', dateToSet, 'selectedBookingDate:', selectedBookingDate);
+    App.log('회원 선택 - 설정할 날짜:', dateToSet, 'selectedBookingDate:', selectedBookingDate);
     
     // 회원번호로 회원 상세 정보 로드
     try {
@@ -1130,6 +1732,14 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
         }
         
         const member = members[0]; // 첫 번째 결과 사용
+        
+        // 빠른 예약 모달에서 회원 선택한 경우: 이용권만 로드하고 빠른 예약 모달에 반영
+        if (window.rentalsMemberSelectReturnToQuick) {
+            window.rentalsMemberSelectReturnToQuick = false;
+            setQuickModalMember(member);
+            await loadMemberProductsForQuickModal(member.id);
+            return;
+        }
         
         // 예약 모달 열기
         document.getElementById('booking-modal-title').textContent = '대관 등록';
@@ -1145,10 +1755,28 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
         document.getElementById('selected-member-id').value = member.id || '';
         document.getElementById('selected-member-number').value = member.memberNumber || '';
         
-        // 회원 정보 섹션 표시, 비회원 섹션 및 선택 섹션 숨기기
+        // 회원 정보 섹션 표시, 비회원 섹션 숨기기 (비회원 입력 구역은 유지하고 락만 걸기)
         document.getElementById('member-info-section').style.display = 'block';
         document.getElementById('non-member-section').style.display = 'none';
-        document.getElementById('member-select-section').style.display = 'none';
+        document.getElementById('member-select-section').style.display = 'block';
+        
+        // 회원 선택 시 비회원 입력 필드 락: 비활성화·읽기전용·값 비우기
+        const renterNameEl = document.getElementById('booking-renter-name');
+        const renterPhoneEl = document.getElementById('booking-renter-phone');
+        if (renterNameEl) {
+            renterNameEl.value = '';
+            renterNameEl.disabled = true;
+            renterNameEl.readOnly = true;
+            renterNameEl.setAttribute('aria-label', '회원 선택 시 비회원 입력 불가');
+        }
+        if (renterPhoneEl) {
+            renterPhoneEl.value = '';
+            renterPhoneEl.disabled = true;
+            renterPhoneEl.readOnly = true;
+            renterPhoneEl.setAttribute('aria-label', '회원 선택 시 비회원 입력 불가');
+        }
+        const memberSelectNotice = document.getElementById('rental-member-select-notice');
+        if (memberSelectNotice) memberSelectNotice.style.display = 'block';
         
         // 코치 목록 로드 (먼저 로드 완료 대기)
         const coachSelect = document.getElementById('booking-coach');
@@ -1184,7 +1812,7 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
         
         // 중요: booking-id를 빈 값으로 초기화 (기존 예약 수정 방지)
         setFieldValue('booking-id', '');
-        console.log('회원 선택 - booking-id 초기화 완료 (새로운 예약 등록)');
+        App.log('회원 선택 - booking-id 초기화 완료 (새로운 예약 등록)');
         
         setFieldValue('booking-facility', '');
         setFieldValue('booking-start-time', '');
@@ -1205,11 +1833,11 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
         const dateField = document.getElementById('booking-date');
         if (dateField) {
             dateField.value = dateToSet;
-            console.log('예약 날짜 설정 완료:', dateToSet);
+            App.log('예약 날짜 설정 완료:', dateToSet);
         }
         
         // 회원의 상품/이용권 목록 로드
-        await loadMemberProducts(member.id);
+        const memberProducts = await loadMemberProducts(member.id);
         
         // 회원의 등급에 따라 기본값 설정
         // 유소년 회원은 기본적으로 레슨으로 설정
@@ -1225,10 +1853,14 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
             statusSelect.value = 'PENDING';
         }
         
-        // 결제 방식 초기화
+        // 결제 방식 설정 (이용권 보유 시 선결제)
         const paymentMethodSelect = document.getElementById('booking-payment-method');
         if (paymentMethodSelect) {
-            paymentMethodSelect.value = '';
+            const eligibleProducts = (memberProducts || []).filter(mp => {
+                const type = mp.product?.type;
+                return type === 'COUNT_PASS' || type === 'MONTHLY_PASS' || type === 'TIME_PASS';
+            });
+            paymentMethodSelect.value = eligibleProducts.length > 0 ? 'PREPAID' : '';
         }
         
         // 코치 정보 저장 및 미리 로드 (모달 열기 전에)
@@ -1240,7 +1872,7 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
             try {
                 coachInfo = await App.api.get(`/coaches/${coachIdToSet}`);
             } catch (error) {
-                console.error('코치 정보 로드 실패:', error);
+                App.err('코치 정보 로드 실패:', error);
             }
         }
         
@@ -1251,13 +1883,13 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
             // 메인 폼의 코치 필드 찾기 (coach-group 내부)
             const coachGroup = document.getElementById('coach-group');
             if (!coachGroup) {
-                console.error('❌ coach-group을 찾을 수 없습니다.');
+                App.err('❌ coach-group을 찾을 수 없습니다.');
                 return;
             }
             
             const coachSelectEl = coachGroup.querySelector('#booking-coach');
             if (!coachSelectEl) {
-                console.error('❌ 코치 선택 필드를 찾을 수 없습니다.');
+                App.err('❌ 코치 선택 필드를 찾을 수 없습니다.');
                 return;
             }
             
@@ -1278,7 +1910,7 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
             });
             
             if (!coachOption) {
-                console.error('❌ 코치 옵션을 찾을 수 없습니다. 코치 ID:', coachIdToSet);
+                App.err('❌ 코치 옵션을 찾을 수 없습니다. 코치 ID:', coachIdToSet);
                 return;
             }
             
@@ -1294,7 +1926,7 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
             await new Promise(resolve => setTimeout(resolve, 100));
             const finalValue = coachSelectEl.value;
             if (finalValue == coachIdToSet || finalValue === String(coachIdToSet)) {
-                console.log('✅ 코치 설정 완료:', coachOption.textContent);
+                App.log('✅ 코치 설정 완료:', coachOption.textContent);
                 
                 // 레슨 종목 설정
                 if (coachInfo && coachInfo.specialties && coachInfo.specialties.length > 0) {
@@ -1314,7 +1946,7 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
                     }
                 }
             } else {
-                console.warn('⚠️ 코치 설정 확인 실패, 재시도...');
+                App.warn('⚠️ 코치 설정 확인 실패, 재시도...');
                 // 재시도
                 coachSelectEl.selectedIndex = optionIndex;
                 coachSelectEl.value = coachOption.value;
@@ -1345,7 +1977,7 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
             }, 300);
         }
     } catch (error) {
-        console.error('회원 정보 로드 실패:', error);
+        App.err('회원 정보 로드 실패:', error);
         App.showNotification('회원 정보를 불러오는데 실패했습니다.', 'danger');
     }
 }
@@ -1360,7 +1992,7 @@ function openNonMemberBookingModal() {
 function selectNonMember() {
     // 날짜 저장 (reset 전에 저장)
     const dateToSet = selectedBookingDate || new Date().toISOString().split('T')[0];
-    console.log('비회원 선택 - 설정할 날짜:', dateToSet, 'selectedBookingDate:', selectedBookingDate);
+    App.log('비회원 선택 - 설정할 날짜:', dateToSet, 'selectedBookingDate:', selectedBookingDate);
     
     // 예약 모달 열기
     document.getElementById('booking-modal-title').textContent = '대관 등록';
@@ -1369,7 +2001,7 @@ function selectNonMember() {
     
     // 중요: booking-id를 빈 값으로 초기화 (기존 예약 수정 방지)
     document.getElementById('booking-id').value = '';
-    console.log('비회원 선택 - booking-id 초기화 완료 (새로운 예약 등록)');
+    App.log('비회원 선택 - booking-id 초기화 완료 (새로운 예약 등록)');
     
     // 폼 리셋 (날짜 필드는 제외)
     const bookingForm = document.getElementById('booking-form');
@@ -1378,13 +2010,17 @@ function selectNonMember() {
     // reset 후 날짜 필드에 선택한 날짜 설정 (약간의 지연을 두어 확실히 설정)
     setTimeout(() => {
         document.getElementById('booking-date').value = dateToSet;
-        console.log('예약 날짜 설정 완료 (비회원):', dateToSet);
+        App.log('예약 날짜 설정 완료 (비회원):', dateToSet);
     }, 10);
     
     // 비회원 섹션 표시, 회원 정보 섹션 및 선택 섹션 숨기기
     document.getElementById('non-member-section').style.display = 'block';
     document.getElementById('member-info-section').style.display = 'none';
     document.getElementById('member-select-section').style.display = 'none';
+    
+    // 비회원은 결제 방식 선택 가능
+    const paymentMethodSelect = document.getElementById('booking-payment-method');
+    if (paymentMethodSelect) { paymentMethodSelect.disabled = false; }
     
     // 비회원 예약은 항상 'PENDING' 상태로 고정 (승인 필요)
     const statusSelect = document.getElementById('booking-status');
@@ -1402,10 +2038,128 @@ function changeMember() {
     openMemberSelectModal(selectedBookingDate || document.getElementById('booking-date').value);
 }
 
+// 빠른 예약 모달: 선택한 회원 정보 표시
+function setQuickModalMember(member) {
+    if (!member) return;
+    document.getElementById('quick-selected-member-id').value = member.id || '';
+    document.getElementById('quick-selected-member-number').value = member.memberNumber || '';
+    document.getElementById('quick-member-info-text').textContent = (member.name || '-') + ' (' + (member.memberNumber || '') + ')';
+    document.getElementById('quick-member-info-wrap').style.display = 'block';
+    document.getElementById('quick-product-wrap').style.display = 'block';
+    var quickName = document.getElementById('quick-name');
+    var quickPhone = document.getElementById('quick-phone');
+    if (quickName) {
+        quickName.value = '';
+        quickName.disabled = true;
+        quickName.readOnly = true;
+        quickName.placeholder = '회원 선택 시 입력 불가';
+    }
+    if (quickPhone) {
+        quickPhone.value = '';
+        quickPhone.disabled = true;
+        quickPhone.readOnly = true;
+    }
+}
+
+// 빠른 예약 모달: 회원/이용권 선택 취소
+function clearQuickModalMember() {
+    document.getElementById('quick-selected-member-id').value = '';
+    document.getElementById('quick-selected-member-number').value = '';
+    document.getElementById('quick-member-info-wrap').style.display = 'none';
+    document.getElementById('quick-product-wrap').style.display = 'none';
+    var sel = document.getElementById('quick-booking-member-product');
+    if (sel) {
+        sel.innerHTML = '<option value="">상품 선택...</option>';
+    }
+    document.getElementById('quick-product-info').style.display = 'none';
+    var quickName = document.getElementById('quick-name');
+    var quickPhone = document.getElementById('quick-phone');
+    if (quickName) {
+        quickName.value = '';
+        quickName.disabled = false;
+        quickName.readOnly = false;
+        quickName.placeholder = '비회원일 때만 입력';
+    }
+    if (quickPhone) {
+        quickPhone.value = '';
+        quickPhone.disabled = false;
+        quickPhone.readOnly = false;
+    }
+}
+
+// 빠른 예약 모달: 회원의 이용권 목록 로드 (대관: RENTAL만 표시, 첫 항목 자동 선택, 선결제 고정)
+async function loadMemberProductsForQuickModal(memberId) {
+    var select = document.getElementById('quick-booking-member-product');
+    var productInfo = document.getElementById('quick-product-info');
+    if (!select) return;
+    try {
+        var memberProducts = await App.api.get('/member-products?memberId=' + memberId);
+        var activeProducts = (memberProducts || []).filter(function(mp) { return mp.status === 'ACTIVE'; });
+        function categoryStr(mp) {
+            if (!mp.product || mp.product.category == null) return '';
+            var c = mp.product.category;
+            return (typeof c === 'string' ? c : (c.name || c || '')).toString().toUpperCase();
+        }
+        var rentalProducts = activeProducts.filter(function(mp) { return categoryStr(mp) === 'RENTAL'; });
+        activeProducts = rentalProducts.length > 0 ? rentalProducts : [];
+        select.innerHTML = activeProducts.length === 0 ? '<option value="">대관 이용권 없음</option>' : '<option value="">상품 선택...</option>';
+        if (activeProducts.length === 0) {
+            if (productInfo) {
+                productInfo.textContent = '사용 가능한 대관 이용권이 없습니다.';
+                productInfo.style.display = 'block';
+            }
+            return;
+        }
+        activeProducts.forEach(function(mp) {
+            var opt = document.createElement('option');
+            opt.value = mp.id;
+            var product = mp.product || {};
+            var text = product.name || '상품';
+            if (product.price) text += ' - ' + (App.formatCurrency ? App.formatCurrency(product.price) : ('₩' + Number(product.price).toLocaleString()));
+            opt.textContent = text;
+            opt.dataset.productType = product.type || '';
+            opt.dataset.remainingCount = (mp.remainingCount != null ? mp.remainingCount : (product.type === 'COUNT_PASS' ? (product.usageCount != null ? product.usageCount : 10) : 0));
+            select.appendChild(opt);
+        });
+        select.onchange = function() {
+            var chosen = this.options[this.selectedIndex];
+            var paymentEl = document.getElementById('quick-booking-payment-method');
+            if (chosen.value) {
+                if (paymentEl) { paymentEl.value = 'PREPAID'; paymentEl.disabled = true; }
+                if (productInfo) {
+                    var type = chosen.dataset.productType;
+                    var remaining = parseInt(chosen.dataset.remainingCount, 10) || 0;
+                    if (type === 'COUNT_PASS') {
+                        productInfo.textContent = remaining > 0 ? '횟수권 사용: 잔여 ' + remaining + '회' : '잔여 횟수가 없습니다.';
+                        productInfo.style.display = 'block';
+                    } else {
+                        productInfo.textContent = '상품 사용 예정';
+                        productInfo.style.display = 'block';
+                    }
+                }
+            } else {
+                if (paymentEl) { paymentEl.value = ''; paymentEl.disabled = false; }
+                if (productInfo) productInfo.style.display = 'none';
+            }
+        };
+        if (select.options.length > 1) {
+            var firstVal = select.options[1].value;
+            select.value = firstVal;
+            select.selectedIndex = 1;
+            var paymentEl = document.getElementById('quick-booking-payment-method');
+            if (paymentEl) { paymentEl.value = 'PREPAID'; paymentEl.disabled = true; }
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    } catch (err) {
+        App.err('빠른 예약 이용권 로드 실패:', err);
+        if (select) select.innerHTML = '<option value="">상품 선택...</option>';
+    }
+}
+
 // 빠른 예약 모달 열기 (날짜 클릭 시)
 async function openQuickBookingModal(dateStr) {
     selectedBookingDate = dateStr;
-    console.log('빠른 예약 모달 열기:', dateStr);
+    App.log('빠른 예약 모달 열기:', dateStr);
     
     // 날짜 포맷팅
     const date = new Date(dateStr + 'T00:00:00');
@@ -1416,42 +2170,56 @@ async function openQuickBookingModal(dateStr) {
     
     document.getElementById('quick-booking-title').textContent = `대관 등록 - ${formattedDate}`;
     
-        // 폼 초기화
-        document.getElementById('quick-booking-form').reset();
-        document.getElementById('quick-booking-date').value = dateStr;
-        
-        // 수정 모드가 아님을 표시
-        const quickBookingId = document.getElementById('quick-booking-id');
-        if (quickBookingId) {
-            quickBookingId.value = '';
+    // 폼 초기화
+    document.getElementById('quick-booking-form').reset();
+    document.getElementById('quick-booking-date').value = dateStr;
+    document.getElementById('quick-selected-member-id').value = '';
+    document.getElementById('quick-selected-member-number').value = '';
+    clearQuickModalMember();
+    
+    // 수정 모드가 아님을 표시
+    const quickBookingId = document.getElementById('quick-booking-id');
+    if (quickBookingId) {
+        quickBookingId.value = '';
+    }
+    
+    // 삭제 버튼 숨기기 (신규 등록 모드)
+    const quickDeleteBtn = document.getElementById('quick-booking-delete-btn');
+    if (quickDeleteBtn) {
+        quickDeleteBtn.style.display = 'none';
+    }
+    
+    // 회원 선택 버튼: 빠른 예약 모달로 돌아오도록 플래그 설정 후 회원 선택 모달 열기
+    const quickMemberSelectBtn = document.getElementById('quick-member-select-btn');
+    if (quickMemberSelectBtn && !quickMemberSelectBtn._bound) {
+        quickMemberSelectBtn._bound = true;
+        quickMemberSelectBtn.onclick = function() {
+            window.rentalsMemberSelectReturnToQuick = true;
+            openMemberSelectModal(document.getElementById('quick-booking-date').value || selectedBookingDate);
+        };
+    }
+    
+    // 시설 목록 로드 (사하점 고정)
+    try {
+        await loadFacilities();
+        const facilitySelect = document.getElementById('booking-facility');
+        const quickFacilitySelect = document.getElementById('quick-facility');
+        if (facilitySelect && quickFacilitySelect) {
+            quickFacilitySelect.innerHTML = facilitySelect.innerHTML;
+            quickFacilitySelect.selectedIndex = facilitySelect.selectedIndex;
+            quickFacilitySelect.disabled = facilitySelect.disabled;
         }
-        
-        // 삭제 버튼 숨기기 (신규 등록 모드)
-        const quickDeleteBtn = document.getElementById('quick-booking-delete-btn');
-        if (quickDeleteBtn) {
-            quickDeleteBtn.style.display = 'none';
-        }
-        
-        // 시설 목록 로드
-        try {
-            await loadFacilities();
-            // 시설 목록을 quick-facility에도 복사
-            const facilitySelect = document.getElementById('booking-facility');
-            const quickFacilitySelect = document.getElementById('quick-facility');
-            if (facilitySelect && quickFacilitySelect) {
-                quickFacilitySelect.innerHTML = facilitySelect.innerHTML;
-            }
-        } catch (error) {
-            console.error('시설 목록 로드 실패:', error);
-        }
-        
-        App.Modal.open('quick-booking-modal');
+    } catch (error) {
+        App.err('시설 목록 로드 실패:', error);
+    }
+    
+    App.Modal.open('quick-booking-modal');
 }
 
 // 빠른 예약 모달로 수정 모드 열기
 async function openQuickBookingModalForEdit(id) {
     try {
-        console.log('빠른 예약 모달로 수정 모드 열기:', id);
+        App.log('빠른 예약 모달로 수정 모드 열기:', id);
         
         // 예약 데이터 가져오기
         const booking = await App.api.get(`/bookings/${id}`);
@@ -1479,12 +2247,14 @@ async function openQuickBookingModalForEdit(id) {
             quickDeleteBtn.setAttribute('data-booking-id', id);
         }
         
-        // 시설 목록 로드
+        // 시설 목록 로드 (사하점 고정)
         await loadFacilities();
         const facilitySelect = document.getElementById('booking-facility');
         const quickFacilitySelect = document.getElementById('quick-facility');
         if (facilitySelect && quickFacilitySelect) {
             quickFacilitySelect.innerHTML = facilitySelect.innerHTML;
+            quickFacilitySelect.selectedIndex = facilitySelect.selectedIndex;
+            quickFacilitySelect.disabled = facilitySelect.disabled;
         }
         
         // 시설 목록이 로드될 때까지 대기
@@ -1503,6 +2273,23 @@ async function openQuickBookingModalForEdit(id) {
         const endDate = new Date(booking.endTime);
         document.getElementById('quick-end-time').value = endDate.toTimeString().slice(0, 5);
         
+        // 회원 예약인 경우 회원/이용권 UI 표시
+        if (booking.member && (booking.member.id || booking.member.memberNumber)) {
+            var mem = booking.member;
+            document.getElementById('quick-selected-member-id').value = mem.id || '';
+            document.getElementById('quick-selected-member-number').value = mem.memberNumber || '';
+            document.getElementById('quick-member-info-text').textContent = (mem.name || '-') + ' (' + (mem.memberNumber || '') + ')';
+            document.getElementById('quick-member-info-wrap').style.display = 'block';
+            document.getElementById('quick-product-wrap').style.display = 'block';
+            await loadMemberProductsForQuickModal(mem.id);
+            if (booking.memberProduct && booking.memberProduct.id) {
+                var qsel = document.getElementById('quick-booking-member-product');
+                if (qsel) qsel.value = booking.memberProduct.id;
+            }
+        } else {
+            clearQuickModalMember();
+        }
+        
         if (booking.facility && booking.facility.id) {
             quickFacilitySelect.value = booking.facility.id;
             // 값이 제대로 설정되었는지 확인
@@ -1520,40 +2307,67 @@ async function openQuickBookingModalForEdit(id) {
         }
         document.getElementById('quick-memo').value = memoValue;
         
+        var quickPaymentSelect = document.getElementById('quick-booking-payment-method');
+        if (quickPaymentSelect) {
+            var pm = booking.paymentMethod || '';
+            if (pm === 'DEFERRED') pm = 'POSTPAID';
+            if (pm === 'ONSITE') pm = 'ON_SITE';
+            quickPaymentSelect.value = pm || '';
+        }
+        
         App.Modal.open('quick-booking-modal');
         
-        console.log('[빠른 예약 수정] 데이터 로드 완료:', {
+        App.log('[빠른 예약 수정] 데이터 로드 완료:', {
             name: booking.nonMemberName,
             phone: booking.nonMemberPhone,
             dateStr,
             startTime: startDate.toTimeString().slice(0, 5),
             endTime: endDate.toTimeString().slice(0, 5),
             facilityId: booking.facility?.id,
-            memo: booking.memo
+            memo: booking.memo,
+            paymentMethod: booking.paymentMethod
         });
     } catch (error) {
-        console.error('빠른 예약 모달로 수정 모드 열기 실패:', error);
+        App.err('빠른 예약 모달로 수정 모드 열기 실패:', error);
         App.showNotification('예약 정보를 불러오는데 실패했습니다.', 'danger');
     }
 }
 
-// 빠른 예약 저장
+// 빠른 예약 저장 (모달에 입력한 모든 값을 그대로 반영)
 async function saveQuickBooking() {
-    const bookingId = document.getElementById('quick-booking-id')?.value;
-    const isEditMode = bookingId && bookingId.trim() !== '';
+    const bookingId = document.getElementById('quick-booking-id')?.value?.trim();
+    const isEditMode = !!bookingId;
     
-    const name = document.getElementById('quick-name').value.trim();
-    const startTime = document.getElementById('quick-start-time').value;
-    const endTime = document.getElementById('quick-end-time').value;
-    const facilityId = document.getElementById('quick-facility').value;
-    const phone = document.getElementById('quick-phone').value.trim();
-    const memo = document.getElementById('quick-memo').value.trim();
-    const dateStr = document.getElementById('quick-booking-date').value;
+    // 저장 시점에 폼에서 직접 읽어 반영
+    const quickMemberId = (document.getElementById('quick-selected-member-id')?.value || '').trim();
+    const quickMemberNumber = (document.getElementById('quick-selected-member-number')?.value || '').trim();
+    const memberProductId = (document.getElementById('quick-booking-member-product')?.value || '').trim();
+    const name = (document.getElementById('quick-name')?.value || '').trim();
+    const startTime = (document.getElementById('quick-start-time')?.value || '').trim();
+    const endTime = (document.getElementById('quick-end-time')?.value || '').trim();
+    const facilityId = (document.getElementById('quick-facility')?.value || '').trim();
+    const phone = (document.getElementById('quick-phone')?.value || '').trim();
+    const memo = (document.getElementById('quick-memo')?.value || '').trim();
+    const dateStr = (document.getElementById('quick-booking-date')?.value || '').trim();
+    let paymentMethod = (document.getElementById('quick-booking-payment-method')?.value || '').trim();
+    if (paymentMethod === 'ONSITE') paymentMethod = 'ON_SITE';
+    if (paymentMethod === 'DEFERRED') paymentMethod = 'POSTPAID';
+    if (!paymentMethod) paymentMethod = 'ON_SITE'; // 기본값: 현장
+    const dataPaymentMethod = paymentMethod === 'ON_SITE' ? 'ON_SITE' : (paymentMethod === 'POSTPAID' ? 'POSTPAID' : paymentMethod);
     
-    // 필수 필드 검증
-    if (!name) {
-        App.showNotification('이름을 입력해주세요.', 'danger');
-        return;
+    const isMemberBooking = !!(quickMemberId || quickMemberNumber);
+    
+    // 필수 필드 검증: 회원 선택 시 이용권 필수, 비회원 시 이름 필수
+    if (isMemberBooking) {
+        if (!memberProductId) {
+            App.showNotification('사용할 상품/이용권을 선택해주세요.', 'danger');
+            return;
+        }
+    } else {
+        if (!name) {
+            App.showNotification('이름을 입력하거나 회원을 선택해주세요.', 'danger');
+            return;
+        }
     }
     if (!startTime || !endTime) {
         App.showNotification('시작/종료 시간을 입력해주세요.', 'danger');
@@ -1563,6 +2377,10 @@ async function saveQuickBooking() {
         App.showNotification('시설을 선택해주세요.', 'danger');
         return;
     }
+    if (!dateStr) {
+        App.showNotification('예약 날짜가 없습니다.', 'danger');
+        return;
+    }
     
     // 시간 검증
     if (startTime >= endTime) {
@@ -1570,26 +2388,37 @@ async function saveQuickBooking() {
         return;
     }
     
-    // 날짜와 시간 결합
-    const startDateTime = `${dateStr}T${startTime}:00`;
-    const endDateTime = `${dateStr}T${endTime}:00`;
+    // 날짜와 시간 결합 (ISO 형식, 초 없으면 :00 추가)
+    const padSeconds = (t) => (t.length === 4 || t.length === 5) ? t + ':00' : t;
+    const startDateTime = dateStr + 'T' + padSeconds(startTime);
+    const endDateTime = dateStr + 'T' + padSeconds(endTime);
     
-    // 예약 데이터 생성 (비회원 대관 예약)
+    // 예약 데이터: 회원 예약이면 memberNumber + memberProductId, 비회원이면 nonMemberName + nonMemberPhone
     const data = {
-        facility: { id: parseInt(facilityId) },
-        nonMemberName: name,
-        nonMemberPhone: phone || null,
+        facility: { id: parseInt(facilityId, 10) },
         startTime: startDateTime,
         endTime: endDateTime,
         participants: 1,
-        purpose: 'RENTAL', // 대관으로 고정
-        branch: 'RENTAL', // 대관 관리 전용 지점 코드
-        status: isEditMode ? undefined : 'PENDING', // 수정 모드면 기존 상태 유지, 새 예약은 항상 PENDING
-        paymentMethod: 'ON_SITE', // 현장 결제
-        memo: memo ? memo.trim() : null
+        purpose: 'RENTAL',
+        branch: 'RENTAL',
+        paymentMethod: dataPaymentMethod,
+        memo: memo || null
     };
+    if (isMemberBooking) {
+        data.memberNumber = quickMemberNumber || null;
+        data.member = quickMemberId ? { id: parseInt(quickMemberId, 10) } : null;
+        data.memberProductId = memberProductId ? parseInt(memberProductId, 10) : null;
+        data.nonMemberName = null;
+        data.nonMemberPhone = null;
+    } else {
+        data.nonMemberName = name || null;
+        data.nonMemberPhone = phone || null;
+    }
+    if (!isEditMode) {
+        data.status = 'PENDING';
+    }
     
-    console.log('빠른 예약 저장:', isEditMode ? '(수정 모드)' : '(신규)', data);
+    App.log('빠른 예약 저장:', isEditMode ? '(수정 모드)' : '(신규)', data);
     
     try {
         if (isEditMode) {
@@ -1607,7 +2436,7 @@ async function saveQuickBooking() {
         // 캘린더 새로고침
         await renderCalendar();
     } catch (error) {
-        console.error('빠른 예약 저장 실패:', error);
+        App.err('빠른 예약 저장 실패:', error);
         App.showNotification(isEditMode ? '대관 수정에 실패했습니다.' : '대관 등록에 실패했습니다.', 'danger');
     }
 }
@@ -1615,6 +2444,8 @@ async function saveQuickBooking() {
 // 상세 입력 모달로 전환
 async function openDetailBookingModal() {
     // 빠른 예약 모달 데이터 가져오기
+    const quickMemberId = document.getElementById('quick-selected-member-id')?.value?.trim();
+    const quickMemberNumber = document.getElementById('quick-selected-member-number')?.value?.trim();
     const name = document.getElementById('quick-name').value.trim();
     const startTime = document.getElementById('quick-start-time').value;
     const endTime = document.getElementById('quick-end-time').value;
@@ -1644,17 +2475,39 @@ async function openDetailBookingModal() {
         attempts++;
     }
     
-    // 비회원 섹션 활성화
-    if (name) {
+    var isMemberSelected = !!(quickMemberId || quickMemberNumber);
+    if (isMemberSelected) {
+        document.getElementById('selected-member-id').value = quickMemberId || '';
+        document.getElementById('selected-member-number').value = quickMemberNumber || '';
+        document.getElementById('member-info-section').style.display = 'block';
+        document.getElementById('non-member-section').style.display = 'none';
+        document.getElementById('member-select-section').style.display = 'block';
+        var renterNameEl = document.getElementById('booking-renter-name');
+        var renterPhoneEl = document.getElementById('booking-renter-phone');
+        if (renterNameEl) { renterNameEl.value = ''; renterNameEl.disabled = true; renterNameEl.readOnly = true; }
+        if (renterPhoneEl) { renterPhoneEl.value = ''; renterPhoneEl.disabled = true; renterPhoneEl.readOnly = true; }
+        var memberSelectNotice = document.getElementById('rental-member-select-notice');
+        if (memberSelectNotice) memberSelectNotice.style.display = 'block';
+        if (quickMemberId) {
+            var mem = await App.api.get('/members/' + quickMemberId).catch(function() { return null; });
+            if (mem) {
+                document.getElementById('member-info-name').textContent = mem.name || '-';
+                document.getElementById('member-info-phone').textContent = mem.phoneNumber || '-';
+                document.getElementById('member-info-grade').textContent = getGradeText(mem.grade) || '-';
+                document.getElementById('member-info-school').textContent = mem.school || '-';
+                await loadMemberProducts(mem.id);
+            }
+        }
+    } else if (name) {
         selectNonMember();
         await new Promise(resolve => setTimeout(resolve, 100));
     }
     
-    // 입력된 데이터 설정
-    if (name) {
+    // 입력된 데이터 설정 (비회원인 경우만 이름/연락처)
+    if (name && !isMemberSelected) {
         document.getElementById('booking-non-member-name').value = name;
     }
-    if (phone) {
+    if (phone && !isMemberSelected) {
         document.getElementById('booking-phone').value = phone;
     }
     if (dateStr) {
@@ -1688,10 +2541,17 @@ async function openDetailBookingModal() {
         purposeSelect.style.display = 'block';
     }
     
+    // 결제 방식 복사 (빠른 예약 → 상세 입력)
+    var quickPaymentEl = document.getElementById('quick-booking-payment-method');
+    var detailPaymentEl = document.getElementById('booking-payment-method');
+    if (quickPaymentEl && detailPaymentEl && quickPaymentEl.value) {
+        detailPaymentEl.value = quickPaymentEl.value;
+    }
+    
     // 레슨 카테고리 필드 숨김 (대관이므로)
     toggleLessonCategory();
     
-    console.log('[상세 입력] 빠른 예약 데이터 전달 완료:', {
+    App.log('[상세 입력] 빠른 예약 데이터 전달 완료:', {
         name, phone, dateStr, startTime, endTime, facilityId, memo
     });
 }
@@ -1699,7 +2559,7 @@ async function openDetailBookingModal() {
 // 날짜 클릭으로 예약 모달 열기 (기존 함수 - 예약 등록 버튼용)
 function openBookingModalFromDate(dateStr) {
     selectedBookingDate = dateStr;
-    console.log('날짜 클릭으로 예약 모달 열기:', dateStr);
+    App.log('날짜 클릭으로 예약 모달 열기:', dateStr);
     openBookingModal(null);
 }
 
@@ -1772,7 +2632,7 @@ function openBookingModal(id = null) {
         const statusSelect = document.getElementById('booking-status');
         if (statusSelect) {
             statusSelect.value = 'PENDING';
-            console.log('[예약 모달] reset 전 상태 필드 PENDING으로 설정');
+            App.log('[예약 모달] reset 전 상태 필드 PENDING으로 설정');
         }
         
         form.reset();
@@ -1784,7 +2644,7 @@ function openBookingModal(id = null) {
         document.getElementById('selected-member-id').value = '';
         document.getElementById('selected-member-number').value = '';
         document.getElementById('booking-date').value = selectedBookingDate || new Date().toISOString().split('T')[0];
-        console.log('[예약 모달] 예약 등록 모달 - booking-id 초기화 완료');
+        App.log('[예약 모달] 예약 등록 모달 - booking-id 초기화 완료');
         
         // 목적 필드를 "대관"으로 고정
         const purposeSelect = document.getElementById('booking-purpose');
@@ -1802,21 +2662,27 @@ function openBookingModal(id = null) {
         document.getElementById('non-member-section').style.display = 'none';
         document.getElementById('member-select-section').style.display = 'block';
         
-        // 대관용 필드 초기화
+        // 대관용 필드 초기화 및 비회원 입력 필드 재활성화
         const renterNameInput = document.getElementById('booking-renter-name');
         const renterPhoneInput = document.getElementById('booking-renter-phone');
-        if (renterNameInput) renterNameInput.value = '';
-        if (renterPhoneInput) renterPhoneInput.value = '';
+        if (renterNameInput) { renterNameInput.value = ''; renterNameInput.disabled = false; renterNameInput.readOnly = false; renterNameInput.removeAttribute('aria-label'); }
+        if (renterPhoneInput) { renterPhoneInput.value = ''; renterPhoneInput.disabled = false; renterPhoneInput.readOnly = false; renterPhoneInput.removeAttribute('aria-label'); }
+        const memberSelectNotice = document.getElementById('rental-member-select-notice');
+        if (memberSelectNotice) memberSelectNotice.style.display = 'none';
+        
+        // 결제 방식 초기화 (비회원 선택 시 선택 가능하도록)
+        const paymentMethodSelect = document.getElementById('booking-payment-method');
+        if (paymentMethodSelect) { paymentMethodSelect.value = ''; paymentMethodSelect.disabled = false; }
         
         // 상태 필드 활성화 및 PENDING으로 명시적 설정 (reset 후 다시 설정)
         if (statusSelect) {
             statusSelect.disabled = false;
             statusSelect.value = 'PENDING'; // 새 예약은 항상 PENDING으로 시작
-            console.log('[예약 모달] reset 후 상태 필드 PENDING으로 재설정, 현재 값:', statusSelect.value);
+            App.log('[예약 모달] reset 후 상태 필드 PENDING으로 재설정, 현재 값:', statusSelect.value);
             
             // 추가 확인: 만약 여전히 다른 값이면 강제로 PENDING 설정
             if (statusSelect.value !== 'PENDING') {
-                console.warn('[예약 모달] 상태 필드가 PENDING이 아님, 강제로 PENDING 설정');
+                App.warn('[예약 모달] 상태 필드가 PENDING이 아님, 강제로 PENDING 설정');
                 statusSelect.value = 'PENDING';
             }
         }
@@ -1869,7 +2735,7 @@ async function loadBookingData(id) {
         // 시설 선택 필드 확인
         const facilitySelect = document.getElementById('booking-facility');
         if (!facilitySelect) {
-            console.error('[예약 수정] 시설 선택 필드를 찾을 수 없습니다.');
+            App.err('[예약 수정] 시설 선택 필드를 찾을 수 없습니다.');
             // 필드가 없으면 잠시 대기 후 재시도
             await new Promise(resolve => setTimeout(resolve, 200));
             const retrySelect = document.getElementById('booking-facility');
@@ -1898,27 +2764,27 @@ async function loadBookingData(id) {
             
             // 시설 목록이 여전히 없으면 다시 로드 시도
             if (facilitySelectAfter.options.length <= 1) {
-                console.warn('[예약 수정] 시설 목록이 비어있어 재로드 시도');
+                App.warn('[예약 수정] 시설 목록이 비어있어 재로드 시도');
                 await loadFacilities();
                 await new Promise(resolve => setTimeout(resolve, 200));
             }
             
             if (booking.facility && booking.facility.id) {
                 facilitySelectAfter.value = booking.facility.id;
-                console.log('[예약 수정] 시설 설정:', booking.facility.id, booking.facility.name);
+                App.log('[예약 수정] 시설 설정:', booking.facility.id, booking.facility.name);
                 
                 // 값이 제대로 설정되었는지 확인
                 if (facilitySelectAfter.value !== String(booking.facility.id)) {
-                    console.warn('[예약 수정] 시설 값 설정 실패, 재시도');
+                    App.warn('[예약 수정] 시설 값 설정 실패, 재시도');
                     await new Promise(resolve => setTimeout(resolve, 100));
                     facilitySelectAfter.value = booking.facility.id;
                 }
             } else {
                 facilitySelectAfter.value = '';
-                console.warn('[예약 수정] 시설 정보 없음');
+                App.warn('[예약 수정] 시설 정보 없음');
             }
         } else {
-            console.error('[예약 수정] 시설 선택 필드를 찾을 수 없습니다.');
+            App.err('[예약 수정] 시설 선택 필드를 찾을 수 없습니다.');
         }
         document.getElementById('selected-member-id').value = booking.member?.id || '';
         document.getElementById('selected-member-number').value = booking.member?.memberNumber || '';
@@ -2029,7 +2895,7 @@ async function loadBookingData(id) {
                 const memberProductOption = Array.from(select.options).find(opt => opt.value === String(booking.memberProduct.id));
                 if (memberProductOption) {
                     select.value = booking.memberProduct.id;
-                    console.log('[예약 수정] 상품 설정:', booking.memberProduct.id);
+                    App.log('[예약 수정] 상품 설정:', booking.memberProduct.id);
                     
                     // 상품 정보 표시
                     const productInfo = document.getElementById('product-info');
@@ -2050,7 +2916,7 @@ async function loadBookingData(id) {
                     // 상품 선택 이벤트 발생 (결제 방식 자동 설정 등)
                     select.dispatchEvent(new Event('change'));
                 } else {
-                    console.warn('[예약 수정] 상품을 찾을 수 없음:', booking.memberProduct.id);
+                    App.warn('[예약 수정] 상품을 찾을 수 없음:', booking.memberProduct.id);
                 }
             }
         }
@@ -2076,21 +2942,21 @@ async function saveBooking() {
     
     // 날짜 검증
     if (!date || date.trim() === '') {
-        console.warn('[saveBooking] 날짜가 없음');
+        App.warn('[saveBooking] 날짜가 없음');
         App.showNotification('날짜를 선택해주세요.', 'danger');
         return;
     }
     
     // 시작 시간 검증
     if (!startTime || startTime.trim() === '') {
-        console.warn('[saveBooking] 시작 시간이 없음');
+        App.warn('[saveBooking] 시작 시간이 없음');
         App.showNotification('시작 시간을 입력해주세요.', 'danger');
         return;
     }
     
     // 종료 시간 검증
     if (!endTime || endTime.trim() === '') {
-        console.warn('[saveBooking] 종료 시간이 없음');
+        App.warn('[saveBooking] 종료 시간이 없음');
         App.showNotification('종료 시간을 입력해주세요.', 'danger');
         return;
     }
@@ -2146,6 +3012,12 @@ async function saveBooking() {
         return;
     }
     
+    // 회원 예약인 경우 상품/이용권 선택 필수
+    if ((memberNumber || memberId) && !memberProductId) {
+        App.showNotification('사용할 상품/이용권을 선택해주세요.', 'danger');
+        return;
+    }
+    
     // 상품 선택 시 횟수권 잔여 횟수 확인
     if (memberProductId) {
         const productSelect = document.getElementById('booking-member-product');
@@ -2164,7 +3036,7 @@ async function saveBooking() {
     const endDateTime = `${date}T${endTime}:00`;
     
     // 디버깅: 시간 값 확인
-    console.log('예약 시간 확인:', {
+    App.log('예약 시간 확인:', {
         date: date,
         startTime: startTime,
         endTime: endTime,
@@ -2186,14 +3058,14 @@ async function saveBooking() {
     if (!isNewBooking && statusSelect && statusSelect.value) {
         // 수정 모드: 기존 상태 유지
         bookingStatus = statusSelect.value;
-        console.log('[예약 저장] 수정 모드 - 상태 유지:', bookingStatus);
+        App.log('[예약 저장] 수정 모드 - 상태 유지:', bookingStatus);
     } else {
         // 새 예약: 항상 PENDING으로 설정
         bookingStatus = 'PENDING';
         if (statusSelect) {
             statusSelect.value = 'PENDING';
         }
-        console.log('[예약 저장] 새 예약 - 상태 PENDING으로 설정');
+        App.log('[예약 저장] 새 예약 - 상태 PENDING으로 설정');
     }
     
     // 최종 상태 확인 및 강제 설정 (새 예약인 경우)
@@ -2202,17 +3074,17 @@ async function saveBooking() {
         if (statusSelect) {
             statusSelect.value = 'PENDING';
         }
-        console.log('[예약 저장] 최종 확인 - 새 예약이므로 PENDING으로 강제 설정');
+        App.log('[예약 저장] 최종 확인 - 새 예약이므로 PENDING으로 강제 설정');
     }
     
     // 추가 안전장치: statusSelect의 실제 값을 다시 확인
     if (statusSelect && statusSelect.value !== bookingStatus) {
-        console.warn('[예약 저장] 상태 불일치 감지! statusSelect.value:', statusSelect.value, 'bookingStatus:', bookingStatus);
+        App.warn('[예약 저장] 상태 불일치 감지! statusSelect.value:', statusSelect.value, 'bookingStatus:', bookingStatus);
         bookingStatus = 'PENDING'; // 새 예약은 무조건 PENDING
         statusSelect.value = 'PENDING';
     }
     
-    console.log('[예약 저장] 최종 상태:', {
+    App.log('[예약 저장] 최종 상태:', {
         bookingId: bookingId,
         isNewBooking: isNewBooking,
         bookingStatus: bookingStatus,
@@ -2239,7 +3111,7 @@ async function saveBooking() {
         memo: memo ? memo.trim() : null // 빈 문자열도 null로 변환하여 명시적으로 삭제
     };
     
-    console.log('예약 저장 데이터:', JSON.stringify(data, null, 2));
+    App.log('예약 저장 데이터:', JSON.stringify(data, null, 2));
     
     try {
         const id = document.getElementById('booking-id').value;
@@ -2249,7 +3121,7 @@ async function saveBooking() {
             App.showNotification('대관이 수정되었습니다.', 'success');
         } else {
             savedBooking = await App.api.post('/bookings', data);
-            console.log('예약 저장 성공:', savedBooking);
+            App.log('예약 저장 성공:', savedBooking);
             
             // 반복 예약 처리
             const repeatEnabled = document.getElementById('booking-repeat-enabled').checked;
@@ -2280,17 +3152,17 @@ async function saveBooking() {
                     // 예약이 있는 월로 캘린더 이동
                     if (currentDate.getFullYear() !== bookingYear || currentDate.getMonth() !== bookingMonth) {
                         currentDate = new Date(bookingYear, bookingMonth, 1);
-                        console.log(`예약 날짜로 캘린더 이동: ${bookingYear}년 ${bookingMonth + 1}월`);
+                        App.log(`예약 날짜로 캘린더 이동: ${bookingYear}년 ${bookingMonth + 1}월`);
                     }
                 } catch (e) {
-                    console.error('예약 날짜 파싱 오류:', savedBooking.startTime, e);
+                    App.err('예약 날짜 파싱 오류:', savedBooking.startTime, e);
                 }
             }
-            console.log('캘린더 새로고침 시작...');
+            App.log('캘린더 새로고침 시작...');
             await renderCalendar();
         }
     } catch (error) {
-        console.error('예약 저장 실패:', error);
+        App.err('예약 저장 실패:', error);
         App.showNotification('저장에 실패했습니다. 필수 정보를 확인해주세요.', 'danger');
     }
 }
@@ -2332,12 +3204,12 @@ async function createRepeatBookings(baseData, repeatType, repeatCount) {
             await App.api.post('/bookings', repeatData);
             successCount++;
         } catch (error) {
-            console.error(`반복 예약 생성 실패 (${i}회차):`, error);
+            App.err(`반복 예약 생성 실패 (${i}회차):`, error);
             failCount++;
         }
     }
     
-    console.log(`반복 예약 생성 완료: 성공 ${successCount}개, 실패 ${failCount}개`);
+    App.log(`반복 예약 생성 완료: 성공 ${successCount}개, 실패 ${failCount}개`);
 }
 
 // 예약 확인 (승인) - 대관 예약을 CONFIRMED 상태로 변경
@@ -2396,7 +3268,7 @@ async function approveBooking(id) {
             }
         }
     } catch (error) {
-        console.error('예약 확인 실패:', error);
+        App.err('예약 확인 실패:', error);
         App.showNotification('확인에 실패했습니다.', 'danger');
     }
 }
@@ -2429,7 +3301,7 @@ async function deleteBooking(id) {
             loadBookingsList();
         }
     } catch (error) {
-        console.error('예약 삭제 실패:', error);
+        App.err('예약 삭제 실패:', error);
         App.showNotification('삭제에 실패했습니다.', 'danger');
     }
 }
@@ -2449,76 +3321,20 @@ async function deleteQuickBooking() {
     }
 }
 
-// 예약을 다른 날짜로 복사
-async function copyBookingToDate(sourceBookingId, sourceBooking, targetDateStr) {
-    try {
-        // 원본 예약 데이터 로드
-        const booking = await App.api.get(`/bookings/${sourceBookingId}`);
-        
-        // 새 날짜로 시간 계산
-        const targetDate = new Date(targetDateStr + 'T00:00:00');
-        const originalStartTime = new Date(booking.startTime);
-        const originalEndTime = new Date(booking.endTime);
-        
-        // 시간 부분 유지
-        const hours = originalStartTime.getHours();
-        const minutes = originalStartTime.getMinutes();
-        const duration = originalEndTime.getTime() - originalStartTime.getTime();
-        
-        // 새 날짜에 시간 적용
-        const newStartTime = new Date(targetDate);
-        newStartTime.setHours(hours, minutes, 0, 0);
-        const newEndTime = new Date(newStartTime.getTime() + duration);
-        
-        // LocalDateTime 형식으로 변환 (YYYY-MM-DDTHH:mm:ss)
-        const formatLocalDateTime = (date) => {
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            const hour = String(date.getHours()).padStart(2, '0');
-            const minute = String(date.getMinutes()).padStart(2, '0');
-            const second = String(date.getSeconds()).padStart(2, '0');
-            return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
-        };
-        
-        // 새 예약 데이터 생성
-        const newBooking = {
-            facility: booking.facility ? { id: booking.facility.id } : null,
-            memberNumber: booking.memberNumber || null, // MEMBER_NUMBER 사용
-            member: booking.member ? { id: booking.member.id } : null, // 하위 호환성
-            nonMemberName: booking.nonMemberName || null,
-            nonMemberPhone: booking.nonMemberPhone || null,
-            coach: booking.coach ? { id: booking.coach.id } : null,
-            memberProductId: booking.memberProductId || null, // 상품/이용권 ID
-            startTime: formatLocalDateTime(newStartTime),
-            endTime: formatLocalDateTime(newEndTime),
-            participants: booking.participants || 1,
-            purpose: booking.purpose,
-            lessonCategory: booking.lessonCategory || null,
-            branch: 'RENTAL', // 대관 관리 전용 지점 코드
-            status: 'PENDING', // 복사된 예약은 대기 상태로
-            paymentMethod: booking.paymentMethod || null,
-            memo: booking.memo ? `[복사] ${booking.memo}` : '[복사]'
-        };
-        
-        // 디버깅: 전송할 데이터 확인
-        console.log('예약 복사 데이터:', JSON.stringify(newBooking, null, 2));
-        console.log('원본 예약 데이터:', JSON.stringify(booking, null, 2));
-        
-        // 새 예약 생성
-        const saved = await App.api.post('/bookings', newBooking);
-        App.showNotification('예약이 복사되었습니다.', 'success');
-        
-        // 캘린더 새로고침
+// 예약을 다른 날짜로 복사 (common.js의 window.copyBookingToDate 사용. 이 함수명을 copyBookingToDate로 쓰면 전역을 덮어써 재귀 발생)
+async function copyBookingToDateAndRefresh(sourceBookingId, sourceBooking, targetDateStr) {
+    const doCopy = window.copyBookingToDate;
+    if (typeof doCopy !== 'function') {
+        App.err('예약 복사: window.copyBookingToDate를 찾을 수 없습니다.');
+        return;
+    }
+    await doCopy(sourceBookingId, sourceBooking, targetDateStr, 'RENTAL', async () => {
         if (currentView === 'calendar') {
             await renderCalendar();
         } else {
             loadBookingsList();
         }
-    } catch (error) {
-        console.error('예약 복사 실패:', error);
-        App.showNotification('예약 복사에 실패했습니다.', 'danger');
-    }
+    });
 }
 
 // 복사된 메모 저장 (localStorage)
@@ -2546,7 +3362,7 @@ function copyMemoToClipboard() {
         
         App.showNotification('메모가 클립보드에 복사되었습니다.', 'success');
     }).catch(err => {
-        console.error('클립보드 복사 실패:', err);
+        App.err('클립보드 복사 실패:', err);
         // 폴백: 수동 복사
         memoTextarea.select();
         document.execCommand('copy');
@@ -2733,7 +3549,7 @@ async function reorderBookingIdsSilent() {
         await App.api.post('/bookings/reorder');
         // 알림 없이 조용히 재정렬
     } catch (error) {
-        console.error('예약 번호 재할당 실패:', error);
+        App.err('예약 번호 재할당 실패:', error);
         // 조용히 실패 (사용자에게 알림하지 않음)
     }
 }
@@ -2755,18 +3571,22 @@ async function reorderBookingIds() {
             await renderCalendar();
         }
     } catch (error) {
-        console.error('예약 번호 재할당 실패:', error);
+        App.err('예약 번호 재할당 실패:', error);
         App.showNotification('예약 번호 재할당에 실패했습니다.', 'danger');
     }
 }
 
 function applyFilters() {
-    // 필터 적용 로직
+    // 적용 버튼을 누르면 지점 클릭 필터는 해제하고, 시설/날짜/상태만 적용
+    window.rentalsFilterBranch = null;
+    if (window.lastRentalStatsData) renderRentalStats(window.lastRentalStatsData);
+    loadCoachLegend();
     if (currentView === 'list') {
         loadBookingsList();
     } else {
         renderCalendar();
     }
+    loadRentalStats();
 }
 
 // 예약 선택 기능
@@ -2780,7 +3600,7 @@ function selectBooking(booking, eventElement) {
     // 같은 예약을 다시 클릭하면 선택 해제
     if (selectedBooking && selectedBooking.id === booking.id) {
         selectedBooking = null;
-        console.log('예약 선택 해제됨');
+        App.log('예약 선택 해제됨');
         return;
     }
     
@@ -2795,14 +3615,14 @@ function selectBooking(booking, eventElement) {
     eventElement.style.outline = '3px solid #FFD700';
     eventElement.style.boxShadow = '0 0 10px rgba(255, 215, 0, 0.5)';
     
-    console.log('예약 선택됨:', booking.id, booking);
+    App.log('예약 선택됨:', booking.id, booking);
     App.showNotification('예약이 선택되었습니다. Delete 키를 눌러 삭제할 수 있습니다.', 'info');
 }
 
 // 선택된 예약 삭제
 async function deleteSelectedBooking() {
     if (!selectedBooking) {
-        console.log('선택된 예약이 없습니다.');
+        App.log('선택된 예약이 없습니다.');
         return;
     }
     
@@ -2830,7 +3650,7 @@ async function deleteSelectedBooking() {
             loadBookingsList();
         }
     } catch (error) {
-        console.error('예약 삭제 실패:', error);
+        App.err('예약 삭제 실패:', error);
         App.showNotification('예약 삭제에 실패했습니다.', 'danger');
     }
 }
