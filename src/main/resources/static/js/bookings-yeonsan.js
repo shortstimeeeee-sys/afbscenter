@@ -1472,15 +1472,12 @@ async function renderCalendar() {
                 event.style.backgroundColor = coachColor;
                 event.style.borderLeft = `3px solid ${coachColor}`;
                 
-                // 상태에 따라 아이콘 표시 추가
+                // 상태에 따라 아이콘 표시 추가 (완료 동그라미는 COMPLETED일 때만 — 삭제 후 재예약 시 종료시간만 지났다고 표시 안 함)
                 const status = booking.status || 'PENDING';
-                const now = new Date();
-                const isEnded = endTime < now; // 종료 시간이 지났는지 확인
-                
                 let statusIcon = '';
                 let statusIconStyle = '';
-                if (status === 'COMPLETED' || isEnded) {
-                    // 완료된 예약 또는 종료된 예약: 초록색 원형 배경에 흰색 원 표시
+                if (status === 'COMPLETED') {
+                    // 서버에서 완료 처리된 예약만: 초록색 원형 배경(동그라미)
                     statusIcon = '';
                     statusIconStyle = 'display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; min-width: 16px; min-height: 16px; background-color: #2ECC71; border-radius: 50%; margin-right: 5px; vertical-align: middle; flex-shrink: 0; position: relative;';
                 } else if (status === 'CONFIRMED') {
@@ -1491,8 +1488,7 @@ async function renderCalendar() {
                 
                 // 이벤트 내용 설정 (한 줄로 표시: 아이콘 + 시간 / 이름)
                 if (statusIcon || statusIconStyle) {
-                    if (status === 'COMPLETED' || isEnded) {
-                        // 완료된 예약: CSS ::after로 흰색 원 추가
+                    if (status === 'COMPLETED') {
                         event.innerHTML = `<span style="${statusIconStyle}"></span>${timeStr} / ${memberName}`;
                     } else {
                         event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${timeStr} / ${memberName}`;

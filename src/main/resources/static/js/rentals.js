@@ -114,6 +114,16 @@ function getRentalEndTimeTwoHoursLater(startTimeStr) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    // 필터+통계 카드 테두리 (캐시/빌드 무관하게 JS로 적용)
+    var statsCard = document.getElementById('filter-stats-card');
+    if (!statsCard) {
+        var container = document.getElementById('rentals-stats-container');
+        if (container) statsCard = container.closest('.card');
+    }
+    if (statsCard) {
+        statsCard.style.setProperty('border', '1px solid #4A5568', 'important');
+        statsCard.style.borderRadius = '12px';
+    }
     initializeBookings();
     
     // 대관: 시작 시간 입력 시 종료 시간을 무조건 2시간 후로 설정
@@ -279,9 +289,11 @@ function renderRentalStats(data) {
     }
     const totalStatusText = `확정 : ${totalConfirmed}건 / 대기 : ${totalPending}건`;
     let html = '<div class="rentals-stats-row">';
+    html += '<div class="rentals-stats-total-group">';
     const totalSelectedClass = !filterBranch ? ' rentals-stats-total--selected' : '';
     html += `<div class="rentals-stats-total${totalSelectedClass}" data-branch="" role="button" tabindex="0" title="클릭: 전체 보기"><span class="rentals-stats-label">${monthLabel} 총 대관</span><span class="rentals-stats-value">${total}건</span><span class="rentals-stats-status">${totalStatusText}</span></div>`;
     html += '<span class="rentals-stats-pending" role="button" tabindex="0" data-pending-count="' + totalPending + '" title="클릭 시 승인 대기 목록 보기">승인이 완료되지 않은 예약 ' + totalPending + '건</span>';
+    html += '</div>';
     if (byBranch.length > 0) {
         const totalForRatio = total > 0 ? total : 0;
         html += '<div class="rentals-stats-by-branch">';
@@ -1115,7 +1127,7 @@ async function renderCalendar() {
                 // 이름 추출
                 const memberName = booking.member ? booking.member.name : (booking.nonMemberName || '비회원');
                 
-                // 대관 횟수권 회차: API sessionNumber와 (total - remaining + 1) 중 큰 값으로 표시
+                // 대관 횟수권 회차: 서버 sessionNumber 사용. 체크인 직후 서버가 1로 내려오는 경우(7→1) 잔여 기준으로 보정
                 let sessionLabel = '';
                 const mp = booking.memberProduct;
                 if (mp) {
@@ -1123,10 +1135,16 @@ async function renderCalendar() {
                     let remaining = Number(mp.remainingCount);
                     if (Number.isNaN(remaining)) remaining = Number(mp.remaining_count);
                     if (Number.isNaN(remaining) && total > 0) remaining = total;
-                    const sessionNum = (mp.sessionNumber != null && mp.sessionNumber !== '') ? parseInt(mp.sessionNumber, 10) : 0;
                     const usedCount = total > 0 && !Number.isNaN(remaining) && remaining >= 0 ? (total - remaining) : 0;
-                    const fromRemaining = total > 0 && remaining < total ? (usedCount + 1) : 0;
-                    const n = Math.max(sessionNum, fromRemaining, 1);
+                    let n = (mp.sessionNumber != null && mp.sessionNumber !== '') ? parseInt(mp.sessionNumber, 10) : 0;
+                    if (n < 1) {
+                        const fromRemaining = total > 0 && remaining < total ? (usedCount + 1) : 0;
+                        n = Math.max(fromRemaining, 1);
+                    }
+                    // 서버가 1회차로 내려왔는데 실제 사용 횟수(usedCount)가 더 크면 → usedCount로 표시 (체크인 후 7→1 방지)
+                    if (total > 0 && usedCount >= 1 && usedCount <= total && n === 1 && usedCount > 1) {
+                        n = usedCount;
+                    }
                     if (n > 0) sessionLabel = ' (' + n + '회차)';
                 }
                 const displayName = memberName + sessionLabel;
@@ -1146,15 +1164,12 @@ async function renderCalendar() {
                 event.style.backgroundColor = eventColor;
                 event.style.borderLeft = `3px solid ${eventColor}`;
                 
-                // 상태에 따라 아이콘 표시 추가
+                // 상태에 따라 아이콘 표시 추가 (완료 동그라미는 COMPLETED일 때만 표시 — 삭제 후 재예약 시 종료시간만 지났다고 표시 안 함)
                 const status = booking.status || 'PENDING';
-                const now = new Date();
-                const isEnded = endTime < now; // 종료 시간이 지났는지 확인
-                
                 let statusIcon = '';
                 let statusIconStyle = '';
-                if (status === 'COMPLETED' || isEnded) {
-                    // 완료된 예약 또는 종료된 예약: 초록색 원형 배경에 흰색 원 표시
+                if (status === 'COMPLETED') {
+                    // 서버에서 완료 처리된 예약만: 초록색 원형 배경(동그라미)
                     statusIcon = '';
                     statusIconStyle = 'display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; min-width: 16px; min-height: 16px; background-color: #2ECC71; border-radius: 50%; margin-right: 5px; vertical-align: middle; flex-shrink: 0; position: relative;';
                 } else if (status === 'CONFIRMED') {
@@ -1165,7 +1180,7 @@ async function renderCalendar() {
                 
                 // 이벤트 내용 설정 (한 줄로 표시: 아이콘 + 시간 / 이름 또는 이름 N회차)
                 if (statusIcon || statusIconStyle) {
-                    if (status === 'COMPLETED' || isEnded) {
+                    if (status === 'COMPLETED') {
                         event.innerHTML = `<span style="${statusIconStyle}"></span>${timeStr} / ${displayName}`;
                     } else {
                         event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${timeStr} / ${displayName}`;
@@ -2053,11 +2068,13 @@ function setQuickModalMember(member) {
         quickName.disabled = true;
         quickName.readOnly = true;
         quickName.placeholder = '회원 선택 시 입력 불가';
+        quickName.setAttribute('aria-label', '회원 선택 시 비회원 입력 불가');
     }
     if (quickPhone) {
         quickPhone.value = '';
         quickPhone.disabled = true;
         quickPhone.readOnly = true;
+        quickPhone.setAttribute('aria-label', '회원 선택 시 비회원 입력 불가');
     }
 }
 
@@ -2079,11 +2096,13 @@ function clearQuickModalMember() {
         quickName.disabled = false;
         quickName.readOnly = false;
         quickName.placeholder = '비회원일 때만 입력';
+        quickName.removeAttribute('aria-label');
     }
     if (quickPhone) {
         quickPhone.value = '';
         quickPhone.disabled = false;
         quickPhone.readOnly = false;
+        quickPhone.removeAttribute('aria-label');
     }
 }
 
@@ -2273,7 +2292,7 @@ async function openQuickBookingModalForEdit(id) {
         const endDate = new Date(booking.endTime);
         document.getElementById('quick-end-time').value = endDate.toTimeString().slice(0, 5);
         
-        // 회원 예약인 경우 회원/이용권 UI 표시
+        // 회원 예약인 경우 회원/이용권 UI 표시 + 비회원 입력 필드 비활성화
         if (booking.member && (booking.member.id || booking.member.memberNumber)) {
             var mem = booking.member;
             document.getElementById('quick-selected-member-id').value = mem.id || '';
@@ -2281,10 +2300,39 @@ async function openQuickBookingModalForEdit(id) {
             document.getElementById('quick-member-info-text').textContent = (mem.name || '-') + ' (' + (mem.memberNumber || '') + ')';
             document.getElementById('quick-member-info-wrap').style.display = 'block';
             document.getElementById('quick-product-wrap').style.display = 'block';
+            // 회원 선택 시 비회원 입력란 비활성화 (클릭/입력 불가)
+            var quickNameEl = document.getElementById('quick-name');
+            var quickPhoneEl = document.getElementById('quick-phone');
+            if (quickNameEl) {
+                quickNameEl.value = '';
+                quickNameEl.disabled = true;
+                quickNameEl.readOnly = true;
+                quickNameEl.placeholder = '회원 선택 시 입력 불가';
+                quickNameEl.setAttribute('aria-label', '회원 선택 시 비회원 입력 불가');
+            }
+            if (quickPhoneEl) {
+                quickPhoneEl.value = '';
+                quickPhoneEl.disabled = true;
+                quickPhoneEl.readOnly = true;
+                quickPhoneEl.setAttribute('aria-label', '회원 선택 시 비회원 입력 불가');
+            }
             await loadMemberProductsForQuickModal(mem.id);
             if (booking.memberProduct && booking.memberProduct.id) {
                 var qsel = document.getElementById('quick-booking-member-product');
                 if (qsel) qsel.value = booking.memberProduct.id;
+                // 수정 시: 예약 단건 API 잔여와 목록(회원 상품) API 잔여 중 더 작은 값 표시 (체크인 후 4→3인데 9회로 나오는 것 방지)
+                var quickProductInfo = document.getElementById('quick-product-info');
+                if (quickProductInfo) {
+                    var fromBooking = (booking.memberProduct.remainingCount != null && booking.memberProduct.remainingCount !== undefined)
+                        ? (parseInt(booking.memberProduct.remainingCount, 10) || 0) : null;
+                    var fromList = null;
+                    var opt = qsel && qsel.options ? Array.prototype.find.call(qsel.options, function(o) { return o.value === String(booking.memberProduct.id); }) : null;
+                    if (opt && opt.dataset && opt.dataset.remainingCount != null) fromList = parseInt(opt.dataset.remainingCount, 10);
+                    if (fromList === null && opt && opt.dataset && opt.dataset.remainingCount !== undefined) fromList = parseInt(opt.dataset.remainingCount, 10);
+                    var r = (fromBooking != null && fromList != null) ? Math.min(fromBooking, fromList) : (fromBooking != null ? fromBooking : (fromList != null ? fromList : 0));
+                    quickProductInfo.textContent = r > 0 ? '횟수권 사용: 잔여 ' + r + '회' : '잔여 횟수가 없습니다.';
+                    quickProductInfo.style.display = 'block';
+                }
             }
         } else {
             clearQuickModalMember();
@@ -2897,12 +2945,14 @@ async function loadBookingData(id) {
                     select.value = booking.memberProduct.id;
                     App.log('[예약 수정] 상품 설정:', booking.memberProduct.id);
                     
-                    // 상품 정보 표시
+                    // 상품 정보 표시 (수정 시: 이 예약 시점 잔여를 API에서 내려준 값 우선 사용)
                     const productInfo = document.getElementById('product-info');
                     const productInfoText = document.getElementById('product-info-text');
                     if (productInfo && productInfoText) {
                         const productType = memberProductOption.dataset.productType;
-                        const remainingCount = parseInt(memberProductOption.dataset.remainingCount) || 0;
+                        const remainingFromBooking = booking.memberProduct.remainingCount != null && booking.memberProduct.remainingCount !== undefined
+                            ? parseInt(booking.memberProduct.remainingCount, 10) : null;
+                        const remainingCount = remainingFromBooking !== null ? remainingFromBooking : (parseInt(memberProductOption.dataset.remainingCount) || 0);
                         
                         if (productType === 'COUNT_PASS') {
                             productInfoText.textContent = `횟수권 사용: 잔여 ${remainingCount}회`;

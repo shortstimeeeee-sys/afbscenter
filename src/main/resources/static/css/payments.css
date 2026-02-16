@@ -1,5 +1,12 @@
 /* 결제/정산 페이지 스타일 */
 
+/* KPI 숫자 옆 단위(건) 작은 글씨 */
+#kpi-refund-pending .kpi-unit {
+    font-size: 0.5em;
+    font-weight: 600;
+    margin-left: 2px;
+}
+
 /* 타이틀 영역 위쪽 공백 제거 */
 body.payments-page .main-content { padding-top: 0; }
 body.payments-page .topbar { margin-top: 0; }

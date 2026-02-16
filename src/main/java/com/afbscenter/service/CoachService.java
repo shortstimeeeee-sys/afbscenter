@@ -176,12 +176,16 @@ public class CoachService {
                     coachId
                 );
                 
-                for (Long memberId : memberProductCoachIds) {
-                    if (!uniqueMemberIds.contains(memberId)) {
-                        Optional<Member> memberOpt = memberRepository.findById(memberId);
-                        if (memberOpt.isPresent()) {
-                            uniqueMemberIds.add(memberId);
-                            allStudents.add(memberOpt.get());
+                List<Long> idsToLoad = memberProductCoachIds.stream()
+                        .filter(id -> !uniqueMemberIds.contains(id))
+                        .distinct()
+                        .toList();
+                if (!idsToLoad.isEmpty()) {
+                    List<Member> loaded = memberRepository.findAllById(idsToLoad);
+                    for (Member m : loaded) {
+                        if (m != null && m.getId() != null) {
+                            uniqueMemberIds.add(m.getId());
+                            allStudents.add(m);
                         }
                     }
                 }

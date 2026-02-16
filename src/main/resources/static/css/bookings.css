@@ -1,5 +1,7 @@
 /* 예약/대관 관리 페이지 스타일 */
 
+/* #filter-stats-card 테두리는 common.css에서 예약/대관 공통으로 적용 */
+
 /* 타이틀 영역 위쪽 공백 제거 */
 body.booking-page .main-content {
     padding-top: 0 !important;
@@ -84,7 +86,8 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
     }
 }
 
-/* 예약 통계 (같은 행 오른쪽) - padding은 .filter-row-right에서 지정 */
+/* 예약 통계 (같은 행 오른쪽) - 대관 페이지와 동일 디자인 */
+#bookings-stats-container.bookings-stats-inner,
 .bookings-stats-inner {
     margin: 0;
 }
@@ -94,10 +97,24 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
     align-items: baseline;
     gap: 16px 24px;
 }
+.bookings-stats-total-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+}
+.bookings-stats-total-group .bookings-stats-pending {
+    margin-left: 0;
+}
+/* "N월 총 예약 N건 / 확정·대기" 구역만 카드(테두리)로 감쌈 - 대관과 동일 1px */
 .bookings-stats-total {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: 12px;
+    border: 1px solid #4A5568;
+    border-radius: 8px;
+    padding: 8px 14px;
+    box-sizing: border-box;
 }
 .bookings-stats-total .bookings-stats-label {
     color: var(--text-secondary);
@@ -107,6 +124,10 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
     font-weight: 700;
     font-size: 1.1rem;
     color: var(--accent-primary);
+}
+.bookings-stats-total .bookings-stats-status {
+    font-size: 13px;
+    color: var(--text-secondary);
 }
 .bookings-stats-pending {
     font-size: 13px;

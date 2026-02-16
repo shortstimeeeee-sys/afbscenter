@@ -1,5 +1,10 @@
 /* 시설/슬롯 설정 페이지 스타일 */
 
+/* 시설명 지점 고유색 (사하점/연산점/대관) - JS에서 인라인으로 적용, 셀 정렬만 보조 */
+body.facilities-page .cell-facility-name .facility-name-by-branch {
+    font-weight: 600;
+}
+
 /* 타이틀 영역 위쪽 공백 제거 */
 body.facilities-page .main-content { padding-top: 0; }
 body.facilities-page .topbar { margin-top: 0; }

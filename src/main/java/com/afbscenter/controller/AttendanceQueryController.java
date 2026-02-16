@@ -278,16 +278,10 @@ public class AttendanceQueryController {
             logger.debug("체크인 미처리 예약 조회: 전체 {}건 중 오늘·과거 {}건",
                     confirmedBookings.size() + completedBookings.size(), allBookings.size());
 
-            List<Attendance> allAttendances = attendanceRepository.findAll();
-            Set<Long> bookingsWithAttendance = new HashSet<>();
-            for (Attendance attendance : allAttendances) {
-                if (attendance.getBooking() != null) {
-                    bookingsWithAttendance.add(attendance.getBooking().getId());
-                }
-            }
-
-            final Set<Long> finalBookingsWithAttendance = bookingsWithAttendance;
+            List<Long> bookingIdsWithAttendance = attendanceRepository.findDistinctBookingIds();
+            final Set<Long> finalBookingsWithAttendance = new HashSet<>(bookingIdsWithAttendance != null ? bookingIdsWithAttendance : List.of());
             List<Booking> uncheckedBookings = allBookings.stream()
+                    .filter(booking -> booking.getMember() != null) // 비회원 예약 제외 (체크인 버튼 미사용)
                     .filter(booking -> !finalBookingsWithAttendance.contains(booking.getId()))
                     .sorted((a, b) -> {
                         if (a.getStartTime() == null && b.getStartTime() == null) return 0;
@@ -314,6 +308,15 @@ public class AttendanceQueryController {
                     map.put("facility", facilityMap);
                 } else {
                     map.put("facility", null);
+                }
+
+                if (booking.getCoach() != null) {
+                    Map<String, Object> coachMap = new HashMap<>();
+                    coachMap.put("id", booking.getCoach().getId());
+                    coachMap.put("name", booking.getCoach().getName());
+                    map.put("coach", coachMap);
+                } else {
+                    map.put("coach", null);
                 }
 
                 if (booking.getMember() != null) {

@@ -17,6 +17,10 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     // 코치 정보를 포함하여 모든 결제 조회 (lazy loading 방지)
     @Query("SELECT DISTINCT p FROM Payment p LEFT JOIN FETCH p.member m LEFT JOIN FETCH m.coach LEFT JOIN FETCH p.booking b LEFT JOIN FETCH b.coach LEFT JOIN FETCH p.product ORDER BY p.paidAt DESC")
     List<Payment> findAllWithCoach();
+
+    // 기간 내 결제만 조회 (대시보드 매출 지표용 - 전체 조회 대체)
+    @Query("SELECT DISTINCT p FROM Payment p LEFT JOIN FETCH p.member m LEFT JOIN FETCH m.coach LEFT JOIN FETCH p.booking b LEFT JOIN FETCH b.coach LEFT JOIN FETCH p.product WHERE p.paidAt >= :start AND p.paidAt <= :end ORDER BY p.paidAt DESC")
+    List<Payment> findByPaidAtBetweenWithCoach(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
     
     // 회원의 결제 내역을 코치 정보와 함께 조회
     @Query("SELECT DISTINCT p FROM Payment p LEFT JOIN FETCH p.member m LEFT JOIN FETCH m.coach LEFT JOIN FETCH p.booking b LEFT JOIN FETCH b.coach LEFT JOIN FETCH p.product WHERE p.member.id = :memberId ORDER BY p.paidAt DESC")

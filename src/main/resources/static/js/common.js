@@ -2108,8 +2108,15 @@ window.copyBookingToDate = async function(sourceBookingId, sourceBooking, target
         const duration = originalEndTime.getTime() - originalStartTime.getTime();
         
         // 새 날짜에 시간 적용
-        const newStartTime = new Date(targetDate);
+        let newStartTime = new Date(targetDate);
         newStartTime.setHours(hours, minutes, 0, 0);
+        // 복사본이 원본보다 이전이면 회차가 꼬이므로, 원본보다 뒤로만 생성 (원본 다음 날로 보정)
+        if (newStartTime.getTime() <= originalStartTime.getTime()) {
+            newStartTime = new Date(originalStartTime.getTime());
+            newStartTime.setDate(newStartTime.getDate() + 1);
+            newStartTime.setHours(hours, minutes, 0, 0);
+            App.showNotification('선택한 날짜가 원본보다 이전이라, 원본 다음 날로 복사되었습니다.', 'info');
+        }
         const newEndTime = new Date(newStartTime.getTime() + duration);
         
         // LocalDateTime 형식으로 변환 (YYYY-MM-DDTHH:mm:ss)
@@ -2125,6 +2132,8 @@ window.copyBookingToDate = async function(sourceBookingId, sourceBooking, target
         
         // 새 예약 데이터 생성 (이용권은 memberProduct.id 또는 memberProductId로 전달해 복사본도 같은 회차 표시)
         const memberProductId = booking.memberProductId != null ? booking.memberProductId : (booking.memberProduct && booking.memberProduct.id != null ? booking.memberProduct.id : null);
+        // 대관 페이지에서 복사 시 purpose는 반드시 RENTAL
+        const purpose = (branch === 'RENTAL' ? 'RENTAL' : (booking.purpose || null));
         const newBooking = {
             facility: booking.facility ? { id: booking.facility.id } : null,
             memberNumber: booking.memberNumber || null,
@@ -2136,12 +2145,13 @@ window.copyBookingToDate = async function(sourceBookingId, sourceBooking, target
             startTime: formatLocalDateTime(newStartTime),
             endTime: formatLocalDateTime(newEndTime),
             participants: booking.participants || 1,
-            purpose: booking.purpose,
+            purpose: purpose,
             lessonCategory: booking.lessonCategory || null,
             branch: branch || (window.BOOKING_PAGE_CONFIG || {}).branch || 'SAHA',
             status: 'PENDING',
             paymentMethod: booking.paymentMethod || null,
-            memo: booking.memo || null
+            memo: booking.memo || null,
+            sourceBookingId: sourceBookingId
         };
         
         // 새 예약 생성

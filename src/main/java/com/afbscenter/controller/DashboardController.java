@@ -36,6 +36,11 @@ import java.util.stream.Collectors;
 public class DashboardController {
 
     private static final Logger logger = LoggerFactory.getLogger(DashboardController.class);
+    /** Cache TTL for expiring/expired member counts (ms). Reduces repeated heavy computation on refresh. */
+    private static final long KPI_EXPIRING_CACHE_TTL_MS = 60_000L;
+    private static volatile long expiringExpiredCacheAt = 0L;
+    private static volatile long cachedExpiringMembers = 0L;
+    private static volatile long cachedExpiredMembers = 0L;
 
     private final BookingRepository bookingRepository;
     private final PaymentRepository paymentRepository;
@@ -114,19 +119,19 @@ public class DashboardController {
                 todayNewMembers = 0L;
             }
 
-            // 오늘 예약 수
+            // 오늘 예약 수 (count 쿼리로 엔티티 로드 없음)
             long todayBookings = 0L;
             try {
-                todayBookings = bookingRepository.findByDateRange(startOfDay, endOfDay).size();
+                todayBookings = bookingRepository.countByStartTimeBetween(startOfDay, endOfDay);
             } catch (Exception e) {
                 logger.warn("오늘 예약 수 조회 실패: {}", e.getMessage());
                 todayBookings = 0L;
             }
 
-            // 오늘 방문 수 (출석) - 숨김 처리하지만 데이터는 유지
+            // 오늘 방문 수 (출석) - count 쿼리로 엔티티 로드 없음
             long todayVisits = 0L;
             try {
-                todayVisits = attendanceRepository.findByDate(today).size();
+                todayVisits = attendanceRepository.countByDate(today);
             } catch (Exception e) {
                 logger.warn("오늘 방문 수 조회 실패: {}", e.getMessage());
                 todayVisits = 0L;
@@ -173,10 +178,10 @@ public class DashboardController {
             LocalDateTime startOfYesterday = yesterday.atStartOfDay();
             LocalDateTime endOfYesterday = yesterday.atTime(LocalTime.MAX);
             
-            // 어제 예약 수 (어제 대비 계산용)
+            // 어제 예약 수 (어제 대비 계산용, count 쿼리)
             long yesterdayBookings = 0L;
             try {
-                yesterdayBookings = bookingRepository.findByDateRange(startOfYesterday, endOfYesterday).size();
+                yesterdayBookings = bookingRepository.countByStartTimeBetween(startOfYesterday, endOfYesterday);
             } catch (Exception e) {
                 logger.warn("어제 예약 수 조회 실패: {}", e.getMessage());
                 yesterdayBookings = 0L;
@@ -279,111 +284,77 @@ public class DashboardController {
             kpi.put("bookingsByBranch", bookingsByBranch);      // 지점별 예약 건수 (SAHA, YEONSAN, RENTAL)
             kpi.put("bookingsNonMemberByBranch", bookingsNonMemberByBranch); // 지점별 비회원 예약 건수
             
-            // 만료 임박 및 종료 회원 수 계산
-            long expiringMembersCount = 0L;
-            long expiredMembersCount = 0L;
-            try {
-                List<com.afbscenter.model.Member> allMembers = memberRepository.findAll();
-                LocalDate expiryThreshold = today.plusDays(7); // 7일 이내 만료
-                
-                for (com.afbscenter.model.Member member : allMembers) {
-                    try {
-                        List<MemberProduct> activeProducts = memberProductRepository.findByMemberIdAndStatus(
-                            member.getId(), MemberProduct.Status.ACTIVE);
-                        List<MemberProduct> expiredMemberProducts = memberProductRepository.findByMemberIdAndStatus(
-                            member.getId(), MemberProduct.Status.EXPIRED);
-                        List<MemberProduct> usedUpMemberProducts = memberProductRepository.findByMemberIdAndStatus(
-                            member.getId(), MemberProduct.Status.USED_UP);
-                        
-                        // 회원의 모든 이용권 조회
-                        List<MemberProduct> allMemberProducts = memberProductRepository.findByMemberId(member.getId());
-                        
-                        boolean isExpiring = false;
-                        boolean isExpired = false;
-                        
-                        // 만료 임박 확인
-                        for (MemberProduct mp : activeProducts) {
-                            try {
-                                // 횟수권: 남은 횟수 3회 이하
-                                if (mp.getProduct() != null && 
-                                    mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
-                                    Integer remainingCount = mp.getRemainingCount();
-                                    
-                                    if (remainingCount == null) {
-                                        Integer totalCount = mp.getTotalCount();
-                                        if (totalCount == null || totalCount <= 0) {
-                                            totalCount = mp.getProduct().getUsageCount();
+            // 만료 임박 및 종료 회원 수: 60초 캐시로 새로고침 시 반복 계산 방지
+            long expiringMembersCount;
+            long expiredMembersCount;
+            long now = System.currentTimeMillis();
+            if (now - expiringExpiredCacheAt < KPI_EXPIRING_CACHE_TTL_MS) {
+                expiringMembersCount = cachedExpiringMembers;
+                expiredMembersCount = cachedExpiredMembers;
+            } else {
+                expiringMembersCount = 0L;
+                expiredMembersCount = 0L;
+                try {
+                    List<com.afbscenter.model.Member> allMembers = memberRepository.findAll();
+                    LocalDate expiryThreshold = today.plusDays(7);
+                    for (com.afbscenter.model.Member member : allMembers) {
+                        try {
+                            List<MemberProduct> activeProducts = memberProductRepository.findByMemberIdAndStatus(
+                                member.getId(), MemberProduct.Status.ACTIVE);
+                            List<MemberProduct> usedUpMemberProducts = memberProductRepository.findByMemberIdAndStatus(
+                                member.getId(), MemberProduct.Status.USED_UP);
+                            List<MemberProduct> allMemberProducts = memberProductRepository.findByMemberId(member.getId());
+                            boolean isExpiring = false;
+                            boolean isExpired = false;
+                            for (MemberProduct mp : activeProducts) {
+                                try {
+                                    if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
+                                        Integer remainingCount = mp.getRemainingCount();
+                                        if (remainingCount == null) {
+                                            Integer totalCount = mp.getTotalCount();
                                             if (totalCount == null || totalCount <= 0) {
-                                                totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
+                                                totalCount = mp.getProduct().getUsageCount();
+                                                if (totalCount == null || totalCount <= 0)
+                                                    totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                                             }
+                                            Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
+                                            if (usedCountByBooking == null) usedCountByBooking = 0L;
+                                            Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(
+                                                member.getId(), mp.getId());
+                                            if (usedCountByAttendance == null) usedCountByAttendance = 0L;
+                                            Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
+                                            remainingCount = totalCount - actualUsedCount.intValue();
+                                            if (remainingCount < 0) remainingCount = 0;
                                         }
-                                        
-                                        Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
-                                        if (usedCountByBooking == null) usedCountByBooking = 0L;
-                                        
-                                        Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(
-                                            member.getId(), mp.getId());
-                                        if (usedCountByAttendance == null) usedCountByAttendance = 0L;
-                                        
-                                        Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
-                                        remainingCount = totalCount - actualUsedCount.intValue();
-                                        if (remainingCount < 0) remainingCount = 0;
+                                        if (remainingCount != null && remainingCount <= 3 && remainingCount > 0) {
+                                            isExpiring = true;
+                                            break;
+                                        }
                                     }
-                                    
-                                    if (remainingCount != null && remainingCount <= 3 && remainingCount > 0) {
+                                    if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS
+                                        && mp.getExpiryDate() != null && !mp.getExpiryDate().isAfter(expiryThreshold)
+                                        && !mp.getExpiryDate().isBefore(today)) {
                                         isExpiring = true;
                                         break;
                                     }
-                                }
-                                
-                                // 기간권: 만료일이 7일 이내
-                                if (mp.getProduct() != null && 
-                                    mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS) {
-                                    if (mp.getExpiryDate() != null && 
-                                        !mp.getExpiryDate().isAfter(expiryThreshold) &&
-                                        !mp.getExpiryDate().isBefore(today)) {
-                                        isExpiring = true;
-                                        break;
-                                    }
-                                }
-                            } catch (Exception e) {
-                                logger.debug("MemberProduct 만료 확인 실패: MemberProduct ID={}, 오류: {}", 
-                                    mp.getId(), e.getMessage());
+                                } catch (Exception e) { /* ignore */ }
                             }
-                        }
-                        
-                        // 종료 회원 확인:
-                        // 1. 이용권이 전혀 없는 경우
-                        // 2. 활성 이용권이 없고 모든 이용권이 만료/사용 완료된 경우
-                        // 3. USED_UP 상품이 있는 경우 (활성 상품이 있어도 종료된 상품으로 표시)
-                        if (allMemberProducts == null || allMemberProducts.isEmpty()) {
-                            // 이용권이 전혀 없는 경우
-                            isExpired = true;
-                        } else if (activeProducts == null || activeProducts.isEmpty()) {
-                            // 활성 이용권이 없는 경우
-                            isExpired = true;
-                        } else if (!usedUpMemberProducts.isEmpty()) {
-                            // USED_UP 상품이 있으면 종료된 회원으로 분류
-                            isExpired = true;
-                        }
-                        
-                        if (isExpiring) {
-                            expiringMembersCount++;
-                        }
-                        if (isExpired) {
-                            expiredMembersCount++;
-                        }
-                    } catch (Exception e) {
-                        logger.debug("회원 만료 확인 실패: Member ID={}, 오류: {}", 
-                            member.getId(), e.getMessage());
+                            if (allMemberProducts == null || allMemberProducts.isEmpty()) isExpired = true;
+                            else if (activeProducts == null || activeProducts.isEmpty()) isExpired = true;
+                            else if (!usedUpMemberProducts.isEmpty()) isExpired = true;
+                            if (isExpiring) expiringMembersCount++;
+                            if (isExpired) expiredMembersCount++;
+                        } catch (Exception e) { /* ignore */ }
                     }
+                    expiringExpiredCacheAt = now;
+                    cachedExpiringMembers = expiringMembersCount;
+                    cachedExpiredMembers = expiredMembersCount;
+                } catch (Exception e) {
+                    logger.warn("만료 임박 및 종료 회원 수 계산 실패: {}", e.getMessage());
                 }
-            } catch (Exception e) {
-                logger.warn("만료 임박 및 종료 회원 수 계산 실패: {}", e.getMessage());
             }
-            
-            kpi.put("expiringMembers", expiringMembersCount); // 만료 임박 회원 수
-            kpi.put("expiredMembers", expiredMembersCount); // 종료 회원 수
+            kpi.put("expiringMembers", expiringMembersCount);
+            kpi.put("expiredMembers", expiredMembersCount);
 
             return ResponseEntity.ok(kpi);
         } catch (Exception e) {
@@ -401,12 +372,9 @@ public class DashboardController {
             LocalDateTime startOfMonth = firstDayOfMonth.atStartOfDay();
             LocalDateTime endOfMonth = today.atTime(LocalTime.MAX);
             
-            // 이번 달 결제 데이터 조회
-            List<com.afbscenter.model.Payment> payments = paymentRepository.findAllWithCoach().stream()
-                    .filter(p -> p.getPaidAt() != null && 
-                               !p.getPaidAt().isBefore(startOfMonth) && 
-                               !p.getPaidAt().isAfter(endOfMonth) &&
-                               (p.getStatus() == null || p.getStatus() == com.afbscenter.model.Payment.PaymentStatus.COMPLETED))
+            // 이번 달 결제 데이터만 조회 (기간 조건으로 DB에서 필터)
+            List<com.afbscenter.model.Payment> payments = paymentRepository.findByPaidAtBetweenWithCoach(startOfMonth, endOfMonth).stream()
+                    .filter(p -> p.getStatus() == null || p.getStatus() == com.afbscenter.model.Payment.PaymentStatus.COMPLETED)
                     .collect(Collectors.toList());
             
             // 카테고리별 매출 계산

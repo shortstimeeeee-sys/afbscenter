@@ -1,5 +1,7 @@
 /* 예약/대관 관리 페이지 스타일 */
 
+/* #filter-stats-card 테두리는 common.css에서 예약/대관 공통으로 적용 */
+
 /* 회원 선택 모달이 대관 등록/빠른 예약 모달 위에 보이도록 (회원 선택 클릭 시 우선 표시) */
 #member-select-modal.modal-overlay {
     z-index: 2100;
@@ -92,10 +94,20 @@ body.rentals-page .topbar { margin-top: 0; }
     align-items: baseline;
     gap: 16px 24px;
 }
+/* 총 대관 + 승인 대기 한 그룹, 간격 조금 더 띄움 */
+.rentals-stats-total-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+}
+.rentals-stats-total-group .rentals-stats-pending {
+    margin-left: 0;
+}
 .rentals-stats-total {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: 12px;
 }
 .rentals-stats-total[data-branch] {
     cursor: pointer;
@@ -122,7 +134,6 @@ body.rentals-page .topbar { margin-top: 0; }
 .rentals-stats-total .rentals-stats-status {
     font-size: 13px;
     color: var(--text-secondary);
-    margin-left: 4px;
 }
 .rentals-stats-pending {
     font-size: 13px;

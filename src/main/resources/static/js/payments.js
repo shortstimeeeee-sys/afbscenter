@@ -82,9 +82,10 @@ async function loadPaymentSummary() {
         const unpaid = summary.unpaid || 0;
         document.getElementById('kpi-unpaid').textContent = App.formatCurrency(unpaid);
         
-        // 환불 대기
+        // 환불 대기 (숫자 옆에 "건" 표시, "건"은 작은 글씨)
         const refundPending = summary.refundPending || 0;
-        document.getElementById('kpi-refund-pending').textContent = refundPending;
+        const el = document.getElementById('kpi-refund-pending');
+        el.innerHTML = refundPending + '<span class="kpi-unit">건</span>';
         
         App.log('결제 요약 로드 완료:', summary);
     } catch (error) {
@@ -93,7 +94,7 @@ async function loadPaymentSummary() {
         document.getElementById('kpi-today-revenue').textContent = App.formatCurrency(0);
         document.getElementById('kpi-month-revenue').textContent = App.formatCurrency(0);
         document.getElementById('kpi-unpaid').textContent = App.formatCurrency(0);
-        document.getElementById('kpi-refund-pending').textContent = '0';
+        document.getElementById('kpi-refund-pending').innerHTML = '0<span class="kpi-unit">건</span>';
     }
 }
 
@@ -208,6 +209,16 @@ function openPaymentCoachUnassignedModal() {
     App.Modal.open('payment-coach-unassigned-modal');
 }
 
+/** 코치 이름에 고유색 적용 (결제 테이블·상세 공용) */
+function getCoachNameWithColor(coach) {
+    if (!coach || !coach.name || !String(coach.name).trim()) return '-';
+    var name = String(coach.name).trim();
+    var color = (App.CoachColors && App.CoachColors.getColor) ? App.CoachColors.getColor(coach) : null;
+    if (!color) color = (App.CoachColors && App.CoachColors.getColor) ? App.CoachColors.getColor({ name: name }) : 'var(--text-primary)';
+    if (!color || color === true) color = 'var(--text-primary)';
+    return '<span class="coach-name" style="color:' + color + ';font-weight:600;">' + App.escapeHtml(name) + '</span>';
+}
+
 function renderPaymentsTableBody(payments) {
     const tbody = document.getElementById('payments-table-body');
     if (!tbody) return;
@@ -220,7 +231,7 @@ function renderPaymentsTableBody(payments) {
             <td>${payment.id}</td>
             <td>${App.formatDateTime(payment.paidAt)}</td>
             <td>${payment.member && payment.member.id ? `<a href="javascript:void(0)" class="member-name-link" data-member-id="${payment.member.id}">${App.escapeHtml(payment.member.name)}</a>` : App.escapeHtml(payment.member ? payment.member.name : (payment.memberName || '비회원'))}</td>
-            <td>${payment.coach ? payment.coach.name : '-'}</td>
+            <td class="cell-coach">${getCoachNameWithColor(payment.coach)}</td>
             <td>${getCategoryText(payment.category || payment.paymentCategory)}</td>
             <td>${getPaymentMethodText(payment.paymentMethod)}</td>
             <td style="font-weight: 600; color: var(--accent-primary);">${App.formatCurrency(payment.amount)}</td>
@@ -630,7 +641,7 @@ function renderPaymentDetail(payment) {
                 </div>
                 <div class="detail-item">
                     <label>코치</label>
-                    <div>${payment.coach ? payment.coach.name : '-'}</div>
+                    <div>${getCoachNameWithColor(payment.coach)}</div>
                 </div>
                 <div class="detail-item">
                     <label>상품</label>

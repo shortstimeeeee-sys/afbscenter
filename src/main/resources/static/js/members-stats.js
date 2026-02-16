@@ -1,7 +1,48 @@
 /**
  * 회원 기본 통계 (로드·카드 렌더·통계 클릭 모달).
- * members.js 로드 후 로드. getGradeText() 는 members.js 에 의존.
+ * members.js 로드 후 로드. getGradeText(), getGradeBadge() 는 members.js 에 의존.
+ * 등급/코치/상태는 공통 배지·색상 디자인 적용.
  */
+// 등급 배지 클래스 (members.js getGradeBadge / dashboard getGradeBadgeClass와 동일)
+function getGradeBadgeClass(grade) {
+    if (!grade) return 'info';
+    var g = String(grade).toUpperCase();
+    switch (g) {
+        case 'ELITE_ELEMENTARY': return 'elite-elementary';
+        case 'ELITE_MIDDLE': return 'elite-middle';
+        case 'ELITE_HIGH': return 'elite-high';
+        case 'SOCIAL': return 'secondary';
+        case 'YOUTH': return 'youth';
+        case 'OTHER': return 'other';
+        default: return 'info';
+    }
+}
+function getGradeLabel(grade) {
+    if (typeof getGradeText === 'function') return getGradeText(grade) || '-';
+    var map = { ELITE_ELEMENTARY: '엘리트 (초)', ELITE_MIDDLE: '엘리트 (중)', ELITE_HIGH: '엘리트 (고)', SOCIAL: '사회인', YOUTH: '유소년', OTHER: '기타 종목' };
+    return map[String(grade).toUpperCase()] || grade || '-';
+}
+// 회원 상태 배지/텍스트 (App.Status.member)
+function getMemberStatusBadge(s) {
+    return (App.Status && App.Status.member && App.Status.member.getBadge) ? App.Status.member.getBadge(s) : 'info';
+}
+function getMemberStatusText(s) {
+    return (App.Status && App.Status.member && App.Status.member.getText) ? App.Status.member.getText(s) : (s || '-');
+}
+// 담당 코치 한 줄 표시 (공통 코치 색상)
+function renderCoachDisplay(member) {
+    var name = (member.coach && member.coach.name) ? member.coach.name : (member.coachNames || '').split('\n')[0];
+    if (!name || !String(name).trim()) return '-';
+    return renderCoachNameWithColor(String(name).trim());
+}
+// 코치 이름 문자열에 공통 색상 적용 (회원/비회원 목록 공용)
+function renderCoachNameWithColor(coachName) {
+    if (!coachName || !String(coachName).trim()) return '-';
+    var name = String(coachName).trim();
+    var color = (App.CoachColors && App.CoachColors.getColor) ? App.CoachColors.getColor({ name: name }) : null;
+    if (!color) color = 'var(--text-primary)';
+    return '<span class="coach-name" style="color:' + color + ';font-weight:600;">' + App.escapeHtml(name) + '</span>';
+}
 
 async function loadMemberStats() {
     const container = document.getElementById('members-stats-container');
@@ -111,8 +152,9 @@ async function openStatsMemberModal(filterType, filterValue, titleLabel) {
                 bodyEl.innerHTML = '<p style="color: var(--text-muted); padding: 16px;">비회원 예약이 없습니다.</p>';
                 return;
             }
-            var statusLabels = { 'PENDING': '대기', 'CONFIRMED': '확정', 'CANCELLED': '취소' };
-            var tableHtml = '<div class="table-container" style="max-height: 60vh; overflow: auto;"><table class="table"><thead><tr><th>예약일시</th><th>이름</th><th>연락처</th><th>시설</th><th>상태</th></tr></thead><tbody>';
+            var statusBadge = function(s) { return (App.Status && App.Status.booking && App.Status.booking.getBadge) ? App.Status.booking.getBadge(s) : 'info'; };
+            var statusText = function(s) { return (App.Status && App.Status.booking && App.Status.booking.getText) ? App.Status.booking.getText(s) : s; };
+            var tableHtml = '<div class="table-container" style="max-height: 60vh; overflow: auto;"><table class="table table-booking-list"><thead><tr><th>예약일시</th><th>이름</th><th>연락처</th><th>시설</th><th>담당 코치</th><th>상태</th></tr></thead><tbody>';
             bookings.forEach(function(b) {
                 var start = '-';
                 if (b.startTime) {
@@ -128,9 +170,12 @@ async function openStatsMemberModal(filterType, filterValue, titleLabel) {
                 var name = (b.nonMemberName || '-');
                 var phone = (b.nonMemberPhone || '-');
                 var facilityName = (b.facility && b.facility.name) ? b.facility.name : '-';
+                var coachName = (b.coach && b.coach.name) ? b.coach.name : (b.coachName || '');
+                var coachHtml = coachName ? renderCoachNameWithColor(coachName) : '-';
                 var statusKey = (b.status || '').toUpperCase();
-                var status = statusLabels[statusKey] || b.status || '-';
-                tableHtml += '<tr><td>' + App.escapeHtml(start) + '</td><td>' + App.escapeHtml(name) + '</td><td>' + App.escapeHtml(phone) + '</td><td>' + App.escapeHtml(facilityName) + '</td><td>' + App.escapeHtml(status) + '</td></tr>';
+                var badge = statusBadge(statusKey);
+                var statusLabel = statusText(statusKey);
+                tableHtml += '<tr><td>' + App.escapeHtml(start) + '</td><td>' + App.escapeHtml(name) + '</td><td>' + App.escapeHtml(phone) + '</td><td class="cell-facility">' + App.escapeHtml(facilityName) + '</td><td class="cell-coach">' + coachHtml + '</td><td class="cell-status"><span class="badge badge-' + App.escapeHtml(badge) + '">' + App.escapeHtml(statusLabel) + '</span></td></tr>';
             });
             tableHtml += '</tbody></table></div>';
             bodyEl.innerHTML = tableHtml;
@@ -151,9 +196,15 @@ async function openStatsMemberModal(filterType, filterValue, titleLabel) {
             bodyEl.innerHTML = '<p style="color: var(--text-muted); padding: 16px;">해당 조건의 회원이 없습니다.</p>';
             return;
         }
-        var tableHtml = '<div class="table-container" style="max-height: 60vh; overflow: auto;"><table class="table"><thead><tr><th>회원번호</th><th>이름</th><th>등급</th><th>전화번호</th><th>학교/소속</th></tr></thead><tbody>';
+        var tableHtml = '<div class="table-container" style="max-height: 60vh; overflow: auto;"><table class="table table-booking-list"><thead><tr><th>회원번호</th><th>이름</th><th>등급</th><th>담당 코치</th><th>전화번호</th><th>학교/소속</th><th>상태</th></tr></thead><tbody>';
         members.forEach(function(m) {
-            tableHtml += '<tr onclick="App.Modal.close(\'stats-members-modal\'); window.location.href=\'/members.html?id=' + (m.id || '') + '\'"><td>' + App.escapeHtml(m.memberNumber || '-') + '</td><td>' + App.escapeHtml(m.name || '') + '</td><td>' + App.escapeHtml(typeof getGradeText === 'function' ? getGradeText(m.grade) : (m.grade || '-')) + '</td><td>' + App.escapeHtml(m.phoneNumber || '-') + '</td><td>' + App.escapeHtml(m.school || '-') + '</td></tr>';
+            var gradeClass = getGradeBadgeClass(m.grade);
+            var gradeLabel = getGradeLabel(m.grade);
+            var gradeBadge = '<span class="badge badge-' + gradeClass + '">' + App.escapeHtml(gradeLabel) + '</span>';
+            var statusKey = (m.status || 'ACTIVE').toUpperCase();
+            var statusBadge = '<span class="badge badge-' + getMemberStatusBadge(statusKey) + '">' + App.escapeHtml(getMemberStatusText(statusKey)) + '</span>';
+            var coachHtml = renderCoachDisplay(m);
+            tableHtml += '<tr class="stats-member-row" onclick="App.Modal.close(\'stats-members-modal\'); window.location.href=\'/members.html?id=' + (m.id || '') + '\'" style="cursor:pointer;"><td>' + App.escapeHtml(m.memberNumber || '-') + '</td><td>' + App.escapeHtml(m.name || '') + '</td><td class="cell-grade">' + gradeBadge + '</td><td class="cell-coach">' + coachHtml + '</td><td>' + App.escapeHtml(m.phoneNumber || '-') + '</td><td>' + App.escapeHtml(m.school || '-') + '</td><td class="cell-status">' + statusBadge + '</td></tr>';
         });
         tableHtml += '</tbody></table></div>';
         bodyEl.innerHTML = tableHtml;

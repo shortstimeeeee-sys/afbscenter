@@ -75,20 +75,39 @@
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">체크인 미처리 현황</h2>
-                        <div style="display: flex; gap: 10px;">
-                            <button class="btn btn-secondary" onclick="loadUncheckedBookings()">새로고침</button>
-                            <button class="btn btn-primary" id="bulk-checkin-btn" onclick="openBulkCheckinModal()">✅ 전체 체크인</button>
+                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <label class="filter-label" for="unchecked-branch-filter">시설</label>
+                            <select id="unchecked-branch-filter" class="form-control" style="width: auto; min-width: 100px;" onchange="filterUncheckedDisplay()">
+                                <option value="">전체</option>
+                                <option value="사하점">사하점</option>
+                                <option value="연산점">연산점</option>
+                            </select>
+                            <label class="filter-label" for="unchecked-lesson-category-filter">레슨 카테고리</label>
+                            <select id="unchecked-lesson-category-filter" class="form-control" style="width: auto; min-width: 140px;" onchange="filterUncheckedDisplay()">
+                                <option value="">전체</option>
+                                <option value="BASEBALL">야구 레슨</option>
+                                <option value="YOUTH_BASEBALL">유소년 야구</option>
+                                <option value="TRAINING">트레이닝 파트</option>
+                                <option value="PILATES">필라테스 레슨</option>
+                                <option value="RENTAL">대관</option>
+                            </select>
+                            <label class="filter-label" for="unchecked-coach-filter">담당 코치</label>
+                            <select id="unchecked-coach-filter" class="form-control" style="width: auto; min-width: 120px;" onchange="filterUncheckedDisplay()">
+                                <option value="">전체</option>
+                            </select>
+                            <button class="btn btn-primary" id="bulk-checkin-btn" onclick="openBulkCheckinModal('unchecked')">✅ 체크인 미처리 현황 체크인</button>
                         </div>
                     </div>
                     <div class="table-container">
-                        <table class="table">
+                        <table class="table table--unchecked-striped" id="unchecked-bookings-table">
                             <thead>
                                 <tr>
                                     <th>날짜</th>
                                     <th>시간</th>
-                                    <th>시설</th>
                                     <th>회원</th>
+                                    <th>담당 코치</th>
                                     <th>레슨 카테고리</th>
+                                    <th>시설</th>
                                     <th>인원</th>
                                     <th>상태</th>
                                     <th>작업</th>
@@ -104,16 +123,39 @@
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">예약 목록</h2>
+                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <label class="filter-label" for="today-branch-filter">시설</label>
+                            <select id="today-branch-filter" class="form-control" style="width: auto; min-width: 100px;" onchange="filterTodayDisplay()">
+                                <option value="">전체</option>
+                                <option value="사하점">사하점</option>
+                                <option value="연산점">연산점</option>
+                            </select>
+                            <label class="filter-label" for="today-lesson-category-filter">레슨 카테고리</label>
+                            <select id="today-lesson-category-filter" class="form-control" style="width: auto; min-width: 140px;" onchange="filterTodayDisplay()">
+                                <option value="">전체</option>
+                                <option value="BASEBALL">야구 레슨</option>
+                                <option value="YOUTH_BASEBALL">유소년 야구</option>
+                                <option value="TRAINING">트레이닝 파트</option>
+                                <option value="PILATES">필라테스 레슨</option>
+                                <option value="RENTAL">대관</option>
+                            </select>
+                            <label class="filter-label" for="today-coach-filter">담당 코치</label>
+                            <select id="today-coach-filter" class="form-control" style="width: auto; min-width: 120px;" onchange="filterTodayDisplay()">
+                                <option value="">전체</option>
+                            </select>
+                            <button class="btn btn-primary" id="bulk-checkin-btn-today" onclick="openBulkCheckinModal('today')">✅ 예약 목록 체크인</button>
+                        </div>
                     </div>
                     <div class="table-container">
-                        <table class="table">
+                        <table class="table table--today-striped" id="today-bookings-table">
                             <thead>
                                 <tr>
                                     <th>날짜</th>
                                     <th>시간</th>
-                                    <th>시설</th>
                                     <th>회원</th>
+                                    <th>담당 코치</th>
                                     <th>레슨 카테고리</th>
+                                    <th>시설</th>
                                     <th>인원</th>
                                     <th>상태</th>
                                     <th>작업</th>
@@ -129,22 +171,41 @@
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">출석 기록</h2>
-                        <div class="filter-group" style="display: flex; gap: 10px; align-items: center;">
-                            <input type="date" class="form-control" id="filter-date-start" style="width: 130px;">
-                            <input type="date" class="form-control" id="filter-date-end" style="width: 130px;">
-                            <button class="btn btn-primary" onclick="loadAttendanceRecords()">조회</button>
-                            <button class="btn btn-danger" id="reset-incomplete-attendances-btn" onclick="resetIncompleteAttendances()">이용중 기록 모두 리셋</button>
+                        <div class="filter-group" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <label class="filter-label">기간</label>
+                            <input type="date" class="form-control" id="filter-date-start" style="width: 130px;" onchange="loadAttendanceRecords()">
+                            <input type="date" class="form-control" id="filter-date-end" style="width: 130px;" onchange="loadAttendanceRecords()">
+                            <label class="filter-label" for="attendance-branch-filter">시설</label>
+                            <select id="attendance-branch-filter" class="form-control" style="width: auto; min-width: 100px;" onchange="filterAttendanceDisplay()">
+                                <option value="">전체</option>
+                                <option value="사하점">사하점</option>
+                                <option value="연산점">연산점</option>
+                            </select>
+                            <label class="filter-label" for="attendance-lesson-category-filter">레슨 카테고리</label>
+                            <select id="attendance-lesson-category-filter" class="form-control" style="width: auto; min-width: 140px;" onchange="filterAttendanceDisplay()">
+                                <option value="">전체</option>
+                                <option value="BASEBALL">야구 레슨</option>
+                                <option value="YOUTH_BASEBALL">유소년 야구</option>
+                                <option value="TRAINING">트레이닝 파트</option>
+                                <option value="PILATES">필라테스 레슨</option>
+                                <option value="RENTAL">대관</option>
+                            </select>
+                            <label class="filter-label" for="attendance-coach-filter">담당 코치</label>
+                            <select id="attendance-coach-filter" class="form-control" style="width: auto; min-width: 120px;" onchange="filterAttendanceDisplay()">
+                                <option value="">전체</option>
+                            </select>
+                            <button class="btn btn-danger" id="reset-incomplete-attendances-btn" onclick="resetIncompleteAttendances()">이용중 기록 전체 리셋</button>
                         </div>
                     </div>
                     <div class="table-container">
-                        <table class="table">
+                        <table class="table table--attendance-striped" id="attendance-records-table">
                             <thead>
                                 <tr>
                                     <th>날짜</th>
                                     <th>회원</th>
-                                    <th>시설</th>
+                                    <th>담당 코치</th>
+                                    <th>레슨 카테고리</th>
                                     <th>체크인</th>
-                                    <th>체크아웃</th>
                                     <th>이용시간</th>
                                     <th>상태</th>
                                     <th>작업</th>
@@ -207,26 +268,26 @@
             <div class="modal-body">
                 <p style="margin-bottom: 16px; color: var(--text-secondary);">체크인할 구역을 선택한 뒤 확인을 누르면 해당 구역만 일괄 체크인됩니다.</p>
                 <div class="bulk-checkin-options" style="display: flex; flex-direction: column; gap: 12px;">
-                    <label class="bulk-checkin-option" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); cursor: pointer;">
+                    <label class="bulk-checkin-option" data-scope="unchecked" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); cursor: pointer;">
                         <input type="radio" name="bulk-checkin-scope" value="unchecked" style="margin-top: 3px;">
                         <div>
-                            <strong>체크인 미처리 현황만</strong>
-                            <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">위 「체크인 미처리 현황」 테이블에 있는 예약만 체크인 (오늘·과거 미처리 전부)</div>
+                            <strong>체크인 미처리 현황 체크인</strong>
+                            <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">「체크인 미처리 현황」 테이블에 있는 예약만 체크인 (오늘·과거 미처리 전부)</div>
                             <div class="bulk-checkin-count" data-scope="unchecked" style="margin-top: 6px; font-size: 12px; color: var(--accent-primary);">0건</div>
                         </div>
                     </label>
-                    <label class="bulk-checkin-option" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); cursor: pointer;">
+                    <label class="bulk-checkin-option" data-scope="today" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); cursor: pointer;">
                         <input type="radio" name="bulk-checkin-scope" value="today" style="margin-top: 3px;">
                         <div>
-                            <strong>예약 목록(오늘)만</strong>
-                            <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">아래 「예약 목록」에 있는 오늘 예약 중 체크인 안 된 것만 체크인</div>
+                            <strong>예약 목록 체크인</strong>
+                            <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">「예약 목록」에 있는 오늘 예약 중 체크인 안 된 것만 체크인</div>
                             <div class="bulk-checkin-count" data-scope="today" style="margin-top: 6px; font-size: 12px; color: var(--accent-primary);">0건</div>
                         </div>
                     </label>
-                    <label class="bulk-checkin-option" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); cursor: pointer;">
+                    <label class="bulk-checkin-option" data-scope="all" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); cursor: pointer;">
                         <input type="radio" name="bulk-checkin-scope" value="all" style="margin-top: 3px;">
                         <div>
-                            <strong>전체 (미처리 현황 전부)</strong>
+                            <strong>전체 체크인</strong>
                             <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">체크인 미처리 현황에 있는 모든 예약(오늘+과거) 일괄 체크인</div>
                             <div class="bulk-checkin-count" data-scope="all" style="margin-top: 6px; font-size: 12px; color: var(--accent-primary);">0건</div>
                         </div>
@@ -236,6 +297,22 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="App.Modal.close('bulk-checkin-modal')">취소</button>
                 <button class="btn btn-primary" onclick="confirmBulkCheckin()">선택 구역 체크인 실행</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 회원 이용권/코치 정보 모달 -->
+    <div class="modal-overlay" id="member-info-modal">
+        <div class="modal member-info-modal-box">
+            <div class="modal-header">
+                <h2 class="modal-title">회원 이용권 및 코치 정보</h2>
+                <button class="modal-close" onclick="App.Modal.close('member-info-modal')">×</button>
+            </div>
+            <div class="modal-body member-info-modal-body">
+                <div id="member-info-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="App.Modal.close('member-info-modal')">닫기</button>
             </div>
         </div>
     </div>

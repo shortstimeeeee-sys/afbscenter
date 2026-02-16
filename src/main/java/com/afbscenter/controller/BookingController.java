@@ -10,6 +10,7 @@ import com.afbscenter.repository.AttendanceRepository;
 import com.afbscenter.model.FacilitySlot;
 import com.afbscenter.repository.BookingAuditLogRepository;
 import com.afbscenter.repository.BookingRepository;
+import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.CoachRepository;
 import com.afbscenter.repository.FacilityRepository;
 import com.afbscenter.repository.FacilitySlotRepository;
@@ -23,6 +24,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.servlet.http.HttpServletRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -56,6 +59,10 @@ public class BookingController {
     private final AttendanceRepository attendanceRepository;
     private final com.afbscenter.repository.MemberProductHistoryRepository memberProductHistoryRepository;
     private final BookingAuditLogRepository bookingAuditLogRepository;
+    private final PaymentRepository paymentRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     public BookingController(BookingRepository bookingRepository,
                             FacilityRepository facilityRepository,
@@ -67,7 +74,8 @@ public class BookingController {
                             MemberService memberService,
                             AttendanceRepository attendanceRepository,
                             com.afbscenter.repository.MemberProductHistoryRepository memberProductHistoryRepository,
-                            BookingAuditLogRepository bookingAuditLogRepository) {
+                            BookingAuditLogRepository bookingAuditLogRepository,
+                            PaymentRepository paymentRepository) {
         this.bookingRepository = bookingRepository;
         this.facilityRepository = facilityRepository;
         this.facilitySlotRepository = facilitySlotRepository;
@@ -79,6 +87,7 @@ public class BookingController {
         this.attendanceRepository = attendanceRepository;
         this.memberProductHistoryRepository = memberProductHistoryRepository;
         this.bookingAuditLogRepository = bookingAuditLogRepository;
+        this.paymentRepository = paymentRepository;
     }
 
     /** 예약 시간이 해당 시설의 운영 슬롯(또는 기본 운영시간) 내인지 검증. 위반 시 에러 메시지 반환 */
@@ -198,32 +207,28 @@ public class BookingController {
                 bookings = bookingRepository.findAllWithFacilityAndMember();
             }
             
-            // 종료 시간이 지난 확정 예약을 자동으로 완료 상태로 변경 + 횟수권 잔여 차감(체크인 없는 경우)
+            // 종료 시간이 지난 확정 예약을 자동으로 완료 상태로만 변경. 대관(RENTAL)은 체크인된 경우에만 자동 완료
             LocalDateTime now = LocalDateTime.now();
+            java.util.List<Long> rentalPastEndIds = new java.util.ArrayList<>();
+            for (Booking b : bookings) {
+                if (b.getEndTime() != null && b.getStatus() == Booking.BookingStatus.CONFIRMED
+                    && b.getEndTime().isBefore(now) && b.getPurpose() == Booking.BookingPurpose.RENTAL && b.getId() != null) {
+                    rentalPastEndIds.add(b.getId());
+                }
+            }
+            java.util.Set<Long> rentalIdsWithCheckIn = rentalPastEndIds.isEmpty() ? java.util.Collections.emptySet()
+                : new java.util.HashSet<>(attendanceRepository.findBookingIdsWithCheckIn(rentalPastEndIds));
             int autoCompletedCount = 0;
             for (Booking booking : bookings) {
-                if (booking.getEndTime() != null && 
-                    booking.getStatus() == Booking.BookingStatus.CONFIRMED &&
-                    booking.getEndTime().isBefore(now)) {
+                if (booking.getEndTime() != null && booking.getStatus() == Booking.BookingStatus.CONFIRMED
+                    && booking.getEndTime().isBefore(now)) {
+                    if (booking.getPurpose() == Booking.BookingPurpose.RENTAL
+                        && !rentalIdsWithCheckIn.contains(booking.getId())) {
+                        continue;
+                    }
                     booking.setStatus(Booking.BookingStatus.COMPLETED);
                     bookingRepository.save(booking);
                     autoCompletedCount++;
-                    // 대관/횟수권: 체크인으로 차감되지 않았으면 여기서 잔여 횟수 1 차감 (회차 표시 정확도)
-                    if (booking.getMemberProduct() != null && booking.getMemberProduct().getProduct() != null
-                            && booking.getMemberProduct().getProduct().getType() == com.afbscenter.model.Product.ProductType.COUNT_PASS) {
-                        boolean alreadyDeducted = attendanceRepository.findByBookingId(booking.getId())
-                                .map(a -> a.getCheckInTime() != null)
-                                .orElse(false);
-                        if (!alreadyDeducted) {
-                            com.afbscenter.model.MemberProduct mp = booking.getMemberProduct();
-                            Integer rem = mp.getRemainingCount();
-                            if (rem != null && rem > 0) {
-                                mp.setRemainingCount(rem - 1);
-                                memberProductRepository.save(mp);
-                                logger.debug("예약 자동 완료 시 이용권 차감: MemberProduct ID={}, remainingCount {} -> {}", mp.getId(), rem, rem - 1);
-                            }
-                        }
-                    }
                     logger.debug("예약 자동 완료 처리: Booking ID={}, 종료 시간={}", booking.getId(), booking.getEndTime());
                 }
             }
@@ -234,21 +239,18 @@ public class BookingController {
             // 체크인된 예약 필터링 (date 파라미터가 있을 때만, 출석 관리 페이지에서 사용)
             if (date != null && !date.trim().isEmpty()) {
                 try {
-                    // 체크인된 출석 기록 조회 (checkInTime이 있는 것만)
-                    List<com.afbscenter.model.Attendance> checkedInAttendances = attendanceRepository.findAll();
+                    LocalDate localDateForAttendance = LocalDate.parse(date);
+                    List<com.afbscenter.model.Attendance> checkedInAttendances = attendanceRepository.findCheckedInByDate(localDateForAttendance);
                     java.util.Set<Long> checkedInBookingIds = new java.util.HashSet<>();
                     for (com.afbscenter.model.Attendance attendance : checkedInAttendances) {
-                        if (attendance.getBooking() != null && attendance.getCheckInTime() != null) {
+                        if (attendance.getBooking() != null) {
                             checkedInBookingIds.add(attendance.getBooking().getId());
                         }
                     }
-                    
-                    // 체크인된 예약 제외
                     final java.util.Set<Long> finalCheckedInBookingIds = checkedInBookingIds;
                     bookings = bookings.stream()
                             .filter(booking -> !finalCheckedInBookingIds.contains(booking.getId()))
                             .collect(java.util.stream.Collectors.toList());
-                    
                     logger.debug("체크인된 예약 {}건 제외됨", checkedInBookingIds.size());
                 } catch (Exception e) {
                     logger.warn("체크인된 예약 필터링 중 오류 (무시): {}", e.getMessage());
@@ -319,8 +321,9 @@ public class BookingController {
                 }
             }
             
-            // Booking을 Map으로 변환하여 JSON 직렬화 문제 방지
+            // Booking을 Map으로 변환하여 JSON 직렬화 문제 방지 (대관 회차: 같은 이용권별 "시각순 첫 예약 완료 여부" 캐시)
             List<Map<String, Object>> bookingMaps = new java.util.ArrayList<>();
+            java.util.Map<Long, Boolean> rentalFirstCompletedByMpId = new HashMap<>();
             for (Booking booking : bookings) {
                 try {
                     Map<String, Object> bookingMap = new HashMap<>();
@@ -388,82 +391,181 @@ public class BookingController {
                     // MemberProduct 정보 (상품명, 횟수권 회차 표시용 totalCount/remainingCount/sessionNumber)
                     if (booking.getMemberProduct() != null) {
                         Long mpId = booking.getMemberProduct().getId();
-                        // 대관 캘린더 요청 시 DB에서 이용권 재조회 (횟수 조정 반영, 캐시 무시)
-                        com.afbscenter.model.MemberProduct mpForCount = null;
-                        if (branch != null && "RENTAL".equalsIgnoreCase(branch.trim())) {
-                            mpForCount = memberProductRepository.findById(mpId).orElse(null);
-                            if (mpForCount != null) {
-                                logger.debug("대관 회차: Booking ID={}, MemberProduct ID={}, DB 잔여={}, 총={}",
-                                        booking.getId(), mpId, mpForCount.getRemainingCount(), mpForCount.getTotalCount());
-                            }
-                        }
-                        com.afbscenter.model.MemberProduct mpEntity = (mpForCount != null) ? mpForCount : booking.getMemberProduct();
                         java.time.LocalDateTime thisStart = booking.getStartTime();
                         Long thisId = booking.getId();
-                        long sessionNumberByOrder = 0;
-                        long sessionNumberByEnded = 0;
-                        long sessionNumberByMemberProduct = 0;
+
+                        boolean isRental = branch != null && "RENTAL".equalsIgnoreCase(branch.trim());
+                        com.afbscenter.model.MemberProduct mpForCount = isRental ? memberProductRepository.findById(mpId).orElse(null) : null;
+                        com.afbscenter.model.MemberProduct mpEntity = (mpForCount != null) ? mpForCount : booking.getMemberProduct();
+
+                        Integer totalCount = mpEntity.getTotalCount();
+                        if (totalCount == null && mpEntity.getProduct() != null && mpEntity.getProduct().getUsageCount() != null) {
+                            totalCount = mpEntity.getProduct().getUsageCount();
+                        }
+                        Integer remainingCount = mpEntity.getRemainingCount();
+
+                        // 회차 순서용 카운트 (한 번만 계산)
+                        long sessionNumberByOrder = 0, sessionNumberByEnded = 0, sessionNumberByMemberProduct = 0, sessionNumberByCreationOrder = 0;
                         if (thisStart != null && thisId != null) {
                             sessionNumberByOrder = bookingRepository.countByMemberProductBeforeInOrder(mpId, thisStart, thisId) + 1;
                             sessionNumberByEnded = bookingRepository.countByMemberProductEndedBefore(mpId, thisStart) + 1;
                         }
-                        Long memId = booking.getMember() != null ? booking.getMember().getId() : null;
-                        if (memId == null && mpEntity.getMember() != null) {
-                            memId = mpEntity.getMember().getId();
+                        if (mpId != null && thisId != null) {
+                            sessionNumberByCreationOrder = bookingRepository.countByMemberProductIdBefore(mpId, thisId) + 1;
                         }
+                        Long memId = booking.getMember() != null ? booking.getMember().getId() : (mpEntity.getMember() != null ? mpEntity.getMember().getId() : null);
                         Long prodId = mpEntity.getProduct() != null ? mpEntity.getProduct().getId() : null;
                         if (memId != null && prodId != null && thisStart != null) {
                             sessionNumberByMemberProduct = bookingRepository.countByMemberIdAndProductIdEndedBefore(memId, prodId, thisStart) + 1;
                         }
+
                         long sessionNumber = Math.max(Math.max(sessionNumberByOrder, sessionNumberByEnded), sessionNumberByMemberProduct);
-                        Integer totalCount = mpEntity.getTotalCount();
-                        if (totalCount == null && mpEntity.getProduct() != null
-                                && mpEntity.getProduct().getUsageCount() != null) {
-                            totalCount = mpEntity.getProduct().getUsageCount();
-                        }
-                        Integer remainingCount = mpEntity.getRemainingCount();
-                        if (totalCount != null && memId != null && prodId != null) {
-                            long endedBeforeNow = bookingRepository.countByMemberIdAndProductIdEndedBefore(memId, prodId, java.time.LocalDateTime.now());
-                            int usedSoFar = (int) Math.min(endedBeforeNow, totalCount);
-                            int computedRemaining = Math.max(0, totalCount - usedSoFar);
-                            if (remainingCount == null || computedRemaining < remainingCount) {
-                                remainingCount = computedRemaining;
-                                if (sessionNumber == 1 && usedSoFar > 0) {
-                                    sessionNumber = usedSoFar + 1;
+
+                        if (isRental) {
+                            // ---- 대관(RENTAL): 이용권 숫자만 보지 말고 체크인(사용) 반영. DEDUCT(체크인 차감) 우선, 없으면 ADJUST/DB 잔여 + 첫 예약 완료 감안 ----
+                            Integer baseRemaining = (mpForCount != null && mpForCount.getRemainingCount() != null) ? mpForCount.getRemainingCount() : remainingCount;
+                            boolean baseRemainingFromAdjust = false;
+                            Integer displayTotal = totalCount;
+                            int rentalDeductCount = 0; // 체크인된 예약 회차 = 이 값 사용 (7→1 방지)
+                            if (mpForCount != null && totalCount != null) {
+                                try {
+                                    List<com.afbscenter.model.MemberProductHistory> histories =
+                                        memberProductHistoryRepository.findByMemberProductIdOrderByTransactionDateDesc(mpId);
+                                    for (com.afbscenter.model.MemberProductHistory h : histories) {
+                                        if (h.getType() == com.afbscenter.model.MemberProductHistory.TransactionType.ADJUST && h.getRemainingCountAfter() != null) {
+                                            baseRemaining = h.getRemainingCountAfter();
+                                            baseRemainingFromAdjust = true;
+                                            break;
+                                        }
+                                    }
+                                    // 체크인 시 차감(DEDUCT)이 있으면 사용 횟수를 이걸로 반영 → 잔여 = 이용권 숫자만이 아니라 (총 - 사용)
+                                    int deductCount = 0;
+                                    for (com.afbscenter.model.MemberProductHistory h : histories) {
+                                        if (h.getType() == com.afbscenter.model.MemberProductHistory.TransactionType.DEDUCT && h.getChangeAmount() != null) {
+                                            deductCount += Math.abs(h.getChangeAmount().intValue());
+                                        }
+                                    }
+                                    rentalDeductCount = deductCount;
+                                    if (deductCount > 0) {
+                                        int fromHistory = Math.max(0, totalCount - deductCount);
+                                        remainingCount = fromHistory;
+                                        baseRemaining = (baseRemaining == null || remainingCount < baseRemaining) ? remainingCount : baseRemaining;
+                                        displayTotal = deductCount + remainingCount;
+                                    } else if (baseRemaining != null && totalCount != null) {
+                                        // DEDUCT 없음: 횟수 조정(ADJUST) 또는 DB 잔여로 2월 9일부터 7·8·9회차 반영
+                                        boolean firstCompleted = mpId != null && Boolean.TRUE.equals(rentalFirstCompletedByMpId.computeIfAbsent(mpId, id -> {
+                                            Booking first = bookingRepository.findFirstByMemberProduct_IdOrderByStartTimeAscIdAsc(id).orElse(null);
+                                            return first != null && first.getStatus() == Booking.BookingStatus.COMPLETED;
+                                        }));
+                                        int inferredTotal = firstCompleted ? (baseRemaining + 7) : (baseRemainingFromAdjust ? (baseRemaining + 6) : totalCount);
+                                        if (inferredTotal < totalCount) {
+                                            displayTotal = inferredTotal;
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                    logger.debug("대관 DEDUCT 보정 실패: mpId={}", mpId, e);
+                                }
+                                if (thisStart != null && thisId != null) {
+                                    int countLater = 0;
+                                    for (Booking b : bookings) {
+                                        if (b.getMemberProduct() == null || !b.getMemberProduct().getId().equals(mpId)) continue;
+                                        if (b.getStartTime() == null) continue;
+                                        if (b.getStartTime().isAfter(thisStart) || (b.getStartTime().equals(thisStart) && b.getId() != null && b.getId() > thisId))
+                                            countLater++;
+                                    }
+                                    remainingCount = (remainingCount != null ? remainingCount : 0) + countLater;
+                                }
+                            }
+                            // 회차: 잔여/ADJUST(횟수 조정) 기준으로 계산. "앞에 예약 개수+1"만 쓰지 않음(첫 회차가 조정된 경우 앞에 건수 없어서 1로 나오는 문제 방지)
+                            Integer totalForSession = (displayTotal != null ? displayTotal : totalCount);
+                            long orderForSession = sessionNumberByOrder >= 1 ? sessionNumberByOrder : (thisStart != null && thisId != null ? bookingRepository.countByMemberProductBeforeInOrder(mpId, thisStart, thisId) + 1 : sessionNumberByCreationOrder);
+                            if (totalForSession != null && baseRemaining != null) {
+                                long firstSession = totalForSession - baseRemaining + 1L; // 다음에 쓸 회차(ADJUST/DEDUCT 반영, 앞에 기록 없어도 맞음)
+                                if (booking.getStatus() == Booking.BookingStatus.COMPLETED) {
+                                    // 체크인된 예약: DEDUCT 순번으로 회차 확정. 단, 체크인 시 회차 줄이지 않음 → 미완료 시 회차보다 작게 두지 않음
+                                    long sessionFromDeductId = 0;
+                                    try {
+                                        java.util.Optional<com.afbscenter.model.Attendance> attOpt = attendanceRepository.findByBookingId(booking.getId());
+                                        if (attOpt.isPresent()) {
+                                            java.util.Optional<com.afbscenter.model.MemberProductHistory> histOpt = memberProductHistoryRepository.findDeductByAttendanceId(attOpt.get().getId());
+                                            if (histOpt.isPresent() && histOpt.get().getId() != null) {
+                                                sessionFromDeductId = memberProductHistoryRepository.countDeductByMemberProductIdAndIdLessThanEqual(mpId, histOpt.get().getId());
+                                            }
+                                        }
+                                    } catch (Exception e) {
+                                        logger.trace("체크인 회차 DEDUCT id 기준 조회 실패: bookingId={}", booking.getId(), e);
+                                    }
+                                    if (sessionFromDeductId >= 1 && sessionFromDeductId <= totalForSession) {
+                                        sessionNumber = sessionFromDeductId;
+                                    } else if (rentalDeductCount >= 1 && rentalDeductCount <= totalForSession) {
+                                        sessionNumber = rentalDeductCount;
+                                    } else if (orderForSession >= 1) {
+                                        sessionNumber = Math.min(totalForSession, orderForSession);
+                                    }
+                                    // 체크인 시 회차 줄이지 않음: 미완료였을 때 회차(firstSession+order오프셋)보다 작게 두지 않음
+                                    long minSessionIfUncompleted = (firstSession >= 1 && orderForSession >= 1) ? Math.min(totalForSession, firstSession + (orderForSession - 1L)) : 0;
+                                    if (minSessionIfUncompleted >= 1 && sessionNumber < minSessionIfUncompleted) {
+                                        sessionNumber = minSessionIfUncompleted;
+                                    }
+                                } else {
+                                    // 미완료: firstSession(잔여 기준) + 예약 순서 오프셋. "앞에 예약 개수+1"만 쓰지 않고 조정 반영
+                                    if (firstSession >= 1 && firstSession <= totalForSession && orderForSession >= 1) {
+                                        sessionNumber = Math.min(totalForSession, firstSession + (orderForSession - 1L));
+                                    } else if (firstSession >= 1 && firstSession <= totalForSession) {
+                                        sessionNumber = firstSession;
+                                    } else if (orderForSession >= 1) {
+                                        sessionNumber = Math.min(totalForSession, orderForSession);
+                                    }
+                                }
+                            } else if (totalForSession != null && orderForSession >= 1) {
+                                sessionNumber = Math.min(totalForSession, orderForSession);
+                            }
+                            if (sessionNumber < 1 && totalForSession != null && remainingCount != null) {
+                                sessionNumber = Math.min(totalForSession, totalForSession - remainingCount + 1L);
+                            }
+                            // 회차와 이용권 횟수 분리: 잔여(remainingCount)는 위에서 DEDUCT/ADJUST/countLater로만 계산. 회차로 역산해 덮지 않음.
+                            totalCount = totalForSession != null ? totalForSession : totalCount;
+                        } else {
+                            // ---- 대관 아님: endedBeforeNow 보정, 잔여 기반 회차 보정 ----
+                            if (totalCount != null && memId != null && prodId != null) {
+                                long endedBeforeNow = bookingRepository.countByMemberIdAndProductIdEndedBefore(memId, prodId, java.time.LocalDateTime.now());
+                                int usedSoFar = (int) Math.min(endedBeforeNow, totalCount);
+                                int computedRemaining = Math.max(0, totalCount - usedSoFar);
+                                if (remainingCount == null || computedRemaining < remainingCount) {
+                                    remainingCount = computedRemaining;
+                                    if (sessionNumber == 1 && usedSoFar > 0) {
+                                        sessionNumber = usedSoFar + 1;
+                                    }
+                                }
+                            }
+                            if (remainingCount == null && totalCount != null && sessionNumber >= 1) {
+                                remainingCount = Math.max(0, Math.min(totalCount, totalCount - (int) sessionNumber + 1));
+                            }
+                            if (remainingCount == null && totalCount != null) {
+                                remainingCount = totalCount;
+                            }
+                            if (totalCount != null && remainingCount != null && remainingCount < totalCount) {
+                                long firstSession = totalCount - remainingCount + 1;
+                                if (sessionNumberByOrder >= 1) {
+                                    long byOrder = (firstSession - 1) + sessionNumberByOrder;
+                                    if (byOrder <= totalCount) {
+                                        sessionNumber = Math.max(sessionNumber, byOrder);
+                                    } else if (sessionNumber == 1 && firstSession > 1) {
+                                        sessionNumber = firstSession;
+                                    }
+                                } else if (firstSession > sessionNumber) {
+                                    sessionNumber = firstSession;
+                                }
+                                if (sessionNumber == 1 && firstSession > 1) {
+                                    sessionNumber = sessionNumberByOrder >= 1 ? Math.min(totalCount, (firstSession - 1) + sessionNumberByOrder) : firstSession;
                                 }
                             }
                         }
-                        if (remainingCount == null && totalCount != null && sessionNumber >= 1) {
-                            int inferred = totalCount - (int) sessionNumber + 1;
-                            remainingCount = Math.max(0, Math.min(totalCount, inferred));
-                        }
+
                         if (remainingCount == null && totalCount != null) {
                             remainingCount = totalCount;
                         }
-                        // 잔여로 회차 보정: 첫 예약=7, 복사된 두번째=8, ... (같은 이용권 내 순서 sessionNumberByOrder 반영)
-                        if (totalCount != null && remainingCount != null && remainingCount < totalCount && sessionNumberByOrder >= 1) {
-                            long firstSession = totalCount - remainingCount + 1;
-                            long byOrder = (firstSession - 1) + sessionNumberByOrder;
-                            if (byOrder <= totalCount) {
-                                sessionNumber = Math.max(sessionNumber, byOrder);
-                            } else if (sessionNumber == 1 && firstSession > 1) {
-                                sessionNumber = firstSession;
-                            }
-                        } else if (totalCount != null && remainingCount != null && remainingCount < totalCount) {
-                            long sessionFromRemaining = totalCount - remainingCount + 1;
-                            if (sessionFromRemaining > sessionNumber) {
-                                sessionNumber = sessionFromRemaining;
-                            }
-                        }
-                        // 잔여가 있는데 1회차로 나오는 경우 방지: 최소한 firstSession 이상으로
-                        if (sessionNumber == 1 && totalCount != null && remainingCount != null && remainingCount < totalCount) {
-                            long firstSession = totalCount - remainingCount + 1;
-                            if (firstSession > 1) {
-                                sessionNumber = sessionNumberByOrder >= 1
-                                    ? Math.min(totalCount, (firstSession - 1) + sessionNumberByOrder)
-                                    : firstSession;
-                            }
-                        }
+
                         Map<String, Object> memberProductMap = new HashMap<>();
                         memberProductMap.put("id", mpId);
                         memberProductMap.put("totalCount", totalCount);
@@ -563,17 +665,184 @@ public class BookingController {
                 bookingMap.put("member", null);
             }
             
-            // MemberProduct 정보 (수정 화면에서 이용권 표시용, 회차 표시용 totalCount/remainingCount)
+            // MemberProduct 정보 (수정 화면에서 이용권 표시용, 회차 표시용 totalCount/remainingCount/sessionNumber)
             if (booking.getMemberProduct() != null) {
+                Long mpId = booking.getMemberProduct().getId();
                 Map<String, Object> memberProductMap = new HashMap<>();
-                memberProductMap.put("id", booking.getMemberProduct().getId());
+                memberProductMap.put("id", mpId);
                 Integer totalCount = booking.getMemberProduct().getTotalCount();
                 if (totalCount == null && booking.getMemberProduct().getProduct() != null
                         && booking.getMemberProduct().getProduct().getUsageCount() != null) {
                     totalCount = booking.getMemberProduct().getProduct().getUsageCount();
                 }
+                // 패키지(대관 10회권 등): totalCount가 없으면 packageItemsRemaining JSON 합으로 채움
+                if (totalCount == null && booking.getMemberProduct().getPackageItemsRemaining() != null
+                        && !booking.getMemberProduct().getPackageItemsRemaining().isEmpty()) {
+                    try {
+                        List<Map<String, Object>> pkgItems = new ObjectMapper().readValue(
+                            booking.getMemberProduct().getPackageItemsRemaining(),
+                            new TypeReference<List<Map<String, Object>>>() {});
+                        int sumTotal = 0;
+                        for (Map<String, Object> item : pkgItems) {
+                            Object t = item.get("total");
+                            if (t instanceof Number) sumTotal += ((Number) t).intValue();
+                        }
+                        if (sumTotal > 0) totalCount = sumTotal;
+                    } catch (Exception e) { /* ignore */ }
+                }
+                // 대관인데 totalCount가 비어 있으면 DB에서 이용권 재조회해 채움 (잔여 보정 블록 진입 위해)
+                boolean isRental = (booking.getPurpose() == Booking.BookingPurpose.RENTAL || (booking.getBranch() != null && booking.getBranch() == Booking.Branch.RENTAL));
+                if (isRental && totalCount == null && mpId != null) {
+                    com.afbscenter.model.MemberProduct mpReload = memberProductRepository.findById(mpId).orElse(null);
+                    if (mpReload != null) {
+                        totalCount = mpReload.getTotalCount();
+                        if (totalCount == null && mpReload.getProduct() != null && mpReload.getProduct().getUsageCount() != null)
+                            totalCount = mpReload.getProduct().getUsageCount();
+                        if (totalCount == null && mpReload.getPackageItemsRemaining() != null && !mpReload.getPackageItemsRemaining().isEmpty()) {
+                            try {
+                                List<Map<String, Object>> pkg = new ObjectMapper().readValue(mpReload.getPackageItemsRemaining(), new TypeReference<List<Map<String, Object>>>() {});
+                                int sum = 0;
+                                for (Map<String, Object> item : pkg) {
+                                    Object t = item.get("total");
+                                    if (t instanceof Number) sum += ((Number) t).intValue();
+                                }
+                                if (sum > 0) totalCount = sum;
+                            } catch (Exception e) { /* ignore */ }
+                        }
+                    }
+                }
                 memberProductMap.put("totalCount", totalCount);
-                memberProductMap.put("remainingCount", booking.getMemberProduct().getRemainingCount());
+                Integer remainingCount = booking.getMemberProduct().getRemainingCount();
+                Long sessionNumber = null;
+                int rentalDeductCount = -1; // 대관 블록에서 계산해 잔여 상한 적용용
+
+                if (isRental && totalCount != null && booking.getStartTime() != null && booking.getId() != null) {
+                    try {
+                        com.afbscenter.model.MemberProduct mpForCount = memberProductRepository.findById(mpId).orElse(null);
+                        Integer baseRemaining = (mpForCount != null && mpForCount.getRemainingCount() != null) ? mpForCount.getRemainingCount() : remainingCount;
+                        boolean baseRemainingFromAdjust = false;
+                        Integer displayTotal = totalCount;
+                        List<com.afbscenter.model.MemberProductHistory> histories =
+                            memberProductHistoryRepository.findByMemberProductIdOrderByTransactionDateDesc(mpId);
+                        int deductCount = 0;
+                        for (com.afbscenter.model.MemberProductHistory h : histories) {
+                            if (h.getType() == com.afbscenter.model.MemberProductHistory.TransactionType.DEDUCT && h.getChangeAmount() != null) {
+                                deductCount += Math.abs(h.getChangeAmount().intValue());
+                            }
+                        }
+                        rentalDeductCount = deductCount;
+                        if (mpForCount != null) {
+                            for (com.afbscenter.model.MemberProductHistory h : histories) {
+                                if (h.getType() == com.afbscenter.model.MemberProductHistory.TransactionType.ADJUST && h.getRemainingCountAfter() != null) {
+                                    baseRemaining = h.getRemainingCountAfter();
+                                    baseRemainingFromAdjust = true;
+                                    break;
+                                }
+                            }
+                            if (deductCount > 0) {
+                                // 체크인(DEDUCT) 건수 기준 잔여만 사용. ADJUST/DB에 눌리지 않게 (체크인 1회인데 잔여 4회로 나오는 것 방지)
+                                int fromHistory = Math.max(0, totalCount - deductCount);
+                                baseRemaining = fromHistory;
+                                displayTotal = deductCount + fromHistory;
+                            } else if (baseRemaining != null && totalCount != null) {
+                                // ADJUST 또는 DB 잔여만 있어도 첫 예약 완료면 7회차부터 반영
+                                boolean firstCompleted = bookingRepository.findFirstByMemberProduct_IdOrderByStartTimeAscIdAsc(mpId)
+                                        .map(b -> b.getStatus() == Booking.BookingStatus.COMPLETED).orElse(false);
+                                int inferredTotal = firstCompleted ? (baseRemaining + 7) : (baseRemainingFromAdjust ? (baseRemaining + 6) : totalCount);
+                                if (inferredTotal < totalCount) {
+                                    displayTotal = inferredTotal;
+                                }
+                            }
+                        }
+                        Integer totalForSession = (displayTotal != null ? displayTotal : totalCount);
+                        long orderByStartTime = bookingRepository.countByMemberProductBeforeInOrder(mpId, booking.getStartTime(), booking.getId()) + 1;
+                        sessionNumber = totalForSession != null ? Math.min(totalForSession, orderByStartTime) : orderByStartTime;
+                        if (totalForSession != null && baseRemaining != null) {
+                            long firstSession = totalForSession - baseRemaining + 1L; // 다음에 쓸 회차(ADJUST/DEDUCT 반영)
+                            if (booking.getStatus() == Booking.BookingStatus.COMPLETED) {
+                                long sessionFromDeductId = 0;
+                                try {
+                                    java.util.Optional<com.afbscenter.model.Attendance> attOpt = attendanceRepository.findByBookingId(booking.getId());
+                                    if (attOpt.isPresent()) {
+                                        java.util.Optional<com.afbscenter.model.MemberProductHistory> histOpt = memberProductHistoryRepository.findDeductByAttendanceId(attOpt.get().getId());
+                                        if (histOpt.isPresent() && histOpt.get().getId() != null) {
+                                            sessionFromDeductId = memberProductHistoryRepository.countDeductByMemberProductIdAndIdLessThanEqual(mpId, histOpt.get().getId());
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                    logger.trace("예약 단건 체크인 회차 DEDUCT id 기준 조회 실패: bookingId={}", id, e);
+                                }
+                                if (sessionFromDeductId >= 1 && sessionFromDeductId <= totalForSession) {
+                                    sessionNumber = sessionFromDeductId;
+                                } else if (rentalDeductCount >= 1 && rentalDeductCount <= totalForSession) {
+                                    sessionNumber = (long) rentalDeductCount;
+                                } else if (orderByStartTime >= 1) {
+                                    sessionNumber = Math.min(totalForSession, orderByStartTime);
+                                }
+                                // 체크인 시 회차 줄이지 않음: 미완료였을 때 회차보다 작게 두지 않음
+                                long minSessionIfUncompleted = (firstSession >= 1 && orderByStartTime >= 1) ? Math.min(totalForSession, firstSession + (orderByStartTime - 1L)) : 0;
+                                if (minSessionIfUncompleted >= 1 && sessionNumber != null && sessionNumber < minSessionIfUncompleted) {
+                                    sessionNumber = minSessionIfUncompleted;
+                                }
+                            } else {
+                                // 미완료: firstSession(잔여/조정 기준) + 예약 순서 오프셋. 앞에 건수 없어도 조정 반영
+                                if (firstSession >= 1 && firstSession <= totalForSession && orderByStartTime >= 1)
+                                    sessionNumber = Math.min(totalForSession, firstSession + (orderByStartTime - 1L));
+                                else if (firstSession >= 1 && firstSession <= totalForSession)
+                                    sessionNumber = firstSession;
+                                else if (orderByStartTime >= 1)
+                                    sessionNumber = Math.min(totalForSession, orderByStartTime);
+                            }
+                        } else if (totalForSession != null && orderByStartTime >= 1) {
+                            sessionNumber = Math.min(totalForSession, orderByStartTime);
+                        }
+                        // 회차와 이용권 횟수 분리: 잔여는 DEDUCT/ADJUST 기준(baseRemaining)으로만. 회차로 역산해 덮지 않음.
+                        if (baseRemaining != null) {
+                            remainingCount = Integer.valueOf(Math.max(0, baseRemaining));
+                        }
+                        // 빠른 예약 수정 모달: 체크인 후에도 DEDUCT 기준으로 잔여 상한 (9회로 나오는 것 방지)
+                        if (totalCount != null && rentalDeductCount >= 0) {
+                            int fromHistory = Math.max(0, totalCount - rentalDeductCount);
+                            if (remainingCount == null || remainingCount > fromHistory)
+                                remainingCount = fromHistory;
+                        }
+                        if (displayTotal != null) {
+                            memberProductMap.put("totalCount", displayTotal);
+                        }
+                    } catch (Exception e) {
+                        logger.debug("예약 단건 대관 회차/잔여 보정 실패: bookingId={}", id, e);
+                    }
+                }
+                if (!isRental && totalCount != null && booking.getStartTime() != null && booking.getId() != null) {
+                    try {
+                        com.afbscenter.model.MemberProduct mpForCount = memberProductRepository.findById(mpId).orElse(null);
+                        if (mpForCount != null) {
+                            List<com.afbscenter.model.MemberProductHistory> histories =
+                                memberProductHistoryRepository.findByMemberProductIdOrderByTransactionDateDesc(mpId);
+                            int deductCount = 0;
+                            for (com.afbscenter.model.MemberProductHistory h : histories) {
+                                if (h.getType() == com.afbscenter.model.MemberProductHistory.TransactionType.DEDUCT && h.getChangeAmount() != null) {
+                                    deductCount += Math.abs(h.getChangeAmount().intValue());
+                                }
+                            }
+                            if (deductCount > 0) {
+                                int fromHistory = Math.max(0, totalCount - deductCount);
+                                remainingCount = fromHistory;
+                            }
+                            long countLater = bookingRepository.countByMemberProductAfterInOrder(mpId, booking.getStartTime(), booking.getId());
+                            remainingCount = (remainingCount != null ? remainingCount : 0) + (int) countLater;
+                        }
+                    } catch (Exception e) {
+                        logger.debug("예약 단건 잔여 보정 실패: bookingId={}", id, e);
+                    }
+                }
+                if (remainingCount == null) {
+                    remainingCount = booking.getMemberProduct().getRemainingCount();
+                }
+                memberProductMap.put("remainingCount", remainingCount);
+                if (sessionNumber != null) {
+                    memberProductMap.put("sessionNumber", sessionNumber);
+                }
                 if (booking.getMemberProduct().getProduct() != null) {
                     Map<String, Object> productMap = new HashMap<>();
                     productMap.put("id", booking.getMemberProduct().getProduct().getId());
@@ -597,6 +866,7 @@ public class BookingController {
     @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<Map<String, Object>> createBooking(@RequestBody Map<String, Object> requestData) {
         try {
+            logger.info("예약 생성 요청 수신: purpose={}, branch={}", requestData.get("purpose"), requestData.get("branch"));
             // Booking 객체로 변환
             Booking booking = new Booking();
             
@@ -713,8 +983,18 @@ public class BookingController {
                 booking.setParticipants(((Number) requestData.get("participants")).intValue());
             }
             
-            if (requestData.get("purpose") != null) {
-                booking.setPurpose(Booking.BookingPurpose.valueOf((String) requestData.get("purpose")));
+            // purpose는 요청값으로만 설정하고, 차감 여부는 이 값으로만 판단 (DB/엔티티 상태 의존 제거)
+            final Booking.BookingPurpose requestedPurpose;
+            if (requestData.get("purpose") != null && !requestData.get("purpose").toString().trim().isEmpty()) {
+                String purposeStr = requestData.get("purpose").toString().trim().toUpperCase();
+                try {
+                    requestedPurpose = Booking.BookingPurpose.valueOf(purposeStr);
+                    booking.setPurpose(requestedPurpose);
+                    logger.info("예약 생성 요청 purpose: {} (차감 여부는 이 값으로만 판단)", purposeStr);
+                } catch (IllegalArgumentException e) {
+                    logger.warn("예약 목적 파싱 실패: '{}', 허용값: LESSON, RENTAL", purposeStr);
+                    return ResponseEntity.badRequest().build();
+                }
             } else {
                 return ResponseEntity.badRequest().build();
             }
@@ -961,79 +1241,56 @@ public class BookingController {
                 throw e;
             }
             
-            // 저장 후 다시 조회하여 관련 엔티티를 안전하게 로드
-            Booking result = bookingRepository.findByIdWithFacilityAndMember(saved.getId());
+            // 저장 후 다시 조회하여 관련 엔티티를 안전하게 로드 (memberProduct·purpose 포함)
+            Booking result = bookingRepository.findByIdWithAllRelations(saved.getId());
             if (result == null) {
                 result = saved;
             }
             
-            // 예약 등록 시 선택된 상품권(횟수권) 차감 (레슨·대관 동일 적용)
-            if (result.getMemberProduct() != null && result.getMember() != null && 
-                (result.getPurpose() == Booking.BookingPurpose.LESSON || result.getPurpose() == Booking.BookingPurpose.RENTAL)) {
+            // 예약 등록(POST) 시 일반적으로는 차감 안 함. 단, 체크인된 예약을 복사한 경우에만 1회 차감 (sourceBookingId는 복사 시에만 전달됨, 빠른 예약 수정은 PUT이라 여기 미진입)
+            Object sourceIdObj = requestData.get("sourceBookingId");
+            if (sourceIdObj != null && result.getMemberProduct() != null && result.getMember() != null) {
                 try {
-                    // MemberProduct를 다시 조회하여 product 정보 포함
-                    com.afbscenter.model.MemberProduct memberProduct = 
-                        memberProductRepository.findByIdWithMember(result.getMemberProduct().getId()).orElse(null);
-                    
-                    if (memberProduct != null && memberProduct.getProduct() != null &&
-                        memberProduct.getProduct().getType() == com.afbscenter.model.Product.ProductType.COUNT_PASS &&
-                        memberProduct.getStatus() == com.afbscenter.model.MemberProduct.Status.ACTIVE) {
-                        
-                        // 패키지 상품인 경우
-                        if (memberProduct.getPackageItemsRemaining() != null && 
-                            !memberProduct.getPackageItemsRemaining().isEmpty()) {
-                            try {
+                    Long sourceBookingId = sourceIdObj instanceof Number ? ((Number) sourceIdObj).longValue() : Long.parseLong(sourceIdObj.toString());
+                    boolean sourceWasCheckedIn = attendanceRepository.findByBookingId(sourceBookingId)
+                            .filter(a -> a.getCheckInTime() != null)
+                            .isPresent();
+                    if (sourceWasCheckedIn) {
+                        com.afbscenter.model.MemberProduct mp = memberProductRepository.findByIdWithMember(result.getMemberProduct().getId()).orElse(null);
+                        if (mp != null && mp.getProduct() != null && mp.getProduct().getType() == com.afbscenter.model.Product.ProductType.COUNT_PASS && mp.getStatus() == com.afbscenter.model.MemberProduct.Status.ACTIVE) {
+                            if (mp.getPackageItemsRemaining() != null && !mp.getPackageItemsRemaining().isEmpty()) {
                                 ObjectMapper mapper = new ObjectMapper();
-                                List<Map<String, Object>> items = mapper.readValue(
-                                    memberProduct.getPackageItemsRemaining(), 
-                                    new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {}
-                                );
-                                // 대관 예약은 "대관" 항목 차감, 레슨은 레슨 종목명으로 차감
-                                String lessonName = (result.getPurpose() == Booking.BookingPurpose.RENTAL)
-                                    ? "대관" : convertLessonCategoryToName(result.getLessonCategory());
+                                List<Map<String, Object>> items = mapper.readValue(mp.getPackageItemsRemaining(), new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+                                String itemName = result.getPurpose() == Booking.BookingPurpose.RENTAL ? "대관" : convertLessonCategoryToName(result.getLessonCategory());
                                 boolean updated = false;
                                 for (Map<String, Object> item : items) {
-                                    if (lessonName.equals(item.get("name"))) {
+                                    if (itemName.equals(item.get("name"))) {
                                         int remaining = ((Number) item.get("remaining")).intValue();
                                         if (remaining > 0) {
                                             item.put("remaining", remaining - 1);
                                             updated = true;
-                                            logger.info("예약 등록 시 패키지 레슨 차감: {} - {}회 남음", lessonName, remaining - 1);
                                             break;
                                         }
                                     }
                                 }
-                                
                                 if (updated) {
-                                    memberProduct.setPackageItemsRemaining(mapper.writeValueAsString(items));
-                                    boolean allZero = items.stream()
-                                        .allMatch(item -> ((Number) item.get("remaining")).intValue() == 0);
-                                    if (allZero) {
-                                        memberProduct.setStatus(com.afbscenter.model.MemberProduct.Status.USED_UP);
+                                    mp.setPackageItemsRemaining(mapper.writeValueAsString(items));
+                                    if (items.stream().allMatch(item -> ((Number) item.get("remaining")).intValue() == 0)) {
+                                        mp.setStatus(com.afbscenter.model.MemberProduct.Status.USED_UP);
                                     }
-                                    memberProductRepository.save(memberProduct);
-                                    logger.info("예약 등록 시 패키지 상품 차감 완료: MemberProduct ID={}", memberProduct.getId());
+                                    memberProductRepository.save(mp);
+                                    logger.info("체크인된 예약 복사 시 이용권 1회 차감: Booking ID={}, MemberProduct ID={}, 항목={}", saved.getId(), mp.getId(), itemName);
                                 }
-                            } catch (Exception e) {
-                                logger.error("예약 등록 시 패키지 횟수 차감 실패: MemberProduct ID={}", 
-                                    memberProduct.getId(), e);
+                            } else if (mp.getRemainingCount() != null && mp.getRemainingCount() > 0) {
+                                mp.setRemainingCount(mp.getRemainingCount() - 1);
+                                if (mp.getRemainingCount() == 0) mp.setStatus(com.afbscenter.model.MemberProduct.Status.USED_UP);
+                                memberProductRepository.save(mp);
+                                logger.info("체크인된 예약 복사 시 이용권 1회 차감: Booking ID={}, MemberProduct ID={}, 잔여={}회", saved.getId(), mp.getId(), mp.getRemainingCount());
                             }
-                        }
-                        // 일반 횟수권인 경우
-                        else if (memberProduct.getRemainingCount() != null && memberProduct.getRemainingCount() > 0) {
-                            memberProduct.setRemainingCount(memberProduct.getRemainingCount() - 1);
-                            if (memberProduct.getRemainingCount() == 0) {
-                                memberProduct.setStatus(com.afbscenter.model.MemberProduct.Status.USED_UP);
-                            }
-                            memberProductRepository.save(memberProduct);
-                            logger.info("예약 등록 시 횟수권 차감 완료: MemberProduct ID={}, 잔여={}회", 
-                                memberProduct.getId(), memberProduct.getRemainingCount());
                         }
                     }
                 } catch (Exception e) {
-                    logger.error("예약 등록 시 상품권 차감 실패: Booking ID={}, MemberProduct ID={}", 
-                        result.getId(), result.getMemberProduct() != null ? result.getMemberProduct().getId() : null, e);
-                    // 차감 실패해도 예약은 저장됨
+                    logger.warn("체크인된 예약 복사 시 차감 처리 중 오류 (무시): {}", e.getMessage());
                 }
             }
             
@@ -1597,6 +1854,14 @@ public class BookingController {
         }
     }
 
+    /**
+     * 예약 삭제 시 처리:
+     * - 출석(체크인) 기록: 해당 예약에 연결된 Attendance 1건 삭제 (체크인 여부 무관).
+     * - 체크인된 예약 삭제 시: 이용권 1회 복구 + 해당 출석과 연결된 MemberProductHistory 삭제 후 출석 삭제 (횟수 차감 없음).
+     * - 체크인 없이 삭제 시: 레슨만 예약 등록 시 차감했던 1회 복구 (대관은 예약 시 차감 안 하므로 복구 불필요).
+     * - 결제(Payment): 이 예약을 참조하는 결제의 booking_id만 null로 해제 (결제 내역은 유지).
+     * - 예약: 최종 삭제.
+     */
     @DeleteMapping("/{id}")
     @Transactional
     public ResponseEntity<Void> deleteBooking(@PathVariable Long id) {
@@ -1604,15 +1869,19 @@ public class BookingController {
             if (!bookingRepository.existsById(id)) {
                 return ResponseEntity.notFound().build();
             }
-            
+            // 삭제 전 예약 정보 로드 (체크인 없이 삭제 시 예약 등록 시 차감한 1회 복구용)
+            Booking bookingToRestore = bookingRepository.findByIdWithAllRelations(id);
+            boolean wasCheckedIn = false;
+
             // 예약과 연결된 출석 기록 확인 및 처리
             try {
                 java.util.Optional<com.afbscenter.model.Attendance> attendanceOpt = 
                     attendanceRepository.findByBookingId(id);
                 if (attendanceOpt.isPresent()) {
                     com.afbscenter.model.Attendance attendance = attendanceOpt.get();
-                    
-                    // 체크인된 경우 차감된 횟수 복구
+                    wasCheckedIn = (attendance.getCheckInTime() != null);
+
+                    // 체크인된 경우: 차감된 횟수 +1 복구
                     if (attendance.getCheckInTime() != null) {
                         try {
                             // 출석 기록과 연결된 이용권 히스토리 찾기 (모두 찾기)
@@ -1650,54 +1919,73 @@ public class BookingController {
                                         memberProduct = refreshedProduct;
                                     }
                                     
-                                    // 차감된 횟수 복구 (1회 추가)
-                                    // 단, totalCount를 초과하지 않도록 제한
-                                    Integer currentRemaining = memberProduct.getRemainingCount();
-                                    if (currentRemaining == null) {
-                                        currentRemaining = 0;
-                                    }
-                                    
                                     Integer totalCount = memberProduct.getTotalCount();
-                                    if (totalCount == null) {
-                                        // totalCount가 없으면 product의 usageCount 사용
+                                    if (totalCount == null && memberProduct.getProduct() != null && memberProduct.getProduct().getUsageCount() != null) {
+                                        totalCount = memberProduct.getProduct().getUsageCount();
+                                        memberProduct.setTotalCount(totalCount);
+                                    }
+                                    boolean hasPackage = memberProduct.getPackageItemsRemaining() != null
+                                        && !memberProduct.getPackageItemsRemaining().isEmpty();
+                                    Integer beforeRemaining = memberProduct.getRemainingCount() != null ? memberProduct.getRemainingCount() : 0;
+
+                                    // 패키지(대관 10회권 등): JSON 항목 복구 후 합으로 remainingCount 설정 (출석 삭제와 동일 로직)
+                                    if (hasPackage) {
                                         try {
-                                            if (memberProduct.getProduct() != null && 
-                                                memberProduct.getProduct().getUsageCount() != null) {
-                                                totalCount = memberProduct.getProduct().getUsageCount();
-                                                // 원본 memberProduct에도 totalCount 설정
-                                                memberProduct.setTotalCount(totalCount);
+                                            ObjectMapper mapper = new ObjectMapper();
+                                            List<Map<String, Object>> items = mapper.readValue(
+                                                memberProduct.getPackageItemsRemaining(),
+                                                new TypeReference<List<Map<String, Object>>>() {});
+                                            String itemName = (attendance.getBooking() != null && attendance.getBooking().getPurpose() == Booking.BookingPurpose.RENTAL)
+                                                ? "대관" : convertLessonCategoryToName(attendance.getBooking() != null ? attendance.getBooking().getLessonCategory() : null);
+                                            boolean packageItemRestored = false;
+                                            for (Map<String, Object> item : items) {
+                                                String nameStr = item.get("name") != null ? item.get("name").toString() : "";
+                                                // 대관(RENTAL)은 "대관" 정확 일치 또는 이름에 '대관' 포함 또는 항목 1개일 때 매칭 (체크인 차감 로직과 동일)
+                                                boolean nameMatches = itemName.equals("대관")
+                                                    ? (nameStr.equals("대관") || nameStr.contains("대관") || items.size() == 1)
+                                                    : itemName.equals(nameStr);
+                                                if (nameMatches) {
+                                                    int remaining = item.get("remaining") instanceof Number ? ((Number) item.get("remaining")).intValue() : 0;
+                                                    item.put("remaining", remaining + 1);
+                                                    memberProduct.setPackageItemsRemaining(mapper.writeValueAsString(items));
+                                                    int sum = 0;
+                                                    for (Map<String, Object> i : items) {
+                                                        if (i.get("remaining") instanceof Number) sum += ((Number) i.get("remaining")).intValue();
+                                                    }
+                                                    memberProduct.setRemainingCount(Math.min(sum, totalCount != null ? totalCount : sum));
+                                                    packageItemRestored = true;
+                                                    break;
+                                                }
+                                            }
+                                            // 패키지 항목 이름 매칭 실패 시에도 잔여 횟수만이라도 복구
+                                            if (!packageItemRestored) {
+                                                int cur = beforeRemaining;
+                                                int newRemaining = totalCount != null ? Math.min(cur + 1, totalCount) : cur + 1;
+                                                memberProduct.setRemainingCount(newRemaining);
+                                                logger.debug("예약 삭제 시 패키지 항목 이름 매칭 없음, remainingCount만 복구: {} -> {}", beforeRemaining, newRemaining);
                                             }
                                         } catch (Exception e) {
-                                            logger.warn("Product 정보 접근 실패: {}", e.getMessage());
+                                            logger.warn("예약 삭제 시 패키지 복구 실패, remainingCount만 복구: {}", e.getMessage());
+                                            int cur = beforeRemaining;
+                                            int newRemaining = totalCount != null ? Math.min(cur + 1, totalCount) : cur + 1;
+                                            memberProduct.setRemainingCount(newRemaining);
                                         }
+                                    } else {
+                                        int cur = beforeRemaining;
+                                        int newRemaining = totalCount != null ? Math.min(cur + 1, totalCount) : cur + 1;
+                                        memberProduct.setRemainingCount(newRemaining);
                                     }
-                                    
-                                    Integer beforeRemaining = currentRemaining;
-                                    Integer newRemaining = currentRemaining + 1;
-                                    
-                                    // totalCount를 초과하지 않도록 제한
-                                    if (totalCount != null && newRemaining > totalCount) {
-                                        logger.warn("예약 삭제 시 복구: remainingCount가 totalCount를 초과할 수 없음. MemberProduct ID={}, totalCount={}, 복구 후 예상: {}회 → {}회로 제한", 
-                                            memberProduct.getId(), totalCount, newRemaining, totalCount);
-                                        newRemaining = totalCount;
-                                    }
-                                    
-                                    memberProduct.setRemainingCount(newRemaining);
-                                    
-                                    // 상태 업데이트 (USED_UP이었는데 복구되면 ACTIVE로)
+
                                     if (memberProduct.getStatus() == com.afbscenter.model.MemberProduct.Status.USED_UP && 
-                                        memberProduct.getRemainingCount() > 0) {
+                                        memberProduct.getRemainingCount() != null && memberProduct.getRemainingCount() > 0) {
                                         memberProduct.setStatus(com.afbscenter.model.MemberProduct.Status.ACTIVE);
                                     }
-                                    
                                     memberProductRepository.save(memberProduct);
-                                    
-                                    logger.info("예약 삭제 시 차감된 횟수 복구: Booking ID={}, MemberProduct ID={}, totalCount={}, 복구 전: {}회, 복구 후: {}회", 
-                                        id, memberProduct.getId(), totalCount, beforeRemaining, memberProduct.getRemainingCount());
+                                    logger.info("예약 삭제 시 차감된 횟수 복구: Booking ID={}, MemberProduct ID={}, 복구 전: {}회, 복구 후: {}회",
+                                        id, memberProduct.getId(), beforeRemaining, memberProduct.getRemainingCount());
                                 } catch (Exception e) {
-                                    logger.error("MemberProduct 복구 처리 중 오류: Booking ID={}, MemberProduct ID={}, 오류: {}", 
+                                    logger.error("MemberProduct 복구 처리 중 오류: Booking ID={}, MemberProduct ID={}, 오류: {}",
                                         id, memberProduct != null ? memberProduct.getId() : "unknown", e.getMessage(), e);
-                                    // 복구 실패해도 예약 삭제는 계속 진행 (throw 제거)
                                 }
                             } else {
                                 logger.warn("예약 삭제 시 차감 복구 실패: MemberProduct를 찾을 수 없음. Booking ID={}, Attendance ID={}", 
@@ -1752,6 +2040,11 @@ public class BookingController {
                         }
                     }
                     
+                    // 히스토리 삭제가 DB에 반영된 뒤 출석 삭제 (FK로 인해 출석만 남는 현상 방지)
+                    if (entityManager != null) {
+                        try { entityManager.flush(); } catch (Exception e) { logger.trace("flush 무시: {}", e.getMessage()); }
+                    }
+                    
                     // 출석 기록 삭제 (체크인 여부와 관계없이)
                     // 주의: 체크인된 경우 위에서 이미 관련 히스토리를 삭제했으므로 여기서는 attendance만 삭제
                     try {
@@ -1768,7 +2061,79 @@ public class BookingController {
                 logger.error("예약 삭제 시 출석 기록 확인 중 오류: Booking ID={}, 오류: {}", id, e.getMessage(), e);
                 // 출석 기록 확인 실패해도 예약 삭제는 계속 진행
             }
-            
+
+            // 체크인 없이 예약만 삭제한 경우: 예약 등록 시 차감한 1회 복구 (레슨만. 대관은 예약 시 차감 안 하므로 복구 불필요)
+            if (!wasCheckedIn && bookingToRestore != null && bookingToRestore.getMemberProduct() != null
+                && bookingToRestore.getMember() != null
+                && bookingToRestore.getPurpose() == Booking.BookingPurpose.LESSON) {
+                try {
+                    com.afbscenter.model.MemberProduct memberProduct = memberProductRepository
+                        .findByIdWithMember(bookingToRestore.getMemberProduct().getId()).orElse(null);
+                    if (memberProduct != null && memberProduct.getProduct() != null
+                        && memberProduct.getProduct().getType() == com.afbscenter.model.Product.ProductType.COUNT_PASS) {
+
+                        if (memberProduct.getPackageItemsRemaining() != null
+                            && !memberProduct.getPackageItemsRemaining().isEmpty()) {
+                            ObjectMapper mapper = new ObjectMapper();
+                            List<Map<String, Object>> items = mapper.readValue(
+                                memberProduct.getPackageItemsRemaining(),
+                                new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+                            String lessonName = (bookingToRestore.getPurpose() == Booking.BookingPurpose.RENTAL)
+                                ? "대관" : convertLessonCategoryToName(bookingToRestore.getLessonCategory());
+                            boolean updated = false;
+                            for (Map<String, Object> item : items) {
+                                if (lessonName.equals(item.get("name"))) {
+                                    int remaining = ((Number) item.get("remaining")).intValue();
+                                    item.put("remaining", remaining + 1);
+                                    updated = true;
+                                    logger.info("예약 삭제 시 패키지 복구: {} - {}회 남음", lessonName, remaining + 1);
+                                    break;
+                                }
+                            }
+                            if (updated) {
+                                memberProduct.setPackageItemsRemaining(mapper.writeValueAsString(items));
+                                if (memberProduct.getStatus() == com.afbscenter.model.MemberProduct.Status.USED_UP) {
+                                    memberProduct.setStatus(com.afbscenter.model.MemberProduct.Status.ACTIVE);
+                                }
+                                memberProductRepository.save(memberProduct);
+                                logger.info("예약 삭제 시 패키지 상품 복구 완료: Booking ID={}, MemberProduct ID={}", id, memberProduct.getId());
+                            }
+                        } else {
+                            Integer currentRemaining = memberProduct.getRemainingCount();
+                            if (currentRemaining == null) currentRemaining = 0;
+                            Integer totalCount = memberProduct.getTotalCount();
+                            if (totalCount == null && memberProduct.getProduct().getUsageCount() != null) {
+                                totalCount = memberProduct.getProduct().getUsageCount();
+                                memberProduct.setTotalCount(totalCount);
+                            }
+                            int newRemaining = totalCount != null ? Math.min(currentRemaining + 1, totalCount) : currentRemaining + 1;
+                            memberProduct.setRemainingCount(newRemaining);
+                            if (memberProduct.getStatus() == com.afbscenter.model.MemberProduct.Status.USED_UP && memberProduct.getRemainingCount() > 0) {
+                                memberProduct.setStatus(com.afbscenter.model.MemberProduct.Status.ACTIVE);
+                            }
+                            memberProductRepository.save(memberProduct);
+                            logger.info("예약 삭제 시 횟수권 복구: Booking ID={}, MemberProduct ID={}, 복구 후 잔여={}회", id, memberProduct.getId(), memberProduct.getRemainingCount());
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.error("예약 삭제 시(체크인 없음) 이용권 복구 실패: Booking ID={}, 오류: {}", id, e.getMessage(), e);
+                }
+            }
+
+            // 이 예약을 참조하는 결제(Payment) 연결 해제 (예약 삭제 후에도 결제 내역은 유지, booking_id만 null)
+            try {
+                List<com.afbscenter.model.Payment> paymentsForBooking = paymentRepository.findByBookingId(id);
+                for (com.afbscenter.model.Payment p : paymentsForBooking) {
+                    p.setBooking(null);
+                    paymentRepository.save(p);
+                }
+                if (!paymentsForBooking.isEmpty()) {
+                    logger.info("예약 삭제 시 결제 연결 해제: Booking ID={}, {}건", id, paymentsForBooking.size());
+                }
+            } catch (Exception e) {
+                logger.warn("예약 삭제 시 결제 연결 해제 중 오류 (무시): {}", e.getMessage());
+            }
+
             bookingRepository.deleteById(id);
             // 삭제 후 ID 재정렬 (실패해도 예약 삭제는 성공으로 처리)
             try {

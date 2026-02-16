@@ -61,4 +61,8 @@ public interface MemberProductRepository extends JpaRepository<MemberProduct, Lo
     /** 횟수권(COUNT_PASS) 이용권만 product, member와 함께 조회 - remaining_count 동기화용 */
     @Query("SELECT mp FROM MemberProduct mp JOIN FETCH mp.product p JOIN FETCH mp.member m WHERE p.type = 'COUNT_PASS'")
     List<MemberProduct> findAllCountPassWithProductAndMember();
+
+    /** 대관 회차용: 잔여만 조회 (getResultList 사용 → 결과 없으면 빈 리스트, 예외 없음) */
+    @Query("SELECT mp.remainingCount FROM MemberProduct mp WHERE mp.id = :id")
+    List<Integer> findRemainingCountListById(@Param("id") Long id);
 }

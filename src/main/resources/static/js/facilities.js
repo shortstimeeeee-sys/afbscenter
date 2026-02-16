@@ -68,6 +68,19 @@ function renderFacilitiesTable(facilities) {
             default: return branch;
         }
     };
+
+    // 시설명에 지점 고유색 적용 (사하점/연산점/대관)
+    const getFacilityNameWithBranchColor = (facility) => {
+        const name = facility.name ? String(facility.name).trim() : '';
+        if (!name) return '-';
+        const branch = (facility.branch || '').toUpperCase();
+        let color = 'var(--text-primary)';
+        if (branch === 'SAHA') color = '#1E8449';
+        else if (branch === 'YEONSAN') color = '#DAA520';
+        else if (branch === 'RENTAL') color = '#9B59B6';
+        const safeName = App.escapeHtml ? App.escapeHtml(name) : name;
+        return '<span class="facility-name-by-branch" style="color:' + color + ';font-weight:600;">' + safeName + '</span>';
+    };
     
     // 시설 타입 한글 변환
     const getFacilityTypeText = (type) => {
@@ -84,7 +97,7 @@ function renderFacilitiesTable(facilities) {
     tbody.innerHTML = facilities.map(facility => `
         <tr>
             <td>${facility.id}</td>
-            <td><strong>${facility.name}</strong></td>
+            <td class="cell-facility-name">${getFacilityNameWithBranchColor(facility)}</td>
             <td>${getBranchText(facility.branch)}</td>
             <td>${getFacilityTypeText(facility.facilityType)}</td>
             <td>${facility.location || '-'}</td>

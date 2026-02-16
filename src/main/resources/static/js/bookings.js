@@ -1,6 +1,14 @@
 // 예약 관리 페이지 JavaScript (사하/연산 공통)
 // 각 HTML에서 스크립트 로드 전에 window.BOOKING_PAGE_CONFIG = { branch, facilityType, ... } 설정 필수.
 
+(function applyFilterStatsCardBorderNow() {
+    var el = document.getElementById('filter-stats-card') || (document.getElementById('bookings-stats-container') && document.getElementById('bookings-stats-container').closest('.card'));
+    if (el) {
+        el.style.setProperty('border', '1px solid #4A5568', 'important');
+        el.style.setProperty('border-radius', '12px', 'important');
+    }
+})();
+
 let currentDate = new Date();
 let currentView = 'calendar';
 let currentPage = 1;
@@ -104,7 +112,19 @@ function getDayBackgroundColor(coachColors) {
     return coachColors[0] + '15'; // 15 = 약 8% 투명도
 }
 
-document.addEventListener('DOMContentLoaded', function() {
+function applyFilterStatsCardBorder() {
+    var statsCard = document.getElementById('filter-stats-card');
+    if (!statsCard) {
+        var container = document.getElementById('bookings-stats-container');
+        if (container) statsCard = container.closest('.card');
+    }
+    if (statsCard) {
+        statsCard.style.setProperty('border', '1px solid #4A5568', 'important');
+        statsCard.style.borderRadius = '12px';
+    }
+}
+function runBookingsDOMReady() {
+    applyFilterStatsCardBorder();
     initializeBookings();
     
     // 레슨 종목 필터링 (페이지 타입에 따라)
@@ -133,7 +153,12 @@ document.addEventListener('DOMContentLoaded', function() {
             deleteSelectedBooking();
         }
     });
-});
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', runBookingsDOMReady);
+} else {
+    runBookingsDOMReady();
+}
 
 // 원본 레슨 종목 옵션 저장
 let originalLessonCategoryOptions = null;
@@ -383,15 +408,19 @@ function renderBookingStats(data) {
     const monthLabel = data.monthLabel || '';
     const total = data.totalCount != null ? data.totalCount : 0;
     const pendingCount = data.pendingCount != null ? data.pendingCount : 0;
+    const confirmedCount = total - pendingCount;
     const byCoach = Array.isArray(data.byCoach) ? data.byCoach : [];
     const filterSet = window.calendarFilterCoachIds || new Set();
     if (!monthLabel && total === 0 && byCoach.length === 0) {
         container.innerHTML = '<p class="bookings-stats-loading">기간을 선택 후 적용하면 통계가 표시됩니다.</p>';
         return;
     }
+    const totalStatusText = `확정 : ${confirmedCount}건 / 대기 : ${pendingCount}건`;
     let html = '<div class="bookings-stats-row">';
-    html += `<div class="bookings-stats-total"><span class="bookings-stats-label">${monthLabel} 총 예약</span><span class="bookings-stats-value">${total}건</span>`;
-    html += ` <span class="bookings-stats-pending" role="button" tabindex="0" data-pending-count="${pendingCount}" title="클릭 시 승인 대기 목록 보기">승인이 완료되지 않은 예약 ${pendingCount}건</span></div>`;
+    html += '<div class="bookings-stats-total-group">';
+    html += `<div class="bookings-stats-total"><span class="bookings-stats-label">${monthLabel} 총 예약</span><span class="bookings-stats-value">${total}건</span><span class="bookings-stats-status">${totalStatusText}</span></div>`;
+    html += ` <span class="bookings-stats-pending" role="button" tabindex="0" data-pending-count="${pendingCount}" title="클릭 시 승인 대기 목록 보기">승인이 완료되지 않은 예약 ${pendingCount}건</span>`;
+    html += '</div>';
     if (byCoach.length > 0) {
         html += '<div class="bookings-stats-by-coach">';
         html += byCoach.map(c => {
@@ -406,6 +435,11 @@ function renderBookingStats(data) {
     }
     html += '</div>';
     container.innerHTML = html;
+    var card = document.getElementById('filter-stats-card') || container.closest('.card');
+    if (card) {
+        card.style.setProperty('border', '1px solid #4A5568', 'important');
+        card.style.borderRadius = '12px';
+    }
     if (!container._coachFilterBound) {
         container._coachFilterBound = true;
         container.addEventListener('click', function(e) {
@@ -1928,15 +1962,12 @@ async function renderCalendar() {
                 event.style.backgroundColor = coachColor;
                 event.style.borderLeft = `3px solid ${coachColor}`;
                 
-                // 상태에 따라 아이콘 표시 추가
+                // 상태에 따라 아이콘 표시 추가 (완료 동그라미는 COMPLETED일 때만 — 삭제 후 재예약 시 종료시간만 지났다고 표시 안 함)
                 const status = booking.status || 'PENDING';
-                const now = new Date();
-                const isEnded = endTime < now; // 종료 시간이 지났는지 확인
-                
                 let statusIcon = '';
                 let statusIconStyle = '';
-                if (status === 'COMPLETED' || isEnded) {
-                    // 완료된 예약 또는 종료된 예약: 초록색 원형 배경에 흰색 원 표시
+                if (status === 'COMPLETED') {
+                    // 서버에서 완료 처리된 예약만: 초록색 원형 배경(동그라미)
                     statusIcon = '';
                     statusIconStyle = 'display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; min-width: 16px; min-height: 16px; background-color: #2ECC71; border-radius: 50%; margin-right: 5px; vertical-align: middle; flex-shrink: 0; position: relative;';
                 } else if (status === 'CONFIRMED') {
@@ -1947,8 +1978,7 @@ async function renderCalendar() {
                 
                 // 이벤트 내용 설정 (한 줄로 표시: 아이콘 + 시간 / 이름)
                 if (statusIcon || statusIconStyle) {
-                    if (status === 'COMPLETED' || isEnded) {
-                        // 완료된 예약: CSS ::after로 흰색 원 추가
+                    if (status === 'COMPLETED') {
                         event.innerHTML = `<span style="${statusIconStyle}"></span>${timeStr} / ${memberName}`;
                     } else {
                         event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${timeStr} / ${memberName}`;

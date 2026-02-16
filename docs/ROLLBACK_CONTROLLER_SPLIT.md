@@ -15,16 +15,16 @@
 | 파일 | 설명 |
 |------|------|
 | `DashboardQueryController.java` | GET /api/dashboard/expiring-members, today-schedule, alerts, announcements ✅ |
-| `AttendanceCheckController.java` | (예정) POST /api/attendance/checkin, checkout |
-| (MemberDetail 분리 시) | (예정) 회원 서브리소스 전용 컨트롤러들 |
+| `AttendanceCheckController.java` | POST /api/attendance, POST /api/attendance/checkin, POST /api/attendance/checkout ✅ |
+| `MemberDetailQueryController.java` | GET /api/members/{id}/ability-stats-context, /{memberId}/products, /bookings, /payments, /attendance, /product-history ✅ |
 
 ### 수정된 컨트롤러 (해당 메서드 제거됨)
 
 | 파일 | 제거된 메서드 |
 |------|----------------|
-| `DashboardController.java` | getExpiringMembers, getTodaySchedule, getAlerts, getActiveAnnouncements, updateMissingLessonCategoriesForBookings ✅ 제거됨 |
-| `AttendanceController.java` | processCheckin, processCheckout, decreaseCountPassUsage, saveProductHistory, matchesLessonCategory 등 |
-| (MemberDetail 분리 시) | MemberDetailController 내 해당 엔드포인트들 |
+| `DashboardController.java` | getExpiringMembers, getTodaySchedule, getAlerts, getActiveAnnouncements, updateMissingLessonCategoriesForBookings ✅ |
+| `AttendanceController.java` | createAttendance, processCheckin, processCheckout, decreaseCountPassUsage, saveProductHistory, convertLessonCategoryToName, matchesLessonCategory ✅ |
+| `MemberDetailController.java` | gradeToLabel, levelToNum, rankFromList, rankAndTotal, getAbilityStatsContext, getMemberProducts, getMemberBookings, getMemberPayments, getMemberAttendance, getMemberProductHistory ✅ |
 
 ## 3. Git으로 전체 롤백
 

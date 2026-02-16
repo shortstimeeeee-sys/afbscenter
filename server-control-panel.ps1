@@ -1,105 +1,218 @@
-# AFBS 센터 서버 제어판
-# 작은 모달 창으로 서버를 제어할 수 있는 GUI
+# AFBS Center Server Control Panel
+# Small modal window to control the server
 
-# 오류 처리 설정
+# Encoding settings (execute first - for Korean text)
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+$PSDefaultParameterValues['*:Encoding'] = 'utf8'
+$env:JAVA_TOOL_OPTIONS = '-Dfile.encoding=UTF-8'
+[System.Console]::InputEncoding = [System.Text.Encoding]::UTF8
+
+# Load latest PATH/MAVEN_HOME/JAVA_HOME from registry (so desktop shortcut sees Maven after setup-laptop.ps1)
+$env:JAVA_HOME = [Environment]::GetEnvironmentVariable("JAVA_HOME", "Machine")
+if (-not $env:JAVA_HOME) { $env:JAVA_HOME = [Environment]::GetEnvironmentVariable("JAVA_HOME", "User") }
+$env:MAVEN_HOME = [Environment]::GetEnvironmentVariable("MAVEN_HOME", "Machine")
+if (-not $env:MAVEN_HOME) { $env:MAVEN_HOME = [Environment]::GetEnvironmentVariable("MAVEN_HOME", "User") }
+$machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$env:Path = if ($machinePath -and $userPath) { "$machinePath;$userPath" } elseif ($machinePath) { $machinePath } else { $userPath }
+if ($env:MAVEN_HOME) { $env:Path = "$env:MAVEN_HOME\bin;$env:Path" }
+
+# Immediate startup log recording
+$scriptRoot = $null
+if ($MyInvocation.MyCommand.Path) {
+    $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if (-not $scriptRoot -and $PSScriptRoot) {
+    $scriptRoot = $PSScriptRoot
+}
+if (-not $scriptRoot) {
+    $scriptRoot = Get-Location
+}
+if (-not $scriptRoot) {
+    $scriptRoot = $PWD
+}
+
+$startupLogPath = Join-Path $scriptRoot "server-panel-startup.log"
+$errorLogPath = Join-Path $scriptRoot "server-panel-error.log"
+
+try {
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "[$timestamp] PowerShell script started" | Out-File -FilePath $startupLogPath -Encoding UTF8 -Append
+    "[$timestamp] Script path: $($MyInvocation.MyCommand.Path)" | Out-File -FilePath $startupLogPath -Encoding UTF8 -Append
+    "[$timestamp] Working directory: $(Get-Location)" | Out-File -FilePath $startupLogPath -Encoding UTF8 -Append
+} catch {
+    # 로그 파일 쓰기 실패 시 무시
+}
+
+# Error handling settings
 $ErrorActionPreference = "Continue"
+
+# Global error handler setup
+$Error.Clear()
+trap {
+    $errorMsg = "Fatal error occurred while running server control panel:`n`nError Type: $($_.Exception.GetType().FullName)`nError Message: $($_.Exception.Message)`n`nStack Trace:`n$($_.Exception.StackTrace)"
+    try {
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        "[$timestamp] $errorMsg" | Out-File -FilePath $errorLogPath -Encoding UTF8 -Append
+    } catch {
+        # 로그 파일 쓰기 실패 시 무시
+    }
+    try {
+        [System.Windows.Forms.MessageBox]::Show($errorMsg, "Server Control Panel Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    } catch {
+        # MessageBox 실패 시 콘솔에 출력 (Hidden 창이므로 보이지 않을 수 있음)
+        Write-Host $errorMsg -ForegroundColor Red
+    }
+    exit 1
+}
 
 try {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
 } catch {
-    [System.Windows.Forms.MessageBox]::Show("필요한 .NET 어셈블리를 로드할 수 없습니다.`n`n오류: $($_.Exception.Message)", "오류", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    $errorMsg = "Cannot load required .NET assemblies.`n`nError: $($_.Exception.Message)`n`nStack Trace:`n$($_.Exception.StackTrace)"
+    $logPath = Join-Path $PSScriptRoot "server-panel-error.log"
+    try {
+        $errorMsg | Out-File -FilePath $logPath -Encoding UTF8
+    } catch {
+        # 로그 파일 쓰기 실패 시 무시
+    }
+    try {
+        [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    } catch {
+        Write-Host $errorMsg -ForegroundColor Red
+    }
     exit 1
 }
 
-# 인코딩 설정
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
-$env:JAVA_TOOL_OPTIONS = '-Dfile.encoding=UTF-8'
+# Additional startup log recording
+try {
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "[$timestamp] .NET assemblies loaded" | Out-File -FilePath $startupLogPath -Encoding UTF8 -Append
+} catch {
+    # 로그 파일 쓰기 실패 시 무시
+}
 
-# 메인 폼 생성
+# Mutex for single instance (simplified)
+$mutex = $null
+try {
+    $mutex = [System.Threading.Mutex]::new($false, "Global\AFBS_Server_Control_Panel")
+    if (-not $mutex.WaitOne(0, $false)) {
+        exit 0
+    }
+} catch {
+    $mutex = $null
+}
+
+# Main form creation
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "AFBS 센터 서버 제어판"
-$form.Size = New-Object System.Drawing.Size(350, 280)
+$form.Text = "AFBS Center Server Control Panel"
+$form.Size = New-Object System.Drawing.Size(350, 365)
 $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
 $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
 $form.MaximizeBox = $false
 $form.MinimizeBox = $false
 $form.TopMost = $true
 
-# 제목 레이블
+# Title label
 $titleLabel = New-Object System.Windows.Forms.Label
-$titleLabel.Text = "⚾ AFBS 센터 서버 관리"
-$titleLabel.Font = New-Object System.Drawing.Font("맑은 고딕", 12, [System.Drawing.FontStyle]::Bold)
+$titleLabel.Text = "⚾ AFBS Center Server Control"
+$titleLabel.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Bold)
 $titleLabel.AutoSize = $true
 $titleLabel.Location = New-Object System.Drawing.Point(80, 15)
 $form.Controls.Add($titleLabel)
 
-# 상태 레이블
+# Status label
 $statusLabel = New-Object System.Windows.Forms.Label
-$statusLabel.Text = "상태 확인 중..."
+$statusLabel.Text = "Checking status..."
 $statusLabel.AutoSize = $true
 $statusLabel.Location = New-Object System.Drawing.Point(20, 50)
-$statusLabel.Font = New-Object System.Drawing.Font("맑은 고딕", 9)
+$statusLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 $form.Controls.Add($statusLabel)
 
-# 상태 표시 레이블 (큰 글씨)
+# Status display label (large text)
 $statusDisplay = New-Object System.Windows.Forms.Label
 $statusDisplay.Text = "●"
-$statusDisplay.Font = New-Object System.Drawing.Font("맑은 고딕", 20)
+$statusDisplay.Font = New-Object System.Drawing.Font("Segoe UI", 20)
 $statusDisplay.AutoSize = $true
 $statusDisplay.Location = New-Object System.Drawing.Point(20, 75)
 $form.Controls.Add($statusDisplay)
 
-# 서버 시작 버튼
+# Start server button
 $btnStart = New-Object System.Windows.Forms.Button
-$btnStart.Text = "▶ 서버 시작"
+$btnStart.Text = "▶ Start Server"
 $btnStart.Size = New-Object System.Drawing.Size(140, 40)
 $btnStart.Location = New-Object System.Drawing.Point(20, 120)
-$btnStart.Font = New-Object System.Drawing.Font("맑은 고딕", 10)
+$btnStart.Font = New-Object System.Drawing.Font("Segoe UI", 10)
 $btnStart.BackColor = [System.Drawing.Color]::FromArgb(46, 204, 113)
 $btnStart.ForeColor = [System.Drawing.Color]::White
 $btnStart.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnStart.FlatAppearance.BorderSize = 0
 $form.Controls.Add($btnStart)
 
-# 서버 중지 버튼
+# Stop server button
 $btnStop = New-Object System.Windows.Forms.Button
-$btnStop.Text = "■ 서버 중지"
+$btnStop.Text = "■ Stop Server"
 $btnStop.Size = New-Object System.Drawing.Size(140, 40)
 $btnStop.Location = New-Object System.Drawing.Point(180, 120)
-$btnStop.Font = New-Object System.Drawing.Font("맑은 고딕", 10)
+$btnStop.Font = New-Object System.Drawing.Font("Segoe UI", 10)
 $btnStop.BackColor = [System.Drawing.Color]::FromArgb(231, 76, 60)
 $btnStop.ForeColor = [System.Drawing.Color]::White
 $btnStop.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnStop.FlatAppearance.BorderSize = 0
 $form.Controls.Add($btnStop)
 
-# 서버 재시작 버튼
+# Restart server button
 $btnRestart = New-Object System.Windows.Forms.Button
-$btnRestart.Text = "↻ 서버 재시작"
+$btnRestart.Text = "↻ Restart Server"
 $btnRestart.Size = New-Object System.Drawing.Size(140, 40)
 $btnRestart.Location = New-Object System.Drawing.Point(20, 170)
-$btnRestart.Font = New-Object System.Drawing.Font("맑은 고딕", 10)
+$btnRestart.Font = New-Object System.Drawing.Font("Segoe UI", 10)
 $btnRestart.BackColor = [System.Drawing.Color]::FromArgb(52, 152, 219)
 $btnRestart.ForeColor = [System.Drawing.Color]::White
 $btnRestart.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnRestart.FlatAppearance.BorderSize = 0
 $form.Controls.Add($btnRestart)
 
-# 브라우저 열기 버튼
+# Open browser button
 $btnBrowser = New-Object System.Windows.Forms.Button
-$btnBrowser.Text = "◉ 브라우저 열기"
+$btnBrowser.Text = "Open localhost"
 $btnBrowser.Size = New-Object System.Drawing.Size(140, 40)
 $btnBrowser.Location = New-Object System.Drawing.Point(180, 170)
-$btnBrowser.Font = New-Object System.Drawing.Font("맑은 고딕", 10)
+$btnBrowser.Font = New-Object System.Drawing.Font("Segoe UI", 10)
 $btnBrowser.BackColor = [System.Drawing.Color]::FromArgb(155, 89, 182)
 $btnBrowser.ForeColor = [System.Drawing.Color]::White
 $btnBrowser.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnBrowser.FlatAppearance.BorderSize = 0
 $form.Controls.Add($btnBrowser)
 
-# Java 프로세스 확인 함수
+# Start ngrok tunnel button
+$ngrokUrl = "https://jasper-declared-josue.ngrok-free.dev"
+$btnStartNgrok = New-Object System.Windows.Forms.Button
+$btnStartNgrok.Text = "Start ngrok tunnel"
+$btnStartNgrok.Size = New-Object System.Drawing.Size(140, 36)
+$btnStartNgrok.Location = New-Object System.Drawing.Point(20, 220)
+$btnStartNgrok.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+$btnStartNgrok.BackColor = [System.Drawing.Color]::FromArgb(39, 174, 96)
+$btnStartNgrok.ForeColor = [System.Drawing.Color]::White
+$btnStartNgrok.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnStartNgrok.FlatAppearance.BorderSize = 0
+$form.Controls.Add($btnStartNgrok)
+
+# Open ngrok URL in browser button
+$btnNgrok = New-Object System.Windows.Forms.Button
+$btnNgrok.Text = "Open ngrok URL"
+$btnNgrok.Size = New-Object System.Drawing.Size(140, 36)
+$btnNgrok.Location = New-Object System.Drawing.Point(180, 220)
+$btnNgrok.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+$btnNgrok.BackColor = [System.Drawing.Color]::FromArgb(149, 165, 166)
+$btnNgrok.ForeColor = [System.Drawing.Color]::White
+$btnNgrok.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnNgrok.FlatAppearance.BorderSize = 0
+$form.Controls.Add($btnNgrok)
+
+# Java process check function
 function Get-JavaProcess {
     try {
         $javaProcesses = Get-Process | Where-Object {$_.ProcessName -like "*java*"} -ErrorAction SilentlyContinue
@@ -120,19 +233,210 @@ function Get-JavaProcess {
     return $null
 }
 
-# 상태 업데이트 함수
+# Maven permission fix function
+function Fix-MavenPermissions {
+    try {
+        $m2Repo = "$env:USERPROFILE\.m2\repository"
+        if (-not (Test-Path $m2Repo)) {
+            return $true
+        }
+        
+        $fixed = $false
+        
+        # Java/Maven 프로세스가 파일을 잠그고 있을 수 있으므로 잠시 대기
+        Start-Sleep -Milliseconds 500
+        
+        # 모든 resolver-status.properties 파일 찾기 및 삭제
+        try {
+            $allResolverFiles = Get-ChildItem -Path "$m2Repo" -Filter "resolver-status.properties" -Recurse -ErrorAction SilentlyContinue
+            foreach ($file in $allResolverFiles) {
+                try {
+                    # 파일 속성 제거 (읽기 전용 등)
+                    if (Test-Path $file.FullName) {
+                        $fileInfo = Get-Item $file.FullName -Force
+                        $fileInfo.Attributes = 'Normal'
+                    }
+                    # 파일 삭제
+                    Remove-Item $file.FullName -Force -ErrorAction Stop
+                    $fixed = $true
+                } catch {
+                    # 삭제 실패 시 파일 이름 변경 시도
+                    try {
+                        $timestamp = Get-Date -Format "yyyyMMddHHmmss"
+                        $newName = $file.FullName + ".old_" + $timestamp
+                        if (Test-Path $file.FullName) {
+                            $fileInfo = Get-Item $file.FullName -Force
+                            $fileInfo.Attributes = 'Normal'
+                        }
+                        Rename-Item $file.FullName -NewName $newName -Force -ErrorAction Stop
+                        $fixed = $true
+                    } catch {
+                        # 이름 변경도 실패하면 무시
+                    }
+                }
+            }
+        } catch {
+            # 파일 검색 실패 시 무시
+        }
+        
+        # 특정 파일 직접 삭제 시도
+        $specificFile = "$m2Repo\org\springframework\boot\resolver-status.properties"
+        if (Test-Path $specificFile) {
+            try {
+                # 파일 속성 제거
+                $fileInfo = Get-Item $specificFile -Force
+                $fileInfo.Attributes = 'Normal'
+                # 파일 삭제
+                Remove-Item $specificFile -Force -ErrorAction Stop
+                $fixed = $true
+            } catch {
+                # 삭제 실패 시 이름 변경
+                try {
+                    $timestamp = Get-Date -Format "yyyyMMddHHmmss"
+                    $newName = $specificFile + ".old_" + $timestamp
+                    $fileInfo = Get-Item $specificFile -Force
+                    $fileInfo.Attributes = 'Normal'
+                    Rename-Item $specificFile -NewName $newName -Force -ErrorAction Stop
+                    $fixed = $true
+                } catch {
+                    # 이름 변경도 실패하면 무시
+                }
+            }
+        }
+        
+        # 전체 .m2 디렉토리 권한 수정
+        try {
+            $m2Dir = "$env:USERPROFILE\.m2"
+            if (Test-Path $m2Dir) {
+                $acl = Get-Acl $m2Dir
+                $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                    $env:USERNAME,
+                    "FullControl",
+                    "ContainerInherit,ObjectInherit",
+                    "None",
+                    "Allow"
+                )
+                $acl.SetAccessRule($accessRule)
+                Set-Acl $m2Dir $acl -ErrorAction SilentlyContinue
+                $fixed = $true
+            }
+        } catch {
+            # 권한 수정 실패 시 무시
+        }
+        
+        # repository 디렉토리 권한 수정
+        try {
+            if (Test-Path $m2Repo) {
+                $acl = Get-Acl $m2Repo
+                $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                    $env:USERNAME,
+                    "FullControl",
+                    "ContainerInherit,ObjectInherit",
+                    "None",
+                    "Allow"
+                )
+                $acl.SetAccessRule($accessRule)
+                Set-Acl $m2Repo $acl -ErrorAction SilentlyContinue
+                $fixed = $true
+            }
+        } catch {
+            # 권한 수정 실패 시 무시
+        }
+        
+        # org/springframework/boot 디렉토리 권한 확인 및 수정
+        try {
+            $bootDir = "$m2Repo\org\springframework\boot"
+            if (-not (Test-Path $bootDir)) {
+                # 디렉토리가 없으면 생성
+                New-Item -ItemType Directory -Path $bootDir -Force -ErrorAction SilentlyContinue | Out-Null
+            }
+            if (Test-Path $bootDir) {
+                # 디렉토리 속성 확인
+                $dirInfo = Get-Item $bootDir -Force
+                $dirInfo.Attributes = 'Directory'
+                
+                # 권한 설정
+                $acl = Get-Acl $bootDir
+                $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                    $env:USERNAME,
+                    "FullControl",
+                    "ContainerInherit,ObjectInherit",
+                    "None",
+                    "Allow"
+                )
+                $acl.SetAccessRule($accessRule)
+                Set-Acl $bootDir $acl -ErrorAction SilentlyContinue
+                $fixed = $true
+            }
+        } catch {
+            # 권한 수정 실패 시 무시
+        }
+        
+        # org/springframework 디렉토리도 확인
+        try {
+            $springDir = "$m2Repo\org\springframework"
+            if (-not (Test-Path $springDir)) {
+                New-Item -ItemType Directory -Path $springDir -Force -ErrorAction SilentlyContinue | Out-Null
+            }
+            if (Test-Path $springDir) {
+                $acl = Get-Acl $springDir
+                $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                    $env:USERNAME,
+                    "FullControl",
+                    "ContainerInherit,ObjectInherit",
+                    "None",
+                    "Allow"
+                )
+                $acl.SetAccessRule($accessRule)
+                Set-Acl $springDir $acl -ErrorAction SilentlyContinue
+                $fixed = $true
+            }
+        } catch {
+            # 권한 수정 실패 시 무시
+        }
+        
+        # org 디렉토리도 확인
+        try {
+            $orgDir = "$m2Repo\org"
+            if (-not (Test-Path $orgDir)) {
+                New-Item -ItemType Directory -Path $orgDir -Force -ErrorAction SilentlyContinue | Out-Null
+            }
+            if (Test-Path $orgDir) {
+                $acl = Get-Acl $orgDir
+                $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                    $env:USERNAME,
+                    "FullControl",
+                    "ContainerInherit,ObjectInherit",
+                    "None",
+                    "Allow"
+                )
+                $acl.SetAccessRule($accessRule)
+                Set-Acl $orgDir $acl -ErrorAction SilentlyContinue
+                $fixed = $true
+            }
+        } catch {
+            # 권한 수정 실패 시 무시
+        }
+        
+        return $fixed
+    } catch {
+        return $false
+    }
+}
+
+# Status update function
 function Update-Status {
     try {
         $processes = Get-JavaProcess
         if ($processes) {
-            $statusLabel.Text = "서버 실행 중 (PID: $($processes.Id))"
+            $statusLabel.Text = "Server Running (PID: $($processes.Id))"
             $statusDisplay.Text = "●"
             $statusDisplay.ForeColor = [System.Drawing.Color]::Green
             $btnStart.Enabled = $false
             $btnStop.Enabled = $true
             $btnRestart.Enabled = $true
         } else {
-            $statusLabel.Text = "서버 중지됨"
+            $statusLabel.Text = "Server Stopped"
             $statusDisplay.Text = "○"
             $statusDisplay.ForeColor = [System.Drawing.Color]::Red
             $btnStart.Enabled = $true
@@ -140,7 +444,7 @@ function Update-Status {
             $btnRestart.Enabled = $false
         }
     } catch {
-        $statusLabel.Text = "상태 확인 오류"
+        $statusLabel.Text = "Status Check Error"
         $statusDisplay.Text = "?"
         $statusDisplay.ForeColor = [System.Drawing.Color]::Orange
     }
@@ -149,25 +453,126 @@ function Update-Status {
 # 서버 시작
 $btnStart.Add_Click({
     try {
+        # 인코딩 재설정 (이벤트 핸들러 내에서)
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $OutputEncoding = [System.Text.Encoding]::UTF8
+        
         $btnStart.Enabled = $false
         $statusLabel.Text = "서버 시작 중..."
         
         $scriptPath = $PSScriptRoot
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$scriptPath'; `$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; mvn spring-boot:run" -WindowStyle Normal
+        if (-not $scriptPath) {
+            $scriptPath = Get-Location
+        }
         
-        Start-Sleep -Seconds 3
+        # 경로에 공백이 있을 수 있으므로 따옴표로 감싸기
+        $scriptPathQuoted = "`"$scriptPath`""
+        
+        # Maven이 설치되어 있는지 확인
+        $mvnCheck = Get-Command mvn -ErrorAction SilentlyContinue
+        if (-not $mvnCheck) {
+            $errorMsg = "Maven is not installed or not registered in PATH.`n`nPlease install Maven or add it to PATH."
+            [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+            $btnStart.Enabled = $true
+            Update-Status
+            return
+        }
+        
+        # pom.xml 파일 존재 확인
+        $pomPath = Join-Path $scriptPath "pom.xml"
+        if (-not (Test-Path $pomPath)) {
+            $errorMsg = "pom.xml file not found.`n`nPath: $pomPath"
+            [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+            $btnStart.Enabled = $true
+            Update-Status
+            return
+        }
+        
+        # Maven 권한 문제 자동 해결
+        $statusLabel.Text = "Checking Maven permissions..."
+        [System.Windows.Forms.Application]::DoEvents()
+        $fixed = Fix-MavenPermissions
+        
+        # resolver-status.properties 파일을 미리 생성하여 권한 문제 방지
+        try {
+            $m2Repo = "$env:USERPROFILE\.m2\repository"
+            $resolverFile = "$m2Repo\org\springframework\boot\resolver-status.properties"
+            $resolverDir = Split-Path $resolverFile -Parent
+            
+            # 디렉토리 생성
+            if (-not (Test-Path $resolverDir)) {
+                New-Item -ItemType Directory -Path $resolverDir -Force -ErrorAction SilentlyContinue | Out-Null
+            }
+            
+            # 파일이 없으면 미리 생성
+            if (-not (Test-Path $resolverFile)) {
+                $null | Out-File -FilePath $resolverFile -Encoding UTF8 -Force -ErrorAction SilentlyContinue
+            }
+            
+            # 파일 권한 설정
+            if (Test-Path $resolverFile) {
+                $fileInfo = Get-Item $resolverFile -Force
+                $fileInfo.Attributes = 'Normal'
+                $acl = Get-Acl $resolverFile
+                $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                    $env:USERNAME,
+                    "FullControl",
+                    "Allow"
+                )
+                $acl.SetAccessRule($accessRule)
+                Set-Acl $resolverFile $acl -ErrorAction SilentlyContinue
+            }
+        } catch {
+            # 파일 생성 실패 시 무시
+        }
+        
+        if ($fixed) {
+            $statusLabel.Text = "Maven permissions fixed. Starting server..."
+            Start-Sleep -Milliseconds 500
+        } else {
+            $statusLabel.Text = "서버 시작 중..."
+        }
+        [System.Windows.Forms.Application]::DoEvents()
+        
+        # 서버 시작 명령 실행 - start-server.ps1 파일 직접 실행
+        try {
+            # start-server.ps1 파일을 직접 실행 (가장 안정적)
+            $startScript = Join-Path $scriptPath "start-server.ps1"
+            if (Test-Path $startScript) {
+                # Start-Process로 새 창에서 실행
+                Start-Process powershell.exe -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-File", $startScript -WindowStyle Normal
+            } else {
+                # 파일이 없으면 직접 명령 실행
+                $psCommand = "cd '$scriptPath'; `$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; mvn spring-boot:run -Daether.disableTracking=true -Daether.updateCheckManager.sessionState=false"
+                Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $psCommand -WindowStyle Normal
+            }
+        } catch {
+            $errorMsg = "Failed to start server: $($_.Exception.Message)`n`nStack Trace:`n$($_.Exception.StackTrace)"
+            [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+            $btnStart.Enabled = $true
+            Update-Status
+            return
+        }
+        
+        Start-Sleep -Seconds 5
         Update-Status
     } catch {
-        [System.Windows.Forms.MessageBox]::Show("서버 시작 중 오류가 발생했습니다.`n`n$($_.Exception.Message)", "오류", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        $errorMsg = "Error occurred while starting server.`n`nError: $($_.Exception.Message)`n`nStack Trace:`n$($_.Exception.StackTrace)"
+        [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        $btnStart.Enabled = $true
         Update-Status
     }
 })
 
-# 서버 중지
+# Stop server
 $btnStop.Add_Click({
     try {
+        # 인코딩 재설정 (이벤트 핸들러 내에서)
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $OutputEncoding = [System.Text.Encoding]::UTF8
+        
         $btnStop.Enabled = $false
-        $statusLabel.Text = "서버 중지 중..."
+        $statusLabel.Text = "Stopping server..."
         
         $processes = Get-JavaProcess
         if ($processes) {
@@ -177,16 +582,21 @@ $btnStop.Add_Click({
         Start-Sleep -Seconds 2
         Update-Status
     } catch {
-        [System.Windows.Forms.MessageBox]::Show("서버 중지 중 오류가 발생했습니다.`n`n$($_.Exception.Message)", "오류", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        $errorMsg = "Error occurred while stopping server.`n`n$($_.Exception.Message)"
+        [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
         Update-Status
     }
 })
 
-# 서버 재시작
+# Restart server
 $btnRestart.Add_Click({
     try {
+        # 인코딩 재설정 (이벤트 핸들러 내에서)
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $OutputEncoding = [System.Text.Encoding]::UTF8
+        
         $btnRestart.Enabled = $false
-        $statusLabel.Text = "서버 재시작 중..."
+        $statusLabel.Text = "Restarting server..."
         
         # 중지
         $processes = Get-JavaProcess
@@ -196,64 +606,160 @@ $btnRestart.Add_Click({
         
         Start-Sleep -Seconds 2
         
-        # 시작
+        # 시작 - restart-server.ps1 파일 직접 실행
         $scriptPath = $PSScriptRoot
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$scriptPath'; `$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; mvn spring-boot:run" -WindowStyle Normal
+        if (-not $scriptPath) {
+            $scriptPath = Get-Location
+        }
+        try {
+            # restart-server.ps1 파일을 직접 실행 (가장 안정적)
+            $restartScript = Join-Path $scriptPath "restart-server.ps1"
+            if (Test-Path $restartScript) {
+                # Start-Process로 새 창에서 실행
+                Start-Process powershell.exe -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-File", $restartScript -WindowStyle Normal
+            } else {
+                # 파일이 없으면 직접 명령 실행
+                $psCommand = "cd '$scriptPath'; `$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; mvn spring-boot:run -Daether.disableTracking=true -Daether.updateCheckManager.sessionState=false"
+                Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $psCommand -WindowStyle Normal
+            }
+        } catch {
+            $errorMsg = "Failed to restart server: $($_.Exception.Message)`n`nStack Trace:`n$($_.Exception.StackTrace)"
+            [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+            Update-Status
+            return
+        }
         
         Start-Sleep -Seconds 3
         Update-Status
     } catch {
-        [System.Windows.Forms.MessageBox]::Show("서버 재시작 중 오류가 발생했습니다.`n`n$($_.Exception.Message)", "오류", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        $errorMsg = "Error occurred while restarting server.`n`n$($_.Exception.Message)"
+        [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
         Update-Status
     }
 })
 
-# 브라우저 열기
+# Open browser (localhost)
 $btnBrowser.Add_Click({
     try {
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $OutputEncoding = [System.Text.Encoding]::UTF8
         Start-Process "http://localhost:8080"
     } catch {
-        [System.Windows.Forms.MessageBox]::Show("브라우저를 열 수 없습니다.`n`n$($_.Exception.Message)", "오류", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        $errorMsg = "Cannot open browser.`n`n$($_.Exception.Message)"
+        [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
     }
 })
 
-# 타이머로 상태 자동 업데이트
+# Start ngrok tunnel (same as: powershell -ExecutionPolicy Bypass -File ".\start-ngrok.ps1")
+$btnStartNgrok.Add_Click({
+    try {
+        $root = $scriptRoot
+        if (-not $root) { $root = (Get-Location).Path }
+        $ngrokScript = Join-Path $root "start-ngrok.ps1"
+        if (-not (Test-Path $ngrokScript)) {
+            [System.Windows.Forms.MessageBox]::Show("start-ngrok.ps1 not found.`nPath: $ngrokScript", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+            return
+        }
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "powershell.exe"
+        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$ngrokScript`""
+        $psi.WorkingDirectory = $root
+        $psi.UseShellExecute = $true
+        $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Normal
+        [System.Diagnostics.Process]::Start($psi) | Out-Null
+    } catch {
+        $errorMsg = "Cannot start ngrok.`n`n$($_.Exception.Message)"
+        [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    }
+})
+
+# Open ngrok URL in browser
+$btnNgrok.Add_Click({
+    try {
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $OutputEncoding = [System.Text.Encoding]::UTF8
+        Start-Process $ngrokUrl
+    } catch {
+        $errorMsg = "Cannot open browser.`n`n$($_.Exception.Message)"
+        [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    }
+})
+
+# Auto-update status with timer
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 3000  # 3초마다
 $timer.Add_Tick({ Update-Status })
 $timer.Start()
 
-# 폼 닫을 때 타이머 정리
+# Cleanup timer when form closes
 $form.Add_FormClosing({
     $timer.Stop()
     $timer.Dispose()
+    try {
+        if ($mutex) {
+            $mutex.ReleaseMutex()
+            $mutex.Dispose()
+        }
+    } catch { }
 })
 
-# 초기 상태 확인
+# Initial status check
 Update-Status
 
-# 폼 표시
+# Show form
 try {
     [System.Windows.Forms.Application]::EnableVisualStyles()
     $form.Add_Shown({
-        $form.Activate()
-        $form.BringToFront()
-        $form.Focus()
-        $form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
-        $form.TopMost = $true
+        try {
+            $form.Activate()
+            $form.BringToFront()
+            $form.Focus()
+            $form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+            $form.TopMost = $true
+            $form.Show()
+        } catch {
+            $errorMsg = "Form display error: $($_.Exception.Message)"
+            $logPath = Join-Path $PSScriptRoot "server-panel-error.log"
+            try {
+                $errorMsg | Out-File -FilePath $logPath -Encoding UTF8 -Append
+            } catch { }
+            try {
+                [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+            } catch { }
+        }
     })
     [System.Windows.Forms.Application]::Run($form)
 } catch {
-    $errorMsg = "서버 제어판을 시작하는 중 오류가 발생했습니다.`n`n오류 타입: $($_.Exception.GetType().FullName)`n오류 메시지: $($_.Exception.Message)`n`n상세 정보:`n$($_.Exception.ToString())"
+    # Release mutex on error
     try {
-        [System.Windows.Forms.MessageBox]::Show($errorMsg, "오류", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        if ($mutex) {
+            $mutex.ReleaseMutex()
+            $mutex.Dispose()
+        }
+    } catch { }
+    
+    $errorMsg = "Error occurred while starting server control panel.`n`nError Type: $($_.Exception.GetType().FullName)`nError Message: $($_.Exception.Message)`n`nStack Trace:`n$($_.Exception.StackTrace)"
+    $logPath = Join-Path $PSScriptRoot "server-panel-error.log"
+    try {
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        "[$timestamp] $errorMsg" | Out-File -FilePath $logPath -Encoding UTF8 -Append
     } catch {
-        # MessageBox도 실패하면 파일로 저장
+        # 로그 파일 쓰기 실패 시 무시
+    }
+    try {
+        [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    } catch {
+        # MessageBox도 실패하면 파일로 저장하고 창을 표시하여 사용자가 볼 수 있도록 함
         $logPath = Join-Path $PSScriptRoot "server-panel-error.log"
-        $errorMsg | Out-File -FilePath $logPath -Encoding UTF8
+        try {
+            $errorMsg | Out-File -FilePath $logPath -Encoding UTF8
+        } catch { }
+        # 오류 발생 시 창을 표시하여 사용자가 오류를 볼 수 있도록 함
+        $host.UI.RawUI.WindowTitle = "Server Control Panel Error"
         Write-Host $errorMsg -ForegroundColor Red
         Write-Host "`n오류 로그가 저장되었습니다: $logPath" -ForegroundColor Yellow
-        Read-Host "Press Enter to exit"
+        Write-Host "`n아무 키나 누르면 종료됩니다..." -ForegroundColor Yellow
+        $null = $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     }
     exit 1
 }

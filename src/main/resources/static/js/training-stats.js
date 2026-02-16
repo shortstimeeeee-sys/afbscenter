@@ -63,13 +63,14 @@ async function loadAllStats() {
     }
 }
 
-// 전체 요약 통계
+// 전체 요약 통계 (병렬 로드)
 async function loadSummaryStats(startDate, endDate) {
     try {
-        const members = await App.api.get('/members');
-        const attendances = await App.api.get(`/attendance/checked-in?startDate=${startDate}&endDate=${endDate}`);
-        const trainingLogs = await App.api.get(`/training-logs?startDate=${startDate}&endDate=${endDate}`);
-        
+        const [members, attendances, trainingLogs] = await Promise.all([
+            App.api.get('/members'),
+            App.api.get(`/attendance/checked-in?startDate=${startDate}&endDate=${endDate}`),
+            App.api.get(`/training-logs?startDate=${startDate}&endDate=${endDate}`)
+        ]);
         document.getElementById('total-members').textContent = members.length;
         document.getElementById('total-attendance').textContent = attendances.length;
         document.getElementById('total-training-logs').textContent = trainingLogs.length;
@@ -82,25 +83,17 @@ async function loadSummaryStats(startDate, endDate) {
     }
 }
 
-// 등급별 평균 기록
+// 등급별 평균 기록 (회원/출석/랭킹 병렬 로드)
 async function loadGradeStats(startDate, endDate) {
     try {
-        const members = await App.api.get('/members');
-        const attendances = await App.api.get(`/attendance/checked-in?startDate=${startDate}&endDate=${endDate}`);
-        
-        // 훈련 기록 랭킹 API 호출 (회원별 최고 기록 포함)
         const days = Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24)) + 1;
-        const trainingRankingsParams = new URLSearchParams({
-            startDate: startDate,
-            endDate: endDate,
-            days: days
-        });
-        let trainingRankings = { swingSpeedRanking: [], ballSpeedRanking: [], pitchSpeedRanking: [] };
-        try {
-            trainingRankings = await App.api.get(`/training-logs/rankings?${trainingRankingsParams.toString()}`);
-        } catch (error) {
-            App.warn('훈련 기록 랭킹 API 호출 실패 (기본값 사용):', error);
-        }
+        const trainingRankingsParams = new URLSearchParams({ startDate: startDate, endDate: endDate, days: days });
+        const [members, attendances, trainingRankingsResp] = await Promise.all([
+            App.api.get('/members'),
+            App.api.get(`/attendance/checked-in?startDate=${startDate}&endDate=${endDate}`),
+            App.api.get(`/training-logs/rankings?${trainingRankingsParams.toString()}`).catch(function() { return { swingSpeedRanking: [], ballSpeedRanking: [], pitchSpeedRanking: [] }; })
+        ]);
+        let trainingRankings = trainingRankingsResp && trainingRankingsResp.swingSpeedRanking ? trainingRankingsResp : { swingSpeedRanking: [], ballSpeedRanking: [], pitchSpeedRanking: [] };
         
         // 회원별 최고 기록 맵 생성 (훈련 기록 기준)
         const memberTrainingRecords = new Map();
@@ -269,16 +262,16 @@ async function loadGradeStats(startDate, endDate) {
     }
 }
 
-// 등급별 배지 색상
+// 등급별 배지 색상 (common.css / members.js와 동일)
 function getGradeBadge(grade) {
     switch(grade) {
         case 'ELITE_ELEMENTARY': return 'elite-elementary';
         case 'ELITE_MIDDLE': return 'elite-middle';
         case 'ELITE_HIGH': return 'elite-high';
         case 'YOUTH': return 'youth';
-        case 'SOCIAL': return 'social';
+        case 'SOCIAL': return 'secondary';
         case 'OTHER': return 'other';
-        default: return 'social';
+        default: return 'info';
     }
 }
 
@@ -796,17 +789,17 @@ async function loadBranchStats() {
         const yeonsanCount = 0;           // 연산점은 아직 없음
         
         container.innerHTML = `
-            <div class="branch-stat-item">
+            <div class="branch-stat-item branch-stat-item--all">
                 <div class="branch-stat-label">📍 전체</div>
                 <div class="branch-stat-value">${totalMembers}</div>
                 <div class="branch-stat-unit">명</div>
             </div>
-            <div class="branch-stat-item">
+            <div class="branch-stat-item branch-stat-item--saha">
                 <div class="branch-stat-label">📍 사하점</div>
                 <div class="branch-stat-value">${sahaCount}</div>
                 <div class="branch-stat-unit">명</div>
             </div>
-            <div class="branch-stat-item">
+            <div class="branch-stat-item branch-stat-item--yeonsan">
                 <div class="branch-stat-label">📍 연산점</div>
                 <div class="branch-stat-value">${yeonsanCount}</div>
                 <div class="branch-stat-unit">명</div>
@@ -1050,13 +1043,17 @@ function renderTopRecordsFromLogs(containerId, members, unit) {
         const rank = index + 1;
         const rankClass = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : 'other';
         const value = typeof member.recordValue === 'number' ? member.recordValue.toFixed(1) : member.recordValue;
-        
+        const grade = member.grade || 'SOCIAL';
+        const gradeBadgeClass = getGradeBadge(grade);
+        const gradeText = App.MemberGrade ? App.MemberGrade.getText(grade) : grade;
+        const gradeHtml = `<span class="badge badge-${gradeBadgeClass}">${App.escapeHtml ? App.escapeHtml(gradeText) : gradeText}</span>`;
+
         return `
             <div class="top-record-item">
                 <div class="top-record-rank ${rankClass}">${rank}</div>
                 <div class="top-record-info">
-                    <div class="top-record-name">${member.name}</div>
-                    <div class="top-record-grade">${App.MemberGrade.getText(member.grade || 'SOCIAL')}</div>
+                    <div class="top-record-name">${App.escapeHtml ? App.escapeHtml(member.name) : member.name}</div>
+                    <div class="top-record-grade">${gradeHtml}</div>
                 </div>
                 <div class="top-record-value">${value} ${unit}</div>
             </div>

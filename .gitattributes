@@ -1,5 +1,5 @@
-# PowerShell 스크립트 파일 인코딩 고정 (UTF-8 with BOM)
-*.ps1 text eol=crlf working-tree-encoding=UTF-8-BOM
+# PowerShell 스크립트 (UTF-8 no BOM - Git 인코딩 오류 방지)
+*.ps1 text eol=crlf working-tree-encoding=UTF-8
 
 # VBScript 파일 인코딩 고정 (UTF-8)
 *.vbs text eol=crlf working-tree-encoding=UTF-8

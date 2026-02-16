@@ -1,8 +1,7 @@
 // 공지/메시지 페이지 JavaScript
 
 document.addEventListener('DOMContentLoaded', function() {
-    loadAnnouncements();
-    loadMessages();
+    Promise.all([loadAnnouncements(), loadMessages()]).catch(function() {});
 });
 
 async function loadAnnouncements() {

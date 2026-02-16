@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface BookingRepository extends JpaRepository<Booking, Long> {
@@ -18,6 +19,8 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     
     @Query("SELECT DISTINCT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.member.coach LEFT JOIN FETCH b.coach LEFT JOIN FETCH b.memberProduct mp LEFT JOIN FETCH mp.product LEFT JOIN FETCH mp.member WHERE b.startTime >= :start AND b.startTime <= :end ORDER BY b.startTime ASC")
     List<Booking> findByDateRange(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    long countByStartTimeBetween(LocalDateTime start, LocalDateTime end);
     
     // DISTINCT 제거: JOIN FETCH와 함께 사용 시 예상치 못한 결과 발생 가능. 대관 회차 표시를 위해 memberProduct/product/member 포함
     @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.member.coach LEFT JOIN FETCH b.coach LEFT JOIN FETCH b.memberProduct mp LEFT JOIN FETCH mp.product LEFT JOIN FETCH mp.member ORDER BY b.startTime DESC")
@@ -64,6 +67,14 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     @Query("SELECT COUNT(b) FROM Booking b WHERE b.memberProduct.id = :memberProductId AND (b.startTime < :startTime OR (b.startTime = :startTime AND b.id < :bookingId))")
     long countByMemberProductBeforeInOrder(@Param("memberProductId") Long memberProductId, @Param("startTime") LocalDateTime startTime, @Param("bookingId") Long bookingId);
 
+    /** 같은 이용권으로 예약된 건 중 id가 더 작은 건 수 (생성 순서). 횟수 조정 시 원본=7회차·복사본=8·9회차 구분용 */
+    @Query("SELECT COUNT(b) FROM Booking b WHERE b.memberProduct.id = :memberProductId AND b.id < :bookingId")
+    long countByMemberProductIdBefore(@Param("memberProductId") Long memberProductId, @Param("bookingId") Long bookingId);
+
+    /** 같은 이용권으로 예약된 건 중 이 예약보다 나중인 건 수. 예약 시점 잔여 = 현재 잔여 + 이 값 */
+    @Query("SELECT COUNT(b) FROM Booking b WHERE b.memberProduct.id = :memberProductId AND (b.startTime > :startTime OR (b.startTime = :startTime AND b.id > :bookingId))")
+    long countByMemberProductAfterInOrder(@Param("memberProductId") Long memberProductId, @Param("startTime") LocalDateTime startTime, @Param("bookingId") Long bookingId);
+
     /** 같은 이용권 + 같은 지점으로 예약된 건 중 이 예약보다 먼저 온 건 수. 대관 캘린더에서 지점별 회차 표시용 */
     @Query("SELECT COUNT(b) FROM Booking b WHERE b.memberProduct.id = :memberProductId AND b.branch = :branch AND (b.startTime < :startTime OR (b.startTime = :startTime AND b.id < :bookingId))")
     long countByMemberProductAndBranchBeforeInOrder(@Param("memberProductId") Long memberProductId, @Param("branch") com.afbscenter.model.Booking.Branch branch, @Param("startTime") LocalDateTime startTime, @Param("bookingId") Long bookingId);
@@ -78,4 +89,7 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 
     /** 비회원 예약 건수 (member_id가 null인 예약) */
     long countByMemberIsNull();
+
+    /** 같은 이용권 중 시각순 첫 예약 1건 (회차 표시: 첫 예약이 완료면 firstSession 보정용) */
+    Optional<Booking> findFirstByMemberProduct_IdOrderByStartTimeAscIdAsc(Long memberProductId);
 }

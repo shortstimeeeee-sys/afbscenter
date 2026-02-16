@@ -107,6 +107,23 @@ body.coaches-page .topbar {
 .coaches-page .table td .branch-label--yeonsan { color: #DAA520; }
 .coaches-page .table td .branch-label--rental { color: #9B59B6; }
 
+/* 통계 클릭 모달: 코치 목록 고유색 (이름·담당 종목·배정 지점) */
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-item { font-weight: 500; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--baseball { color: #6E7AE8; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--youth { color: #84cc16; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--training { color: #2ECC71; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--pilates { color: #5DADE2; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--rental { color: #9B59B6; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--baseball { border-left: 4px solid #6E7AE8; background: rgba(94, 106, 210, 0.1); font-weight: 500; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--pilates { border-left: 4px solid #5DADE2; background: rgba(52, 152, 219, 0.1); font-weight: 500; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--training { border-left: 4px solid #2ECC71; background: rgba(46, 204, 113, 0.1); font-weight: 500; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--rental { border-left: 4px solid #9B59B6; background: rgba(155, 89, 182, 0.1); font-weight: 500; }
+#stats-coaches-modal .stats-coaches-modal-table .table td .branch-label { font-weight: 500; }
+#stats-coaches-modal .stats-coaches-modal-table .table td .branch-label--saha { color: #1E8449; }
+#stats-coaches-modal .stats-coaches-modal-table .table td .branch-label--yeonsan { color: #DAA520; }
+#stats-coaches-modal .stats-coaches-modal-table .table td .branch-label--rental { color: #9B59B6; }
+#stats-coaches-modal .stats-coach-row:hover { background-color: var(--bg-hover); }
+
 /* 코치 목록 테이블 스크롤바 */
 .coaches-page .table-container {
     max-height: 600px;

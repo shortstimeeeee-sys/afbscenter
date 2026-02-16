@@ -1,5 +1,6 @@
 package com.afbscenter.model;
 
+import com.afbscenter.model.converter.DayOfWeekIntegerConverter;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Max;
@@ -34,11 +35,12 @@ public class FacilitySlot {
     @JsonIgnore
     private Facility facility;
 
-    /** 요일 (1=월요일 ~ 7=일요일, java.time.DayOfWeek과 동일) */
+    /** 요일 (1=월요일 ~ 7=일요일, java.time.DayOfWeek과 동일). DB는 varchar로 저장(기존 MONDAY 등 호환) */
     @NotNull
     @Min(1)
     @Max(7)
-    @Column(name = "day_of_week", nullable = false)
+    @Convert(converter = DayOfWeekIntegerConverter.class)
+    @Column(name = "day_of_week", nullable = false, columnDefinition = "varchar(20)")
     private Integer dayOfWeek;
 
     @Column(name = "start_time")

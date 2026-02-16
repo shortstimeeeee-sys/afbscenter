@@ -3,13 +3,150 @@
 document.addEventListener('DOMContentLoaded', function() {
     // 전체 체크인 / 이용중 기록 리셋 버튼은 관리자만 표시
     var bulkBtn = document.getElementById('bulk-checkin-btn');
+    var bulkBtnToday = document.getElementById('bulk-checkin-btn-today');
     var resetBtn = document.getElementById('reset-incomplete-attendances-btn');
     if (bulkBtn) bulkBtn.style.display = (App.currentRole === 'ADMIN') ? '' : 'none';
+    if (bulkBtnToday) bulkBtnToday.style.display = (App.currentRole === 'ADMIN') ? '' : 'none';
     if (resetBtn) resetBtn.style.display = (App.currentRole === 'ADMIN') ? '' : 'none';
+    loadCoachesIntoFilters();
     loadTodayBookings();
     loadAttendanceRecords();
     loadUncheckedBookings();
 });
+
+/** 코치 목록 로드 후 세 구역 필터에 채우기 */
+async function loadCoachesIntoFilters() {
+    try {
+        const coaches = await App.api.get('/coaches');
+        const list = Array.isArray(coaches) ? coaches : [];
+        const optionHtml = list.map(c => `<option value="${c.id || ''}">${App.escapeHtml(c.name || '-')}</option>`).join('');
+        ['unchecked-coach-filter', 'today-coach-filter', 'attendance-coach-filter'].forEach(id => {
+            const sel = document.getElementById(id);
+            if (sel) {
+                const current = sel.value;
+                sel.innerHTML = '<option value="">전체</option>' + optionHtml;
+                if (current) sel.value = current;
+            }
+        });
+    } catch (e) {
+        App.err('코치 목록 로드 실패:', e);
+    }
+}
+
+/** 시설명으로 지점 고유색용 클래스 반환 (다른 페이지와 동일: 사하점/연산점) */
+function getAttendanceFacilityBranchClass(facilityName) {
+    if (!facilityName || typeof facilityName !== 'string') return '';
+    const n = facilityName.trim();
+    if (n.indexOf('사하') !== -1) return 'branch-label--saha';
+    if (n.indexOf('연산') !== -1) return 'branch-label--yeonsan';
+    if (n === '대관' || n.indexOf('대관') !== -1) return 'branch-label--rental';
+    return '';
+}
+
+/** 레슨 카테고리 배지 클래스 (다른 페이지와 동일) */
+function getAttendanceLessonCategoryBadge(category, purpose) {
+    if (purpose === 'RENTAL') return 'rental';
+    return (App.LessonCategory && App.LessonCategory.getBadge) ? App.LessonCategory.getBadge(category) : 'secondary';
+}
+
+/** 담당 코치 고유색 (App.CoachColors 사용) */
+function getAttendanceCoachColorStyle(coach) {
+    if (!coach) return '';
+    const color = (App.CoachColors && typeof App.CoachColors.getColor === 'function') ? App.CoachColors.getColor(coach) : null;
+    return color ? 'color:' + color + ';font-weight:500;' : '';
+}
+
+/** 회원 셀 HTML (회원이면 클릭 시 모달, 비회원이면 텍스트만) */
+function buildMemberCellHtml(memberId, memberNameDisplay) {
+    if (memberId != null && memberId !== '') {
+        const id = typeof memberId === 'number' ? memberId : parseInt(memberId, 10);
+        if (!isNaN(id)) {
+            return '<a href="javascript:void(0)" class="member-name-link" data-member-id="' + id + '" onclick="openMemberInfoModal(' + id + '); return false;">' + App.escapeHtml(memberNameDisplay || '회원') + '</a>';
+        }
+    }
+    return App.escapeHtml(memberNameDisplay || '-');
+}
+
+/** 회원 이름 클릭 시 회원 이용권/코치 정보 모달 표시 */
+async function openMemberInfoModal(memberId) {
+    const contentEl = document.getElementById('member-info-content');
+    if (!contentEl) return;
+    contentEl.innerHTML = '<p class="text-muted">불러오는 중...</p>';
+    if (typeof App.Modal !== 'undefined' && App.Modal.open) App.Modal.open('member-info-modal');
+    try {
+        const member = await App.api.get('/members/' + memberId);
+        if (!member) {
+            contentEl.innerHTML = '<p class="text-muted">회원 정보를 찾을 수 없습니다.</p>';
+            return;
+        }
+        const coachName = (member.coach && member.coach.name) ? member.coach.name : '-';
+        const products = member.memberProducts || [];
+        const getStatusText = function(s) {
+            const map = { 'ACTIVE': '이용중', 'EXPIRED': '만료', 'SUSPENDED': '보류', 'USED_UP': '소진' };
+            return map[s] || s;
+        };
+        const rows = products.map(function(mp) {
+            const p = mp.product || {};
+            const coach = (mp.coach && mp.coach.name) ? mp.coach.name : '-';
+            const status = getStatusText(mp.status);
+            const purchaseDate = mp.purchaseDate ? App.formatDate(mp.purchaseDate) : '-';
+            const expiryDate = mp.expiryDate ? App.formatDate(mp.expiryDate) : '-';
+            const remain = (mp.remainingCount != null && mp.totalCount != null) ? mp.remainingCount + ' / ' + mp.totalCount : '-';
+            return '<tr><td>' + App.escapeHtml(p.name || '-') + '</td><td>' + status + '</td><td>' + App.escapeHtml(coach) + '</td><td>' + purchaseDate + '</td><td>' + expiryDate + '</td><td>' + remain + '</td></tr>';
+        }).join('');
+        contentEl.innerHTML =
+            '<div class="member-info-section">' +
+            '<div class="detail-item"><strong>회원명</strong><span>' + App.escapeHtml(member.name || '-') + '</span></div>' +
+            '<div class="detail-item"><strong>회원번호</strong><span>' + App.escapeHtml(member.memberNumber || '-') + '</span></div>' +
+            '<div class="detail-item"><strong>담당 코치</strong><span>' + App.escapeHtml(coachName) + '</span></div>' +
+            '</div>' +
+            '<h3 class="member-info-subtitle">이용권 목록</h3>' +
+            '<div class="member-info-table-wrap"><table class="table member-info-table">' +
+            '<thead><tr><th>상품명</th><th>상태</th><th>지정 코치</th><th>구매일</th><th>만료일</th><th>잔여</th></tr></thead>' +
+            '<tbody>' + (rows || '<tr><td colspan="6">이용권이 없습니다.</td></tr>') + '</tbody></table></div>';
+    } catch (err) {
+        App.err('회원 정보 조회 실패:', err);
+        contentEl.innerHTML = '<p class="text-danger">회원 정보를 불러오지 못했습니다.</p>';
+    }
+}
+
+/** 예약 목록 전체 (레슨 카테고리 필터용) */
+let _todayBookingsAll = [];
+
+function getTodayBookingCategoryKey(booking) {
+    if (!booking) return null;
+    if (booking.purpose === 'RENTAL') return 'RENTAL';
+    if (booking.purpose === 'LESSON' && booking.lessonCategory) return booking.lessonCategory;
+    return null;
+}
+
+function getBranchFromBooking(booking) {
+    if (!booking || !booking.facility) return '';
+    return (booking.facility.name || booking.facility.branch || '').trim();
+}
+
+function getCoachIdFromBooking(booking) {
+    if (!booking || !booking.coach) return null;
+    const id = booking.coach.id;
+    return id != null ? Number(id) : null;
+}
+
+function filterTodayDisplay() {
+    const catSelect = document.getElementById('today-lesson-category-filter');
+    const branchSelect = document.getElementById('today-branch-filter');
+    const coachSelect = document.getElementById('today-coach-filter');
+    const catValue = catSelect ? catSelect.value : '';
+    const branchValue = branchSelect ? branchSelect.value : '';
+    const coachValue = coachSelect ? coachSelect.value : '';
+    let list = _todayBookingsAll || [];
+    if (catValue) list = list.filter(b => getTodayBookingCategoryKey(b) === catValue);
+    if (branchValue) list = list.filter(b => getBranchFromBooking(b) === branchValue);
+    if (coachValue) {
+        const coachId = parseInt(coachValue, 10);
+        list = list.filter(b => getCoachIdFromBooking(b) === coachId);
+    }
+    renderTodayBookings(list);
+}
 
 async function loadTodayBookings() {
     // 오늘 날짜로 고정
@@ -19,12 +156,8 @@ async function loadTodayBookings() {
     try {
         const bookings = await App.api.get(`/bookings?date=${date}`);
         App.log('예약 목록 조회 결과:', bookings?.length || 0, '건', bookings);
-        // 대관 예약 확인
-        const rentalBookings = bookings?.filter(b => b.purpose === 'RENTAL') || [];
-        if (rentalBookings.length > 0) {
-            App.log('대관 예약:', rentalBookings.length, '건', rentalBookings);
-        }
-        renderTodayBookings(bookings);
+        _todayBookingsAll = Array.isArray(bookings) ? bookings : [];
+        filterTodayDisplay();
     } catch (error) {
         App.err('오늘 예약 로드 실패:', error);
         App.showNotification('예약 목록을 불러오는데 실패했습니다.', 'danger');
@@ -35,7 +168,7 @@ function renderTodayBookings(bookings) {
     const tbody = document.getElementById('today-bookings-body');
     
     if (!bookings || bookings.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">예약이 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">예약이 없습니다.</td></tr>';
         return;
     }
     
@@ -73,13 +206,13 @@ function renderTodayBookings(bookings) {
     
     tbody.innerHTML = uniqueBookings.map(booking => {
         if (!booking.startTime) {
-            return '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">예약 시간 정보 없음</td></tr>';
+            return '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">예약 시간 정보 없음</td></tr>';
         }
         
         const startTime = new Date(booking.startTime);
         if (isNaN(startTime.getTime())) {
             App.warn('유효하지 않은 예약 시간:', booking.startTime);
-            return '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">예약 시간 오류</td></tr>';
+            return '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">예약 시간 오류</td></tr>';
         }
         
         const bookingDate = new Date(startTime);
@@ -109,20 +242,26 @@ function renderTodayBookings(bookings) {
             memberName = booking.nonMemberPhone;
         }
         
-        // 레슨 카테고리 추출
-        let lessonCategoryDisplay = '-';
+        // 레슨 카테고리 (배지 + 고유색)
+        let lessonCategoryHtml = '-';
         if (booking.purpose === 'LESSON' && booking.lessonCategory) {
-            const lessonCategory = booking.lessonCategory ? (App.LessonCategory ? App.LessonCategory.getText(booking.lessonCategory) : booking.lessonCategory) : '-';
-            lessonCategoryDisplay = lessonCategory;
+            const text = App.LessonCategory ? App.LessonCategory.getText(booking.lessonCategory) : booking.lessonCategory;
+            const badge = getAttendanceLessonCategoryBadge(booking.lessonCategory, 'LESSON');
+            lessonCategoryHtml = '<span class="badge badge-' + badge + '">' + App.escapeHtml(text) + '</span>';
         } else if (booking.purpose === 'RENTAL') {
-            lessonCategoryDisplay = '대관';
+            lessonCategoryHtml = '<span class="badge badge-rental">대관</span>';
         }
         
-        // 상태 추출
-        const status = booking.status || 'PENDING';
+        const coachStyle = getAttendanceCoachColorStyle(booking.coach);
+        const coachNameRaw = (booking.coach && booking.coach.name) ? booking.coach.name : '';
+        const coachHtml = coachNameRaw ? '<span style="' + coachStyle + '">' + App.escapeHtml(coachNameRaw) + '</span>' : '-';
         
-        // 체크인 버튼: 상태가 CONFIRMED 또는 COMPLETED이고, 오늘 날짜이거나 과거 날짜인 경우 표시
-        // 미래 날짜는 체크인 불가
+        const branchClass = getAttendanceFacilityBranchClass(facilityName);
+        const facilityHtml = branchClass ? '<span class="branch-label ' + branchClass + '">' + App.escapeHtml(facilityName) + '</span>' : App.escapeHtml(facilityName);
+        
+        const memberHtml = buildMemberCellHtml(booking.member ? booking.member.id : null, memberName);
+        
+        const status = booking.status || 'PENDING';
         const canCheckin = (status === 'CONFIRMED' || status === 'COMPLETED');
         const showCheckinButton = canCheckin && (isToday || isPast);
         
@@ -130,9 +269,10 @@ function renderTodayBookings(bookings) {
             <tr>
                 <td>${dateStr}</td>
                 <td>${timeStr}</td>
-                <td>${facilityName}</td>
-                <td>${memberName}</td>
-                <td>${lessonCategoryDisplay}</td>
+                <td>${memberHtml}</td>
+                <td>${coachHtml}</td>
+                <td>${lessonCategoryHtml}</td>
+                <td>${facilityHtml}</td>
                 <td>${booking.participants || 1}명</td>
                 <td><span class="badge badge-${getBookingStatusBadge(status)}">${getBookingStatusText(status)}</span></td>
                 <td>
@@ -460,6 +600,37 @@ function showBulkDeductMessage(deductedProducts, successCount, failCount = 0) {
     }
 }
 
+/** 출석 기록 전체 (레슨 카테고리 필터용) */
+let _attendanceRecordsAll = [];
+
+function getAttendanceRecordCategoryKey(record) {
+    if (!record) return null;
+    if (record.purpose === 'RENTAL') return 'RENTAL';
+    if (record.lessonCategory) return record.lessonCategory;
+    return null;
+}
+
+function getBranchFromAttendanceRecord(record) {
+    return (record.facilityName || '').trim();
+}
+
+function filterAttendanceDisplay() {
+    const catSelect = document.getElementById('attendance-lesson-category-filter');
+    const branchSelect = document.getElementById('attendance-branch-filter');
+    const coachSelect = document.getElementById('attendance-coach-filter');
+    const catValue = catSelect ? catSelect.value : '';
+    const branchValue = branchSelect ? branchSelect.value : '';
+    const coachValue = coachSelect ? coachSelect.value : '';
+    let list = _attendanceRecordsAll || [];
+    if (catValue) list = list.filter(r => getAttendanceRecordCategoryKey(r) === catValue);
+    if (branchValue) list = list.filter(r => getBranchFromAttendanceRecord(r) === branchValue);
+    if (coachValue) {
+        const coachId = parseInt(coachValue, 10);
+        list = list.filter(r => (r.coachId != null ? Number(r.coachId) : null) === coachId);
+    }
+    renderAttendanceRecords(list);
+}
+
 async function loadAttendanceRecords() {
     const startDate = document.getElementById('filter-date-start').value;
     const endDate = document.getElementById('filter-date-end').value;
@@ -474,7 +645,8 @@ async function loadAttendanceRecords() {
         const url = queryString ? `/attendance?${queryString}` : '/attendance';
         
         const records = await App.api.get(url);
-        renderAttendanceRecords(records);
+        _attendanceRecordsAll = Array.isArray(records) ? records : [];
+        filterAttendanceDisplay();
     } catch (error) {
         App.err('출석 기록 로드 실패:', error);
     }
@@ -513,14 +685,26 @@ function renderAttendanceRecords(records) {
         const isInUse = checkIn && !checkOut;
         const statusText = isInUse ? '이용중' : (checkOut ? '완료' : '-');
         const statusBadge = isInUse ? 'warning' : (checkOut ? 'success' : 'secondary');
-        
+        let lessonCategoryHtml = '-';
+        if (record.purpose === 'RENTAL') {
+            lessonCategoryHtml = '<span class="badge badge-rental">대관</span>';
+        } else if (record.lessonCategory && App.LessonCategory) {
+            const text = App.LessonCategory.getText(record.lessonCategory);
+            const badge = getAttendanceLessonCategoryBadge(record.lessonCategory, 'LESSON');
+            lessonCategoryHtml = '<span class="badge badge-' + badge + '">' + App.escapeHtml(text) + '</span>';
+        }
+        const coachObj = record.coachId != null ? { id: record.coachId, name: record.coachName } : null;
+        const coachStyle = getAttendanceCoachColorStyle(coachObj);
+        const coachHtml = record.coachName ? '<span style="' + coachStyle + '">' + App.escapeHtml(record.coachName) + '</span>' : '-';
+        const memberHtml = buildMemberCellHtml(record.memberId, record.memberName);
+        const checkInStr = checkIn ? checkIn.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-';
         return `
             <tr>
                 <td>${App.formatDate(record.date)}</td>
-                <td>${record.memberName}</td>
-                <td>${record.facilityName}</td>
-                <td>${checkIn ? checkIn.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
-                <td>${checkOut ? checkOut.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+                <td>${memberHtml}</td>
+                <td>${coachHtml}</td>
+                <td>${lessonCategoryHtml}</td>
+                <td>${checkInStr}</td>
                 <td>${duration}</td>
                 <td><span class="badge badge-${statusBadge}">${statusText}</span></td>
                 <td>
@@ -604,23 +788,52 @@ async function resetIncompleteAttendances() {
 // 전체 체크인 모달용 저장 (구역별 선택 후 실행 시 사용)
 let _bulkCheckinUnchecked = [];
 let _bulkCheckinToday = [];
+/** 체크인 미처리 전체 목록 (레슨 카테고리 필터용) */
+let _uncheckedBookingsAll = [];
+
+/** 예약의 레슨 카테고리 키 반환 (필터 비교용: BASEBALL, YOUTH_BASEBALL, TRAINING, PILATES, RENTAL) */
+function getUncheckedBookingCategoryKey(booking) {
+    if (!booking) return null;
+    if (booking.purpose === 'RENTAL') return 'RENTAL';
+    if (booking.purpose === 'LESSON' && booking.lessonCategory) return booking.lessonCategory;
+    return null;
+}
+
+/** 시설+코치+레슨 카테고리 필터 적용 후 테이블 다시 그리기 */
+function filterUncheckedDisplay() {
+    var catSelect = document.getElementById('unchecked-lesson-category-filter');
+    var branchSelect = document.getElementById('unchecked-branch-filter');
+    var coachSelect = document.getElementById('unchecked-coach-filter');
+    var catValue = catSelect ? catSelect.value : '';
+    var branchValue = branchSelect ? branchSelect.value : '';
+    var coachValue = coachSelect ? coachSelect.value : '';
+    var list = _uncheckedBookingsAll || [];
+    if (catValue) list = list.filter(function(b) { return getUncheckedBookingCategoryKey(b) === catValue; });
+    if (branchValue) list = list.filter(function(b) { return getBranchFromBooking(b) === branchValue; });
+    if (coachValue) {
+        var coachId = parseInt(coachValue, 10);
+        list = list.filter(function(b) { return getCoachIdFromBooking(b) === coachId; });
+    }
+    renderUncheckedBookings(list);
+}
 
 // 체크인 미처리 예약 목록 로드
 async function loadUncheckedBookings() {
     try {
         const bookings = await App.api.get('/attendance/unchecked-bookings');
-        renderUncheckedBookings(bookings);
+        _uncheckedBookingsAll = Array.isArray(bookings) ? bookings : [];
+        filterUncheckedDisplay();
     } catch (error) {
         App.err('체크인 미처리 예약 로드 실패:', error);
         const tbody = document.getElementById('unchecked-bookings-body');
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">로드 실패</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">로드 실패</td></tr>';
         }
     }
 }
 
-// 전체 체크인 범위 선택 모달 열기
-async function openBulkCheckinModal() {
+// 전체 체크인 범위 선택 모달 열기 (origin: 'unchecked' | 'today' - 어느 버튼으로 열었는지)
+async function openBulkCheckinModal(origin) {
     try {
         const todayStr = new Date().toISOString().split('T')[0];
         const [unchecked, todayBookings] = await Promise.all([
@@ -647,8 +860,19 @@ async function openBulkCheckinModal() {
         document.querySelectorAll('.bulk-checkin-count[data-scope="unchecked"]').forEach(el => { el.textContent = countUnchecked + '건'; });
         document.querySelectorAll('.bulk-checkin-count[data-scope="today"]').forEach(el => { el.textContent = countToday + '건'; });
         document.querySelectorAll('.bulk-checkin-count[data-scope="all"]').forEach(el => { el.textContent = countAll + '건'; });
-        const firstWithCount = countUnchecked > 0 ? 'unchecked' : (countToday > 0 ? 'today' : 'all');
-        const radio = document.querySelector(`input[name="bulk-checkin-scope"][value="${firstWithCount}"]`);
+        // 열기 출처에 따라 라디오 옵션 순서: 클릭한 구역이 1번, 나머지는 고정 순서
+        const order = (origin === 'today') ? ['today', 'unchecked', 'all'] : (origin === 'unchecked' ? ['unchecked', 'today', 'all'] : ['unchecked', 'today', 'all']);
+        const container = document.querySelector('.bulk-checkin-options');
+        if (container) {
+            const options = Array.from(container.querySelectorAll('.bulk-checkin-option'));
+            const byScope = {};
+            options.forEach(function (el) { byScope[el.getAttribute('data-scope')] = el; });
+            order.forEach(function (scope) {
+                if (byScope[scope]) container.appendChild(byScope[scope]);
+            });
+        }
+        const defaultScope = order[0];
+        const radio = document.querySelector('input[name="bulk-checkin-scope"][value="' + defaultScope + '"]');
         if (radio) radio.checked = true;
         if (countUnchecked === 0 && countToday === 0) {
             App.showNotification('체크인할 예약이 없습니다.', 'info');
@@ -747,7 +971,7 @@ function renderUncheckedBookings(bookings) {
     const tbody = document.getElementById('unchecked-bookings-body');
     
     if (!bookings || bookings.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">체크인 미처리 예약이 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">체크인 미처리 예약이 없습니다.</td></tr>';
         return;
     }
     
@@ -757,13 +981,13 @@ function renderUncheckedBookings(bookings) {
     
     tbody.innerHTML = bookings.map(booking => {
         if (!booking.startTime) {
-            return '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">예약 시간 정보 없음</td></tr>';
+            return '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">예약 시간 정보 없음</td></tr>';
         }
         
         const startTime = new Date(booking.startTime);
         if (isNaN(startTime.getTime())) {
             App.warn('유효하지 않은 예약 시간:', booking.startTime);
-            return '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">예약 시간 오류</td></tr>';
+            return '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">예약 시간 오류</td></tr>';
         }
         
         const bookingDate = new Date(startTime);
@@ -810,21 +1034,32 @@ function renderUncheckedBookings(bookings) {
         // }
         
         // 레슨 카테고리 추출
-        let lessonCategoryDisplay = '-';
+        let lessonCategoryHtml = '-';
         if (booking.purpose === 'LESSON' && booking.lessonCategory) {
-            const lessonCategory = booking.lessonCategory ? (App.LessonCategory ? App.LessonCategory.getText(booking.lessonCategory) : booking.lessonCategory) : '-';
-            lessonCategoryDisplay = lessonCategory;
+            const text = App.LessonCategory ? App.LessonCategory.getText(booking.lessonCategory) : booking.lessonCategory;
+            const badge = getAttendanceLessonCategoryBadge(booking.lessonCategory, 'LESSON');
+            lessonCategoryHtml = '<span class="badge badge-' + badge + '">' + App.escapeHtml(text) + '</span>';
         } else if (booking.purpose === 'RENTAL') {
-            lessonCategoryDisplay = '대관';
+            lessonCategoryHtml = '<span class="badge badge-rental">대관</span>';
         }
+        
+        const coachStyle = getAttendanceCoachColorStyle(booking.coach);
+        const coachNameRaw = (booking.coach && booking.coach.name) ? booking.coach.name : '';
+        const coachHtml = coachNameRaw ? '<span style="' + coachStyle + '">' + App.escapeHtml(coachNameRaw) + '</span>' : '-';
+        
+        const branchClass = getAttendanceFacilityBranchClass(facilityName);
+        const facilityHtml = branchClass ? '<span class="branch-label ' + branchClass + '">' + App.escapeHtml(facilityName) + '</span>' : App.escapeHtml(facilityName);
+        
+        const memberHtml = buildMemberCellHtml(booking.member ? booking.member.id : null, memberName);
         
         return `
             <tr>
                 <td>${dateStr}</td>
                 <td>${timeStr}</td>
-                <td>${facilityName}</td>
-                <td>${memberName}</td>
-                <td>${lessonCategoryDisplay}</td>
+                <td>${memberHtml}</td>
+                <td>${coachHtml}</td>
+                <td>${lessonCategoryHtml}</td>
+                <td>${facilityHtml}</td>
                 <td>${booking.participants || 1}명</td>
                 <td><span class="badge badge-${getBookingStatusBadge(status)}">${getBookingStatusText(status)}</span></td>
                 <td>

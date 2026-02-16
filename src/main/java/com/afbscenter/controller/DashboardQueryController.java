@@ -34,6 +34,9 @@ import java.util.stream.Collectors;
 public class DashboardQueryController {
 
     private static final Logger logger = LoggerFactory.getLogger(DashboardQueryController.class);
+    private static final long EXPIRING_MEMBERS_CACHE_TTL_MS = 60_000L;
+    private static volatile Map<String, Object> expiringMembersCache = null;
+    private static volatile long expiringMembersCacheAt = 0L;
 
     private final BookingRepository bookingRepository;
     private final AttendanceRepository attendanceRepository;
@@ -60,6 +63,10 @@ public class DashboardQueryController {
     @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getExpiringMembers() {
         try {
+            long now = System.currentTimeMillis();
+            if (expiringMembersCache != null && (now - expiringMembersCacheAt) < EXPIRING_MEMBERS_CACHE_TTL_MS) {
+                return ResponseEntity.ok(expiringMembersCache);
+            }
             LocalDate today = LocalDate.now();
             LocalDate expiryThreshold = today.plusDays(7);
             List<com.afbscenter.model.Member> allMembers = memberRepository.findAll();
@@ -249,6 +256,8 @@ public class DashboardQueryController {
             result.put("expiring", expiringMembersList);
             result.put("expired", expiredMembersList);
             result.put("noProduct", noProductMembersList);
+            expiringMembersCache = result;
+            expiringMembersCacheAt = System.currentTimeMillis();
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             logger.error("만료 임박 및 종료 회원 목록 조회 중 오류 발생", e);

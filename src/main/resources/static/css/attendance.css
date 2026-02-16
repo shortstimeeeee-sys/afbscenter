@@ -7,3 +7,60 @@ body.attendance-page .main-content {
 }
 body.attendance-page .topbar { margin-top: 0 !important; }
 body.attendance-page .content-area > *:first-child { margin-top: 0 !important; }
+
+/* 체크인 미처리 현황 테이블: 행마다 고유색(줄무늬) */
+#unchecked-bookings-table.table--unchecked-striped tbody tr:nth-child(even) {
+    background-color: var(--bg-tertiary, rgba(255, 255, 255, 0.04));
+}
+#unchecked-bookings-table.table--unchecked-striped tbody tr:nth-child(odd) {
+    background-color: transparent;
+}
+#unchecked-bookings-table.table--unchecked-striped tbody tr:hover {
+    background-color: var(--bg-hover, rgba(255, 255, 255, 0.06)) !important;
+}
+
+/* 예약 목록 테이블: 행마다 홀짝 줄무늬 */
+#today-bookings-table.table--today-striped tbody tr:nth-child(even) {
+    background-color: var(--bg-tertiary, rgba(255, 255, 255, 0.04));
+}
+#today-bookings-table.table--today-striped tbody tr:nth-child(odd) {
+    background-color: transparent;
+}
+#today-bookings-table.table--today-striped tbody tr:hover {
+    background-color: var(--bg-hover, rgba(255, 255, 255, 0.06)) !important;
+}
+
+/* 출석 기록 테이블: 행마다 홀짝 줄무늬 */
+#attendance-records-table.table--attendance-striped tbody tr:nth-child(even) {
+    background-color: var(--bg-tertiary, rgba(255, 255, 255, 0.04));
+}
+#attendance-records-table.table--attendance-striped tbody tr:nth-child(odd) {
+    background-color: transparent;
+}
+#attendance-records-table.table--attendance-striped tbody tr:hover {
+    background-color: var(--bg-hover, rgba(255, 255, 255, 0.06)) !important;
+}
+
+/* 출석 페이지 회원명 링크 (클릭 시 회원 이용권/코치 정보 모달) */
+body.attendance-page .member-name-link {
+    color: var(--accent-primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+body.attendance-page .member-name-link:hover {
+    text-decoration: underline;
+}
+
+/* 시설(지점) 고유색 - 다른 페이지와 동일 */
+body.attendance-page .branch-label--saha {
+    color: #1E8449;
+    font-weight: 500;
+}
+body.attendance-page .branch-label--yeonsan {
+    color: #DAA520;
+    font-weight: 500;
+}
+body.attendance-page .branch-label--rental {
+    color: var(--text-secondary);
+    font-weight: 500;
+}

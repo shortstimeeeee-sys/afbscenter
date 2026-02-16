@@ -6,7 +6,8 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>사하점 - 트레이닝+필라테스 예약 - AFBS 센터</title>
     <link rel="stylesheet" href="/css/common.css">
-    <link rel="stylesheet" href="/css/bookings.css">
+    <link rel="stylesheet" href="/css/bookings.css?v=filter-stats-border">
+    <style>#filter-stats-card{border:1px solid #4A5568!important;border-radius:12px;}</style>
 </head>
 <body class="booking-page">
     <div class="app-container">
@@ -81,7 +82,7 @@
                 <div id="coach-legend" class="coach-legend"></div>
                 
                 <!-- 필터 (한 행: 왼쪽 필터 컨트롤, 오른쪽 예약 통계) -->
-                <div class="card">
+                <div id="filter-stats-card" class="card filter-stats-card" style="border: 1px solid #4A5568 !important; border-radius: 12px;">
                     <div class="filter-row">
                         <div class="filter-row-left">
                             <div class="filter-group">

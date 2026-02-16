@@ -204,8 +204,13 @@ async function loadDashboardData() {
             return;
         }
 
-        // KPI 데이터 로드
-        const kpiData = await App.api.get('/dashboard/kpi');
+        // KPI / 일정 / 알림 / 공지 병렬 로드 (새로고침 딜레이 감소)
+        const [kpiData, schedule, alerts, announcements] = await Promise.all([
+            App.api.get('/dashboard/kpi'),
+            exportId ? null : App.api.get('/dashboard/today-schedule').catch(function(e) { App.err('오늘 일정 로드 실패:', e); return []; }),
+            exportId ? null : App.api.get('/dashboard/alerts').catch(function(e) { App.err('미처리 알림 로드 실패:', e); return []; }),
+            exportId ? null : App.api.get('/dashboard/announcements').catch(function(e) { App.err('활성 공지사항 로드 실패:', e); return []; })
+        ]);
         App.log('KPI 데이터 로드 성공:', kpiData);
         
         // DOM 요소 존재 확인 후 업데이트
@@ -339,28 +344,11 @@ async function loadDashboardData() {
             }
         }
         
-        // export 모드가 아닐 때만 오늘 일정·알림·공지 추가 로드 (KPI는 위에서 이미 처리)
+        // export 모드가 아닐 때만 일정·알림·공지 렌더 (위에서 병렬 로드됨)
         if (!exportId) {
-            try {
-                const schedule = await App.api.get('/dashboard/today-schedule');
-                renderTodaySchedule(schedule);
-            } catch (error) {
-                App.err('오늘 일정 로드 실패:', error);
-            }
-            try {
-                const alerts = await App.api.get('/dashboard/alerts');
-                renderPendingAlerts(alerts);
-            } catch (error) {
-                App.err('미처리 알림 로드 실패:', error);
-            }
-            try {
-                const announcements = await App.api.get('/dashboard/announcements');
-                renderActiveAnnouncements(announcements);
-            } catch (error) {
-                App.err('활성 공지사항 로드 실패:', error);
-            }
-        } else if (exportId === 'kpi-grid') {
-            // KPI만 보이는 export: 일정/알림/공지 스킵
+            if (schedule != null) renderTodaySchedule(schedule);
+            if (alerts != null) renderPendingAlerts(alerts);
+            if (announcements != null) renderActiveAnnouncements(announcements);
         }
         
         App.log('대시보드 데이터 로드 완료');
@@ -460,7 +448,15 @@ function openNonMemberBookingsModal(branch, branchLabel, startISO, endISO) {
             return;
         }
         var branchText = { SAHA: '사하점', YEONSAN: '연산점', RENTAL: '대관' };
-        var statusTextMap = { PENDING: '대기', CONFIRMED: '확정', CANCELLED: '취소', COMPLETED: '완료' };
+        var statusBadgeFn = (App.Status && App.Status.booking && App.Status.booking.getBadge) ? function(s) { return App.Status.booking.getBadge(s); } : function() { return 'info'; };
+        var statusTextFn = (App.Status && App.Status.booking && App.Status.booking.getText) ? function(s) { return App.Status.booking.getText(s); } : function(s) { return s; };
+        function coachCellHtml(coachName) {
+            if (!coachName || !String(coachName).trim()) return '';
+            var name = String(coachName).trim();
+            var color = (App.CoachColors && App.CoachColors.getColor) ? App.CoachColors.getColor({ name: name }) : null;
+            if (!color) color = 'var(--text-primary)';
+            return '<span class="coach-name" style="color:' + color + ';font-weight:600;">' + (App.escapeHtml ? App.escapeHtml(name) : name) + '</span>';
+        }
         list.forEach(function(b) {
             var startTime = b.startTime;
             var dateTimeStr = '-';
@@ -472,9 +468,13 @@ function openNonMemberBookingsModal(branch, branchLabel, startISO, endISO) {
             var br = (b.branch && branchText[b.branch]) ? branchText[b.branch] : (b.branch || '-');
             var name = b.nonMemberName || '-';
             var phone = b.nonMemberPhone || '-';
-            var coach = b.coachName || '-';
-            var status = (b.status && statusTextMap[b.status]) ? statusTextMap[b.status] : (b.status || '-');
-            tbody.insertAdjacentHTML('beforeend', '<tr><td>' + dateTimeStr + '</td><td>' + facilityName + '</td><td>' + br + '</td><td>' + name + '</td><td>' + phone + '</td><td>' + coach + '</td><td>' + status + '</td></tr>');
+            var coach = b.coachName || '';
+            var coachHtml = coach ? coachCellHtml(coach) : '';
+            var statusKey = (b.status || '').toUpperCase();
+            var badge = statusBadgeFn(statusKey);
+            var statusLabel = statusTextFn(statusKey);
+            var statusHtml = '<span class="badge badge-' + badge + '">' + (App.escapeHtml ? App.escapeHtml(statusLabel) : statusLabel) + '</span>';
+            tbody.insertAdjacentHTML('beforeend', '<tr><td>' + (App.escapeHtml ? App.escapeHtml(dateTimeStr) : dateTimeStr) + '</td><td class="cell-facility">' + (App.escapeHtml ? App.escapeHtml(facilityName) : facilityName) + '</td><td>' + (App.escapeHtml ? App.escapeHtml(br) : br) + '</td><td>' + (App.escapeHtml ? App.escapeHtml(name) : name) + '</td><td>' + (App.escapeHtml ? App.escapeHtml(phone) : phone) + '</td><td class="cell-coach">' + coachHtml + '</td><td class="cell-status">' + statusHtml + '</td></tr>');
         });
         tableWrap.style.display = 'block';
     }).catch(function(err) {
@@ -2057,6 +2057,20 @@ function switchMemberDetailTab(tab, member = null) {
     switch(tab) {
         case 'info':
             content.innerHTML = renderMemberDetailInfo(member);
+            break;
+        case 'timeline':
+            if (member?.id && typeof loadMemberTimeline === 'function') {
+                loadMemberTimeline(member.id);
+            } else if (member?.id) {
+                content.innerHTML = '<p style="color: var(--text-muted);">로딩 중...</p>';
+                App.api.get('/members/' + member.id + '/timeline').then(events => {
+                    content.innerHTML = typeof renderMemberTimelineContent === 'function' ? renderMemberTimelineContent(events) : '<pre>' + JSON.stringify(events, null, 2) + '</pre>';
+                }).catch(() => {
+                    content.innerHTML = '<p style="color: var(--text-muted);">회원 히스토리를 불러올 수 없습니다.</p>';
+                });
+            } else {
+                content.innerHTML = '<p style="color: var(--text-muted);">회원 정보를 불러올 수 없습니다.</p>';
+            }
             break;
         case 'products':
             if (member?.id) {

@@ -30,7 +30,23 @@ public interface MemberProductHistoryRepository extends JpaRepository<MemberProd
     
     @Query("SELECT h FROM MemberProductHistory h WHERE h.attendance.id = :attendanceId")
     List<MemberProductHistory> findAllByAttendanceId(@Param("attendanceId") Long attendanceId);
+
+    /** 출석에 연결된 DEDUCT 1건 (회차 계산용). 타입 지정으로 잘못된 히스토리 반환 방지 */
+    @Query("SELECT h FROM MemberProductHistory h WHERE h.attendance.id = :attendanceId AND h.type = 'DEDUCT'")
+    java.util.Optional<MemberProductHistory> findDeductByAttendanceId(@Param("attendanceId") Long attendanceId);
     
     @Query("SELECT h FROM MemberProductHistory h WHERE h.description LIKE :descriptionPattern")
     List<MemberProductHistory> findByDescriptionContaining(@Param("descriptionPattern") String descriptionPattern);
+
+    /** 같은 이용권의 DEDUCT 중 id <= historyId 인 건수 (해당 체크인이 몇 번째 사용인지 = 회차) */
+    @Query("SELECT COUNT(h) FROM MemberProductHistory h WHERE h.memberProduct.id = :memberProductId AND h.type = 'DEDUCT' AND h.id <= :historyId")
+    long countDeductByMemberProductIdAndIdLessThanEqual(@Param("memberProductId") Long memberProductId, @Param("historyId") Long historyId);
+
+    /** 같은 이용권의 DEDUCT 중 "출석→예약"이 (startTime, bookingId)보다 이전인 건수. 회차 = count+1 (예약 시각 순서 기준, 체크인 직후 7→1 방지) */
+    @Query("SELECT COUNT(h) FROM MemberProductHistory h INNER JOIN h.attendance a INNER JOIN a.booking b " +
+           "WHERE h.memberProduct.id = :memberProductId AND h.type = 'DEDUCT' " +
+           "AND (b.startTime < :startTime OR (b.startTime = :startTime AND b.id < :bookingId))")
+    long countDeductByMemberProductAndBookingBeforeInOrder(@Param("memberProductId") Long memberProductId,
+                                                           @Param("startTime") java.time.LocalDateTime startTime,
+                                                           @Param("bookingId") Long bookingId);
 }

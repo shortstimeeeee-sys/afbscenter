@@ -6,7 +6,8 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>연산점 - 야구(유소년) 예약 - AFBS 센터</title>
     <link rel="stylesheet" href="/css/common.css">
-    <link rel="stylesheet" href="/css/bookings.css">
+    <link rel="stylesheet" href="/css/bookings.css?v=filter-stats-border">
+    <style>#filter-stats-card{border:1px solid #4A5568!important;border-radius:12px;}</style>
 </head>
 <body class="booking-page">
     <div class="app-container">
@@ -69,7 +70,7 @@
                     <button class="btn btn-secondary" onclick="openBookingModal()" id="btn-booking-new">예약 등록</button>
                 </div>
                 <div id="coach-legend" class="coach-legend"></div>
-                <div class="card">
+                <div id="filter-stats-card" class="card filter-stats-card" style="border: 1px solid #4A5568 !important; border-radius: 12px;">
                     <div class="filter-row">
                         <div class="filter-row-left">
                             <div class="filter-group">

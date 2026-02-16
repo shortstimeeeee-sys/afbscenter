@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 
 @Repository
@@ -15,9 +16,14 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     
     @Query("SELECT a FROM Attendance a LEFT JOIN FETCH a.member LEFT JOIN FETCH a.facility WHERE a.date = :date")
     List<Attendance> findByDate(@Param("date") LocalDate date);
+
+    long countByDate(LocalDate date);
     
     @Query("SELECT a FROM Attendance a LEFT JOIN FETCH a.member LEFT JOIN FETCH a.facility WHERE a.date >= :start AND a.date <= :end")
     List<Attendance> findByDateRange(@Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    @Query("SELECT DISTINCT a FROM Attendance a LEFT JOIN FETCH a.member LEFT JOIN FETCH a.facility LEFT JOIN FETCH a.booking WHERE a.date >= :start AND a.date <= :end")
+    List<Attendance> findByDateRangeWithBooking(@Param("start") LocalDate start, @Param("end") LocalDate end);
     
     @Query("SELECT DISTINCT a FROM Attendance a LEFT JOIN FETCH a.member LEFT JOIN FETCH a.facility")
     List<Attendance> findAllWithMemberAndFacility();
@@ -49,4 +55,12 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     // 특정 예약 ID로 출석 기록 조회 (booking과 memberProduct 함께 로드)
     @Query("SELECT a FROM Attendance a LEFT JOIN FETCH a.booking b LEFT JOIN FETCH b.memberProduct mp LEFT JOIN FETCH mp.product WHERE a.booking.id = :bookingId")
     java.util.Optional<Attendance> findByBookingId(@Param("bookingId") Long bookingId);
+
+    /** 출석이 존재하는 예약 ID 목록만 조회 (엔티티 로드 없이, 체크인 미처리 예약용) */
+    @Query("SELECT DISTINCT a.booking.id FROM Attendance a WHERE a.booking.id IS NOT NULL")
+    List<Long> findDistinctBookingIds();
+
+    /** 해당 예약들 중 체크인된 예약 ID 목록 (자동 완료 처리용 배치 조회) */
+    @Query("SELECT DISTINCT a.booking.id FROM Attendance a WHERE a.booking.id IN :bookingIds AND a.checkInTime IS NOT NULL")
+    List<Long> findBookingIdsWithCheckIn(@Param("bookingIds") Collection<Long> bookingIds);
 }

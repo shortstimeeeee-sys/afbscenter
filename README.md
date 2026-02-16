@@ -3,6 +3,8 @@
 웹 기반 야구 센터 관리 시스템입니다. 회원 관리, 예약 관리, 결제, 출석, 코치 관리, 훈련 기록 등을 통합 관리할 수 있습니다.
 
 - **처음 실행**: [QUICK_START.md](QUICK_START.md)  
+- **노트북 필수 설치**: [LAPTOP_필수설치.md](LAPTOP_필수설치.md) (Java 17, Maven 자동 설치)  
+- **노트북↔데스크탑 동기화**: [SYNC_노트북_데스크탑.md](SYNC_노트북_데스크탑.md) (Git으로 코드 맞추기, `git-upload.ps1` 로 한 번 올리기)  
 - **배포**: [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)  
 - **전체 검토**(구조·보안·개선 권장): [PROJECT_REVIEW_FULL.md](PROJECT_REVIEW_FULL.md)  
 - **점검/가독성**: [PROJECT_AUDIT_2026.md](PROJECT_AUDIT_2026.md), [PROJECT_REVIEW_2026.md](PROJECT_REVIEW_2026.md)  

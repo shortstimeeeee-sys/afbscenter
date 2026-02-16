@@ -128,6 +128,7 @@
     padding: 16px;
     background: var(--bg-hover);
     border-radius: 8px;
+    border-left: 4px solid var(--border-color);
 }
 
 .branch-stat-label {
@@ -146,6 +147,34 @@
 .branch-stat-unit {
     font-size: 14px;
     color: var(--text-secondary);
+}
+
+/* 지점별 고유색 (사하점/연산점 - 대관·코치 페이지와 동일) */
+.branch-stat-item--all {
+    border-left-color: var(--accent-primary);
+    background: rgba(94, 106, 210, 0.08);
+}
+.branch-stat-item--all .branch-stat-label,
+.branch-stat-item--all .branch-stat-value {
+    color: var(--accent-primary);
+}
+
+.branch-stat-item--saha {
+    border-left-color: #1E8449;
+    background: rgba(30, 132, 73, 0.08);
+}
+.branch-stat-item--saha .branch-stat-label,
+.branch-stat-item--saha .branch-stat-value {
+    color: #1E8449;
+}
+
+.branch-stat-item--yeonsan {
+    border-left-color: #DAA520;
+    background: rgba(218, 165, 32, 0.08);
+}
+.branch-stat-item--yeonsan .branch-stat-label,
+.branch-stat-item--yeonsan .branch-stat-value {
+    color: #DAA520;
 }
 
 /* 차트 컨테이너 */

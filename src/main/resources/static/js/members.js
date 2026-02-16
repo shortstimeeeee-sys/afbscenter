@@ -490,8 +490,66 @@ function renderMemberProductsRemaining(member) {
     return html;
 }
 
+/** 상품/이용권 컬럼과 동일한 정렬 순서의 활성 상품 배열 반환 (담당 코치 순서 맞추기용) */
+function getSortedActiveProductsForMember(member) {
+    if (!member.memberProducts || member.memberProducts.length === 0) return [];
+    let list = member.memberProducts.filter(mp => mp && mp.status === 'ACTIVE');
+    const getCategoryPriority = (category, productName) => {
+        const nameLower = (productName || '').toLowerCase();
+        if (category === 'BASEBALL' || nameLower.includes('야구') || nameLower.includes('baseball')) return 1;
+        if (category === 'TRAINING' || category === 'TRAINING_FITNESS' || nameLower.includes('트레이닝') || nameLower.includes('training')) return 2;
+        if (category === 'PILATES' || nameLower.includes('필라테스') || nameLower.includes('pilates')) return 3;
+        return 4;
+    };
+    list.sort((a, b) => {
+        const categoryA = (a.product && a.product.category) || '';
+        const categoryB = (b.product && b.product.category) || '';
+        const nameA = (a.product && a.product.name) || '';
+        const nameB = (b.product && b.product.name) || '';
+        const pa = getCategoryPriority(categoryA, nameA);
+        const pb = getCategoryPriority(categoryB, nameB);
+        if (pa !== pb) return pa - pb;
+        return nameA.localeCompare(nameB);
+    });
+    return list;
+}
+
+/** 상품 하나에 대한 담당 코치명 반환 (renderMemberProducts와 동일한 우선순위) */
+function getCoachNameForMemberProduct(mp, member) {
+    const product = mp && mp.product ? mp.product : {};
+    const productNameLower = (product.name || '').toLowerCase();
+    const productCategory = (product.category || '').toUpperCase();
+    let name = mp.coachName || (mp.coach && (mp.coach.name || mp.coach)) || (product.coach && (product.coach.name || product.coach));
+    if (name) return String(name).trim();
+    if (!member.coachNames) return null;
+    const coachNamesList = member.coachNames.split('\n').filter(n => n.trim());
+    if (coachNamesList.length === 0) return null;
+    if (productCategory === 'BASEBALL' || productNameLower.includes('야구') || productNameLower.includes('baseball'))
+        return coachNamesList.find(n => n.includes('서정민') || n.includes('김우경') || n.includes('이원준')) || coachNamesList[0];
+    if (productCategory === 'PILATES' || productNameLower.includes('필라테스') || productNameLower.includes('pilates'))
+        return coachNamesList.find(n => n.includes('김소연') || n.includes('이서현') || n.includes('이소연')) || coachNamesList[0];
+    if (productCategory === 'TRAINING' || productNameLower.includes('트레이닝') || productNameLower.includes('training'))
+        return coachNamesList.find(n => n.includes('박준현')) || coachNamesList[0];
+    return coachNamesList[0];
+}
+
+/** 담당 코치를 상품/이용권과 같은 순서로 표시 (1번 상품 → 1번 코치 라인) */
+function getMemberCoachDisplayInProductOrder(member) {
+    const sorted = getSortedActiveProductsForMember(member);
+    if (sorted.length === 0) return null;
+    const lines = sorted.map(mp => {
+        const coachName = getCoachNameForMemberProduct(mp, member);
+        return coachName ? renderCoachNamesWithColorsFromText(coachName) : '-';
+    });
+    return lines.join('<br>');
+}
+
 // 코치명에 색상 적용하여 표시
 function renderCoachNamesWithColors(member) {
+    // 상품이 있으면 상품 순서와 동일한 순서로 코치 표시 (야구 한달→서정민, 야구레슨 10회→김우경 등)
+    const byProductOrder = getMemberCoachDisplayInProductOrder(member);
+    if (byProductOrder) return byProductOrder;
+
     if (!member.coachNames && !member.coach?.name) {
         return '-';
     }
@@ -2066,6 +2124,13 @@ function switchTab(tab, member = null) {
         case 'info':
             content.innerHTML = renderMemberInfo(member);
             break;
+        case 'timeline':
+            if (member?.id) {
+                loadMemberTimeline(member.id);
+            } else {
+                content.innerHTML = '<p style="color: var(--text-muted);">회원 정보를 불러올 수 없습니다.</p>';
+            }
+            break;
         case 'products':
             if (member?.id) {
                 loadMemberProductsForDetail(member.id);
@@ -2529,12 +2594,18 @@ async function processAdjustCount() {
         // 이용권 목록 새로고침
         if (currentMemberDetail && currentMemberDetail.id) {
             loadMemberProductsForDetail(currentMemberDetail.id);
+            // 변동 내역 탭이 열려 있으면 새로고침 (조정 기록이 바로 보이도록)
+            const activeTab = document.querySelector('#member-detail-modal .tab-btn.active');
+            if (activeTab && activeTab.getAttribute('data-tab') === 'product-history') {
+                loadMemberProductHistory(currentMemberDetail.id);
+            }
         }
         
         // 회원 목록도 새로고침 (잔여 횟수 업데이트)
         loadMembers();
     } catch (error) {
-        App.showNotification('횟수 조정에 실패했습니다.', 'danger');
+        const msg = (error && error.response && error.response.data && error.response.data.error) || (error && error.message) || '횟수 조정에 실패했습니다.';
+        App.showNotification(typeof msg === 'string' ? msg : '횟수 조정에 실패했습니다.', 'danger');
     }
 }
 
@@ -2986,6 +3057,138 @@ function renderAttendanceList(attendance) {
             </table>
         </div>
     `;
+}
+
+/** 회원 히스토리(타임라인): 가입·구매·예약·체크인·이용권 변동을 날짜순으로 표시 */
+async function loadMemberTimeline(memberId) {
+    const content = document.getElementById('detail-tab-content');
+    content.innerHTML = '<p style="text-align: center; color: var(--text-muted);">로딩 중...</p>';
+    try {
+        const events = await App.api.get(`/members/${memberId}/timeline`);
+        content.innerHTML = renderMemberTimelineContent(events, memberId);
+    } catch (error) {
+        App.err('회원 히스토리 로드 실패:', error);
+        content.innerHTML = '<p style="color: var(--text-muted);">회원 히스토리를 불러올 수 없습니다.</p>';
+    }
+}
+
+function renderMemberTimelineContent(events, memberId) {
+    if (!events || events.length === 0) {
+        return `
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">회원 히스토리</h3></div>
+            <div class="card-body">
+                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">가입, 구매, 예약, 체크인, 이용권 변동을 날짜순으로 볼 수 있습니다. 각 시점의 잔여 횟수도 반영됩니다.</p>
+                <p style="text-align: center; color: var(--text-muted); padding: 24px;">기록이 없습니다.</p>
+            </div>
+        </div>`;
+    }
+    const badgeMap = {
+        SIGNUP: { text: '가입', class: 'primary' },
+        PAYMENT: { text: '구매', class: 'success' },
+        BOOKING: { text: '예약', class: 'info' },
+        CHECKIN: { text: '체크인', class: 'warning' },
+        PRODUCT_HISTORY: { text: '이용권', class: 'secondary' }
+    };
+    const greenStyle = 'color: var(--success, #198754); font-weight: 600;';
+    const rows = events.map(ev => {
+        const date = ev.date ? App.formatDateTime(ev.date) : '-';
+        const badge = badgeMap[ev.eventType];
+        const badgeClass = ev.eventType === 'PRODUCT_HISTORY'
+            ? (ev.label === '차감' ? 'danger' : ev.label === '충전' ? 'success' : 'warning')
+            : (badge ? badge.class : 'secondary');
+        const badgeText = ev.label || (badge ? badge.text : ev.eventType) || '-';
+        let detail = (ev.detail || ev.description || '').toString();
+        let remaining = '';
+        // 체크인: 기록값(흰색) → 수정 반영값(캘린더 일치, 초록색)
+        if (ev.eventType === 'CHECKIN') {
+            const recorded = ev.remainingAfter != null ? Number(ev.remainingAfter) : null;
+            const corrected = ev.remainingAfterCorrected != null ? Number(ev.remainingAfterCorrected) : null;
+            if (corrected != null && corrected !== recorded) {
+                detail = (ev.facilityName || '') + (ev.productName ? ' · ' + ev.productName : '') + ' · 체크인 후 잔여 ' + (recorded != null ? recorded + '회' : '') + ' → <span class="timeline-change" style="' + greenStyle + '">' + corrected + '회</span> (캘린더 반영)';
+            } else if (corrected != null || recorded != null) {
+                const val = corrected != null ? corrected : recorded;
+                detail = (ev.facilityName || '') + (ev.productName ? ' · ' + ev.productName : '') + ' · 체크인 후 잔여 <span class="timeline-change" style="' + greenStyle + '">' + val + '회</span>';
+            }
+        } else {
+            const detailHasRemaining = detail.indexOf('잔여') !== -1 && detail.indexOf('회') !== -1;
+            if (ev.remainingAfter != null && !detailHasRemaining) remaining = ' → 잔여 <span class="timeline-change" style="' + greenStyle + '">' + ev.remainingAfter + '회</span>';
+            // 변경된 내용(수정 반영값)만 초록색
+            detail = detail
+                .replace(/잔여\s*(\d+회)/g, '잔여 <span class="timeline-change" style="' + greenStyle + '">$1</span>')
+                .replace(/(\d+회)\s*→\s*(\d+회)/g, (_, a, b) => a + ' → <span class="timeline-change" style="' + greenStyle + '">' + b + '</span>');
+            if (ev.eventType === 'BOOKING') detail = detail.replace(/(\d{1,2}:\d{2}~\d{1,2}:\d{2})/g, (m) => '<span class="timeline-change" style="' + greenStyle + '">' + m + '</span>');
+        }
+        let descLine = (ev.description && ev.eventType === 'PRODUCT_HISTORY') ? ev.description : '';
+        if (descLine) descLine = descLine.replace(/(\d+회)\s*→\s*(\d+회)/g, (_, a, b) => a + ' → <span class="timeline-change" style="' + greenStyle + '">' + b + '</span>');
+        descLine = descLine ? '<div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">' + descLine + '</div>' : '';
+        const hasHistoryId = ev.historyId != null;
+        var checkCellInner = '';
+        if (hasHistoryId) {
+            checkCellInner = '<span class="timeline-entry-check-wrap" style="display: none;"><label style="margin: 0; cursor: pointer;"><input type="checkbox" class="timeline-entry-checkbox" data-history-id="' + ev.historyId + '"></label></span>';
+        }
+        return `
+        <div class="timeline-row" style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border-color, #2D3441);">
+            <div style="width: 28px; min-width: 28px; flex-shrink: 0;">${checkCellInner}</div>
+            <div style="width: 165px; min-width: 165px; flex-shrink: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.4;">${date}</div>
+            <div style="width: 80px; min-width: 80px; flex-shrink: 0;"><span class="badge badge-${badgeClass}">${badgeText}</span></div>
+            <div style="flex: 1; min-width: 0; font-size: 13px; line-height: 1.4; text-align: left;">
+                <div>${detail || '-'} ${remaining}</div>
+                ${descLine}
+            </div>
+        </div>`;
+    }).join('');
+    const deleteBtnHtml = memberId
+        ? '<button type="button" id="timeline-delete-btn" class="btn btn-sm btn-danger" onclick="toggleTimelineSelectOrDelete(' + memberId + ')" style="margin-left: auto;">선택 삭제</button>'
+        : '';
+    return `
+        <div class="card">
+            <div class="card-header" style="display: flex; align-items: center; flex-wrap: wrap;">
+                <h3 class="card-title">회원 히스토리</h3>
+                ${deleteBtnHtml}
+            </div>
+            <div class="card-body">
+                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">가입, 구매, 예약, 체크인, 이용권 변동을 날짜순으로 표시합니다. <strong>선택 삭제</strong>를 누르면 이용권 항목에 체크박스가 나타나며, 체크한 뒤 다시 버튼을 누르면 삭제됩니다.</p>
+                <div class="member-timeline-list" style="max-height: 60vh; overflow-y: auto;">
+                    ${rows}
+                </div>
+            </div>
+        </div>
+        <style>.member-timeline-list.timeline-select-mode .timeline-entry-check-wrap { display: inline-block !important; }</style>`;
+}
+
+/** 선택 삭제: 첫 번째 클릭 = 체크박스 표시, 두 번째 클릭 = 선택 항목 삭제 */
+async function toggleTimelineSelectOrDelete(memberId) {
+    const list = document.querySelector('#detail-tab-content .member-timeline-list');
+    const btn = document.getElementById('timeline-delete-btn');
+    if (!list) return;
+
+    if (list.classList.contains('timeline-select-mode')) {
+        const checkboxes = document.querySelectorAll('.member-timeline-list .timeline-entry-checkbox:checked');
+        if (!checkboxes || checkboxes.length === 0) {
+            App.showNotification('삭제할 항목을 체크한 뒤 다시 버튼을 누르세요.', 'warning');
+            return;
+        }
+        const historyIds = Array.from(checkboxes).map(cb => cb.getAttribute('data-history-id')).filter(Boolean).map(Number);
+        if (historyIds.length === 0) {
+            App.showNotification('삭제할 항목을 체크한 뒤 다시 버튼을 누르세요.', 'warning');
+            return;
+        }
+        if (!confirm('선택한 ' + historyIds.length + '건을 삭제하시겠습니까?')) return;
+        try {
+            const res = await App.api.delete(`/members/${memberId}/timeline-entries?historyIds=${historyIds.join(',')}`);
+            const deleted = (res && res.deletedCount != null) ? res.deletedCount : 0;
+            App.showNotification((res && res.message) || deleted + '건이 삭제되었습니다.', 'success');
+            if (deleted > 0) loadMemberTimeline(memberId);
+        } catch (error) {
+            App.showNotification(error?.response?.data?.error || '삭제에 실패했습니다.', 'danger');
+        }
+        return;
+    }
+
+    list.classList.add('timeline-select-mode');
+    if (btn) btn.textContent = '선택한 항목 삭제';
+    App.showNotification('삭제할 항목을 체크한 뒤 "선택한 항목 삭제"를 누르세요.', 'info');
 }
 
 async function loadMemberProductHistory(memberId) {

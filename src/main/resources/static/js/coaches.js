@@ -106,24 +106,74 @@ async function openStatsCoachModal(filterType, titleLabel) {
             bodyEl.innerHTML = '<p style="color: var(--text-muted); padding: 16px;">해당 조건의 코치가 없습니다.</p>';
             return;
         }
-        var tableHtml = '<div class="table-container" style="max-height: 60vh; overflow: auto;"><table class="table"><thead><tr><th>이름</th><th>담당 종목</th><th>배정 지점</th><th>수강 인원</th></tr></thead><tbody>';
-        var branchNames = { 'SAHA': '사하점', 'YEONSAN': '연산점', 'RENTAL': '대관' };
-        function formatBranchesToKorean(availableBranches) {
+        // 코치별 수강 인원 조회 (GET /coaches는 studentCount 미포함)
+        var coachesWithCount = await Promise.all(coaches.map(async function(c) {
+            try {
+                var count = await App.api.get('/coaches/' + (c.id || '') + '/student-count');
+                return Object.assign({}, c, { studentCount: count != null ? count : 0 });
+            } catch (e) {
+                return Object.assign({}, c, { studentCount: 0 });
+            }
+        }));
+        // 코치 고유 순번 정렬: 위(대표) → 아래(기타) 순 (0→1→2→3→4→5→6, 동일 순번이면 이름)
+        coachesWithCount.sort(function(a, b) {
+            var orderA = App.CoachSortOrder ? App.CoachSortOrder(a) : 6;
+            var orderB = App.CoachSortOrder ? App.CoachSortOrder(b) : 6;
+            if (orderA !== orderB) return orderA - orderB;
+            var aName = (a.name || '').replace(/\s*\[.*?\]\s*/g, '').trim();
+            var bName = (b.name || '').replace(/\s*\[.*?\]\s*/g, '').trim();
+            return aName.localeCompare(bName, 'ko');
+        });
+        var tableHtml = '<div class="table-container stats-coaches-modal-table" style="max-height: 60vh; overflow: auto;"><table class="table"><thead><tr><th>이름</th><th>담당 종목</th><th>배정 지점</th><th>수강 인원</th></tr></thead><tbody>';
+        var branchConfig = { 'SAHA': { label: '사하점', class: 'branch-label--saha' }, 'YEONSAN': { label: '연산점', class: 'branch-label--yeonsan' }, 'RENTAL': { label: '대관', class: 'branch-label--rental' } };
+        function formatBranchesWithColors(availableBranches) {
             if (availableBranches == null) return '-';
             var codes = [];
             if (Array.isArray(availableBranches)) {
-                codes = availableBranches;
+                codes = availableBranches.map(function(x) { return String(x).trim().toUpperCase(); });
             } else if (typeof availableBranches === 'string') {
-                codes = availableBranches.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+                codes = availableBranches.split(',').map(function(s) { return s.trim().toUpperCase(); }).filter(Boolean);
             } else if (typeof availableBranches === 'object') {
-                codes = Object.keys(availableBranches).filter(function(k) { return availableBranches[k]; });
+                codes = Object.keys(availableBranches).filter(function(k) { return availableBranches[k]; }).map(function(k) { return k.toUpperCase(); });
             }
-            return codes.map(function(k) { return branchNames[k] || k; }).join(', ') || '-';
+            if (codes.length === 0) return '-';
+            var spans = codes.map(function(k) {
+                var cfg = branchConfig[k] || { label: k, class: '' };
+                return cfg.class ? '<span class="branch-label ' + cfg.class + '">' + App.escapeHtml(cfg.label) + '</span>' : '<span class="branch-label">' + App.escapeHtml(cfg.label) + '</span>';
+            });
+            return spans.join(', ');
         }
-        coaches.forEach(function(c) {
-            var specialties = (c.specialties || '-');
-            var branches = formatBranchesToKorean(c.availableBranches);
-            tableHtml += '<tr onclick="App.Modal.close(\'stats-coaches-modal\'); window.location.href=\'/coaches.html#coach-' + (c.id || '') + '\'"><td>' + App.escapeHtml(c.name || '-') + '</td><td>' + App.escapeHtml(specialties) + '</td><td>' + App.escapeHtml(branches) + '</td><td>' + (c.studentCount != null ? c.studentCount : '-') + '</td></tr>';
+        function formatSpecialtyWithColors(specialties, name) {
+            var raw = (specialties || '').trim();
+            if (!raw) return '-';
+            var specText = (specialties || '').toLowerCase();
+            var nameText = (name || '').toLowerCase();
+            var combined = nameText + ' ' + specText;
+            var cellClass = 'coach-specialty-cell';
+            if (/대관/.test(specText)) cellClass += ' coach-specialty--rental';
+            else if (/필라테스|\[강사\]/.test(combined)) cellClass += ' coach-specialty--pilates';
+            else if (/트레이닝|\[트레이너\]/.test(combined)) cellClass += ' coach-specialty--training';
+            else if (/야구|유소년|\[대표\]|\[코치\]|\[포수코치\]|\[투수코치\]|타격|투구|수비|포수|투수|비야구인/.test(combined)) cellClass += ' coach-specialty--baseball';
+            var parts = raw.split(',').map(function(s) {
+                var part = s.trim();
+                if (!part) return '';
+                var colorClass = '';
+                if (/^야구$/i.test(part)) colorClass = 'spec-color--baseball';
+                else if (/^유소년$/i.test(part)) colorClass = 'spec-color--youth';
+                else if (/^트레이닝$/i.test(part)) colorClass = 'spec-color--training';
+                else if (/^필라테스$/i.test(part)) colorClass = 'spec-color--pilates';
+                else if (/^대관$/i.test(part)) colorClass = 'spec-color--rental';
+                return colorClass ? '<span class="spec-item ' + colorClass + '">' + App.escapeHtml(part) + '</span>' : App.escapeHtml(part);
+            }).filter(Boolean);
+            return { cellClass: cellClass, html: parts.length ? parts.join(', ') : '-' };
+        }
+        coachesWithCount.forEach(function(c) {
+            var coachColor = (App.CoachColors && App.CoachColors.getColor) ? App.CoachColors.getColor(c) : 'var(--text-primary)';
+            var coachNameHtml = '<span style="color:' + coachColor + ';font-weight:600;">' + App.escapeHtml(c.name || '-') + '</span>';
+            var specOut = formatSpecialtyWithColors(c.specialties, c.name);
+            var branchesHtml = formatBranchesWithColors(c.availableBranches);
+            var studentCount = c.studentCount != null ? c.studentCount : 0;
+            tableHtml += '<tr class="stats-coach-row" onclick="App.Modal.close(\'stats-coaches-modal\'); window.location.href=\'/coaches.html#coach-' + (c.id || '') + '\'" style="cursor:pointer;"><td class="cell-coach-name">' + coachNameHtml + '</td><td class="' + specOut.cellClass + '">' + specOut.html + '</td><td class="cell-branches">' + branchesHtml + '</td><td>' + App.escapeHtml(String(studentCount)) + '명</td></tr>';
         });
         tableHtml += '</tbody></table></div>';
         bodyEl.innerHTML = tableHtml;

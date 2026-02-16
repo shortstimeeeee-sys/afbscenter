@@ -4,6 +4,7 @@ import com.afbscenter.model.MemberProduct;
 import com.afbscenter.model.Product;
 import com.afbscenter.model.Payment;
 import com.afbscenter.repository.MemberProductRepository;
+import com.afbscenter.repository.MemberProductHistoryRepository;
 import com.afbscenter.repository.ProductRepository;
 import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.AttendanceRepository;
@@ -34,19 +35,22 @@ public class MemberProductController {
     private final PaymentRepository paymentRepository;
     private final AttendanceRepository attendanceRepository;
     private final com.afbscenter.repository.CoachRepository coachRepository;
+    private final MemberProductHistoryRepository memberProductHistoryRepository;
 
     public MemberProductController(MemberProductRepository memberProductRepository,
                                    ProductRepository productRepository,
                                    com.afbscenter.repository.BookingRepository bookingRepository,
                                    PaymentRepository paymentRepository,
                                    AttendanceRepository attendanceRepository,
-                                   com.afbscenter.repository.CoachRepository coachRepository) {
+                                   com.afbscenter.repository.CoachRepository coachRepository,
+                                   MemberProductHistoryRepository memberProductHistoryRepository) {
         this.memberProductRepository = memberProductRepository;
         this.productRepository = productRepository;
         this.bookingRepository = bookingRepository;
         this.paymentRepository = paymentRepository;
         this.attendanceRepository = attendanceRepository;
         this.coachRepository = coachRepository;
+        this.memberProductHistoryRepository = memberProductHistoryRepository;
     }
 
     // 상품권 목록 조회 (필터링 가능)
@@ -87,10 +91,56 @@ public class MemberProductController {
                 map.put("purchaseDate", mp.getPurchaseDate());
                 map.put("expiryDate", mp.getExpiryDate());
                 
-                // 회차권인 경우 remainingCount 재계산
+                // 회차권/패키지 remainingCount 계산
                 Integer remainingCount = mp.getRemainingCount();
-                if (mp.getProduct() != null && mp.getProduct().getType() == com.afbscenter.model.Product.ProductType.COUNT_PASS) {
-                    // 총 횟수 계산
+                // 패키지 상품(대관 10회권 등): 직접 설정(조정) 값이 있으면 DB 우선, 없으면 JSON 합 + DEDUCT 히스토리
+                if (mp.getPackageItemsRemaining() != null && !mp.getPackageItemsRemaining().isEmpty()) {
+                    Integer totalCount = mp.getTotalCount();
+                    try {
+                        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                        @SuppressWarnings("unchecked")
+                        List<Map<String, Object>> pkgItems = om.readValue(mp.getPackageItemsRemaining(),
+                            new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+                        int sumRemaining = 0;
+                        int sumTotal = 0;
+                        for (Map<String, Object> item : pkgItems) {
+                            Object r = item.get("remaining");
+                            Object t = item.get("total");
+                            if (r instanceof Number) sumRemaining += ((Number) r).intValue();
+                            if (t instanceof Number) sumTotal += ((Number) t).intValue();
+                        }
+                        // 직접 설정(조정)으로 저장된 DB 값 우선 — 4 입력 시 13/13처럼 JSON 합으로 덮어쓰지 않음
+                        if (mp.getRemainingCount() != null) {
+                            remainingCount = mp.getRemainingCount();
+                        } else {
+                            remainingCount = sumRemaining;
+                        }
+                        if (totalCount == null || totalCount <= 0) totalCount = sumTotal > 0 ? sumTotal : mp.getTotalCount();
+                    } catch (Exception e) {
+                        logger.warn("패키지 잔여 합산 실패: MemberProduct ID={}", mp.getId(), e);
+                        remainingCount = mp.getRemainingCount();
+                    }
+                    try {
+                        List<com.afbscenter.model.MemberProductHistory> histories =
+                            memberProductHistoryRepository.findByMemberProductIdOrderByTransactionDateDesc(mp.getId());
+                        int deductCount = 0;
+                        for (com.afbscenter.model.MemberProductHistory h : histories) {
+                            if (h.getType() == com.afbscenter.model.MemberProductHistory.TransactionType.DEDUCT && h.getChangeAmount() != null) {
+                                deductCount += Math.abs(h.getChangeAmount().intValue());
+                            }
+                        }
+                        if (totalCount == null) totalCount = mp.getTotalCount() != null ? mp.getTotalCount() : 0;
+                        // 체크인(DEDUCT) 건수 기준 상한: DB/조정이 DEDUCT보다 크게 나오지 않게 (4회 남았는데 9/10으로 보이는 것 방지)
+                        if (totalCount != null) {
+                            int fromHistory = Math.max(0, totalCount - deductCount);
+                            if (remainingCount == null || remainingCount > fromHistory)
+                                remainingCount = fromHistory;
+                        }
+                    } catch (Exception e) {
+                        logger.warn("히스토리 기반 잔여 보정 실패: MemberProduct ID={}", mp.getId(), e);
+                    }
+                } else if (mp.getProduct() != null && mp.getProduct().getType() == com.afbscenter.model.Product.ProductType.COUNT_PASS) {
+                    // 일반 횟수권: 총 횟수 계산
                     Integer totalCount = mp.getTotalCount();
                     if (totalCount == null || totalCount <= 0) {
                         totalCount = mp.getProduct().getUsageCount();
@@ -99,7 +149,6 @@ public class MemberProductController {
                         }
                     }
                     
-                    // memberId 가져오기 (파라미터 또는 Member 객체에서)
                     Long actualMemberId = memberId;
                     if (actualMemberId == null && mp.getMember() != null) {
                         try {
@@ -109,53 +158,31 @@ public class MemberProductController {
                         }
                     }
                     
-                    // 실제 사용된 횟수 계산
                     Long usedCountByAttendance = 0L;
                     Long usedCountByBooking = 0L;
                     try {
                         if (actualMemberId != null) {
                             usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(actualMemberId, mp.getId());
-                            if (usedCountByAttendance == null) {
-                                usedCountByAttendance = 0L;
-                            }
+                            if (usedCountByAttendance == null) usedCountByAttendance = 0L;
                         }
                         usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
-                        if (usedCountByBooking == null) {
-                            usedCountByBooking = 0L;
-                        }
+                        if (usedCountByBooking == null) usedCountByBooking = 0L;
                     } catch (Exception e) {
                         logger.warn("사용 횟수 계산 실패: MemberProduct ID={}, 오류={}", mp.getId(), e.getMessage());
                     }
                     
-                    // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용
                     Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
                     
-                    // remainingCount가 null이거나 0인 경우 재계산
-                    // 새로 구매한 상품의 경우 remainingCount가 0으로 저장될 수 있으므로, 사용 기록이 없으면 totalCount로 설정
                     if (remainingCount == null || remainingCount == 0) {
                         if (actualUsedCount == 0) {
-                            // 사용 기록이 없으면 totalCount로 설정 (새로 구매한 상품)
                             remainingCount = totalCount;
-                            logger.debug("remainingCount 재계산: MemberProduct ID={}, totalCount={}, usedCount=0, 최종 remainingCount={}", 
-                                    mp.getId(), totalCount, remainingCount);
                         } else {
-                            // 사용 기록이 있으면 재계산
                             remainingCount = Math.max(0, totalCount - actualUsedCount.intValue());
-                            logger.debug("remainingCount 재계산: MemberProduct ID={}, totalCount={}, usedCount={}, 최종 remainingCount={}", 
-                                    mp.getId(), totalCount, actualUsedCount, remainingCount);
                         }
                     } else {
-                        // remainingCount가 이미 있으면 실제 사용 기록과 비교하여 검증
                         Integer calculatedRemaining = Math.max(0, totalCount - actualUsedCount.intValue());
-                        if (remainingCount != calculatedRemaining) {
-                            logger.warn("remainingCount 불일치: MemberProduct ID={}, DB값={}, 계산값={}, totalCount={}, usedCount={}", 
-                                    mp.getId(), remainingCount, calculatedRemaining, totalCount, actualUsedCount);
-                            // DB 값이 잘못된 경우 계산값으로 덮어쓰기
-                            if (actualUsedCount == 0 && remainingCount == 0) {
-                                // 사용 기록이 없는데 remainingCount가 0이면 totalCount로 수정
-                                remainingCount = totalCount;
-                                logger.info("remainingCount 수정: MemberProduct ID={}, 0 -> {}", mp.getId(), remainingCount);
-                            }
+                        if (remainingCount != calculatedRemaining && actualUsedCount == 0 && remainingCount == 0) {
+                            remainingCount = totalCount;
                         }
                     }
                 }
@@ -718,15 +745,19 @@ public class MemberProductController {
             logger.info("MemberProduct ID: {}", id);
             logger.info("요청 데이터: {}", setData);
             
-            MemberProduct memberProduct = memberProductRepository.findById(id)
-                    .orElseThrow(() -> new IllegalArgumentException("상품권을 찾을 수 없습니다."));
+            // Member 함께 로드 (조정 히스토리 저장 시 member_id 필수)
+            MemberProduct memberProduct = memberProductRepository.findByIdWithMember(id)
+                    .orElse(memberProductRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("상품권을 찾을 수 없습니다.")));
             
             logger.info("현재 상태 - 잔여: {}회, 총: {}회", 
                     memberProduct.getRemainingCount(), memberProduct.getTotalCount());
             
-            // 횟수권이 아닌 경우
-            if (memberProduct.getProduct() == null || 
-                memberProduct.getProduct().getType() != Product.ProductType.COUNT_PASS) {
+            // 횟수권 또는 패키지(대관 10회권 등)가 아니면 설정 불가
+            boolean isCountPassSet = memberProduct.getProduct() != null
+                && memberProduct.getProduct().getType() == Product.ProductType.COUNT_PASS;
+            boolean hasPackageRemainingSet = memberProduct.getPackageItemsRemaining() != null
+                && !memberProduct.getPackageItemsRemaining().isEmpty();
+            if (memberProduct.getProduct() == null || (!isCountPassSet && !hasPackageRemainingSet)) {
                 Map<String, Object> error = new HashMap<>();
                 error.put("error", "횟수권이 아닙니다.");
                 return ResponseEntity.badRequest().body(error);
@@ -756,13 +787,15 @@ public class MemberProductController {
                 currentRemaining = 0;
             }
             
-            // 총 횟수 확인 (변경하지 않음: 10회권은 total=10 유지)
+            // 총 횟수: 마감(USED_UP) 후 다시 숫자 넣을 때는 항상 상품 기준(10회권이면 10)으로 초기화
             Integer totalCount = memberProduct.getTotalCount();
-            if (totalCount == null || totalCount <= 0) {
+            boolean reactivatingFromUsedUp = (memberProduct.getStatus() == MemberProduct.Status.USED_UP && newCount > 0);
+            if (reactivatingFromUsedUp || totalCount == null || totalCount <= 0) {
                 totalCount = memberProduct.getProduct().getUsageCount();
                 if (totalCount == null || totalCount <= 0) {
                     totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                 }
+                memberProduct.setTotalCount(totalCount);
             }
             
             // 잔여만 설정. 총 횟수는 유지 (10회권 잔여 4회 → remaining=4, total=10)
@@ -772,17 +805,57 @@ public class MemberProductController {
             }
             memberProduct.setRemainingCount(newCount);
             
+            // 패키지 상품: JSON 동기화 (다음 체크인 시 올바르게 차감되도록)
+            if (memberProduct.getPackageItemsRemaining() != null && !memberProduct.getPackageItemsRemaining().isEmpty()) {
+                try {
+                    com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> items = om.readValue(memberProduct.getPackageItemsRemaining(),
+                        new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+                    if (!items.isEmpty()) {
+                        if (items.size() == 1) {
+                            items.get(0).put("remaining", newCount);
+                            items.get(0).put("total", totalCount);
+                        } else {
+                            items.get(0).put("remaining", newCount);
+                            for (int i = 1; i < items.size(); i++) items.get(i).put("remaining", 0);
+                        }
+                        memberProduct.setPackageItemsRemaining(om.writeValueAsString(items));
+                    }
+                } catch (Exception e) {
+                    logger.warn("직접 설정 시 packageItemsRemaining 갱신 실패: MemberProduct ID={}", memberProduct.getId(), e);
+                }
+            }
+            
             logger.info("저장 전 - 잔여: {}회, 총: {}회 (총 횟수 유지)", newCount, totalCount);
             
             // 상태 업데이트
             if (newCount == 0) {
                 memberProduct.setStatus(MemberProduct.Status.USED_UP);
             } else if (memberProduct.getStatus() == MemberProduct.Status.USED_UP) {
-                // 잔여 횟수가 있으면 다시 ACTIVE로 변경
                 memberProduct.setStatus(MemberProduct.Status.ACTIVE);
             }
             
             MemberProduct saved = memberProductRepository.save(memberProduct);
+            
+            // 변동 내역에 조정 기록 (직접 설정도 조정으로 표시)
+            try {
+                if (saved.getMember() != null && !newCount.equals(currentRemaining)) {
+                    int adjustAmount = newCount - currentRemaining;
+                    com.afbscenter.model.MemberProductHistory history = new com.afbscenter.model.MemberProductHistory();
+                    history.setMemberProduct(saved);
+                    history.setMember(saved.getMember());
+                    history.setTransactionDate(LocalDateTime.now());
+                    history.setType(com.afbscenter.model.MemberProductHistory.TransactionType.ADJUST);
+                    history.setChangeAmount(adjustAmount);
+                    history.setRemainingCountAfter(saved.getRemainingCount());
+                    String productName = saved.getProduct() != null ? saved.getProduct().getName() : "이용권";
+                    history.setDescription(String.format("수동 조정(직접 설정): %d회 → %d회 (%s)", currentRemaining, saved.getRemainingCount(), productName));
+                    memberProductHistoryRepository.save(history);
+                }
+            } catch (Exception e) {
+                logger.warn("직접 설정 히스토리 저장 실패: MemberProduct ID={}", saved.getId(), e);
+            }
             
             logger.info("저장 후 - 잔여: {}회, 총: {}회", saved.getRemainingCount(), saved.getTotalCount());
             logger.info("===== 이용권 횟수 직접 설정 완료 =====");
@@ -821,15 +894,19 @@ public class MemberProductController {
             logger.info("MemberProduct ID: {}", id);
             logger.info("요청 데이터: {}", adjustData);
             
-            MemberProduct memberProduct = memberProductRepository.findById(id)
-                    .orElseThrow(() -> new IllegalArgumentException("상품권을 찾을 수 없습니다."));
+            // Member 함께 로드 (조정 히스토리 저장 시 member_id 필수, 변동 내역에 표시되도록)
+            MemberProduct memberProduct = memberProductRepository.findByIdWithMember(id)
+                    .orElse(memberProductRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("상품권을 찾을 수 없습니다.")));
             
             logger.info("현재 상태 - 잔여: {}회, 총: {}회", 
                     memberProduct.getRemainingCount(), memberProduct.getTotalCount());
             
-            // 횟수권이 아닌 경우
-            if (memberProduct.getProduct() == null || 
-                memberProduct.getProduct().getType() != Product.ProductType.COUNT_PASS) {
+            // 횟수권 또는 패키지(대관 10회권 등)가 아니면 조정 불가
+            boolean isCountPass = memberProduct.getProduct() != null
+                && memberProduct.getProduct().getType() == Product.ProductType.COUNT_PASS;
+            boolean hasPackageRemaining = memberProduct.getPackageItemsRemaining() != null
+                && !memberProduct.getPackageItemsRemaining().isEmpty();
+            if (memberProduct.getProduct() == null || (!isCountPass && !hasPackageRemaining)) {
                 Map<String, Object> error = new HashMap<>();
                 error.put("error", "횟수권이 아닙니다.");
                 return ResponseEntity.badRequest().body(error);
@@ -859,9 +936,10 @@ public class MemberProductController {
                 currentRemaining = 0;
             }
             
-            // 총 횟수 확인
+            // 총 횟수: 마감(USED_UP) 후 양수 조정(+N) 시 상품 기준(10회권이면 10)으로 초기화
             Integer totalCount = memberProduct.getTotalCount();
-            if (totalCount == null || totalCount <= 0) {
+            boolean reactivatingFromUsedUp = (memberProduct.getStatus() == MemberProduct.Status.USED_UP && adjustAmount != null && adjustAmount > 0);
+            if (reactivatingFromUsedUp || totalCount == null || totalCount <= 0) {
                 totalCount = memberProduct.getProduct().getUsageCount();
                 if (totalCount == null || totalCount <= 0) {
                     totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
@@ -890,6 +968,30 @@ public class MemberProductController {
             memberProduct.setRemainingCount(newRemainingCount);
             memberProduct.setTotalCount(totalCount);
             
+            // 패키지 상품(대관 10회권 등): JSON도 갱신하여 다음 체크인 시 올바르게 차감되도록 함
+            if (memberProduct.getPackageItemsRemaining() != null && !memberProduct.getPackageItemsRemaining().isEmpty()) {
+                try {
+                    com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> items = om.readValue(memberProduct.getPackageItemsRemaining(),
+                        new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+                    if (!items.isEmpty()) {
+                        if (items.size() == 1) {
+                            items.get(0).put("remaining", newRemainingCount);
+                            items.get(0).put("total", totalCount);
+                        } else {
+                            items.get(0).put("remaining", newRemainingCount);
+                            for (int i = 1; i < items.size(); i++) {
+                                items.get(i).put("remaining", 0);
+                            }
+                        }
+                        memberProduct.setPackageItemsRemaining(om.writeValueAsString(items));
+                    }
+                } catch (Exception e) {
+                    logger.warn("조정 시 packageItemsRemaining 갱신 실패: MemberProduct ID={}", memberProduct.getId(), e);
+                }
+            }
+            
             // 상태 업데이트
             if (newRemainingCount == 0) {
                 memberProduct.setStatus(MemberProduct.Status.USED_UP);
@@ -899,6 +1001,24 @@ public class MemberProductController {
             }
             
             MemberProduct saved = memberProductRepository.save(memberProduct);
+            
+            // 변동 내역에 조정 기록 저장 (회원 상세에서 확인 가능)
+            try {
+                if (saved.getMember() != null) {
+                    com.afbscenter.model.MemberProductHistory history = new com.afbscenter.model.MemberProductHistory();
+                    history.setMemberProduct(saved);
+                    history.setMember(saved.getMember());
+                    history.setTransactionDate(LocalDateTime.now());
+                    history.setType(com.afbscenter.model.MemberProductHistory.TransactionType.ADJUST);
+                    history.setChangeAmount(adjustAmount);
+                    history.setRemainingCountAfter(saved.getRemainingCount());
+                    String productName = saved.getProduct() != null ? saved.getProduct().getName() : "이용권";
+                    history.setDescription(String.format("수동 조정: %d회 → %d회 (%s)", currentRemaining, saved.getRemainingCount(), productName));
+                    memberProductHistoryRepository.save(history);
+                }
+            } catch (Exception e) {
+                logger.warn("조정 히스토리 저장 실패: MemberProduct ID={}", saved.getId(), e);
+            }
             
             logger.info("저장 후 - 잔여: {}회, 총: {}회", saved.getRemainingCount(), saved.getTotalCount());
             logger.info("===== 이용권 횟수 상대 조정 완료 =====");
