@@ -64,6 +64,28 @@ document.addEventListener('DOMContentLoaded', function() {
     // 상품 선택 시 스타일 적용 및 총 금액 계산 (이벤트에 연결)
     const productSelect = document.getElementById('member-products');
     if (productSelect) {
+        // 마우스 드래그로 여러 옵션 선택 방지 (클릭·Ctrl+클릭만 허용)
+        (function() {
+            var dragSelect = false;
+            var savedSelection = [];
+            productSelect.addEventListener('mousedown', function() {
+                dragSelect = false;
+                savedSelection = Array.from(productSelect.selectedOptions).map(function(o) { return o.value; });
+            }, true);
+            productSelect.addEventListener('mousemove', function(e) {
+                dragSelect = true;
+                e.preventDefault();
+            }, true);
+            productSelect.addEventListener('mouseup', function(e) {
+                if (dragSelect) {
+                    e.preventDefault();
+                    Array.from(productSelect.options).forEach(function(opt) {
+                        opt.selected = savedSelection.indexOf(opt.value) !== -1;
+                    });
+                }
+                dragSelect = false;
+            }, true);
+        })();
         // change 이벤트에 스타일 적용 함수 및 총 금액 계산 함수 연결
         productSelect.addEventListener('change', function() {
             // 즉시 적용
@@ -752,7 +774,7 @@ function checkMemberExpiring(member) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const expiryThreshold = new Date(today);
-    expiryThreshold.setDate(expiryThreshold.getDate() + 7); // 7일 이내
+    expiryThreshold.setDate(expiryThreshold.getDate() + 3); // 종료 3일 이내
     
     // 활성 상태인 상품만 확인
     const activeProducts = member.memberProducts.filter(mp => mp && mp.status === 'ACTIVE');
@@ -779,7 +801,7 @@ function checkMemberExpiring(member) {
                 }
                 // remainingCount가 여전히 null이면 계산 불가능하므로 건너뜀
                 if (remainingCount !== null && remainingCount !== undefined && 
-                    remainingCount <= 3 && remainingCount > 0) {
+                    remainingCount <= 2 && remainingCount > 0) {
                     // 만료 임박 (횟수권)
                     return true;
                 }
@@ -818,15 +840,37 @@ function checkMemberExpiring(member) {
     return false;
 }
 
-// 회원에게 종료/사용완료된 이용권이 있는지 확인 (종료 배지 표시용)
+// 회원에게 종료 배지를 보여줄지 여부 (이용권 종료 규칙)
+// - 이용권 1개이고 그게 종료 → 항상 종료 표시
+// - 이용권 여러 개이고 전부 종료 → 종료 표시
+// - 이용권 여러 개인데 일부만 종료 → 종료된 지 3일 이내만 표시 (코치 변경 등으로 다른 이용권 사용 가능)
 function checkMemberHasExpired(member) {
     if (!member || !member.memberProducts || member.memberProducts.length === 0) {
         return false;
     }
-    return member.memberProducts.some(function(mp) {
+    var list = member.memberProducts;
+    var ended = list.filter(function(mp) {
         var s = (mp && mp.status) ? String(mp.status).toUpperCase() : '';
         return s === 'USED_UP' || s === 'EXPIRED';
     });
+    var total = list.length;
+    var endedCount = ended.length;
+    if (endedCount === 0) return false;
+    // 전부 종료 또는 이용권 1개인데 그게 종료 → 항상 표시
+    if (endedCount === total || total === 1) return true;
+    // 일부만 종료 → 가장 최근 종료일로부터 3일 이내만 표시
+    var latestEndedAt = null;
+    for (var i = 0; i < ended.length; i++) {
+        var at = ended[i].endedAt;
+        if (at) {
+            var d = typeof at === 'string' ? new Date(at) : (at && at instanceof Date ? at : null);
+            if (d && !isNaN(d.getTime()) && (!latestEndedAt || d > latestEndedAt)) latestEndedAt = d;
+        }
+    }
+    if (!latestEndedAt) return false; // endedAt 없으면 3일 규칙 적용 불가 → 표시 안 함
+    var now = new Date();
+    var threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+    return (now - latestEndedAt) <= threeDaysMs;
 }
 
 // 만료일까지 남은 일수에 따른 색상 반환
@@ -1142,15 +1186,49 @@ function openMemberModal(id = null) {
         loadMemberData(id);
     } else {
         title.textContent = '회원 등록';
+        // 신규 등록: 이전에 수정했던/검색된 회원 정보가 남지 않도록 전부 초기화
+        currentEditingMember = null;
         form.reset();
-        // 회원 ID와 회원번호를 명시적으로 빈 값으로 설정 (덮어쓰기 방지)
         document.getElementById('member-id').value = '';
         document.getElementById('member-number').value = '';
-        App.log('회원 등록 모달 열림 - ID 및 회원번호 초기화 완료');
-        // 신규 등록 시 회원번호 필드 비우기
-        document.getElementById('member-number').value = '';
-        // 신규 등록 시 현재 수정 중인 회원 정보 초기화
-        currentEditingMember = null;
+        document.getElementById('member-name').value = '';
+        document.getElementById('member-phone').value = '';
+        document.getElementById('member-birth').value = '';
+        document.getElementById('member-gender').value = 'MALE';
+        document.getElementById('member-height').value = '';
+        document.getElementById('member-weight').value = '';
+        document.getElementById('member-grade').value = 'SOCIAL';
+        document.getElementById('member-status').value = 'ACTIVE';
+        document.getElementById('member-address').value = '';
+        document.getElementById('member-school').value = '';
+        document.getElementById('member-pitching-speed').value = '';
+        document.getElementById('member-swing-speed').value = '';
+        document.getElementById('member-exit-velocity').value = '';
+        document.getElementById('member-join-date').value = '';
+        document.getElementById('member-created-at').value = '';
+        document.getElementById('member-guardian-name').value = '';
+        document.getElementById('member-guardian-phone').value = '';
+        document.getElementById('member-memo').value = '';
+        document.getElementById('member-coach-memo').value = '';
+        // 상품 선택 해제 (이전 회원의 선택이 남지 않도록)
+        const productSelect = document.getElementById('member-products');
+        if (productSelect) {
+            Array.from(productSelect.options).forEach(opt => { opt.selected = false; });
+        }
+        // 투수/수비/공통 0~7 단계 기본값 0 (기록 없음)
+        setRadioStage('member-pitcher-control', 0, true, true);
+        setRadioStage('member-pitcher-breaking-ball', 0, true, true);
+        setRadioStage('member-defense-handling', 0, false, true);
+        setRadioStage('member-defense-step', 0, false, true);
+        setRadioStage('member-defense-throwing', 0, false, true);
+        setRadioStage('member-defense-quickness', 0, false, true);
+        setRadioStage('member-catcher-blocking', 0, false, true);
+        setRadioStage('member-catcher-throwing', 0, false, true);
+        setRadioStage('member-catcher-framing', 0, false, true);
+        setRadioStage('member-batter-power', 0, false, true);
+        setRadioStage('member-running-speed', 0, false, true);
+        setRadioStage('member-flexibility', 0, true, true);
+        App.log('회원 등록 모달 열림 - 폼 전체 초기화 완료');
     }
     
     App.Modal.open('member-modal');
@@ -1165,29 +1243,31 @@ function openMemberModal(id = null) {
     }
 }
 
-/** 1~5단계 라디오 그룹 값 설정 (name으로 선택, 기존 상/중/하 호환) */
-function setRadioStage(radioName, value, isStringLevel) {
+/** 0~7단계 라디오 그룹 값 설정 (name으로 선택, 기존 상/중/하 호환). allowZero=true면 미입력 시 0 선택 */
+function setRadioStage(radioName, value, isStringLevel, allowZero) {
     var radios = document.querySelectorAll('input[name="' + radioName + '"]');
     if (!radios.length) return;
     var s = '';
     if (value != null && value !== '') {
         if (isStringLevel) {
             var u = String(value).toUpperCase();
-            if (u === 'HIGH' || u === '상') s = '5';
-            else if (u === 'MID' || u === 'MIDDLE' || u === '중') s = '3';
+            if (u === 'HIGH' || u === '상') s = '7';
+            else if (u === 'MID' || u === 'MIDDLE' || u === '중') s = '4';
             else if (u === 'LOW' || u === '하') s = '1';
-            else if (/^[1-5]$/.test(String(value))) s = String(value);
+            else if (/^[0-7]$/.test(String(value))) s = String(value);
         } else {
             var n = Number(value);
-            if (n >= 1 && n <= 5) s = String(Math.round(n));
+            if (n >= 0 && n <= 7) s = String(Math.round(n));
         }
+    } else if (allowZero) {
+        s = '0';
     }
     radios.forEach(function(r) {
         r.checked = r.value === s;
     });
 }
 
-/** 1~5단계 select 값 설정 (기존 상/중/하 또는 숫자 호환) */
+/** 0~7단계 select 값 설정 (기존 상/중/하 또는 숫자 호환) */
 function setStageSelect(elementId, value, isStringLevel) {
     var el = document.getElementById(elementId);
     if (!el) return;
@@ -1195,14 +1275,16 @@ function setStageSelect(elementId, value, isStringLevel) {
     if (value != null && value !== '') {
         if (isStringLevel) {
             var u = String(value).toUpperCase();
-            if (u === 'HIGH' || u === '상') s = '5';
-            else if (u === 'MID' || u === 'MIDDLE' || u === '중') s = '3';
+            if (u === 'HIGH' || u === '상') s = '7';
+            else if (u === 'MID' || u === 'MIDDLE' || u === '중') s = '4';
             else if (u === 'LOW' || u === '하') s = '1';
-            else if (/^[1-5]$/.test(String(value))) s = String(value);
+            else if (/^[0-7]$/.test(String(value))) s = String(value);
         } else {
             var n = Number(value);
-            if (n >= 1 && n <= 5) s = String(Math.round(n));
+            if (n >= 0 && n <= 7) s = String(Math.round(n));
         }
+    } else {
+        s = '0';
     }
     el.value = s;
 }
@@ -1230,14 +1312,22 @@ async function loadMemberData(id) {
         // 주소 및 소속
         document.getElementById('member-address').value = member.address || '';
         document.getElementById('member-school').value = member.school || '';
-        // 투수 / 타자 기록 (파워는 타자만 입력, 투수와 공유)
+        // 투수 / 타자 기록 (투수: 구속, 제구력, 변화구 / 공통: 유연성, 파워)
         document.getElementById('member-pitching-speed').value = member.pitchingSpeed ?? '';
-        setRadioStage('member-pitcher-control', member.pitcherControl, true);
-        setRadioStage('member-running-speed', member.runningSpeed);
+        setRadioStage('member-pitcher-control', member.pitcherControl, true, true);
+        setRadioStage('member-pitcher-breaking-ball', member.pitcherBreakingBall, true, true);
+        setRadioStage('member-running-speed', member.runningSpeed, false, true);
         document.getElementById('member-swing-speed').value = member.swingSpeed ?? '';
         document.getElementById('member-exit-velocity').value = member.exitVelocity ?? '';
-        setRadioStage('member-batter-power', member.batterPower);
-        setRadioStage('member-flexibility', member.pitcherFlexibility || member.batterFlexibility, true);
+        setRadioStage('member-batter-power', member.batterPower, false, true);
+        setRadioStage('member-flexibility', member.pitcherFlexibility || member.batterFlexibility, true, true);
+        setRadioStage('member-defense-handling', member.defenseHandling != null ? member.defenseHandling : 0, false, true);
+        setRadioStage('member-defense-step', member.defenseStep != null ? member.defenseStep : 0, false, true);
+        setRadioStage('member-defense-throwing', member.defenseThrowing != null ? member.defenseThrowing : 0, false, true);
+        setRadioStage('member-defense-quickness', member.defenseQuickness != null ? member.defenseQuickness : 0, false, true);
+        setRadioStage('member-catcher-blocking', member.catcherBlocking != null ? member.catcherBlocking : 0, false, true);
+        setRadioStage('member-catcher-throwing', member.catcherThrowing != null ? member.catcherThrowing : 0, false, true);
+        setRadioStage('member-catcher-framing', member.catcherFraming != null ? member.catcherFraming : 0, false, true);
         // 가입일
         document.getElementById('member-join-date').value = member.joinDate || '';
         // 등록일시 (소급 등록)
@@ -1395,7 +1485,7 @@ function updateTotalPrice() {
     }
 }
 
-// 선택된 상품별 코치 선택 UI 업데이트
+// 선택된 상품별 코치 선택 UI 업데이트 (동시 호출 시 코치 블록 중복 방지)
 async function updateProductCoachSelection() {
     App.log('[updateProductCoachSelection] 시작');
     App.log('[updateProductCoachSelection] currentEditingMember:', currentEditingMember);
@@ -1412,13 +1502,19 @@ async function updateProductCoachSelection() {
         return;
     }
     
-    const selectedOptions = Array.from(productSelect.selectedOptions).filter(opt => opt.value && opt.value !== '');
+    let selectedOptions = Array.from(productSelect.selectedOptions).filter(opt => opt.value && opt.value !== '');
+    // 동일 상품(productId)이 여러 번 선택된 경우 코치 블록이 중복되지 않도록 productId 기준 1개만 유지
+    const seenProductIds = new Set();
+    selectedOptions = selectedOptions.filter(opt => {
+        const pid = String(opt.value);
+        if (seenProductIds.has(pid)) return false;
+        seenProductIds.add(pid);
+        return true;
+    });
     App.log('[updateProductCoachSelection] 선택된 상품 개수:', selectedOptions.length);
     
-    // 기존 내용 제거
-    container.innerHTML = '';
-    
     if (selectedOptions.length === 0) {
+        container.innerHTML = '';
         App.log('[updateProductCoachSelection] 선택된 상품이 없어 종료');
         return;
     }
@@ -1433,6 +1529,9 @@ async function updateProductCoachSelection() {
         return;
     }
     
+    // 비동기 완료 직전에 한 번 더 비움 (연속 클릭으로 여러 번 호출될 때 마지막 결과만 적용, 중복 블록 방지)
+    container.innerHTML = '';
+    
     // 선택된 상품들의 카테고리 수집 (필터링용)
     const selectedProductCategories = new Set();
     selectedOptions.forEach(option => {
@@ -1444,7 +1543,7 @@ async function updateProductCoachSelection() {
     
     App.log(`[updateProductCoachSelection] 선택된 상품들의 카테고리:`, Array.from(selectedProductCategories));
     
-    // 각 선택된 상품에 대해 코치 선택 드롭다운 생성
+    // 각 선택된 상품에 대해 코치 선택 드롭다운 생성 (productId당 1개)
     selectedOptions.forEach((option, index) => {
         const productId = option.value;
         const productName = option.textContent.replace(/^✓ /, '').trim();
@@ -1826,29 +1925,18 @@ async function saveMember(allowDuplicatePhone = false) {
     const weightValue = document.getElementById('member-weight').value;
     const phoneNumber = document.getElementById('member-phone').value.trim();
     
-    // 전화번호 중복 체크 (신규 등록이고 아직 확인하지 않은 경우)
-    if (!memberId && !allowDuplicatePhone && phoneNumber) {
+    // 전화번호 중복 체크 (신규 등록 시 중복이면 저장하지 않음)
+    if (!memberId && phoneNumber) {
         try {
             const existingMembers = await App.api.get(`/members/search?phoneNumber=${encodeURIComponent(phoneNumber)}`);
             
             if (existingMembers && existingMembers.length > 0) {
-                // 중복된 전화번호가 있음
                 const memberNames = existingMembers.map(m => m.name).join(', ');
-                const confirmed = confirm(
-                    `전화번호 '${phoneNumber}'은(는) 이미 등록되어 있습니다.\n` +
-                    `등록된 회원: ${memberNames}\n\n` +
-                    `형제 또는 가족으로 같은 전화번호를 사용하시겠습니까?\n\n` +
-                    `[확인]: 같은 전화번호로 등록\n` +
-                    `[취소]: 전화번호 수정`
+                App.showNotification(
+                    `전화번호 '${phoneNumber}'은(는) 이미 등록된 회원이 있습니다. (${memberNames}) 전화번호를 수정한 뒤 다시 저장해주세요.`,
+                    'warning'
                 );
-                
-                if (!confirmed) {
-                    App.showNotification('전화번호를 다시 확인해주세요.', 'warning');
-                    return;
-                }
-                
-                // 사용자가 확인했으므로 중복 허용
-                return saveMember(true);
+                return;
             }
         } catch (error) {
             App.warn('전화번호 중복 체크 실패:', error);
@@ -1872,12 +1960,20 @@ async function saveMember(allowDuplicatePhone = false) {
         pitchingSpeed: document.getElementById('member-pitching-speed').value ? parseFloat(document.getElementById('member-pitching-speed').value) : null,
         pitcherPower: (function() { var v = document.querySelector('input[name="member-batter-power"]:checked')?.value; return v ? parseFloat(v) : null; })(),
         pitcherControl: document.querySelector('input[name="member-pitcher-control"]:checked')?.value || null,
+        pitcherBreakingBall: document.querySelector('input[name="member-pitcher-breaking-ball"]:checked')?.value || null,
         pitcherFlexibility: document.querySelector('input[name="member-flexibility"]:checked')?.value || null,
         runningSpeed: (function() { var v = document.querySelector('input[name="member-running-speed"]:checked')?.value; return v ? parseFloat(v) : null; })(),
         swingSpeed: document.getElementById('member-swing-speed').value ? parseFloat(document.getElementById('member-swing-speed').value) : null,
         exitVelocity: document.getElementById('member-exit-velocity').value ? parseFloat(document.getElementById('member-exit-velocity').value) : null,
         batterPower: (function() { var v = document.querySelector('input[name="member-batter-power"]:checked')?.value; return v ? parseFloat(v) : null; })(),
         batterFlexibility: (function() { var v = document.querySelector('input[name="member-flexibility"]:checked')?.value; return v ? parseFloat(v) : null; })(),
+        defenseHandling: (function() { var v = document.querySelector('input[name="member-defense-handling"]:checked')?.value; return v != null && v !== '' ? parseFloat(v) : null; })(),
+        defenseStep: (function() { var v = document.querySelector('input[name="member-defense-step"]:checked')?.value; return v != null && v !== '' ? parseFloat(v) : null; })(),
+        defenseThrowing: (function() { var v = document.querySelector('input[name="member-defense-throwing"]:checked')?.value; return v != null && v !== '' ? parseFloat(v) : null; })(),
+        defenseQuickness: (function() { var v = document.querySelector('input[name="member-defense-quickness"]:checked')?.value; return v != null && v !== '' ? parseFloat(v) : null; })(),
+        catcherBlocking: (function() { var v = document.querySelector('input[name="member-catcher-blocking"]:checked')?.value; return v != null && v !== '' ? parseFloat(v) : null; })(),
+        catcherThrowing: (function() { var v = document.querySelector('input[name="member-catcher-throwing"]:checked')?.value; return v != null && v !== '' ? parseFloat(v) : null; })(),
+        catcherFraming: (function() { var v = document.querySelector('input[name="member-catcher-framing"]:checked')?.value; return v != null && v !== '' ? parseFloat(v) : null; })(),
         guardianName: document.getElementById('member-guardian-name').value || null,
         guardianPhone: document.getElementById('member-guardian-phone').value || null,
         memo: document.getElementById('member-memo').value || null,
@@ -1952,10 +2048,11 @@ async function saveMember(allowDuplicatePhone = false) {
         }
         
         if (id) {
-            // 수정 모드: 상품이 변경되었거나 코치가 변경되었을 수 있으므로 항상 재할당
+            // 수정 모드: 기존 이용권은 유지(횟수 초기화 방지), 제거된 것만 삭제·추가된 것만 생성
+            const existingMemberProducts = (currentEditingMember && currentEditingMember.memberProducts) ? currentEditingMember.memberProducts : [];
             if (selectedProductIds.length > 0) {
-                App.log(`[saveMember] 수정 모드 - 상품 할당 시작 (코치 변경 포함)`);
-                await assignProductsToMember(savedMember.id, selectedProductIds);
+                App.log(`[saveMember] 수정 모드 - 상품 할당 시작 (기존 유지, 추가/제거만 반영)`);
+                await assignProductsToMember(savedMember.id, selectedProductIds, existingMemberProducts);
                 App.log(`[saveMember] 수정 모드 - 상품 할당 완료`);
             } else {
                 // 상품이 모두 제거된 경우
@@ -1963,10 +2060,10 @@ async function saveMember(allowDuplicatePhone = false) {
                 await App.api.delete(`/members/${savedMember.id}/products`);
             }
         } else {
-            // 신규 등록: 상품이 있으면 할당
+            // 신규 등록: 상품이 있으면 할당 (기존 목록 없음)
             if (selectedProductIds.length > 0) {
                 App.log(`[saveMember] 신규 등록 - 상품 할당 시작`);
-                await assignProductsToMember(savedMember.id, selectedProductIds);
+                await assignProductsToMember(savedMember.id, selectedProductIds, null);
                 App.log(`[saveMember] 신규 등록 - 상품 할당 완료`);
             }
         }
@@ -1979,69 +2076,66 @@ async function saveMember(allowDuplicatePhone = false) {
 }
 
 // 회원에게 상품 할당 및 결제 생성
-async function assignProductsToMember(memberId, productIds) {
-    App.log(`[assignProductsToMember] 시작 - memberId: ${memberId}, productIds:`, productIds);
+// existingMemberProducts: 수정 모드일 때 기존 이용권 목록(있으면 추가/제거만 반영, 없으면 신규 등록처럼 전부 생성)
+async function assignProductsToMember(memberId, productIds, existingMemberProducts) {
+    App.log(`[assignProductsToMember] 시작 - memberId: ${memberId}, productIds:`, productIds, 'existingMemberProducts:', existingMemberProducts?.length ?? 0);
     try {
-        // 기존 상품 할당 제거 후 새로 할당
-        App.log(`[assignProductsToMember] 기존 상품 할당 제거 시작`);
-        await App.api.delete(`/members/${memberId}/products`);
-        App.log(`[assignProductsToMember] 기존 상품 할당 제거 완료`);
-        
+        const selectedSet = new Set(productIds.map(pid => String(pid)));
+        let toAdd = productIds;
+        let toRemove = [];
+
+        if (existingMemberProducts && existingMemberProducts.length > 0) {
+            // 수정 모드: 기존 이용권 유지, 선택 해제된 것만 삭제, 새로 선택된 것만 생성 (사용 횟수 초기화 방지)
+            const existingProductIds = new Set();
+            toRemove = existingMemberProducts.filter(mp => {
+                const pid = String(mp.product?.id || mp.productId || '');
+                if (!pid) return false;
+                existingProductIds.add(pid);
+                return !selectedSet.has(pid);
+            });
+            toAdd = productIds.filter(pid => !existingProductIds.has(String(pid)));
+
+            for (const mp of toRemove) {
+                try {
+                    await App.api.delete(`/member-products/${mp.id}`);
+                    App.log(`[assignProductsToMember] 이용권 제거: MemberProduct ID=${mp.id}, 상품 ID=${mp.product?.id || mp.productId}`);
+                } catch (e) {
+                    App.warn(`[assignProductsToMember] 이용권 제거 실패 MemberProduct ID=${mp.id}:`, e);
+                }
+            }
+            App.log(`[assignProductsToMember] 제거 ${toRemove.length}건, 새로 추가 ${toAdd.length}건`);
+        } else {
+            // 신규 등록: 기존 할당 없음 → 전체 삭제 후 일괄 생성 (기존 동작)
+            App.log(`[assignProductsToMember] 신규 등록 - 기존 상품 할당 제거 후 새로 할당`);
+            await App.api.delete(`/members/${memberId}/products`);
+        }
+
         // 선택된 상품별 코치 정보 수집
         const productCoachMap = {};
         const coachSelects = document.querySelectorAll('.product-coach-select');
-        App.log(`[assignProductsToMember] 찾은 코치 드롭다운 개수: ${coachSelects.length}`);
-        
-        coachSelects.forEach((select, index) => {
+        coachSelects.forEach((select) => {
             const productId = select.dataset.productId;
             const coachId = select.value;
-            App.log(`[assignProductsToMember] 드롭다운 ${index + 1}: productId="${productId}", coachId="${coachId}", selectedIndex=${select.selectedIndex}`);
-            
-            if (productId && coachId) {
-                productCoachMap[productId] = parseInt(coachId);
-                App.log(`[assignProductsToMember] 상품 ID ${productId}에 코치 ID ${coachId} 매핑됨`);
-            } else {
-                App.warn(`[assignProductsToMember] 상품 ID ${productId}에 코치가 선택되지 않음 (coachId: "${coachId}")`);
-            }
+            if (productId && coachId) productCoachMap[productId] = parseInt(coachId);
         });
-        
-        App.log(`[assignProductsToMember] 최종 productCoachMap:`, productCoachMap);
-        
-        // 새 상품 할당 및 결제 생성
-        for (const productId of productIds) {
+
+        for (const productId of toAdd) {
             try {
                 const requestData = { productId: parseInt(productId) };
-                // 코치가 선택된 경우 추가
-                if (productCoachMap[productId]) {
-                    requestData.coachId = productCoachMap[productId];
-                    App.log(`[assignProductsToMember] 상품 ID ${productId}에 코치 ID ${productCoachMap[productId]} 포함하여 할당`);
-                } else {
-                    App.warn(`[assignProductsToMember] 상품 ID ${productId}에 코치가 없음`);
-                }
-                App.log(`[assignProductsToMember] 상품 할당 요청:`, requestData);
+                if (productCoachMap[productId]) requestData.coachId = productCoachMap[productId];
                 await App.api.post(`/members/${memberId}/products`, requestData);
                 App.log(`[assignProductsToMember] 상품 ID ${productId} 할당 완료`);
             } catch (error) {
-                // 에러 응답의 상세 정보 로깅
                 if (error.response && error.response.data) {
-                    App.err('상품 할당 실패 상세:', {
-                        productId: productId,
-                        error: error.response.data.error,
-                        message: error.response.data.message,
-                        errorType: error.response.data.errorType,
-                        cause: error.response.data.cause,
-                        memberId: error.response.data.memberId,
-                        productIdFromServer: error.response.data.productId
-                    });
+                    App.err('상품 할당 실패 상세:', { productId, ...error.response.data });
                 } else {
                     App.err('상품 할당 실패:', error);
                 }
-                throw error; // 상위로 전파하여 전체 프로세스 중단
+                throw error;
             }
         }
     } catch (error) {
         App.err('상품 할당 실패:', error);
-        // 상품 할당 실패해도 회원 저장은 성공했으므로 경고만 표시
         App.showNotification('상품 할당에 실패했습니다.', 'warning');
     }
 }
@@ -2112,7 +2206,8 @@ function switchTab(tab, member = null) {
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('data-tab') === tab);
     });
-    
+    var modalBox = document.querySelector('#member-detail-modal .member-detail-modal-box');
+    if (modalBox) modalBox.setAttribute('data-detail-tab', tab || '');
     // member가 전달되지 않았으면 저장된 currentMemberDetail 사용
     if (!member && currentMemberDetail) {
         member = currentMemberDetail;
@@ -2172,39 +2267,43 @@ function switchTab(tab, member = null) {
                 App.api.get('/members/' + member.id + '/ability-stats-context').then(function(ctx) {
                     content.innerHTML = renderMemberStats(member, ctx);
                     setupMemberStatsLegendToggles(content);
+                    setupMemberStatsMemos(content, member);
                 }).catch(function() {
                     content.innerHTML = renderMemberStats(member, null);
                     setupMemberStatsLegendToggles(content);
+                    setupMemberStatsMemos(content, member);
                 });
             } else {
                 content.innerHTML = renderMemberStats(member, null);
                 setupMemberStatsLegendToggles(content);
+                setupMemberStatsMemos(content, member);
             }
             break;
         case 'memo':
             content.innerHTML = renderMemberMemo(member);
+            setupMemberMemoTabSave(content, member);
             break;
     }
 }
 
-/** 1~5단계 표시: 숫자면 "N단계", 아니면 기존 상/중/하 등 */
+/** 0~7단계 표시: 숫자면 "N단계", 아니면 기존 상/중/하 등 */
 function fmtStageDisplay(v) {
     if (v == null || v === '') return null;
     var n = Number(v);
-    if (n >= 1 && n <= 5) return Math.round(n) + '단계';
+    if (n >= 0 && n <= 7) return Math.round(n) + '단계';
     return v;
 }
 function fmtLevelOrStage(s) {
-    if (!s) return null;
+    if (!s && s !== 0) return null;
     var u = String(s).toUpperCase();
     if (u === 'HIGH' || u === '상') return '상';
     if (u === 'MID' || u === 'MIDDLE' || u === '중') return '중';
     if (u === 'LOW' || u === '하') return '하';
-    if (/^[1-5]$/.test(String(s))) return String(s) + '단계';
+    if (/^[0-7]$/.test(String(s))) return String(s) + '단계';
     return s;
 }
 
-/** 기본 정보 탭용: 투수/타자 등록 능력치 요약 (담당 코치 위에 표시) */
+/** 기본 정보 탭용: 투수/타자/수비 등록 능력치 요약 (담당 코치 위에 표시) */
 function renderMemberAbilitySummary(member) {
     if (!member) return '';
     var fmtNum = function(v) { return v != null && v !== '' ? Number(v) : null; };
@@ -2212,19 +2311,29 @@ function renderMemberAbilitySummary(member) {
     var pitcherItems = [
         { label: '구속', val: member.pitchingSpeed != null ? member.pitchingSpeed + ' km/h' : '-' },
         { label: '제구력', val: fmtLevelOrStage(member.pitcherControl) || '-' },
-        { label: '유연성', val: fmtLevelOrStage(member.pitcherFlexibility) || '-' },
-        { label: '주력', val: fmtStageDisplay(run) || (run != null ? run : '-') }
+        { label: '변화구', val: fmtLevelOrStage(member.pitcherBreakingBall) || '-' }
     ];
     var runB = run != null ? run : fmtNum(member.runningSpeed);
-    var batterItems = [
-        { label: '스윙 스피드', val: member.swingSpeed != null ? member.swingSpeed + ' mph' : '-' },
-        { label: '타구 스피드', val: member.exitVelocity != null ? member.exitVelocity + ' mph' : '-' },
+    var commonItems = [
         { label: '파워', val: fmtStageDisplay(member.batterPower) || '-' },
         { label: '주력', val: fmtStageDisplay(runB) || (runB != null ? runB : '-') },
         { label: '유연성', val: fmtStageDisplay(member.batterFlexibility) || '-' }
     ];
-    var hasAny = pitcherItems.some(function(p) { return p.val !== '-'; }) || batterItems.some(function(p) { return p.val !== '-'; });
-    if (!hasAny) return '';
+    var batterItems = [
+        { label: '스윙 스피드', val: member.swingSpeed != null ? member.swingSpeed + ' mph' : '-' },
+        { label: 'Tee 타구 스피드', val: member.exitVelocity != null ? member.exitVelocity + ' mph' : '-' }
+    ];
+    var defenseItems = [
+        { label: '핸들링', val: member.defenseHandling != null ? (fmtStageDisplay(member.defenseHandling) || '-') : '-' },
+        { label: '스탭', val: member.defenseStep != null ? (fmtStageDisplay(member.defenseStep) || '-') : '-' },
+        { label: '송구(수비)', val: member.defenseThrowing != null ? (fmtStageDisplay(member.defenseThrowing) || '-') : '-' },
+        { label: '순발력', val: member.defenseQuickness != null ? (fmtStageDisplay(member.defenseQuickness) || '-') : '-' }
+    ];
+    var catcherItems = [
+        { label: '블로킹', val: member.catcherBlocking != null ? (fmtStageDisplay(member.catcherBlocking) || '-') : '-' },
+        { label: '송구(포수)', val: member.catcherThrowing != null ? (fmtStageDisplay(member.catcherThrowing) || '-') : '-' },
+        { label: '프레이밍', val: member.catcherFraming != null ? (fmtStageDisplay(member.catcherFraming) || '-') : '-' }
+    ];
     var row = function(items) {
         return items.map(function(p) {
             var v = p.val !== '-' && App.escapeHtml ? App.escapeHtml(String(p.val)) : (p.val !== '-' ? String(p.val) : '-');
@@ -2233,13 +2342,23 @@ function renderMemberAbilitySummary(member) {
     };
     return `
         <div class="form-row member-ability-summary-row">
-            <div class="form-group member-ability-summary-col">
+            <div class="form-group member-ability-summary-col member-ability-summary-col-pitcher-common">
                 <label class="form-label">투수 기록</label>
                 <div class="member-ability-summary-block">${row(pitcherItems)}</div>
+                <label class="form-label" style="margin-top: 12px;">공통</label>
+                <div class="member-ability-summary-block">${row(commonItems)}</div>
             </div>
             <div class="form-group member-ability-summary-col">
                 <label class="form-label">타자 기록</label>
                 <div class="member-ability-summary-block">${row(batterItems)}</div>
+            </div>
+            <div class="form-group member-ability-summary-col">
+                <label class="form-label">수비 기록</label>
+                <div class="member-ability-summary-block">${row(defenseItems)}</div>
+            </div>
+            <div class="form-group member-ability-summary-col">
+                <label class="form-label">포수 기록</label>
+                <div class="member-ability-summary-block">${row(catcherItems)}</div>
             </div>
         </div>
     `;
@@ -2347,6 +2466,7 @@ function renderProductsList(products) {
                 
                 const expiryDate = p.expiryDate ? App.formatDate(p.expiryDate) : '-';
                 const productId = p.id;
+                const voucherNumber = p.voucherNumber || '';
                 const isCountPass = product.type === 'COUNT_PASS';
                 const isMonthlyPass = product.type === 'MONTHLY_PASS';
                 const startDate = p.purchaseDate ? App.formatDate(p.purchaseDate.split('T')[0]) : '-';
@@ -2421,6 +2541,11 @@ function renderProductsList(products) {
                         }
                     }
                 }
+
+                // 이용권 번호 표시용 텍스트
+                const voucherText = voucherNumber
+                    ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">이용권 번호: ${App.escapeHtml ? App.escapeHtml(voucherNumber) : voucherNumber}</div>`
+                    : '';
                 
                 // 기간권인 경우 만료일 정보 추가 및 색상 적용
                 let periodInfo = '';
@@ -2459,6 +2584,7 @@ function renderProductsList(products) {
                         <div class="product-detail" style="font-size: 14px; color: ${displayColor}; font-weight: 600;">
                             ${remainingDisplay}${periodInfo}
                         </div>
+                        ${voucherText}
                         <div class="product-coach" style="font-size: 12px; color: var(--text-secondary); margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-color);">
                             담당 코치/강사: ${coachDisplay}
                         </div>
@@ -2466,7 +2592,7 @@ function renderProductsList(products) {
                     <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                         <span class="badge badge-${status === 'ACTIVE' ? 'success' : status === 'EXPIRED' ? 'warning' : 'secondary'}">${statusDisplay}</span>
                         ${isCountPass ? `
-                            <button class="btn btn-sm btn-secondary" onclick="openAdjustCountModal(${productId}, ${remaining})" title="횟수 조정">
+                            <button class="btn btn-sm btn-secondary" onclick="openAdjustCountModal(${productId}, ${remaining}, ${total})" title="횟수 조정">
                                 조정
                             </button>
                         ` : ''}
@@ -2538,43 +2664,69 @@ function applyCoachNameColors(container) {
 }
 
 // 횟수 조정 모달 열기
-async function openAdjustCountModal(productId, currentRemaining) {
+async function openAdjustCountModal(productId, currentRemaining, currentTotal) {
     document.getElementById('adjust-product-id').value = productId;
     document.getElementById('adjust-current-count').textContent = `현재 잔여 횟수: ${currentRemaining}회`;
+    document.getElementById('adjust-current-total').textContent = currentTotal != null && currentTotal !== undefined ? String(currentTotal) + '회' : '-';
     document.getElementById('adjust-amount').value = '';
+    document.getElementById('adjust-total').value = currentTotal != null && currentTotal !== undefined ? String(currentTotal) : '';
     App.Modal.open('adjust-count-modal');
 }
 
 // 횟수 조정 처리
 async function processAdjustCount() {
     const productId = document.getElementById('adjust-product-id').value;
-    const amountInput = document.getElementById('adjust-amount').value;
+    const amountInputRaw = document.getElementById('adjust-amount').value;
+    const totalInput = document.getElementById('adjust-total').value;
     const adjustMode = document.querySelector('input[name="adjust-mode"]:checked').value;
     const currentCount = parseInt(document.getElementById('adjust-current-count').textContent.replace(/[^0-9]/g, '')) || 0;
     
-    if (!amountInput || amountInput.trim() === '') {
-        App.showNotification('횟수를 입력해주세요.', 'warning');
-        return;
-    }
-    
-    const inputValue = parseInt(amountInput);
-    if (isNaN(inputValue)) {
-        App.showNotification('유효한 숫자를 입력해주세요.', 'warning');
-        return;
-    }
+    const amountInput = amountInputRaw ? amountInputRaw.trim() : '';
     
     try {
         let result;
         
-        if (adjustMode === 'absolute') {
+        // 총 횟수 입력이 있으면 상대 조정보다 "직접 설정" 로직을 우선 사용
+        let mode = adjustMode;
+        if (totalInput && totalInput.trim() !== '' && mode === 'relative') {
+            mode = 'absolute';
+        }
+
+        if (mode === 'absolute') {
             // 절대값 설정 모드: 직접 입력한 값으로 설정
-            if (inputValue < 0) {
-                App.showNotification('직접 설정 모드에서는 0 이상의 값을 입력해주세요.', 'warning');
+            // 1) 잔여·총 둘 다 비어 있으면 오류
+            if ((!amountInput || amountInput === '') && (!totalInput || totalInput.trim() === '')) {
+                App.showNotification('잔여 횟수 또는 총 횟수 중 하나는 입력해야 합니다.', 'warning');
                 return;
+            }
+
+            // 2) 잔여 입력이 없고 총 횟수만 입력한 경우: 잔여는 현재 값을 그대로 사용
+            let effectiveCount;
+            if (!amountInput || amountInput === '') {
+                effectiveCount = currentCount;
+            } else {
+                const parsed = parseInt(amountInput);
+                if (isNaN(parsed) || parsed < 0) {
+                    App.showNotification('직접 설정 모드에서는 0 이상의 유효한 숫자를 입력해주세요.', 'warning');
+                    return;
+                }
+                effectiveCount = parsed;
+            }
+
+            // 총 횟수 유효성 검사 (입력했다면)
+            let totalPayload = null;
+            if (totalInput && totalInput.trim() !== '') {
+                const totalVal = parseInt(totalInput);
+                if (isNaN(totalVal) || totalVal <= 0) {
+                    App.showNotification('총 횟수는 1 이상의 숫자여야 합니다.', 'warning');
+                    return;
+                }
+                totalPayload = totalVal;
             }
             
             result = await App.api.put(`/member-products/${productId}/set-count`, {
-                count: inputValue
+                count: effectiveCount,
+                total: totalPayload
             });
         } else {
             // 상대 조정 모드: +/- 방식
@@ -2854,21 +3006,20 @@ async function deleteMemberProduct(memberProductId, productName) {
         if (response && response.success) {
             App.showNotification('이용권이 삭제되었습니다.', 'success');
             
+            // 회원 목록 새로고침 (상세에서 나와도 목록에 반영되도록)
+            if (typeof loadMembers === 'function') {
+                loadMembers();
+            }
+            
             // 회원 상세 모달이 열려있으면 이용권 목록 새로고침
             const memberDetailModal = document.getElementById('member-detail-modal');
             if (memberDetailModal && memberDetailModal.style.display !== 'none' && currentMemberDetail) {
-                // 현재 활성화된 탭 확인
-                const activeTab = document.querySelector('#member-detail-modal .tab-btn.active');
-                if (activeTab && activeTab.getAttribute('data-tab') === 'products') {
-                    // 이용권 탭이 활성화되어 있으면 목록 새로고침
-                    loadMemberProductsForDetail(currentMemberDetail.id);
-                }
+                loadMemberProductsForDetail(currentMemberDetail.id);
             }
             
             // 회원 수정 모달이 열려있으면 상품 목록도 새로고침
             const memberModal = document.getElementById('member-modal');
             if (memberModal && memberModal.style.display === 'flex' && currentEditingMember) {
-                // 회원 수정 모달이 열려있으면 상품 목록 새로고침
                 if (typeof loadMemberProducts === 'function') {
                     loadMemberProducts(currentEditingMember.id);
                 }
@@ -3086,7 +3237,7 @@ function renderMemberTimelineContent(events, memberId) {
     const badgeMap = {
         SIGNUP: { text: '가입', class: 'primary' },
         PAYMENT: { text: '구매', class: 'success' },
-        BOOKING: { text: '예약', class: 'info' },
+        BOOKING: { text: '예약', class: 'booking' },
         CHECKIN: { text: '체크인', class: 'warning' },
         PRODUCT_HISTORY: { text: '이용권', class: 'secondary' }
     };
@@ -3095,7 +3246,7 @@ function renderMemberTimelineContent(events, memberId) {
         const date = ev.date ? App.formatDateTime(ev.date) : '-';
         const badge = badgeMap[ev.eventType];
         const badgeClass = ev.eventType === 'PRODUCT_HISTORY'
-            ? (ev.label === '차감' ? 'danger' : ev.label === '충전' ? 'success' : 'warning')
+            ? (ev.label === '차감' ? 'danger' : ev.label === '충전' ? 'charge' : 'warning')
             : (badge ? badge.class : 'secondary');
         const badgeText = ev.label || (badge ? badge.text : ev.eventType) || '-';
         let detail = (ev.detail || ev.description || '').toString();
@@ -3122,6 +3273,7 @@ function renderMemberTimelineContent(events, memberId) {
         let descLine = (ev.description && ev.eventType === 'PRODUCT_HISTORY') ? ev.description : '';
         if (descLine) descLine = descLine.replace(/(\d+회)\s*→\s*(\d+회)/g, (_, a, b) => a + ' → <span class="timeline-change" style="' + greenStyle + '">' + b + '</span>');
         descLine = descLine ? '<div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">' + descLine + '</div>' : '';
+        const processedByLine = (ev.processedBy && String(ev.processedBy).trim()) ? '<div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">처리: ' + (App.escapeHtml ? App.escapeHtml(ev.processedBy) : ev.processedBy) + '</div>' : '';
         const hasHistoryId = ev.historyId != null;
         var checkCellInner = '';
         if (hasHistoryId) {
@@ -3135,6 +3287,7 @@ function renderMemberTimelineContent(events, memberId) {
             <div style="flex: 1; min-width: 0; font-size: 13px; line-height: 1.4; text-align: left;">
                 <div>${detail || '-'} ${remaining}</div>
                 ${descLine}
+                ${processedByLine}
             </div>
         </div>`;
     }).join('');
@@ -3359,8 +3512,129 @@ function setupMemberStatsLegendToggles(container) {
     });
 }
 
+function getCoachMemoStatsObject(member) {
+    if (!member) return { pitcher: [], batter: [], defense: [], catcher: [] };
+    var raw = member.coachMemoStats;
+    var stats = (typeof raw === 'string' && raw) ? (function() { try { return JSON.parse(raw); } catch (e) { return {}; } })() : (raw && typeof raw === 'object' ? raw : {});
+    var keys = ['pitcher', 'batter', 'defense', 'catcher'];
+    keys.forEach(function(k) {
+        if (!Array.isArray(stats[k])) stats[k] = [];
+        while (stats[k].length < 5) stats[k].push('');
+    });
+    return stats;
+}
+
+function setupMemberStatsMemos(container, member) {
+    if (!container || !member || !member.id) return;
+    var icons = container.querySelectorAll('.member-field-memo-icon');
+    icons.forEach(function(icon) {
+        var field = icon.getAttribute('data-field') || '';
+        var statIndexStr = icon.getAttribute('data-stat-index');
+        var statIndex = (statIndexStr !== '' && statIndexStr != null) ? parseInt(statIndexStr, 10) : null;
+        var statLabel = icon.getAttribute('data-stat-label') || '';
+        icon.addEventListener('click', function() {
+            var m = (currentMemberDetail && currentMemberDetail.id === member.id) ? currentMemberDetail : member;
+            var initialMemo = '';
+            if (statIndex != null && !isNaN(statIndex)) {
+                var stats = getCoachMemoStatsObject(m);
+                initialMemo = (stats[field] && stats[field][statIndex] != null) ? String(stats[field][statIndex]) : '';
+                openGradeMemoModal(member.id, initialMemo, field, statIndex, statLabel);
+            } else {
+                if (field === 'pitcher') initialMemo = m.coachMemoPitcher != null ? String(m.coachMemoPitcher) : '';
+                else if (field === 'batter') initialMemo = m.coachMemoBatter != null ? String(m.coachMemoBatter) : '';
+                else if (field === 'defense') initialMemo = m.coachMemoDefense != null ? String(m.coachMemoDefense) : '';
+                else if (field === 'catcher') initialMemo = m.coachMemoCatcher != null ? String(m.coachMemoCatcher) : '';
+                openGradeMemoModal(member.id, initialMemo, field);
+            }
+        });
+    });
+}
+
+function openGradeMemoModal(memberId, initialMemo, field, statIndex, statLabel) {
+    var overlay = document.createElement('div');
+    overlay.className = 'member-grade-memo-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
+    var box = document.createElement('div');
+    box.className = 'member-grade-memo-modal';
+    box.style.cssText = 'background:var(--bg-secondary, #1e2530);border-radius:12px;padding:20px;min-width:320px;max-width:480px;width:90%;box-shadow:0 8px 24px rgba(0,0,0,0.3);';
+    var fieldLabels = { pitcher: '투수', batter: '타자', defense: '수비', catcher: '포수' };
+    var fieldLabel = (field && fieldLabels[field]) ? fieldLabels[field] : '';
+    var placeholder;
+    if (statIndex != null && !isNaN(statIndex) && statLabel) {
+        placeholder = fieldLabel + ' - ' + statLabel + ' 수치에 대한 코치 메모를 입력하세요.';
+    } else {
+        placeholder = fieldLabel ? fieldLabel + ' 분야 코치 메모를 입력하세요.' : '등급 사유 등 메모를 입력하면 코치 메모에 등록됩니다.';
+    }
+    var textarea = document.createElement('textarea');
+    textarea.className = 'form-control';
+    textarea.rows = 5;
+    textarea.placeholder = placeholder;
+    textarea.value = initialMemo != null ? String(initialMemo) : '';
+    textarea.style.cssText = 'width:100%;margin-bottom:12px;resize:vertical;';
+    var btnWrap = document.createElement('div');
+    btnWrap.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+    var saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'btn btn-primary btn-sm';
+    saveBtn.textContent = '저장';
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn btn-secondary btn-sm';
+    closeBtn.textContent = '취소';
+    function close() {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+    saveBtn.addEventListener('click', function() {
+        var body = {};
+        var isPerStat = (statIndex != null && !isNaN(statIndex));
+        if (isPerStat && field) {
+            var stats = getCoachMemoStatsObject(currentMemberDetail && currentMemberDetail.id === memberId ? currentMemberDetail : {});
+            if (!Array.isArray(stats[field])) stats[field] = [];
+            while (stats[field].length <= statIndex) stats[field].push('');
+            stats[field][statIndex] = textarea.value;
+            body.coachMemoStats = stats;
+        } else if (field === 'pitcher') body.coachMemoPitcher = textarea.value;
+        else if (field === 'batter') body.coachMemoBatter = textarea.value;
+        else if (field === 'defense') body.coachMemoDefense = textarea.value;
+        else if (field === 'catcher') body.coachMemoCatcher = textarea.value;
+        else body.coachMemo = textarea.value;
+        saveBtn.disabled = true;
+        App.api.patch('/members/' + memberId + '/memos', body).then(function(res) {
+            saveBtn.disabled = false;
+            if (currentMemberDetail && currentMemberDetail.id === memberId) {
+                if (res.coachMemoStats != null) currentMemberDetail.coachMemoStats = typeof res.coachMemoStats === 'string' ? res.coachMemoStats : JSON.stringify(res.coachMemoStats);
+                else if (field === 'pitcher') currentMemberDetail.coachMemoPitcher = res.coachMemoPitcher;
+                else if (field === 'batter') currentMemberDetail.coachMemoBatter = res.coachMemoBatter;
+                else if (field === 'defense') currentMemberDetail.coachMemoDefense = res.coachMemoDefense;
+                else if (field === 'catcher') currentMemberDetail.coachMemoCatcher = res.coachMemoCatcher;
+                else currentMemberDetail.coachMemo = res.coachMemo;
+            }
+            App.showNotification('코치 메모가 저장되었습니다.', 'success');
+            close();
+        }).catch(function() {
+            saveBtn.disabled = false;
+            App.showNotification('저장에 실패했습니다.', 'danger');
+        });
+    });
+    closeBtn.addEventListener('click', close);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+    btnWrap.appendChild(closeBtn);
+    btnWrap.appendChild(saveBtn);
+    box.appendChild(textarea);
+    box.appendChild(btnWrap);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+}
+
 function renderMemberStats(member, context) {
     if (!member) return '<p>로딩 중...</p>';
+    var eliteGrades = ['ELITE_ELEMENTARY', 'ELITE_MIDDLE', 'ELITE_HIGH'];
+    var isElite = member.grade && eliteGrades.indexOf(member.grade) !== -1;
+    if (!isElite) {
+        return '<div class="member-stats-ability-wrap" style="padding: 32px 24px; text-align: center;">' +
+            '<p style="color: var(--text-muted); font-size: 15px; margin: 0;">개인 능력치는 엘리트 등급만 표시가 됩니다.</p>' +
+            '</div>';
+    }
     var fmtNum = function(v) { return v != null && v !== '' ? Number(v) : null; };
     var fmtLevel = function(s) {
         if (!s) return null;
@@ -3368,43 +3642,48 @@ function renderMemberStats(member, context) {
         if (u === 'HIGH' || u === '상') return '상';
         if (u === 'MID' || u === 'MIDDLE' || u === '중') return '중';
         if (u === 'LOW' || u === '하') return '하';
-        if (/^[1-5]$/.test(String(s))) return String(s) + '단계';
+        if (/^[0-7]$/.test(String(s))) return String(s) + '단계';
         return s;
     };
-    /** 1~5단계 또는 상/중/하 -> 0~1 비율 (레이더용) */
+    /** 0~7단계 또는 상/중/하 -> 0~1 비율 (레이더용) */
     var levelToRatio = function(s) {
-        if (!s) return 0;
+        if (s === null || s === undefined || s === '') return 0;
         var u = String(s).toUpperCase();
         if (u === 'HIGH' || u === '상') return 1;
-        if (u === 'MID' || u === 'MIDDLE' || u === '중') return 0.6;
-        if (u === 'LOW' || u === '하') return 0.3;
+        if (u === 'MID' || u === 'MIDDLE' || u === '중') return 4 / 7;
+        if (u === 'LOW' || u === '하') return 1 / 7;
         var n = parseInt(s, 10);
-        if (n >= 1 && n <= 5) return n / 5;
+        if (n >= 0 && n <= 7) return n / 7;
         return 0.5;
     };
-    /** 숫자 값이 1~5면 /5, 아니면 기존 스케일(예: /100, /30) 적용 */
+    /** 숫자 값이 1~7(또는 max===7일 때 0~7)면 /7, 아니면 기존 스케일(예: /100, /30) 적용 */
     var toRatio = function(v, max) {
         if (v == null) return 0;
         var n = Number(v);
-        if (n >= 1 && n <= 5) return n / 5;
+        if (max === 7) return Math.min(1, n / 7);
+        if (n >= 1 && n <= 7) return n / 7;
         return max ? Math.min(1, n / max) : 0;
     };
     var pitchVel = fmtNum(member.pitchingSpeed);
-    var pitchPower = fmtNum(member.batterPower);
     var pitchCtrl = fmtLevel(member.pitcherControl);
+    var pitchBreaking = fmtLevel(member.pitcherBreakingBall);
     var pitchFlex = fmtLevel(member.pitcherFlexibility);
+    var pitchPower = fmtNum(member.batterPower);
     var runSpeed = fmtNum(member.runningSpeed);
     var swingVel = fmtNum(member.swingSpeed);
     var exitVel = fmtNum(member.exitVelocity);
     var batPower = fmtNum(member.batterPower);
     var batFlex = fmtNum(member.batterFlexibility);
     var runSpeedB = runSpeed != null ? runSpeed : fmtNum(member.runningSpeed);
-    var maxPitchVel = 160; var maxPower = 100; var maxRun = 30;
-    var p1 = pitchVel != null ? Math.min(1, pitchVel / maxPitchVel) : 0;
-    var p2 = toRatio(pitchPower, maxPower);
-    var p3 = levelToRatio(member.pitcherControl);
+    var ref = (context && context.reference) ? context.reference : {};
+    var refVelocity = (ref.refVelocity != null ? Number(ref.refVelocity) : 135);
+    var maxPower = 100; var maxRun = 30;
+    // 투수 5툴: 구속, 제구력, 변화구, 유연성(공통), 파워(공통) — 구속은 등급별 기준(refVelocity) 사용
+    var p1 = pitchVel != null && refVelocity > 0 ? Math.min(1, pitchVel / refVelocity) : 0;
+    var p2 = levelToRatio(member.pitcherControl);
+    var p3 = levelToRatio(member.pitcherBreakingBall);
     var p4 = levelToRatio(member.pitcherFlexibility);
-    var p5 = toRatio(runSpeed, maxRun);
+    var p5 = toRatio(pitchPower, maxPower);
     var cx = 80; var cy = 80; var r = 70;
     var labelGap = 10;
     var rLabel = r + labelGap;
@@ -3422,17 +3701,18 @@ function renderMemberStats(member, context) {
     var avgToRatio = function(v, max) {
         if (v == null) return 0;
         var n = Number(v);
-        if (n >= 1 && n <= 5) return n / 5;
+        if (n >= 1 && n <= 7) return n / 7;
+        if (max === 7) return Math.min(1, n / 7);
         return max ? Math.min(1, n / max) : Math.min(1, n);
     };
     var avgPitcher = context && context.averages && context.averages.pitcher ? context.averages.pitcher : null;
     var a1 = 0, a2 = 0, a3 = 0, a4 = 0, a5 = 0;
     if (avgPitcher) {
-        a1 = avgPitcher.velocity != null ? Math.min(1, Number(avgPitcher.velocity) / maxPitchVel) : 0;
-        a2 = avgToRatio(avgPitcher.power, maxPower);
-        a3 = avgToRatio(avgPitcher.controlRatio, null);
+        a1 = avgPitcher.velocity != null && refVelocity > 0 ? Math.min(1, Number(avgPitcher.velocity) / refVelocity) : 0;
+        a2 = avgToRatio(avgPitcher.controlRatio, null);
+        a3 = avgToRatio(avgPitcher.breakingBallRatio, null);
         a4 = avgToRatio(avgPitcher.flexibilityRatio, null);
-        a5 = avgToRatio(avgPitcher.runningSpeed, maxRun);
+        a5 = avgToRatio(avgPitcher.power, maxPower);
     }
     var avgFillPoints = [a1, a2, a3, a4, a5].map(function(v, i) {
         var a = -90 + i * 72;
@@ -3441,14 +3721,14 @@ function renderMemberStats(member, context) {
         return (cx + r2 * Math.cos(rad)).toFixed(1) + ',' + (cy + r2 * Math.sin(rad)).toFixed(1);
     }).join(' ');
     var rankPitcher = context && context.rankings && context.rankings.pitcher ? context.rankings.pitcher : {};
-    var pitcherRankKeys = ['velocity', 'power', 'control', 'flexibility', 'runningSpeed'];
-    var pitcherLabels = ['구속', '파워', '제구력', '유연성', '주력'];
+    var pitcherRankKeys = ['velocity', 'control', 'breakingBall', 'flexibility', 'power'];
+    var pitcherLabels = ['구속', '제구력', '변화구', '유연성', '파워'];
     var pitcherVals = [
         pitchVel != null ? pitchVel + ' km/h' : '-',
-        pitchPower != null ? (pitchPower >= 1 && pitchPower <= 5 ? pitchPower + '단계' : pitchPower) : '-',
         pitchCtrl || '-',
+        pitchBreaking || '-',
         pitchFlex || '-',
-        runSpeed != null ? (runSpeed >= 1 && runSpeed <= 5 ? runSpeed + '단계' : runSpeed) : '-'
+        pitchPower != null ? (pitchPower >= 0 && pitchPower <= 7 ? pitchPower + '단계' : pitchPower) : '-'
     ];
     var rankToPercentText = function(val) {
         if (val == null) return '';
@@ -3474,15 +3754,17 @@ function renderMemberStats(member, context) {
         var val = rankPitcher[pitcherRankKeys[i]];
         return rankToPercentText(val);
     };
-    // 타자: 가장 바깥 오각형 = 기준(중학생) 최대치. 스윙75, 타구150, 파워·주력·유연성 1~5단계 → 꼭짓점 5.
-    var refSwing = 75, refExit = 150, refStage = 5;
+    // 타자: 스윙 스피드, Tee 타구 스피드(숫자) + 공통(파워·주력·유연성 0~7단계). 등급별 기준(엘리트 초/중/고) 사용
+    var refSwing = (ref.refSwing != null ? Number(ref.refSwing) : 75);
+    var refExit = (ref.refExit != null ? Number(ref.refExit) : 150);
+    var refStage = (ref.refStage != null ? Number(ref.refStage) : 7);
     var toRefRatio = function(val, refMax) {
         if (val == null || refMax == null) return 0;
         return Math.min(1, Number(val) / refMax);
     };
     var b1 = toRefRatio(swingVel, refSwing);
     var b2 = toRefRatio(exitVel, refExit);
-    var b3 = toRefRatio(batPower != null ? (batPower >= 1 && batPower <= 5 ? batPower : batPower) : null, refStage);
+    var b3 = toRefRatio(batPower != null ? (batPower >= 0 && batPower <= 7 ? batPower : batPower) : null, refStage);
     var b4 = toRefRatio(runSpeedB, refStage);
     var b5 = toRefRatio(batFlex, refStage);
     // 바깥 오각형 = 기준(1,1,1,1,1) = 최대치 꼭짓점
@@ -3513,8 +3795,9 @@ function renderMemberStats(member, context) {
         var r2 = r * (v || 0);
         return (cx + r2 * Math.cos(rad)).toFixed(1) + ',' + (cy + r2 * Math.sin(rad)).toFixed(1);
     }).join(' ');
-    // 타자 레이더: concentric 그리드 + 축선 (클래스로 스타일 → 테마 대비)
-    var radarGridB = [0.25, 0.5, 0.75].map(function(ratio) {
+    // 타자 레이더: 0~7단계 기준으로 단계별 선(1/7 ~ 6/7) 그리드 + 축선
+    var gridRatios = [1/7, 2/7, 3/7, 4/7, 5/7, 6/7];
+    var radarGridB = gridRatios.map(function(ratio) {
         var pts = [0,1,2,3,4].map(function(i) {
             var a = -90 + i * 72;
             var rad = a * Math.PI / 180;
@@ -3532,14 +3815,82 @@ function renderMemberStats(member, context) {
     }).join('\n                        ');
     var rankBatter = context && context.rankings && context.rankings.batter ? context.rankings.batter : {};
     var batterRankKeys = ['swingSpeed', 'exitVelocity', 'power', 'runningSpeed', 'flexibility'];
-    var batterLabels = ['스윙 스피드', '타구 스피드', '파워', '주력', '유연성'];
+    /* 타자: 스윙 스피드, Tee 타구 스피드(숫자) + 공통(파워·주력·유연성) */
+    var batterLabels = ['스윙 스피드', 'Tee 타구 스피드', '파워', '주력', '유연성'];
     var batterVals = [
         swingVel != null ? swingVel + ' mph' : '-',
         exitVel != null ? exitVel + ' mph' : '-',
-        batPower != null ? (batPower >= 1 && batPower <= 5 ? batPower + '단계' : batPower) : '-',
-        runSpeedB != null ? (runSpeedB >= 1 && runSpeedB <= 5 ? runSpeedB + '단계' : runSpeedB) : '-',
-        batFlex != null ? (batFlex >= 1 && batFlex <= 5 ? batFlex + '단계' : batFlex) : '-'
+        batPower != null ? (batPower >= 0 && batPower <= 7 ? batPower + '단계' : batPower) : '-',
+        runSpeedB != null ? (runSpeedB >= 0 && runSpeedB <= 7 ? runSpeedB + '단계' : runSpeedB) : '-',
+        batFlex != null ? (batFlex >= 0 && batFlex <= 7 ? batFlex + '단계' : batFlex) : '-'
     ];
+    var defHand = fmtNum(member.defenseHandling);
+    var defStep = fmtNum(member.defenseStep);
+    var defThrow = fmtNum(member.defenseThrowing);
+    var defQuick = fmtNum(member.defenseQuickness);
+    /* 수비: 핸들링·스탭·송구(수비)·순발력(수비 전용)·유연성(공통) */
+    var defenseLabels = ['핸들링', '스탭', '송구(수비)', '순발력', '유연성'];
+    var defenseVals = [
+        defHand != null ? (defHand >= 0 && defHand <= 7 ? defHand + '단계' : defHand) : '-',
+        defStep != null ? (defStep >= 0 && defStep <= 7 ? defStep + '단계' : defStep) : '-',
+        defThrow != null ? (defThrow >= 0 && defThrow <= 7 ? defThrow + '단계' : defThrow) : '-',
+        defQuick != null ? (defQuick >= 0 && defQuick <= 7 ? defQuick + '단계' : defQuick) : '-',
+        batFlex != null ? (batFlex >= 0 && batFlex <= 7 ? batFlex + '단계' : batFlex) : '-'
+    ];
+    var d1 = defHand != null ? toRatio(defHand, 7) : 0;
+    var d2 = defStep != null ? toRatio(defStep, 7) : 0;
+    var d3 = defThrow != null ? toRatio(defThrow, 7) : 0;
+    var d4 = toRatio(defQuick, 7);
+    var d5 = toRatio(batFlex, 7);
+    var fillPointsD = [d1, d2, d3, d4, d5].map(function(v, i) {
+        var a = -90 + i * 72;
+        var rad = a * Math.PI / 180;
+        var r2 = r * (v || 0);
+        return (cx + r2 * Math.cos(rad)).toFixed(1) + ',' + (cy + r2 * Math.sin(rad)).toFixed(1);
+    }).join(' ');
+    /* 포수: 블로킹, 송구(포수), 프레이밍(0~7) + 파워·유연성(공통) */
+    var catBlock = fmtNum(member.catcherBlocking);
+    var catThrow = fmtNum(member.catcherThrowing);
+    var catFrame = fmtNum(member.catcherFraming);
+    var catcherLabels = ['블로킹', '송구(포수)', '프레이밍', '파워', '유연성'];
+    var catcherVals = [
+        catBlock != null ? (catBlock >= 0 && catBlock <= 7 ? catBlock + '단계' : catBlock) : '-',
+        catThrow != null ? (catThrow >= 0 && catThrow <= 7 ? catThrow + '단계' : catThrow) : '-',
+        catFrame != null ? (catFrame >= 0 && catFrame <= 7 ? catFrame + '단계' : catFrame) : '-',
+        batPower != null ? (batPower >= 0 && batPower <= 7 ? batPower + '단계' : batPower) : '-',
+        batFlex != null ? (batFlex >= 0 && batFlex <= 7 ? batFlex + '단계' : batFlex) : '-'
+    ];
+    var c1 = catBlock != null ? toRatio(catBlock, 7) : 0;
+    var c2 = catThrow != null ? toRatio(catThrow, 7) : 0;
+    var c3 = catFrame != null ? toRatio(catFrame, 7) : 0;
+    var c4 = toRatio(batPower, 7);
+    var c5 = toRatio(batFlex, 7);
+    var pentagonOutlineC = [0,1,2,3,4].map(function(i) {
+        var a = -90 + i * 72;
+        var rad = a * Math.PI / 180;
+        return (cx + r * Math.cos(rad)).toFixed(1) + ',' + (cy + r * Math.sin(rad)).toFixed(1);
+    }).join(' ');
+    var fillPointsC = [c1, c2, c3, c4, c5].map(function(v, i) {
+        var a = -90 + i * 72;
+        var rad = a * Math.PI / 180;
+        var r2 = r * (v || 0);
+        return (cx + r2 * Math.cos(rad)).toFixed(1) + ',' + (cy + r2 * Math.sin(rad)).toFixed(1);
+    }).join(' ');
+    /* 실제 입력된 기록이 있을 때만 그래프 표시. 0·0단계·0 km/h는 기본값으로 간주해 "기록 없음" 처리 */
+    function isMeaningfulVal(v) {
+        if (v == null || v === '' || v === '-') return false;
+        var s = String(v);
+        if (s === '0단계' || s === '0 km/h' || s === '0 mph') return false;
+        return true;
+    }
+    var hasPitcher = [0, 1, 2].some(function(i) { return isMeaningfulVal(pitcherVals[i]); });
+    var hasBatter = [0, 1, 2].some(function(i) { return isMeaningfulVal(batterVals[i]); });
+    var hasDefense = [0, 1, 2].some(function(i) { return isMeaningfulVal(defenseVals[i]); });
+    var hasCatcher = [0, 1, 2].some(function(i) { return isMeaningfulVal(catcherVals[i]); });
+    var hasAnyAbility = hasPitcher || hasBatter || hasDefense || hasCatcher;
+    if (!hasAnyAbility) {
+        return '<p class="member-stats-empty" style="color: var(--text-muted); text-align: center; padding: 32px 16px;">기록이 없습니다.</p>';
+    }
     var rankSuffixB = function(i) {
         var val = rankBatter[batterRankKeys[i]];
         return rankToPercentText(val);
@@ -3563,63 +3914,248 @@ function renderMemberStats(member, context) {
     };
     var pitcherVertexLabels = vertexTexts(pitcherLabels);
     var batterVertexLabels = vertexTexts(batterLabels);
-    var gradeHtml = (context && context.gradeLabel) ? '<p class="member-stats-grade">소속 등급: <strong>' + (App.escapeHtml ? App.escapeHtml(context.gradeLabel) : context.gradeLabel) + '</strong></p>' : '';
+    var defenseVertexLabels = vertexTexts(defenseLabels);
+    var catcherVertexLabels = vertexTexts(catcherLabels);
+    var pitcherRefVertexLabels = '';
+    var batterRefVertexLabels = '';
+    var gradeLabelEsc = (context && context.gradeLabel) ? (App.escapeHtml ? App.escapeHtml(context.gradeLabel) : context.gradeLabel) : '';
+    var gradeHtml = gradeLabelEsc ? '<p class="member-stats-grade">소속 등급: <strong>' + gradeLabelEsc + '</strong></p>' : '';
+    var fieldLabel = { pitcher: '투수', batter: '타자', defense: '수비', catcher: '포수' };
+    var memoIconHtml = function(field, statIndex, statLabel) {
+        var title = (fieldLabel[field] || field) + ' - ' + (statLabel || '') + ' 메모';
+        return ' <button type="button" class="member-field-memo-icon" title="' + title + '" data-member-id="' + (member.id || '') + '" data-field="' + field + '" data-stat-index="' + (statIndex != null ? statIndex : '') + '" data-stat-label="' + (statLabel ? String(statLabel).replace(/"/g, '&quot;') : '') + '" style="margin-left:6px;padding:0 4px;background:transparent;border:none;cursor:pointer;font-size:14px;vertical-align:middle;opacity:0.85;">&#128221;</button>';
+    };
     var refGradeLabel = (context && context.gradeLabel) ? context.gradeLabel : '중학생';
+    var pitcherRefCaption = '기준: ' + (App.escapeHtml ? App.escapeHtml(refGradeLabel) : refGradeLabel) + ' (구속 ' + refVelocity + ' km/h, 제구력·변화구·유연성·파워 7단계)';
     var legendHtml = '<p class="member-stats-legend">' +
         '<span class="legend-item legend-item-fixed"><span class="legend-dot legend-ref"></span> 기준: ' + (App.escapeHtml ? App.escapeHtml(refGradeLabel) : refGradeLabel) + '</span>' +
         ' <label class="legend-item legend-item-avg"><input type="checkbox" class="legend-toggle" data-layer="avg" checked><span class="legend-dot legend-avg"></span> 동일 등급 평균</label>' +
         ' <label class="legend-item legend-item-member"><input type="checkbox" class="legend-toggle" data-layer="member" checked><span class="legend-dot legend-member"></span> 본인</label>' +
         '</p>';
-    return `
-        <div class="member-stats-ability-wrap">
-            ${gradeHtml}
-            ${legendHtml}
-            <div class="member-stats-ability-col">
-                <h3 class="member-stats-ability-title">투수</h3>
-                <div class="member-stats-radar">
-                    <svg viewBox="-12 -12 184 184" class="radar-svg radar-svg-pitcher">
-                        ${radarGridB}
-                        ${radarAxesB}
-                        <polygon points="${pentagonOutline}" fill="none" class="radar-polygon-ref"/>
-                        ${avgPitcher ? '<polygon points="' + avgFillPoints + '" class="radar-polygon-avg"/>' : ''}
-                        <polygon points="${fillPoints}" class="radar-polygon-member"/>
-                        ${pitcherVertexLabels}
-                    </svg>
-                </div>
-                <ul class="member-stats-list">
-                    ${pitcherLabels.map(function(l, i) { return '<li><span class="stat-label">' + l + '</span><span class="stat-value">' + (pitcherVals[i] || '-') + rankSuffix(i) + '</span></li>'; }).join('')}
-                </ul>
-            </div>
-            <div class="member-stats-ability-col">
-                <h3 class="member-stats-ability-title">타자</h3>
-                <div class="member-stats-radar">
-                    <svg viewBox="-12 -12 184 184" class="radar-svg radar-svg-batter">
-                        ${radarGridB}
-                        ${radarAxesB}
-                        <polygon points="${pentagonOutlineB}" class="radar-polygon-ref" fill="none"/>
-                        ${avgBatter ? '<polygon points="' + avgFillPointsB + '" class="radar-polygon-avg"/>' : ''}
-                        <polygon points="${fillPointsB}" class="radar-polygon-member"/>
-                        ${batterVertexLabels}
-                    </svg>
-                </div>
-                <p class="member-stats-batter-ref-caption">기준: ${App.escapeHtml ? App.escapeHtml(refGradeLabel) : refGradeLabel} (스윙 75, 타구 150, 파워·주력·유연성 5단계)</p>
-                <p class="member-stats-batter-ref-hint" style="color: #22c55e; font-size: 13px; margin-top: 4px;">표시된 영역이 바깥 5각형(기준선)에 가깝게 채워질수록 동일 등급 내 상위 수준에 해당합니다.</p>
-                <ul class="member-stats-list">
-                    ${batterLabels.map(function(l, i) { return '<li><span class="stat-label">' + l + '</span><span class="stat-value">' + (batterVals[i] || '-') + rankSuffixB(i) + '</span></li>'; }).join('')}
-                </ul>
-            </div>
-        </div>
-    `;
+    var colCount = (hasPitcher ? 1 : 0) + (hasBatter ? 1 : 0) + (hasDefense ? 1 : 0) + (hasCatcher ? 1 : 0);
+    var isSingle = colCount === 1;
+    var singleClass = isSingle ? ' member-stats-ability-wrap--single' : '';
+    var pitcherCol = hasPitcher ? (
+        isSingle
+            ? ('<div class="member-stats-ability-col member-stats-ability-col--single">' +
+                '<h3 class="member-stats-ability-title">투수</h3>' +
+                '<div class="member-stats-ability-inner">' +
+                '<div class="member-stats-radar">' +
+                '<svg viewBox="-12 -12 184 184" class="radar-svg radar-svg-pitcher">' +
+                radarGridB + radarAxesB +
+                '<polygon points="' + pentagonOutline + '" fill="none" class="radar-polygon-ref"/>' +
+                (avgPitcher ? '<polygon points="' + avgFillPoints + '" class="radar-polygon-avg"/>' : '') +
+                '<polygon points="' + fillPoints + '" class="radar-polygon-member"/>' +
+                pitcherVertexLabels +
+                '</svg></div>' +
+                '<div class="member-stats-detail">' +
+                '<p class="member-stats-batter-ref-caption">' + pitcherRefCaption + '</p>' +
+                '<ul class="member-stats-list">' +
+                pitcherLabels.map(function(l, i) { return '<li><span class="stat-label">' + l + '</span><span class="stat-value">' + (pitcherVals[i] || '-') + rankSuffix(i) + '</span>' + memoIconHtml('pitcher', i, l) + '</li>'; }).join('') +
+                '</ul></div></div></div>')
+            : ('<div class="member-stats-ability-col">' +
+                '<h3 class="member-stats-ability-title">투수</h3>' +
+                '<div class="member-stats-radar">' +
+                '<svg viewBox="-12 -12 184 184" class="radar-svg radar-svg-pitcher">' +
+                radarGridB + radarAxesB +
+                '<polygon points="' + pentagonOutline + '" fill="none" class="radar-polygon-ref"/>' +
+                (avgPitcher ? '<polygon points="' + avgFillPoints + '" class="radar-polygon-avg"/>' : '') +
+                '<polygon points="' + fillPoints + '" class="radar-polygon-member"/>' +
+                pitcherVertexLabels +
+                '</svg></div>' +
+                '<p class="member-stats-batter-ref-caption">' + pitcherRefCaption + '</p>' +
+                '<ul class="member-stats-list">' +
+                pitcherLabels.map(function(l, i) { return '<li><span class="stat-label">' + l + '</span><span class="stat-value">' + (pitcherVals[i] || '-') + rankSuffix(i) + '</span>' + memoIconHtml('pitcher', i, l) + '</li>'; }).join('') +
+                '</ul></div>')
+    ) : '';
+    var batterCol = hasBatter ? (
+        isSingle
+            ? ('<div class="member-stats-ability-col member-stats-ability-col--single">' +
+                '<h3 class="member-stats-ability-title">타자</h3>' +
+                '<div class="member-stats-ability-inner">' +
+                '<div class="member-stats-radar">' +
+                '<svg viewBox="-12 -12 184 184" class="radar-svg radar-svg-batter">' +
+                radarGridB + radarAxesB +
+                '<polygon points="' + pentagonOutlineB + '" class="radar-polygon-ref" fill="none"/>' +
+                (avgBatter ? '<polygon points="' + avgFillPointsB + '" class="radar-polygon-avg"/>' : '') +
+                '<polygon points="' + fillPointsB + '" class="radar-polygon-member"/>' +
+                batterVertexLabels +
+                '</svg></div>' +
+                '<div class="member-stats-detail">' +
+                '<p class="member-stats-batter-ref-caption">기준: ' + (App.escapeHtml ? App.escapeHtml(refGradeLabel) : refGradeLabel) + ' (스윙 스피드 ' + refSwing + ', Tee 타구 스피드 ' + refExit + ', 파워·주력·유연성 ' + refStage + '단계)</p>' +
+                '<ul class="member-stats-list">' +
+                batterLabels.map(function(l, i) { return '<li><span class="stat-label">' + l + '</span><span class="stat-value">' + (batterVals[i] || '-') + rankSuffixB(i) + '</span>' + memoIconHtml('batter', i, l) + '</li>'; }).join('') +
+                '</ul></div></div></div>')
+            : ('<div class="member-stats-ability-col">' +
+                '<h3 class="member-stats-ability-title">타자</h3>' +
+                '<div class="member-stats-radar">' +
+                '<svg viewBox="-12 -12 184 184" class="radar-svg radar-svg-batter">' +
+                radarGridB + radarAxesB +
+                '<polygon points="' + pentagonOutlineB + '" class="radar-polygon-ref" fill="none"/>' +
+                (avgBatter ? '<polygon points="' + avgFillPointsB + '" class="radar-polygon-avg"/>' : '') +
+                '<polygon points="' + fillPointsB + '" class="radar-polygon-member"/>' +
+                batterVertexLabels +
+                '</svg></div>' +
+                '<p class="member-stats-batter-ref-caption">기준: ' + (App.escapeHtml ? App.escapeHtml(refGradeLabel) : refGradeLabel) + ' (스윙 스피드 ' + refSwing + ', Tee 타구 스피드 ' + refExit + ', 파워·주력·유연성 ' + refStage + '단계)</p>' +
+                '<ul class="member-stats-list">' +
+                batterLabels.map(function(l, i) { return '<li><span class="stat-label">' + l + '</span><span class="stat-value">' + (batterVals[i] || '-') + rankSuffixB(i) + '</span>' + memoIconHtml('batter', i, l) + '</li>'; }).join('') +
+                '</ul></div>')
+    ) : '';
+    // 수비: 타자와 동일한 그래프 형식 (기준선 5각형, 동일 스타일·캡션·힌트)
+    var pentagonOutlineD = [0,1,2,3,4].map(function(i) {
+        var a = -90 + i * 72;
+        var rad = a * Math.PI / 180;
+        return (cx + r * Math.cos(rad)).toFixed(1) + ',' + (cy + r * Math.sin(rad)).toFixed(1);
+    }).join(' ');
+    var defenseRefCaption = '기준: ' + (App.escapeHtml ? App.escapeHtml(refGradeLabel) : refGradeLabel) + ' (핸들링·스탭·송구(수비)·순발력·유연성 7단계)';
+    var catcherRefCaption = '기준: ' + (App.escapeHtml ? App.escapeHtml(refGradeLabel) : refGradeLabel) + ' (블로킹·송구(포수)·프레이밍·파워·유연성 7단계)';
+    var defenseCol = hasDefense ? (
+        isSingle
+            ? ('<div class="member-stats-ability-col member-stats-ability-col--single">' +
+                '<h3 class="member-stats-ability-title">수비</h3>' +
+                '<div class="member-stats-ability-inner">' +
+                '<div class="member-stats-radar">' +
+                '<svg viewBox="-12 -12 184 184" class="radar-svg radar-svg-batter radar-svg-defense">' +
+                radarGridB + radarAxesB +
+                '<polygon points="' + pentagonOutlineD + '" class="radar-polygon-ref" fill="none"/>' +
+                '<polygon points="' + fillPointsD + '" class="radar-polygon-member"/>' +
+                defenseVertexLabels +
+                '</svg></div>' +
+                '<div class="member-stats-detail">' +
+                '<p class="member-stats-batter-ref-caption">' + defenseRefCaption + '</p>' +
+                '<ul class="member-stats-list">' +
+                defenseLabels.map(function(l, i) { return '<li><span class="stat-label">' + l + '</span><span class="stat-value">' + (defenseVals[i] || '-') + '</span>' + memoIconHtml('defense', i, l) + '</li>'; }).join('') +
+                '</ul></div></div></div>')
+            : ('<div class="member-stats-ability-col">' +
+                '<h3 class="member-stats-ability-title">수비</h3>' +
+                '<div class="member-stats-radar">' +
+                '<svg viewBox="-12 -12 184 184" class="radar-svg radar-svg-batter radar-svg-defense">' +
+                radarGridB + radarAxesB +
+                '<polygon points="' + pentagonOutlineD + '" class="radar-polygon-ref" fill="none"/>' +
+                '<polygon points="' + fillPointsD + '" class="radar-polygon-member"/>' +
+                defenseVertexLabels +
+                '</svg></div>' +
+                '<p class="member-stats-batter-ref-caption">' + defenseRefCaption + '</p>' +
+                '<ul class="member-stats-list">' +
+                defenseLabels.map(function(l, i) { return '<li><span class="stat-label">' + l + '</span><span class="stat-value">' + (defenseVals[i] || '-') + '</span>' + memoIconHtml('defense', i, l) + '</li>'; }).join('') +
+                '</ul></div>')
+    ) : '';
+    var catcherCol = hasCatcher ? (
+        isSingle
+            ? ('<div class="member-stats-ability-col member-stats-ability-col--single">' +
+                '<h3 class="member-stats-ability-title">포수</h3>' +
+                '<div class="member-stats-ability-inner">' +
+                '<div class="member-stats-radar">' +
+                '<svg viewBox="-12 -12 184 184" class="radar-svg radar-svg-batter radar-svg-defense">' +
+                radarGridB + radarAxesB +
+                '<polygon points="' + pentagonOutlineC + '" class="radar-polygon-ref" fill="none"/>' +
+                '<polygon points="' + fillPointsC + '" class="radar-polygon-member"/>' +
+                catcherVertexLabels +
+                '</svg></div>' +
+                '<div class="member-stats-detail">' +
+                '<p class="member-stats-batter-ref-caption">' + catcherRefCaption + '</p>' +
+                '<ul class="member-stats-list">' +
+                catcherLabels.map(function(l, i) { return '<li><span class="stat-label">' + l + '</span><span class="stat-value">' + (catcherVals[i] || '-') + '</span>' + memoIconHtml('catcher', i, l) + '</li>'; }).join('') +
+                '</ul></div></div></div>')
+            : ('<div class="member-stats-ability-col">' +
+                '<h3 class="member-stats-ability-title">포수</h3>' +
+                '<div class="member-stats-radar">' +
+                '<svg viewBox="-12 -12 184 184" class="radar-svg radar-svg-batter radar-svg-defense">' +
+                radarGridB + radarAxesB +
+                '<polygon points="' + pentagonOutlineC + '" class="radar-polygon-ref" fill="none"/>' +
+                '<polygon points="' + fillPointsC + '" class="radar-polygon-member"/>' +
+                catcherVertexLabels +
+                '</svg></div>' +
+                '<p class="member-stats-batter-ref-caption">' + catcherRefCaption + '</p>' +
+                '<ul class="member-stats-list">' +
+                catcherLabels.map(function(l, i) { return '<li><span class="stat-label">' + l + '</span><span class="stat-value">' + (catcherVals[i] || '-') + '</span>' + memoIconHtml('catcher', i, l) + '</li>'; }).join('') +
+                '</ul></div>')
+    ) : '';
+    var abilityWrap = '<div class="member-stats-ability-wrap' + singleClass + '">' + gradeHtml + legendHtml + pitcherCol + batterCol + defenseCol + catcherCol + '</div>';
+    return abilityWrap;
+}
+
+function setupMemberMemoTabSave(container, member) {
+    if (!container || !member || !member.id) return;
+    var btn = container.querySelector('.member-memo-tab-save');
+    if (!btn) return;
+    btn.addEventListener('click', function() {
+        var coachMemoEl = container.querySelector('.member-coach-memo-input');
+        var stats = getCoachMemoStatsObject(currentMemberDetail && currentMemberDetail.id === member.id ? currentMemberDetail : member);
+        var inputs = container.querySelectorAll('.member-memo-stat-input');
+        inputs.forEach(function(input) {
+            var field = input.getAttribute('data-field');
+            var idxStr = input.getAttribute('data-stat-index');
+            var idx = idxStr != null && idxStr !== '' ? parseInt(idxStr, 10) : -1;
+            if (field && idx >= 0 && !isNaN(idx)) {
+                if (!Array.isArray(stats[field])) stats[field] = [];
+                while (stats[field].length <= idx) stats[field].push('');
+                stats[field][idx] = input.value || '';
+            }
+        });
+        var payload = {
+            coachMemo: coachMemoEl ? coachMemoEl.value : '',
+            coachMemoStats: stats
+        };
+        btn.disabled = true;
+        App.api.patch('/members/' + member.id + '/memos', payload).then(function(res) {
+            btn.disabled = false;
+            if (currentMemberDetail && currentMemberDetail.id === member.id) {
+                currentMemberDetail.coachMemo = res.coachMemo;
+                if (res.coachMemoStats != null) currentMemberDetail.coachMemoStats = typeof res.coachMemoStats === 'string' ? res.coachMemoStats : JSON.stringify(res.coachMemoStats);
+            }
+            App.showNotification('메모가 저장되었습니다.', 'success');
+        }).catch(function() {
+            btn.disabled = false;
+            App.showNotification('메모 저장에 실패했습니다.', 'danger');
+        });
+    });
 }
 
 function renderMemberMemo(member) {
     if (!member) return '<p>로딩 중...</p>';
-    return `
-        <div class="form-group">
-            <label class="form-label">코치 메모</label>
-            <textarea class="form-control" rows="10" readonly style="background: var(--bg-tertiary);">${member.coachMemo || '메모가 없습니다.'}</textarea>
-        </div>
-    `;
+    var esc = function(s) { return (s != null ? String(s) : '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+    var coachMemoVal = esc(member.coachMemo);
+    var stats = getCoachMemoStatsObject(member);
+    var statLabels = {
+        pitcher: ['구속', '제구력', '변화구', '유연성', '파워'],
+        batter: ['스윙 스피드', 'Tee 타구 스피드', '파워', '주력', '유연성'],
+        defense: ['핸들링', '스탭', '송구(수비)', '순발력', '유연성'],
+        catcher: ['블로킹', '송구(포수)', '프레이밍', '파워', '유연성']
+    };
+    var sectionTitles = { pitcher: '투수', batter: '타자', defense: '수비', catcher: '포수' };
+    var sectionsHtml = '';
+    ['pitcher', 'batter', 'defense', 'catcher'].forEach(function(field) {
+        var title = sectionTitles[field];
+        var labels = statLabels[field];
+        var arr = stats[field] || [];
+        sectionsHtml += '<div class="member-memo-stat-section">' +
+            '<div class="member-memo-stat-section-title">' + title + '</div>' +
+            '<div class="member-memo-stat-rows">';
+        for (var i = 0; i < 5; i++) {
+            var val = (Array.isArray(arr) && arr[i] != null) ? esc(String(arr[i])) : '';
+            var label = labels[i] || '항목 ' + (i + 1);
+            var rowClass = val ? 'member-memo-stat-row has-memo' : 'member-memo-stat-row';
+            sectionsHtml += '<div class="' + rowClass + '">' +
+                '<span class="member-memo-stat-label">' + label + '</span>' +
+                '<input type="text" class="form-control member-memo-stat-input" value="' + val + '" data-field="' + field + '" data-stat-index="' + i + '" placeholder="메모" maxlength="200" />' +
+                '</div>';
+        }
+        sectionsHtml += '</div></div>';
+    });
+    return '<div class="member-memo-tab-wrap" data-member-id="' + (member.id || '') + '">' +
+        '<div class="member-memo-top">' +
+        '<div class="form-group">' +
+        '<label class="form-label">코치 메모 <small class="text-muted">(등급 사유 등, 개인능력치 탭과 연동)</small></label>' +
+        '<textarea class="form-control member-coach-memo-input" rows="4" placeholder="코치 메모를 입력하세요.">' + coachMemoVal + '</textarea>' +
+        '</div>' +
+        '<button type="button" class="btn btn-primary member-memo-tab-save">메모 저장</button>' +
+        '</div>' +
+        '<div class="member-memo-bottom">' +
+        '<label class="form-label member-memo-stat-heading">수치별 메모</label>' +
+        '<div class="member-memo-stat-sections">' + sectionsHtml + '</div>' +
+        '</div>' +
+        '</div>';
 }
 
 function exportCSV() {
@@ -3630,10 +4166,11 @@ function exportCSV() {
 async function openExtendProductModal(memberId) {
     document.getElementById('extend-member-id').value = memberId;
     document.getElementById('extend-product-select').innerHTML = '<option value="">로딩 중...</option>';
-    document.getElementById('extend-current-expiry').textContent = '-';
-    document.getElementById('extend-purchase-price').textContent = '-';
-    document.getElementById('extend-calculated-price').textContent = '-';
-    document.getElementById('extend-days').value = '';
+        document.getElementById('extend-current-expiry').textContent = '-';
+        document.getElementById('extend-purchase-price').textContent = '-';
+        document.getElementById('extend-coach').textContent = '-';
+        document.getElementById('extend-calculated-price').textContent = '-';
+        document.getElementById('extend-days').value = '';
     
     try {
         // 회원의 보유 상품/이용권 목록 가져오기 (기존 구매한 것들)
@@ -3699,6 +4236,9 @@ async function openExtendProductModal(memberId) {
                 option.dataset.actualPurchasePrice = actualPurchasePrice;
                 option.dataset.totalCount = totalCount;
                 option.dataset.expiryDate = mp.expiryDate || '';
+                // 담당 코치 이름 (이용권 코치 > 상품 기본 코치 순)
+                const coachName = (mp.coach && mp.coach.name) || (mp.product && mp.product.coach && mp.product.coach.name) || '미지정';
+                option.dataset.coachName = coachName;
                 allAvailableProducts.push({
                     type: 'memberProduct',
                     id: mp.id,
@@ -3749,50 +4289,6 @@ async function openExtendProductModal(memberId) {
         
         App.log('연장 모달 - 드롭다운에 추가된 옵션 개수:', freshSelect.options.length - 1); // -1은 기본 옵션 제외
         
-        // 상품/이용권 선택 시 만료일 및 구매 금액 표시, 연장 금액 계산
-        freshSelect.addEventListener('change', function() {
-            const selectedValue = this.value;
-            if (selectedValue) {
-                const selectedOption = this.options[this.selectedIndex];
-                const isMemberProduct = selectedOption.dataset.isMemberProduct === 'true';
-                
-                if (isMemberProduct) {
-                    // 기존 보유 상품권 선택
-                    const memberProductId = selectedOption.dataset.memberProductId;
-                    const selectedMemberProduct = memberProducts.find(mp => mp.id == memberProductId);
-                    
-                    if (selectedMemberProduct) {
-                        // 만료일 표시
-                        if (selectedMemberProduct.expiryDate) {
-                            document.getElementById('extend-current-expiry').textContent = App.formatDate(selectedMemberProduct.expiryDate);
-                        } else {
-                            document.getElementById('extend-current-expiry').textContent = '만료일 없음';
-                        }
-                        
-                        // 구매 금액 표시
-                        const actualPurchasePrice = selectedMemberProduct.actualPurchasePrice || selectedMemberProduct.product?.price || 0;
-                        document.getElementById('extend-purchase-price').textContent = App.formatCurrency(actualPurchasePrice);
-                    }
-                } else {
-                    // 새 상품 선택
-                    const productId = selectedOption.dataset.productId;
-                    const selectedProduct = allProducts.find(p => p.id == productId);
-                    
-                    if (selectedProduct) {
-                        document.getElementById('extend-current-expiry').textContent = '신규 구매';
-                        document.getElementById('extend-purchase-price').textContent = App.formatCurrency(selectedProduct.price || 0);
-                    }
-                }
-                
-                // 연장 금액 계산 초기화
-                updateExtendPrice();
-            } else {
-                document.getElementById('extend-current-expiry').textContent = '-';
-                document.getElementById('extend-purchase-price').textContent = '-';
-                document.getElementById('extend-calculated-price').textContent = '-';
-            }
-        });
-        
         // 연장 횟수 입력 시 연장 금액 계산
         const daysInput = document.getElementById('extend-days');
         daysInput.addEventListener('input', function() {
@@ -3820,6 +4316,76 @@ async function openExtendProductModal(memberId) {
                 document.getElementById('extend-calculated-price').textContent = '-';
             }
         }
+        
+        // 상품/이용권 선택 시 만료일 및 구매 금액 표시, 연장 금액 계산
+        freshSelect.addEventListener('change', function() {
+            const selectedValue = this.value;
+            if (selectedValue) {
+                const selectedOption = this.options[this.selectedIndex];
+                const isMemberProduct = selectedOption.dataset.isMemberProduct === 'true';
+                
+                if (isMemberProduct) {
+                    // 기존 보유 상품권 선택
+                    const memberProductId = selectedOption.dataset.memberProductId;
+                    const selectedMemberProduct = memberProducts.find(mp => mp.id == memberProductId);
+                    
+                    if (selectedMemberProduct) {
+                        // 만료일 표시
+                        if (selectedMemberProduct.expiryDate) {
+                            document.getElementById('extend-current-expiry').textContent = App.formatDate(selectedMemberProduct.expiryDate);
+                        } else {
+                            document.getElementById('extend-current-expiry').textContent = '만료일 없음';
+                        }
+                        
+                        // 구매 금액 표시
+                        const actualPurchasePrice = selectedMemberProduct.actualPurchasePrice || selectedMemberProduct.product?.price || 0;
+                        document.getElementById('extend-purchase-price').textContent = App.formatCurrency(actualPurchasePrice);
+                        // 담당 코치/강사 표시
+                        const coachName = (selectedMemberProduct.coach && selectedMemberProduct.coach.name)
+                            || (selectedMemberProduct.product && selectedMemberProduct.product.coach && selectedMemberProduct.product.coach.name)
+                            || selectedOption.dataset.coachName
+                            || '미지정';
+                        document.getElementById('extend-coach').textContent = coachName;
+
+                        // 완료된 이용권(소진/잔여 0) 연장 시: 원래 총 횟수를 기본 연장 횟수로 자동 설정
+                        const mpType = selectedMemberProduct.product?.type || '';
+                        const mpStatus = selectedMemberProduct.status || '';
+                        const mpRemaining = selectedMemberProduct.remainingCount != null ? Number(selectedMemberProduct.remainingCount) : null;
+                        const mpTotal = selectedMemberProduct.totalCount || selectedMemberProduct.product?.usageCount || 0;
+                        if (mpType === 'COUNT_PASS' && mpTotal > 0 && (mpStatus === 'USED_UP' || mpRemaining === 0)) {
+                            daysInput.value = mpTotal;
+                        } else {
+                            daysInput.value = '';
+                        }
+                    }
+                } else {
+                    // 새 상품 선택 (신규 구매)
+                    const productId = selectedOption.dataset.productId;
+                    const selectedProduct = allProducts.find(p => p.id == productId);
+                    
+                    if (selectedProduct) {
+                        document.getElementById('extend-current-expiry').textContent = '신규 구매';
+                        document.getElementById('extend-purchase-price').textContent = App.formatCurrency(selectedProduct.price || 0);
+                        // 현장 신규 구매: 횟수권이면 usageCount(총 횟수)를 기본 연장 횟수로 자동 입력
+                        const productType = selectedProduct.type || '';
+                        const usageCount = selectedProduct.usageCount || parseInt(selectedOption.dataset.totalCount) || 0;
+                        if (productType === 'COUNT_PASS' && usageCount > 0) {
+                            daysInput.value = usageCount;
+                        } else {
+                            daysInput.value = '';
+                        }
+                    }
+                }
+                
+                // 연장 금액 계산 초기화
+                updateExtendPrice();
+            } else {
+                document.getElementById('extend-current-expiry').textContent = '-';
+                document.getElementById('extend-purchase-price').textContent = '-';
+                document.getElementById('extend-calculated-price').textContent = '-';
+                daysInput.value = '';
+            }
+        });
         
         App.Modal.open('extend-product-modal');
     } catch (error) {
@@ -3872,61 +4438,23 @@ async function processExtendProduct() {
             
             App.showNotification(result.message || '상품/이용권이 연장되었습니다.', 'success');
         } else {
-            // 새 상품 선택 - 같은 상품이 있으면 연장, 없으면 새로 생성
+            // [신규] 새 상품 선택 → 항상 새 이용권 행 생성 (기존 행에 횟수 합산하지 않음)
             const productId = parseInt(selectedOption.dataset.productId);
             const actualPurchasePrice = parseInt(selectedOption.dataset.actualPurchasePrice) || 0;
             const totalCount = parseInt(selectedOption.dataset.totalCount) || 10;
-            
-            // 먼저 같은 Product ID를 가진 기존 MemberProduct가 있는지 확인
-            const memberProducts = await App.api.get(`/member-products?memberId=${memberId}`);
-            const existingMemberProduct = memberProducts.find(mp => {
-                const mpProductId = mp.product?.id || mp.productId;
-                return mpProductId != null && parseInt(mpProductId) === productId;
+
+            const result = await App.api.post(`/members/${memberId}/products`, {
+                productId: productId,
+                skipPayment: true  // 연장 모달에서 호출하므로 결제 생성을 건너뜀
             });
-            
-            if (existingMemberProduct) {
-                // 같은 상품이 있으면 기존 MemberProduct에 연장
-                const extendResult = await App.api.put(`/member-products/${existingMemberProduct.id}/extend`, {
+
+            if (result && result.id) {
+                const extendResult = await App.api.put(`/member-products/${result.id}/extend`, {
                     days: days
                 });
-                App.showNotification(extendResult.message || '상품이 연장되었습니다.', 'success');
+                App.showNotification(extendResult.message || '새 이용권이 추가되었습니다.', 'success');
             } else {
-                // 같은 상품이 없으면 새로 생성 시도 (결제 생성을 건너뛰고 연장 시에만 결제 생성)
-                try {
-                    const result = await App.api.post(`/members/${memberId}/products`, {
-                        productId: productId,
-                        skipPayment: true  // 연장 모달에서 호출하므로 결제 생성을 건너뜀
-                    });
-                    
-                    // 생성된 MemberProduct에 횟수 추가 (연장 시 결제 생성됨)
-                    if (result && result.id) {
-                        const extendResult = await App.api.put(`/member-products/${result.id}/extend`, {
-                            days: days
-                        });
-                        App.showNotification(extendResult.message || '새 상품이 구매되고 연장되었습니다.', 'success');
-                    } else {
-                        App.showNotification('상품 구매 및 연장이 완료되었습니다.', 'success');
-                    }
-                } catch (error) {
-                    // POST 실패 시 (409 Conflict 또는 500 에러) 같은 상품이 있는지 다시 확인하고 연장
-                    App.warn('상품 생성 실패, 기존 상품 확인 중:', error);
-                    const retryMemberProducts = await App.api.get(`/members/${memberId}/products`);
-                    const retryExistingMemberProduct = retryMemberProducts.find(mp => {
-                        const mpProductId = mp.product?.id || mp.productId;
-                        return mpProductId != null && parseInt(mpProductId) === productId;
-                    });
-                    
-                    if (retryExistingMemberProduct) {
-                        // 같은 상품이 있으면 연장
-                        const extendResult = await App.api.put(`/member-products/${retryExistingMemberProduct.id}/extend`, {
-                            days: days
-                        });
-                        App.showNotification(extendResult.message || '상품이 연장되었습니다.', 'success');
-                    } else {
-                        // 여전히 없으면 에러
-                        throw error;
-                    }
-                }
+                App.showNotification('상품이 추가되었습니다.', 'success');
             }
         }
         

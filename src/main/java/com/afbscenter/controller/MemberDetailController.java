@@ -90,7 +90,8 @@ public class MemberDetailController {
     @PostMapping("/{memberId}/products")
     public ResponseEntity<Map<String, Object>> assignProductToMember(
             @PathVariable Long memberId,
-            @RequestBody Map<String, Object> request) {
+            @RequestBody Map<String, Object> request,
+            jakarta.servlet.http.HttpServletRequest httpRequest) {
         Long productIdLong = null; // catch 블록에서 접근 가능하도록 try 블록 밖에서 선언
         try {
             logger.info("상품 할당 요청 시작: 회원 ID={}, 요청 데이터={}", memberId, request);
@@ -104,9 +105,22 @@ public class MemberDetailController {
                     .orElseThrow(() -> new IllegalArgumentException("회원을 찾을 수 없습니다. 회원 ID: " + memberId));
             logger.debug("회원 조회 성공: 회원 ID={}, 이름={}", memberId, member.getName());
             
-            Integer productId = (Integer) request.get("productId");
-            if (productId == null) {
+            Object productIdObj = request.get("productId");
+            if (productIdObj == null) {
                 logger.warn("상품 ID가 null입니다. 요청 데이터: {}", request);
+                return ResponseEntity.badRequest().build();
+            }
+            if (productIdObj instanceof Number) {
+                productIdLong = ((Number) productIdObj).longValue();
+            } else if (productIdObj instanceof String) {
+                try {
+                    productIdLong = Long.parseLong((String) productIdObj);
+                } catch (NumberFormatException e) {
+                    logger.warn("상품 ID 형식이 올바르지 않습니다: {}", productIdObj);
+                    return ResponseEntity.badRequest().build();
+                }
+            } else {
+                logger.warn("상품 ID 타입이 올바르지 않습니다: {}", productIdObj.getClass().getName());
                 return ResponseEntity.badRequest().build();
             }
             
@@ -128,8 +142,6 @@ public class MemberDetailController {
             // 연장 모달에서 호출하는지 확인 (결제 생성을 건너뛰기 위해)
             // 람다 표현식에서 사용하기 위해 final 변수로 선언
             final Boolean skipPayment = request.get("skipPayment") != null ? (Boolean) request.get("skipPayment") : false;
-            
-            productIdLong = productId.longValue();
             logger.debug("상품 조회 시작: 상품 ID={}", productIdLong);
             
             // 람다에서 사용하기 위해 final 변수 생성 (effectively final)
@@ -173,19 +185,43 @@ public class MemberDetailController {
             logger.debug("상품 조회 성공: 상품 ID={}, 이름={}, 타입={}", 
                 productIdLong, product.getName(), product.getType());
             
-            // 이미 할당된 상품인지 확인 (lazy loading 방지를 위해 JOIN FETCH 사용)
-            List<MemberProduct> existing = memberProductRepository.findByMemberIdWithProduct(memberId);
-            boolean alreadyAssigned = existing.stream()
-                    .anyMatch(mp -> mp.getProduct() != null && 
-                                 mp.getProduct().getId().equals(finalProductId) &&
-                                 mp.getStatus() == MemberProduct.Status.ACTIVE);
-            
-            if (alreadyAssigned) {
-                // 같은 상품이 이미 있으면 연장하도록 안내 (400 대신 409 Conflict 반환)
-                logger.warn("이미 할당된 상품입니다. 회원 ID: {}, 상품 ID: {}", memberId, productIdLong);
-                return ResponseEntity.status(HttpStatus.CONFLICT).build();
+            // 연장 목적(skipPayment)일 때: 같은 회원·같은 상품의 소진된 이용권이 있으면 새 행 생성 금지 → 기존 행 반환 (이용권 1개 유지)
+            if (Boolean.TRUE.equals(skipPayment)) {
+                List<MemberProduct> existing = memberProductRepository.findByMemberIdAndProductId(memberId, productIdLong);
+                if (existing != null && !existing.isEmpty()) {
+                    Optional<MemberProduct> usedUp = existing.stream()
+                        .filter(mp -> mp.getStatus() == MemberProduct.Status.USED_UP
+                            || (mp.getRemainingCount() != null && mp.getRemainingCount() <= 0)
+                            || (mp.getRemainingCount() == null && mp.getTotalCount() != null && mp.getTotalCount() <= 0))
+                        .findFirst();
+                    if (usedUp.isPresent()) {
+                        MemberProduct existingRow = usedUp.get();
+                        Map<String, Object> responseMap = new HashMap<>();
+                        responseMap.put("id", existingRow.getId());
+                        responseMap.put("purchaseDate", existingRow.getPurchaseDate());
+                        responseMap.put("expiryDate", existingRow.getExpiryDate());
+                        responseMap.put("remainingCount", existingRow.getRemainingCount());
+                        responseMap.put("totalCount", existingRow.getTotalCount());
+                        responseMap.put("status", existingRow.getStatus() != null ? existingRow.getStatus().name() : null);
+                        try {
+                            Map<String, Object> productMap = new HashMap<>();
+                            productMap.put("id", product.getId());
+                            productMap.put("name", product.getName());
+                            productMap.put("type", product.getType() != null ? product.getType().name() : null);
+                            productMap.put("price", product.getPrice());
+                            responseMap.put("product", productMap);
+                        } catch (Exception e) {
+                            responseMap.put("product", null);
+                        }
+                        logger.info("연장 시 기존 소진 이용권 재사용: 회원 ID={}, 상품 ID={}, MemberProduct ID={} (중복 행 생성 방지)",
+                            memberId, productIdLong, existingRow.getId());
+                        return ResponseEntity.status(HttpStatus.CREATED).body(responseMap);
+                    }
+                }
             }
             
+            // 동일 회원·동일 상품이 이미 있어도 새 이용권 행으로 생성 허용 (이용권 추가 시 횟수 합산 방지)
+            // 단, 연장 목적이고 소진된 기존 행이 있으면 위에서 기존 행 반환함
             logger.debug("MemberProduct 생성 시작: 회원 ID={}, 상품 ID={}", memberId, productIdLong);
             
             MemberProduct memberProduct = new MemberProduct();
@@ -193,6 +229,20 @@ public class MemberDetailController {
             memberProduct.setProduct(product);
             memberProduct.setPurchaseDate(LocalDateTime.now());
             memberProduct.setStatus(MemberProduct.Status.ACTIVE);
+            // 이용권 번호 자동 생성: MP-회원ID-상품ID-YYMMDDHHMMSS
+            try {
+                String voucherNumber = String.format(
+                    "MP-%d-%d-%s",
+                    member.getId(),
+                    product.getId(),
+                    memberProduct.getPurchaseDate()
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyMMddHHmmss"))
+                );
+                memberProduct.setVoucherNumber(voucherNumber);
+            } catch (Exception e) {
+                logger.warn("이용권 번호(voucherNumber) 생성 실패: memberId={}, productId={}, msg={}",
+                    memberId, productIdLong, e.getMessage());
+            }
             
             // 코치 설정: 요청에서 지정한 경우에만 설정 (이용권 1개당 1코치 지정, 상품 기본 코치 자동 채우지 않음)
             if (coachId != null) {
@@ -404,9 +454,10 @@ public class MemberDetailController {
                 if (!skipPayment) {
                     logger.info("결제 생성 트랜잭션 시작: Member ID={}, Product ID={}, SkipPayment={}", 
                         memberId, finalProductIdForLambda, skipPayment);
+                    final String processedBy = httpRequest != null ? (String) httpRequest.getAttribute("username") : null;
                     transactionTemplate.execute(status -> {
                         try {
-                            createPaymentIfNeededInTransaction(finalMember, finalProduct, memberId, finalProductIdForLambda, finalProductIdForLambda);
+                            createPaymentIfNeededInTransaction(finalMember, finalProduct, memberId, finalProductIdForLambda, finalProductIdForLambda, processedBy);
                             logger.info("결제 생성 트랜잭션 완료: Member ID={}, Product ID={}", 
                                 memberId, finalProductIdForLambda);
                             return null;
@@ -512,7 +563,7 @@ public class MemberDetailController {
     }
     
     // 결제 생성을 별도 트랜잭션으로 실행 (TransactionTemplate에서 호출)
-    private void createPaymentIfNeededInTransaction(Member member, Product product, Long memberId, Long finalProductId, Long productIdLong) {
+    private void createPaymentIfNeededInTransaction(Member member, Product product, Long memberId, Long finalProductId, Long productIdLong, String processedBy) {
         try {
             logger.info("결제 생성 시작: Member ID={}, Product ID={}", memberId, productIdLong);
             
@@ -558,6 +609,7 @@ public class MemberDetailController {
                 payment.setMemo("상품 할당: " + productName);
                 payment.setPaidAt(LocalDateTime.now());
                 payment.setCreatedAt(LocalDateTime.now());
+                if (processedBy != null && !processedBy.isEmpty()) payment.setProcessedBy(processedBy);
                 
                 // 결제 번호 자동 생성
                 try {
@@ -599,6 +651,7 @@ public class MemberDetailController {
                             history.setChangeAmount(totalCount); // 충전된 횟수
                             history.setRemainingCountAfter(afterRemaining);
                             history.setDescription("결제로 인한 충전: " + currentProduct.getName() + " (" + totalCount + "회)");
+                            if (processedBy != null && !processedBy.isEmpty()) history.setProcessedBy(processedBy);
                             memberProductHistoryRepository.save(history);
                             logger.debug("이용권 히스토리 저장 (충전): MemberProduct ID={}, Payment ID={}, Change={}, After={}", 
                                 latestProduct.getId(), savedPayment.getId(), totalCount, afterRemaining);

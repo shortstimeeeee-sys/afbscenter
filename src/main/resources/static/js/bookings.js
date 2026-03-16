@@ -373,23 +373,19 @@ async function loadBookingStats() {
         const config = window.BOOKING_PAGE_CONFIG || { branch: 'SAHA', facilityType: 'BASEBALL' };
         const filterStart = document.getElementById('filter-date-start')?.value || '';
         const filterEnd = document.getElementById('filter-date-end')?.value || '';
-        let startISO, endISO;
+        let startParam, endParam;
         if (filterStart && filterEnd) {
-            const start = new Date(filterStart);
-            start.setHours(0, 0, 0, 0);
-            const end = new Date(filterEnd);
-            end.setHours(23, 59, 59, 999);
-            startISO = start.toISOString();
-            endISO = end.toISOString();
+            startParam = filterStart;
+            endParam = filterEnd;
         } else {
             const now = new Date();
-            const first = new Date(now.getFullYear(), now.getMonth(), 1);
-            const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-            last.setHours(23, 59, 59, 999);
-            startISO = first.toISOString();
-            endISO = last.toISOString();
+            const y = now.getFullYear(), m = now.getMonth();
+            const first = new Date(y, m, 1);
+            const last = new Date(y, m + 1, 0);
+            startParam = first.getFullYear() + '-' + String(first.getMonth() + 1).padStart(2, '0') + '-' + String(first.getDate()).padStart(2, '0');
+            endParam = last.getFullYear() + '-' + String(last.getMonth() + 1).padStart(2, '0') + '-' + String(last.getDate()).padStart(2, '0');
         }
-        const params = new URLSearchParams({ start: startISO, end: endISO });
+        const params = new URLSearchParams({ start: startParam, end: endParam });
         if (config.branch) params.append('branch', config.branch);
         if (config.facilityType) params.append('facilityType', config.facilityType);
         if (config.lessonCategory) params.append('lessonCategory', config.lessonCategory);
@@ -928,6 +924,14 @@ async function loadCoachesForBooking() {
         if (!select) return;
         
         let activeCoaches = (Array.isArray(coaches) ? coaches : []).filter(c => c.active !== false);
+        // 1 이용권 1 코치: 코치 ID 기준 중복 제거 (동일 코치가 드롭다운에 여러 번 나오지 않도록)
+        const seenCoachIds = new Set();
+        activeCoaches = activeCoaches.filter(c => {
+            const id = c.id != null ? String(c.id) : null;
+            if (!id || seenCoachIds.has(id)) return false;
+            seenCoachIds.add(id);
+            return true;
+        });
         const spec = (c) => (c.specialties || '').toLowerCase();
         const hasSpec = (c, ...keywords) => keywords.some(k => spec(c).includes(k.toLowerCase()));
         if (lessonCategory === 'YOUTH_BASEBALL') {
@@ -1437,29 +1441,45 @@ async function loadMemberProducts(memberId) {
                                 }
                             );
                             
-                            // 코치가 드롭다운에 없으면 API에서 가져와서 추가 (allowedCoaches에 없어도 상품에 지정된 코치는 추가)
+                            // 코치가 드롭다운에 없으면 API에서 가져와서 추가 (1 이용권 1 코치: 중복 옵션 방지)
                             if (!coachOption) {
-                                App.log(`[상품 선택] 코치가 드롭다운에 없어 API에서 가져와 추가: 코치 ID ${coachIdStr}`);
-                                try {
-                                    const coachData = await App.api.get(`/coaches/${coachIdStr}`);
-                                    if (coachData && coachData.id) {
-                                        // 코치 옵션 추가 (코치 미지정 옵션 다음에 추가)
-                                        const option = document.createElement('option');
-                                        option.value = String(coachData.id);
-                                        option.textContent = coachData.name || `코치 ID ${coachData.id}`;
-                                        // 코치 미지정 옵션 다음에 삽입
-                                        if (coachSelect.options.length > 0) {
-                                            coachSelect.insertBefore(option, coachSelect.options[1]);
-                                        } else {
-                                            coachSelect.appendChild(option);
-                                        }
-                                        coachOption = option;
-                                        App.log(`[상품 선택] ✅ 코치 드롭다운에 추가: ${coachData.name} (ID: ${coachData.id})`);
+                                // 추가 전 한 번 더 확인 (다른 옵션과 value 중복 방지)
+                                const alreadyExists = Array.from(coachSelect.options).some(
+                                    opt => String(opt.value).trim() === coachIdStr || opt.value == coachIdStr
+                                );
+                                if (alreadyExists) {
+                                    coachOption = Array.from(coachSelect.options).find(
+                                        opt => String(opt.value).trim() === coachIdStr || opt.value == coachIdStr
+                                    );
+                                }
+                                if (!coachOption && !alreadyExists) {
+                                    App.log(`[상품 선택] 코치가 드롭다운에 없어 API에서 가져와 추가: 코치 ID ${coachIdStr}`);
+                                    try {
+                                        const coachData = await App.api.get(`/coaches/${coachIdStr}`);
+                                        if (coachData && coachData.id) {
+                                            const newCoachIdStr = String(coachData.id);
+                                            // 동일 value 옵션이 이미 있는지 최종 확인 후 추가 (중복 방지)
+                                            const dup = Array.from(coachSelect.options).some(opt => String(opt.value) === newCoachIdStr);
+                                            if (!dup) {
+                                                const option = document.createElement('option');
+                                                option.value = newCoachIdStr;
+                                                option.textContent = coachData.name || `코치 ID ${coachData.id}`;
+                                                if (coachSelect.options.length > 0) {
+                                                    coachSelect.insertBefore(option, coachSelect.options[1]);
+                                                } else {
+                                                    coachSelect.appendChild(option);
+                                                }
+                                                coachOption = option;
+                                                App.log(`[상품 선택] ✅ 코치 드롭다운에 추가: ${coachData.name} (ID: ${coachData.id})`);
+                                            } else {
+                                                coachOption = Array.from(coachSelect.options).find(opt => String(opt.value) === newCoachIdStr);
+                                            }
                                     } else {
                                         App.warn(`[상품 선택] ⚠️ API 응답에 코치 데이터 없음:`, coachData);
                                     }
                                 } catch (error) {
                                     App.err(`[상품 선택] ❌ 코치 정보 가져오기 실패: 코치 ID ${coachIdStr}`, error);
+                                }
                                 }
                             }
                             
@@ -1962,23 +1982,25 @@ async function renderCalendar() {
                 event.style.backgroundColor = coachColor;
                 event.style.borderLeft = `3px solid ${coachColor}`;
                 
-                // 상태에 따라 아이콘 표시 추가 (완료 동그라미는 COMPLETED일 때만 — 삭제 후 재예약 시 종료시간만 지났다고 표시 안 함)
+                // 상태에 따라 아이콘 표시 추가 (완료/체크인 = 초록, 확정 = 파란 ✓)
                 const status = booking.status || 'PENDING';
+                // 비회원: API에서 member 없거나 nonMemberName 있으면 비회원
+                const isNonMember = !booking.member || !booking.member.id || (booking.nonMemberName && booking.nonMemberName.trim() !== '');
                 let statusIcon = '';
                 let statusIconStyle = '';
-                if (status === 'COMPLETED') {
-                    // 서버에서 완료 처리된 예약만: 초록색 원형 배경(동그라미)
+                // 비회원 예약은 체크인 없이 자동 승인 → 대기/확정/완료 모두 초록 동그라미 표시
+                const showAsCompleted = (status === 'COMPLETED') || (isNonMember && (status === 'CONFIRMED' || status === 'PENDING'));
+                if (showAsCompleted) {
                     statusIcon = '';
                     statusIconStyle = 'display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; min-width: 16px; min-height: 16px; background-color: #2ECC71; border-radius: 50%; margin-right: 5px; vertical-align: middle; flex-shrink: 0; position: relative;';
                 } else if (status === 'CONFIRMED') {
-                    // 확정된 예약: 파란색 원형 배경에 흰색 체크 표시
                     statusIcon = '✓';
                     statusIconStyle = 'display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; background-color: #3498DB; border-radius: 50%; color: white; font-size: 11px; font-weight: 900; margin-right: 5px; vertical-align: middle; flex-shrink: 0;';
                 }
                 
                 // 이벤트 내용 설정 (한 줄로 표시: 아이콘 + 시간 / 이름)
                 if (statusIcon || statusIconStyle) {
-                    if (status === 'COMPLETED') {
+                    if (showAsCompleted) {
                         event.innerHTML = `<span style="${statusIconStyle}"></span>${timeStr} / ${memberName}`;
                     } else {
                         event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${timeStr} / ${memberName}`;
@@ -2278,7 +2300,18 @@ function editBookingFromSchedule(bookingId) {
 
 function changeMonth(delta) {
     currentDate.setMonth(currentDate.getMonth() + delta);
+    var y = currentDate.getFullYear();
+    var m = currentDate.getMonth();
+    var first = new Date(y, m, 1);
+    var last = new Date(y, m + 1, 0);
+    var startStr = first.getFullYear() + '-' + String(first.getMonth() + 1).padStart(2, '0') + '-' + String(first.getDate()).padStart(2, '0');
+    var endStr = last.getFullYear() + '-' + String(last.getMonth() + 1).padStart(2, '0') + '-' + String(last.getDate()).padStart(2, '0');
+    var filterStartEl = document.getElementById('filter-date-start');
+    var filterEndEl = document.getElementById('filter-date-end');
+    if (filterStartEl) filterStartEl.value = startStr;
+    if (filterEndEl) filterEndEl.value = endStr;
     renderCalendar();
+    loadBookingStats();
 }
 
 async function loadBookingsList() {
@@ -2935,11 +2968,11 @@ async function selectNonMember() {
     document.getElementById('member-info-section').style.display = 'none';
     document.getElementById('member-select-section').style.display = 'none';
     
-    // 비회원 예약은 항상 'PENDING' 상태로 고정 (승인 필요)
+    // 비회원 예약은 체크인 없이 자동 승인 → 기본 상태 '확정'
     const statusSelect = document.getElementById('booking-status');
     if (statusSelect) {
-        statusSelect.value = 'PENDING';
-        statusSelect.disabled = true; // 비회원은 상태 변경 불가
+        statusSelect.value = 'CONFIRMED';
+        statusSelect.disabled = true; // 비회원은 자동 확정으로 고정
     }
     
     // 비회원 예약 모달에서도 시설 즉시 로드 및 선택
@@ -3436,7 +3469,8 @@ async function loadBookingData(id) {
                 lessonCategoryEl.value = booking.lessonCategory;
             }
         }
-        document.getElementById('booking-status').value = booking.status || 'PENDING';
+        const loadedStatus = booking.status || 'PENDING';
+        document.getElementById('booking-status').value = (!booking.member && loadedStatus === 'PENDING') ? 'CONFIRMED' : loadedStatus;
         document.getElementById('booking-payment-method').value = booking.paymentMethod || '';
         document.getElementById('booking-notes').value = booking.memo || '';
         
@@ -3669,20 +3703,22 @@ async function saveBooking() {
     // 새 예약인지 확인 (bookingId가 없거나 빈 문자열이면 새 예약)
     const isNewBooking = !bookingId || bookingId === '';
     
+    // 비회원 예약 시 member/memberNumber 보내지 않음 → 서버에서 member_id null로 저장(체크인 목록 제외)
+    const isNonMember = !(memberNumber && memberNumber.trim()) && !(memberId && memberId.trim());
+    
     let bookingStatus = 'PENDING';
     
-    // 수정 모드인 경우에만 기존 상태 유지, 새 예약은 항상 PENDING
     if (!isNewBooking && statusSelect && statusSelect.value) {
         // 수정 모드: 기존 상태 유지
         bookingStatus = statusSelect.value;
         App.log('[예약 저장] 수정 모드 - 상태 유지:', bookingStatus);
     } else {
-        // 새 예약: 항상 PENDING으로 설정
-        bookingStatus = 'PENDING';
+        // 새 예약: 비회원은 자동 승인으로 확정, 회원은 대기
+        bookingStatus = isNonMember ? 'CONFIRMED' : 'PENDING';
         if (statusSelect) {
-            statusSelect.value = 'PENDING';
+            statusSelect.value = bookingStatus;
         }
-        App.log('[예약 저장] 새 예약 - 상태 PENDING으로 설정');
+        App.log('[예약 저장] 새 예약 - 상태:', bookingStatus, isNonMember ? '(비회원 자동 승인)' : '(회원 대기)');
     }
     
     // 시설 선택 시 시설의 지점 정보를 우선적으로 사용
@@ -3705,10 +3741,10 @@ async function saveBooking() {
     
     const data = {
         facility: { id: parseInt(facilityId) },
-        memberNumber: memberNumber || null, // MEMBER_NUMBER 사용
-        member: memberId ? { id: parseInt(memberId) } : null, // 하위 호환성
-        nonMemberName: (memberNumber || memberId) ? null : (nonMemberName || null),
-        nonMemberPhone: (memberNumber || memberId) ? null : (nonMemberPhone || null),
+        memberNumber: isNonMember ? null : (memberNumber || null),
+        member: isNonMember ? null : (memberId ? { id: parseInt(memberId) } : null),
+        nonMemberName: isNonMember ? (nonMemberName || null) : null,
+        nonMemberPhone: isNonMember ? (nonMemberPhone || null) : null,
         coach: coachId ? { id: parseInt(coachId) } : null,
         memberProductId: memberProductId ? parseInt(memberProductId) : null, // 상품/이용권 ID
         startTime: startDateTime,

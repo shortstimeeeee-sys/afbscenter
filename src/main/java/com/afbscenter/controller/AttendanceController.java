@@ -382,7 +382,8 @@ public class AttendanceController {
                                         : itemName.equals(nameStr);
                                     if (nameMatches) {
                                         int remaining = item.get("remaining") instanceof Number ? ((Number) item.get("remaining")).intValue() : 0;
-                                        item.put("remaining", remaining + 1);
+                                        int capped = totalCount != null ? Math.min(remaining + 1, totalCount) : (remaining + 1);
+                                        item.put("remaining", capped);
                                         memberProduct.setPackageItemsRemaining(mapper.writeValueAsString(items));
                                         int sum = 0;
                                         for (Map<String, Object> i : items) {

@@ -92,6 +92,8 @@ function renderMembersStatsCard(stats) {
     const gradeOrder = ['SOCIAL', 'ELITE_ELEMENTARY', 'ELITE_MIDDLE', 'ELITE_HIGH', 'YOUTH', 'OTHER'];
     const statusOrder = ['INACTIVE', 'WITHDRAWN'];
     const inactiveCount = Number(byStatus.INACTIVE) || 0;
+    // 상단 '종료' 카드는 이용권 종료 기준(목록의 종료 배지와 동일), 회원 상태 WITHDRAWN이 아님
+    const endedTicketMemberCount = (stats.endedTicketMemberCount != null && stats.endedTicketMemberCount !== '') ? Number(stats.endedTicketMemberCount) : (Number(byStatus.WITHDRAWN) || 0);
     const nonMemberCount = Number(stats.nonMemberCount) || 0;
     const gradeItems = gradeOrder.filter(k => (byGrade[k] || 0) > 0).map(k => ({
         label: gradeLabels[k] || k,
@@ -109,10 +111,11 @@ function renderMembersStatsCard(stats) {
     const items = [
         { label: '총 회원 수', value: total + '명', accent: true, gradeClass: '', isTotal: true, filterType: 'all', filterValue: null },
         { label: '활성', value: activeCount + '명', accent: false, gradeClass: 'members-stats-item--active', isTotal: false, filterType: 'status', filterValue: 'ACTIVE' },
-        { label: '휴면', value: inactiveCount + '명', accent: false, gradeClass: 'members-stats-item--inactive', isTotal: false, filterType: 'status', filterValue: 'INACTIVE' }
+        { label: '휴면', value: inactiveCount + '명', accent: false, gradeClass: 'members-stats-item--inactive', isTotal: false, filterType: 'status', filterValue: 'INACTIVE' },
+        { label: '종료', value: endedTicketMemberCount + '명', accent: false, gradeClass: 'members-stats-item--withdrawn', isTotal: false, filterType: 'endedTicket', filterValue: 'endedTicket' }
     ].concat(
         gradeItems.map(c => ({ label: c.label, value: c.count + '명', accent: false, gradeClass: 'members-stats-item--' + (c.gradeKey ? c.gradeKey.toLowerCase() : ''), filterType: 'grade', filterValue: c.gradeKey })),
-        statusItems.filter(s => s.label !== '휴면').map(c => ({ label: c.label, value: c.count + '명', accent: false, gradeClass: '', filterType: 'status', filterValue: c.filterValue })),
+        statusItems.filter(s => s.label !== '휴면' && s.filterValue !== 'WITHDRAWN').map(c => ({ label: c.label, value: c.count + '명', accent: false, gradeClass: '', filterType: 'status', filterValue: c.filterValue })),
         [{ label: '비회원', value: nonMemberCount + '건', accent: false, gradeClass: 'members-stats-item--nonmember', isTotal: false, filterType: 'nonMember', filterValue: 'nonMember' }]
     ).flat();
     container.innerHTML = items.map(item => `
@@ -189,6 +192,7 @@ async function openStatsMemberModal(filterType, filterValue, titleLabel) {
     var params = new URLSearchParams();
     if (filterType === 'status' && filterValue) params.set('status', filterValue);
     if (filterType === 'grade' && filterValue) params.set('grade', filterValue);
+    if (filterType === 'endedTicket' && filterValue) params.set('endedTicket', 'true');
     try {
         var list = await App.api.get('/members?' + params.toString());
         var members = Array.isArray(list) ? list : (list && list.content ? list.content : []);

@@ -296,7 +296,7 @@ public class DashboardController {
                 expiredMembersCount = 0L;
                 try {
                     List<com.afbscenter.model.Member> allMembers = memberRepository.findAll();
-                    LocalDate expiryThreshold = today.plusDays(7);
+                    LocalDate expiryThreshold = today.plusDays(3);
                     for (com.afbscenter.model.Member member : allMembers) {
                         try {
                             List<MemberProduct> activeProducts = memberProductRepository.findByMemberIdAndStatus(
@@ -326,7 +326,7 @@ public class DashboardController {
                                             remainingCount = totalCount - actualUsedCount.intValue();
                                             if (remainingCount < 0) remainingCount = 0;
                                         }
-                                        if (remainingCount != null && remainingCount <= 3 && remainingCount > 0) {
+                                        if (remainingCount != null && remainingCount <= 2 && remainingCount > 0) {
                                             isExpiring = true;
                                             break;
                                         }

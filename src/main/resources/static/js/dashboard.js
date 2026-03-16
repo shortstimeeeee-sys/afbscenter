@@ -2045,7 +2045,8 @@ function switchMemberDetailTab(tab, member = null) {
     document.querySelectorAll('#member-detail-modal .tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('data-tab') === tab);
     });
-    
+    var modalBox = document.querySelector('#member-detail-modal .member-detail-modal-box');
+    if (modalBox) modalBox.setAttribute('data-detail-tab', tab || '');
     // member가 전달되지 않았으면 저장된 currentMemberDetail 사용
     if (!member && currentMemberDetail) {
         member = currentMemberDetail;

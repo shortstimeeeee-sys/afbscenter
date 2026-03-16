@@ -57,6 +57,10 @@ public class Attendance {
     @Column(length = 1000)
     private String memo;
 
+    @Size(max = 50)
+    @Column(name = "processed_by", length = 50)
+    private String processedBy; // 체크인 처리한 사용자 아이디 (히스토리 추적용)
+
     public enum AttendanceStatus {
         PRESENT,    // 출석
         ABSENT,     // 결석

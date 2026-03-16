@@ -113,6 +113,15 @@ body.members-page .topbar { margin-top: 0; }
 .members-stats-item--inactive .members-stats-item-value {
     color: #8b7b9e;
 }
+/* 종료: 빨간색 계열 */
+.members-stats-item--withdrawn {
+    border-left: 4px solid #c0392b;
+    background: rgba(192, 57, 43, 0.1);
+}
+.members-stats-item--withdrawn .members-stats-item-label,
+.members-stats-item--withdrawn .members-stats-item-value {
+    color: #c0392b;
+}
 /* 비회원: 예약 건수 표시용 */
 .members-stats-item--nonmember {
     border-left: 4px solid #6c757d;
@@ -314,9 +323,15 @@ body.light-mode .badge-expired {
     color: #B91C1C;
 }
 
-/* 회원 등록/수정 모달 너비 확대 (공통 1~5 한 줄 표시 여유) */
+/* 회원 등록/수정 모달 너비 확대 (0~7 단계 라디오 전부 잘 보이게) */
 #member-modal .modal {
-    max-width: 720px;
+    width: min(98vw, 1440px);
+    max-width: 1440px;
+    min-width: 360px;
+}
+#member-modal .modal-body {
+    max-height: 82vh;
+    overflow-y: auto;
 }
 
 /* 회원 등록/수정 폼 - 투수/타자 기록 영역 */
@@ -325,6 +340,11 @@ body.light-mode .badge-expired {
     grid-template-columns: 1fr 1fr;
     gap: 20px;
     margin-top: 8px;
+}
+@media (max-width: 1440px) {
+    #member-modal .modal {
+        width: 96vw;
+    }
 }
 @media (max-width: 720px) {
     .member-ability-form-grid {
@@ -346,6 +366,60 @@ body.light-mode .badge-expired {
     border-bottom: 1px solid var(--border-color);
 }
 
+/* 수비 기록 (공통 위) */
+.member-ability-defense-row {
+    margin-top: 16px;
+    padding: 14px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+.member-ability-defense-row .member-ability-form-section-title {
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 6px;
+}
+.member-ability-defense-row .member-ability-common-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 20px;
+    align-items: flex-end;
+}
+.member-ability-defense-row .member-ability-common-fields .form-group {
+    margin-bottom: 0;
+    min-width: 140px;
+}
+.member-ability-defense-row .member-ability-common-fields .common-radio-block {
+    flex: 1 1 200px;
+    min-width: 200px;
+}
+.member-ability-defense-row small {
+    display: block;
+    margin-top: 8px;
+}
+/* 포수 기록 (수비 기록 아래) */
+.member-ability-catcher-row {
+    margin-top: 16px;
+    padding: 14px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+.member-ability-catcher-row .member-ability-form-section-title {
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 6px;
+}
+.member-ability-catcher-row .member-ability-common-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 20px;
+    align-items: flex-end;
+}
+.member-ability-catcher-row .member-ability-common-fields .common-radio-block {
+    flex: 1 1 200px;
+    min-width: 200px;
+}
 /* 투수/타자 기록 아래 공통 가로 영역 */
 .member-ability-common-row {
     margin-top: 16px;
@@ -362,16 +436,16 @@ body.light-mode .badge-expired {
 .member-ability-common-fields {
     display: flex;
     flex-wrap: wrap;
-    gap: 16px 24px;
+    gap: 16px 20px;
     align-items: flex-end;
 }
 .member-ability-common-fields .form-group {
     margin-bottom: 0;
-    min-width: 120px;
+    min-width: 140px;
 }
 .member-ability-common-fields .common-radio-block {
-    flex: 1;
-    min-width: 0;
+    flex: 1 1 200px;
+    min-width: 200px;
     padding: 10px 12px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
@@ -386,29 +460,38 @@ body.light-mode .badge-expired {
 }
 .member-ability-common-fields .common-radio-block .form-control-radio-group {
     padding: 6px 8px;
-    gap: 6px 10px;
-    flex-wrap: nowrap;
+    gap: 5px 8px;
+    flex-wrap: wrap;
 }
 .member-ability-common-fields .common-radio-block .radio-option {
-    flex: 1;
-    min-width: 0;
+    flex: 0 0 auto;
+    min-width: 2em;
     justify-content: center;
     font-size: 13px;
+}
+#member-modal .member-ability-common-fields .common-radio-block {
+    min-width: 200px;
+}
+#member-modal .member-ability-defense-row .member-ability-common-fields .common-radio-block {
+    min-width: 200px;
 }
 .member-ability-common-fields {
     gap: 12px 16px;
 }
 
-/* 제구력 등 라디오 5개 가로 배치 (한 줄 유지) */
+/* 제구력·변화구 등 0~7 라디오 가로 배치 (넓으면 한 줄, 좁으면 줄바꿈) */
 .form-control-radio-group {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px 12px;
+    gap: 6px 10px;
     align-items: center;
     padding: 8px 10px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
+}
+#member-modal .member-ability-form-section .form-control-radio-group {
+    gap: 5px 8px;
 }
 .form-control-radio-group .radio-option {
     display: inline-flex;
@@ -463,16 +546,39 @@ body.light-mode .badge-expired {
     color: var(--text-primary);
 }
 
-/* 회원 상세 모달 - 영역 확대 (글·그래프 잘 보이게) */
+/* 회원 상세 모달 - 높이를 크게 해서 스크롤 최소화 */
+#member-detail-modal.modal-overlay {
+    overflow: hidden;
+    align-items: center;
+    justify-content: center;
+}
 .member-detail-modal-box {
     max-width: 95vw;
     width: 95%;
-    max-height: 95vh;
+    max-height: 94vh;
+    height: 94vh;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+}
+/* 개인 능력치: 그래프·목록 넓게 */
+.member-detail-modal-box[data-detail-tab="stats"] {
+    max-height: 96vh;
+    height: 96vh;
+}
+/* 이용권·결제·예약·출석·이력·히스토리: 목록 탭 */
+.member-detail-modal-box[data-detail-tab="products"],
+.member-detail-modal-box[data-detail-tab="payments"],
+.member-detail-modal-box[data-detail-tab="bookings"],
+.member-detail-modal-box[data-detail-tab="attendance"],
+.member-detail-modal-box[data-detail-tab="product-history"],
+.member-detail-modal-box[data-detail-tab="timeline"] {
+    max-height: 95vh;
+    height: 95vh;
 }
 .member-detail-modal-box .modal-header {
     padding: 14px 24px;
+    flex-shrink: 0;
 }
 .member-detail-modal-box .modal-title {
     font-size: 17px;
@@ -480,12 +586,16 @@ body.light-mode .badge-expired {
 }
 .member-detail-modal-box .modal-body {
     overflow-y: auto;
-    min-height: 60vh;
+    min-height: 0;
+    flex: 1 1 auto;
     padding: 24px 28px;
 }
 #detail-tab-content {
     min-height: 50vh;
     overflow: visible;
+}
+.member-detail-modal-box[data-detail-tab="stats"] #detail-tab-content {
+    min-height: 70vh;
 }
 
 /* 회원 상세 - 개인 능력치 탭 (투수/타자 오각형) */
@@ -559,6 +669,83 @@ body.light-mode .badge-expired {
     padding: 24px;
     box-sizing: border-box;
 }
+/* 1개 그래프일 때: 그래프 왼쪽, 설명·목록 오른쪽 */
+.member-stats-ability-wrap--single .member-stats-ability-col {
+    max-width: 100%;
+    min-width: 0;
+}
+.member-stats-ability-col--single .member-stats-ability-inner {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 88px;
+}
+.member-stats-ability-col--single .member-stats-radar {
+    margin-bottom: 0;
+    flex-shrink: 0;
+    min-height: 460px;
+    padding-right: 40px;
+    box-sizing: border-box;
+}
+.member-stats-ability-col--single .member-stats-radar .radar-svg {
+    width: 480px;
+    height: 480px;
+    max-width: 100%;
+}
+.member-stats-ability-col--single .member-stats-detail {
+    flex: 1;
+    min-width: 200px;
+    padding-left: 36px;
+    border-left: 1px solid var(--border-color);
+    box-sizing: border-box;
+    font-size: 18px;
+}
+.member-stats-ability-col--single .member-stats-detail .member-stats-batter-ref-caption {
+    margin-top: 0;
+    font-size: 17px;
+}
+.member-stats-ability-col--single .member-stats-detail .member-stats-batter-ref-hint {
+    margin-bottom: 12px;
+    font-size: 18px;
+}
+.member-stats-ability-col--single .member-stats-detail .member-stats-list {
+    margin-top: 8px;
+    font-size: 19px;
+    width: 100%;
+}
+.member-stats-ability-col--single .member-stats-detail .member-stats-list .stat-label,
+.member-stats-ability-col--single .member-stats-detail .member-stats-list .stat-value {
+    font-size: 19px;
+}
+/* 타이틀–숫자 사이: 1열 고정, 2열 빈칸 40px, 3열 수치 140px, 수치 뒤 빈칸 4개 */
+.member-stats-ability-col--single .member-stats-detail .member-stats-list li {
+    display: grid;
+    grid-template-columns: 120px 40px 140px 12px 12px 12px 12px;
+    align-items: center;
+}
+.member-stats-ability-col--single .member-stats-detail .member-stats-list .stat-label {
+    min-width: 0;
+    grid-column: 1;
+}
+/* 값 칸(3열) 전체를 쓰고, 그 안에서 '-'/숫자 모두 같은 칸·중앙 정렬 */
+.member-stats-ability-col--single .member-stats-detail .member-stats-list .stat-value {
+    grid-column: 3;
+    justify-self: stretch;
+    width: 100%;
+    min-width: 0;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.member-stats-ability-col--single .member-stats-detail .member-stats-list .stat-value .stat-rank {
+    display: block;
+    margin-top: 2px;
+    color: #eab308;
+}
+.member-stats-ability-col--single .member-stats-detail .member-stats-list .stat-value .stat-rank.stat-rank-gold {
+    color: #eab308;
+}
 .member-stats-ability-title {
     margin: 0 0 10px 0;
     font-size: 15px;
@@ -580,7 +767,8 @@ body.light-mode .badge-expired {
     overflow: visible;
 }
 .member-stats-radar .radar-svg-batter,
-.member-stats-radar .radar-svg-pitcher {
+.member-stats-radar .radar-svg-pitcher,
+.member-stats-radar .radar-svg-defense {
     background: transparent;
 }
 .member-stats-radar .radar-vertex-value {
@@ -591,10 +779,12 @@ body.light-mode .badge-expired {
 }
 .member-stats-radar .radar-svg-batter .radar-grid,
 .member-stats-radar .radar-svg-batter .radar-axis,
+.member-stats-radar .radar-svg-defense .radar-grid,
+.member-stats-radar .radar-svg-defense .radar-axis,
 .member-stats-radar .radar-svg-pitcher .radar-grid,
 .member-stats-radar .radar-svg-pitcher .radar-axis {
-    stroke: var(--text-muted);
-    stroke-width: 0.6;
+    stroke: var(--border-color, rgba(148, 163, 184, 0.85));
+    stroke-width: 1.2;
 }
 /* 기존 색상 (숨김)
 .member-stats-radar .radar-polygon-ref {
@@ -620,10 +810,10 @@ body.light-mode .badge-expired {
 .member-stats-legend .legend-member { background: #2563eb; }
 */
 
-/* 3번: 부드러운 톤 (기준 연회색, 평균 보라, 본인 초록) */
+/* 3번: 부드러운 톤 (기준 연회색, 평균 보라, 본인 초록) - 그리드/축선이 보이도록 stroke 강화 */
 .member-stats-radar .radar-polygon-ref {
-    stroke: #9ca3af;
-    stroke-width: 0.6;
+    stroke: #6b7280;
+    stroke-width: 1.2;
 }
 .member-stats-radar .radar-polygon-avg {
     fill: #7c3aed;
@@ -660,10 +850,13 @@ body.light-mode .badge-expired {
     padding: 0;
     font-size: 14px;
 }
-.member-stats-list li {
+/* 2개 그래프(투수+타자)일 때만 flex·양끝정렬 적용 (단일 그래프와 중복 방지) */
+.member-stats-ability-col:not(.member-stats-ability-col--single) .member-stats-list li {
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+.member-stats-list li {
     padding: 8px 12px;
     border-bottom: 1px solid var(--border-color);
 }
@@ -676,4 +869,92 @@ body.light-mode .badge-expired {
 .member-stats-list .stat-value {
     font-weight: 600;
     color: var(--text-primary);
+}
+
+/* 코치 메모 탭: 상단 텍스트 입력, 하단 수치별 메모 */
+.member-memo-tab-wrap {
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+.member-memo-tab-wrap .member-memo-top {
+    width: 100%;
+    margin-bottom: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+.member-memo-tab-wrap .member-memo-top .form-control {
+    resize: vertical;
+    min-height: 80px;
+}
+.member-memo-tab-wrap .member-memo-bottom {
+    width: 100%;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+    padding-bottom: 24px;
+}
+.member-memo-tab-wrap .member-memo-stat-heading {
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.member-memo-tab-wrap .member-memo-stat-sections {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+.member-memo-stat-section {
+    background: var(--bg-secondary, #1a2332);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm, 6px);
+    padding: 10px 12px;
+}
+.member-memo-stat-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-color);
+}
+.member-memo-stat-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.member-memo-stat-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+}
+.member-memo-stat-row .member-memo-stat-label {
+    flex: 0 0 72px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.member-memo-stat-row .member-memo-stat-input {
+    flex: 1;
+    min-width: 0;
+    height: 28px;
+    padding: 4px 8px;
+    font-size: 13px;
+    border-radius: 4px;
+}
+.member-memo-tab-wrap .member-memo-tab-save {
+    margin-top: 10px;
+    align-self: flex-end;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.35;
+}
+@media (max-width: 640px) {
+    .member-memo-tab-wrap .member-memo-stat-sections {
+        grid-template-columns: 1fr;
+    }
 }

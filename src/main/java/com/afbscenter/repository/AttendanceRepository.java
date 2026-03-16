@@ -56,6 +56,14 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     @Query("SELECT a FROM Attendance a LEFT JOIN FETCH a.booking b LEFT JOIN FETCH b.memberProduct mp LEFT JOIN FETCH mp.product WHERE a.booking.id = :bookingId")
     java.util.Optional<Attendance> findByBookingId(@Param("bookingId") Long bookingId);
 
+    /** 체크인 시 기존 출석 여부만 확인용. booking만 FETCH (memberProduct 없음 → 예외 방지) */
+    @Query("SELECT a FROM Attendance a LEFT JOIN FETCH a.booking WHERE a.booking.id = :bookingId")
+    java.util.List<Attendance> findByBookingIdForCheckin(@Param("bookingId") Long bookingId);
+
+    /** 여러 예약 ID에 대한 출석을 한 번에 조회 (N+1 방지). booking FETCH로 lazy 로드 방지. bookingIds 비어 있으면 빈 리스트 반환 */
+    @Query("SELECT a FROM Attendance a LEFT JOIN FETCH a.booking b WHERE a.booking.id IN :bookingIds")
+    List<Attendance> findByBookingIdIn(@Param("bookingIds") Collection<Long> bookingIds);
+
     /** 출석이 존재하는 예약 ID 목록만 조회 (엔티티 로드 없이, 체크인 미처리 예약용) */
     @Query("SELECT DISTINCT a.booking.id FROM Attendance a WHERE a.booking.id IS NOT NULL")
     List<Long> findDistinctBookingIds();
@@ -63,4 +71,8 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     /** 해당 예약들 중 체크인된 예약 ID 목록 (자동 완료 처리용 배치 조회) */
     @Query("SELECT DISTINCT a.booking.id FROM Attendance a WHERE a.booking.id IN :bookingIds AND a.checkInTime IS NOT NULL")
     List<Long> findBookingIdsWithCheckIn(@Param("bookingIds") Collection<Long> bookingIds);
+
+    /** 특정 날짜에 체크인된 출석의 예약 ID 목록만 조회 (엔티티 로드 없이, N+1 방지) */
+    @Query("SELECT DISTINCT a.booking.id FROM Attendance a WHERE a.date = :date AND a.checkInTime IS NOT NULL AND a.booking.id IS NOT NULL")
+    List<Long> findCheckedInBookingIdsByDate(@Param("date") LocalDate date);
 }

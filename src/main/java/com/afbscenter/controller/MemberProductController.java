@@ -65,12 +65,14 @@ public class MemberProductController {
             if (memberId != null && status != null) {
                 try {
                     MemberProduct.Status productStatus = MemberProduct.Status.valueOf(status);
-                    memberProducts = memberProductRepository.findByMemberIdAndStatus(memberId, productStatus);
+                    List<MemberProduct> all = memberProductRepository.findByMemberIdWithProduct(memberId);
+                    memberProducts = all.stream().filter(mp -> mp.getStatus() == productStatus).collect(Collectors.toList());
                 } catch (IllegalArgumentException e) {
-                    memberProducts = memberProductRepository.findByMemberId(memberId);
+                    memberProducts = memberProductRepository.findByMemberIdWithProduct(memberId);
                 }
             } else if (memberId != null) {
-                memberProducts = memberProductRepository.findByMemberId(memberId);
+                // 연장된 이용권 포함: product·coach 함께 로드해 예약 화면에서 선택 가능
+                memberProducts = memberProductRepository.findByMemberIdWithProduct(memberId);
             } else if (status != null) {
                 // status만 있는 경우 (활성 이용권 전체 조회 등)
                 try {
@@ -171,19 +173,11 @@ public class MemberProductController {
                         logger.warn("사용 횟수 계산 실패: MemberProduct ID={}, 오류={}", mp.getId(), e.getMessage());
                     }
                     
+                    // 예약·체크인 기준 단일 소스: 출석 건수 우선, 없으면 체크인된 예약 건수
                     Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
-                    
-                    if (remainingCount == null || remainingCount == 0) {
-                        if (actualUsedCount == 0) {
-                            remainingCount = totalCount;
-                        } else {
-                            remainingCount = Math.max(0, totalCount - actualUsedCount.intValue());
-                        }
-                    } else {
-                        Integer calculatedRemaining = Math.max(0, totalCount - actualUsedCount.intValue());
-                        if (remainingCount != calculatedRemaining && actualUsedCount == 0 && remainingCount == 0) {
-                            remainingCount = totalCount;
-                        }
+                    // 횟수권은 항상 '총횟수 - 실제 사용(체크인) 건수'로 표시해 예약/체크인 후 숫자 불일치 방지
+                    if (totalCount != null) {
+                        remainingCount = Math.max(0, totalCount - (actualUsedCount != null ? actualUsedCount.intValue() : 0));
                     }
                 }
                 
@@ -263,6 +257,9 @@ public class MemberProductController {
                 }
                 map.put("coachId", memberProductCoachId); // 이용권에 직접 배정된 코치 ID (null이면 미배정)
                 map.put("coach", coachMap);
+
+                // 이용권 번호 (없으면 null)
+                map.put("voucherNumber", mp.getVoucherNumber());
                 
                 return map;
             }).collect(Collectors.toList());
@@ -322,10 +319,23 @@ public class MemberProductController {
                     memberProduct.setTotalCount(totalCount);
                 }
                 
-                // 연장일수만큼 횟수 추가 (총 횟수 제한 없이 추가)
-                Integer newRemainingCount = currentRemaining + extendDays;
-                
-                memberProduct.setRemainingCount(newRemainingCount);
+                // 1) 이미 소진된 이용권(remaining=0 또는 USED_UP)을 연장하는 경우:
+                //    연장 횟수 = 새 회차의 총 횟수로 보고, 잔여/총횟수를 모두 연장 횟수로 초기화 (예: 10회권 완료 후 10회 연장 → 10/10)
+                Integer newRemainingCount;
+                boolean fullyUsedBeforeExtend = (previousRemainingCount == null || previousRemainingCount <= 0);
+                if (fullyUsedBeforeExtend) {
+                    newRemainingCount = extendDays;
+                    memberProduct.setRemainingCount(newRemainingCount);
+                    memberProduct.setTotalCount(extendDays);
+                } else {
+                    // 2) 아직 남은 횟수가 있는 이용권에 추가 연장: 잔여 = min(기존 총횟수, 현재잔여 + 연장횟수)로 제한
+                    newRemainingCount = currentRemaining + extendDays;
+                    if (totalCount != null && totalCount > 0) {
+                        newRemainingCount = Math.min(totalCount, newRemainingCount);
+                    }
+                    memberProduct.setRemainingCount(newRemainingCount);
+                    // 총 횟수는 그대로 유지 (10회권은 계속 10으로 유지)
+                }
                 
                 // 사용 완료 상태였던 경우 활성 상태로 변경
                 if (memberProduct.getStatus() == MemberProduct.Status.USED_UP) {
@@ -630,9 +640,11 @@ public class MemberProductController {
             // 상태 업데이트
             if (remainingCount == 0) {
                 memberProduct.setStatus(MemberProduct.Status.USED_UP);
+                if (memberProduct.getEndedAt() == null) memberProduct.setEndedAt(LocalDateTime.now());
             } else if (memberProduct.getStatus() == MemberProduct.Status.USED_UP) {
                 // 잔여 횟수가 있으면 다시 ACTIVE로 변경
                 memberProduct.setStatus(MemberProduct.Status.ACTIVE);
+                memberProduct.setEndedAt(null);
             }
             
             MemberProduct saved = memberProductRepository.save(memberProduct);
@@ -707,8 +719,10 @@ public class MemberProductController {
                     // 상태 업데이트
                     if (remainingCount == 0) {
                         memberProduct.setStatus(MemberProduct.Status.USED_UP);
+                        if (memberProduct.getEndedAt() == null) memberProduct.setEndedAt(LocalDateTime.now());
                     } else if (memberProduct.getStatus() == MemberProduct.Status.USED_UP) {
                         memberProduct.setStatus(MemberProduct.Status.ACTIVE);
+                        memberProduct.setEndedAt(null);
                     }
                     
                     memberProductRepository.save(memberProduct);
@@ -739,7 +753,8 @@ public class MemberProductController {
     @Transactional
     public ResponseEntity<Map<String, Object>> setRemainingCount(
             @PathVariable Long id,
-            @RequestBody Map<String, Object> setData) {
+            @RequestBody Map<String, Object> setData,
+            jakarta.servlet.http.HttpServletRequest request) {
         try {
             logger.info("===== 이용권 횟수 직접 설정 API 호출 =====");
             logger.info("MemberProduct ID: {}", id);
@@ -763,7 +778,7 @@ public class MemberProductController {
                 return ResponseEntity.badRequest().body(error);
             }
             
-            // 설정할 횟수 추출
+            // 설정할 잔여 횟수 추출
             Integer newCount = null;
             if (setData.get("count") != null) {
                 if (setData.get("count") instanceof Number) {
@@ -787,7 +802,7 @@ public class MemberProductController {
                 currentRemaining = 0;
             }
             
-            // 총 횟수: 마감(USED_UP) 후 다시 숫자 넣을 때는 항상 상품 기준(10회권이면 10)으로 초기화
+            // 기존 총 횟수
             Integer totalCount = memberProduct.getTotalCount();
             boolean reactivatingFromUsedUp = (memberProduct.getStatus() == MemberProduct.Status.USED_UP && newCount > 0);
             if (reactivatingFromUsedUp || totalCount == null || totalCount <= 0) {
@@ -795,10 +810,29 @@ public class MemberProductController {
                 if (totalCount == null || totalCount <= 0) {
                     totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                 }
-                memberProduct.setTotalCount(totalCount);
             }
-            
-            // 잔여만 설정. 총 횟수는 유지 (10회권 잔여 4회 → remaining=4, total=10)
+
+            // 새 총 횟수(옵션) 추출
+            Integer requestedTotal = null;
+            if (setData.get("total") != null) {
+                Object totalObj = setData.get("total");
+                if (totalObj instanceof Number) {
+                    requestedTotal = ((Number) totalObj).intValue();
+                } else if (totalObj instanceof String && !((String) totalObj).trim().isEmpty()) {
+                    requestedTotal = Integer.parseInt(totalObj.toString().trim());
+                }
+            }
+            if (requestedTotal != null) {
+                if (requestedTotal <= 0) {
+                    Map<String, Object> error = new HashMap<>();
+                    error.put("error", "총 횟수는 1 이상이어야 합니다.");
+                    return ResponseEntity.badRequest().body(error);
+                }
+                totalCount = requestedTotal;
+            }
+            memberProduct.setTotalCount(totalCount);
+
+            // 잔여 설정: 총 횟수를 넘지 않도록 제한
             if (newCount > totalCount) {
                 newCount = totalCount;
                 logger.info("잔여가 총 횟수를 초과하여 총 횟수로 제한: {}회", newCount);
@@ -832,8 +866,10 @@ public class MemberProductController {
             // 상태 업데이트
             if (newCount == 0) {
                 memberProduct.setStatus(MemberProduct.Status.USED_UP);
+                if (memberProduct.getEndedAt() == null) memberProduct.setEndedAt(LocalDateTime.now());
             } else if (memberProduct.getStatus() == MemberProduct.Status.USED_UP) {
                 memberProduct.setStatus(MemberProduct.Status.ACTIVE);
+                memberProduct.setEndedAt(null);
             }
             
             MemberProduct saved = memberProductRepository.save(memberProduct);
@@ -851,6 +887,8 @@ public class MemberProductController {
                     history.setRemainingCountAfter(saved.getRemainingCount());
                     String productName = saved.getProduct() != null ? saved.getProduct().getName() : "이용권";
                     history.setDescription(String.format("수동 조정(직접 설정): %d회 → %d회 (%s)", currentRemaining, saved.getRemainingCount(), productName));
+                    String processedBy = request != null ? (String) request.getAttribute("username") : null;
+                    if (processedBy != null && !processedBy.isEmpty()) history.setProcessedBy(processedBy);
                     memberProductHistoryRepository.save(history);
                 }
             } catch (Exception e) {
@@ -888,7 +926,8 @@ public class MemberProductController {
     @Transactional
     public ResponseEntity<Map<String, Object>> adjustRemainingCount(
             @PathVariable Long id,
-            @RequestBody Map<String, Object> adjustData) {
+            @RequestBody Map<String, Object> adjustData,
+            jakarta.servlet.http.HttpServletRequest request) {
         try {
             logger.info("===== 이용권 횟수 상대 조정 API 호출 =====");
             logger.info("MemberProduct ID: {}", id);
@@ -995,9 +1034,11 @@ public class MemberProductController {
             // 상태 업데이트
             if (newRemainingCount == 0) {
                 memberProduct.setStatus(MemberProduct.Status.USED_UP);
+                if (memberProduct.getEndedAt() == null) memberProduct.setEndedAt(LocalDateTime.now());
             } else if (memberProduct.getStatus() == MemberProduct.Status.USED_UP) {
                 // 잔여 횟수가 있으면 다시 ACTIVE로 변경
                 memberProduct.setStatus(MemberProduct.Status.ACTIVE);
+                memberProduct.setEndedAt(null);
             }
             
             MemberProduct saved = memberProductRepository.save(memberProduct);
@@ -1014,6 +1055,8 @@ public class MemberProductController {
                     history.setRemainingCountAfter(saved.getRemainingCount());
                     String productName = saved.getProduct() != null ? saved.getProduct().getName() : "이용권";
                     history.setDescription(String.format("수동 조정: %d회 → %d회 (%s)", currentRemaining, saved.getRemainingCount(), productName));
+                    String processedBy = request != null ? (String) request.getAttribute("username") : null;
+                    if (processedBy != null && !processedBy.isEmpty()) history.setProcessedBy(processedBy);
                     memberProductHistoryRepository.save(history);
                 }
             } catch (Exception e) {
@@ -1098,9 +1141,11 @@ public class MemberProductController {
             java.time.LocalDate today = java.time.LocalDate.now();
             if (endDate.isBefore(today)) {
                 memberProduct.setStatus(MemberProduct.Status.EXPIRED);
+                if (memberProduct.getEndedAt() == null) memberProduct.setEndedAt(LocalDateTime.now());
             } else if (memberProduct.getStatus() == MemberProduct.Status.EXPIRED) {
                 // 만료된 상품이 종료일 연장으로 다시 활성화
                 memberProduct.setStatus(MemberProduct.Status.ACTIVE);
+                memberProduct.setEndedAt(null);
             }
             
             MemberProduct saved = memberProductRepository.save(memberProduct);
@@ -1156,6 +1201,20 @@ public class MemberProductController {
             for (com.afbscenter.model.Booking booking : bookings) {
                 booking.setMemberProduct(null);
                 bookingRepository.save(booking);
+            }
+
+            // 이 MemberProduct를 참조하는 이용권 히스토리 먼저 삭제 (FK 제약으로 인해 MemberProduct보다 앞서 삭제 필요)
+            try {
+                java.util.List<com.afbscenter.model.MemberProductHistory> histories =
+                    memberProductHistoryRepository.findByMemberProductIdOrderByTransactionDateDesc(memberProduct.getId());
+                if (histories != null && !histories.isEmpty()) {
+                    memberProductHistoryRepository.deleteAll(histories);
+                    logger.debug("이용권 삭제 시 히스토리 삭제: MemberProduct ID={}, 삭제된 히스토리 수={}",
+                        memberProduct.getId(), histories.size());
+                }
+            } catch (Exception e) {
+                logger.warn("이용권 삭제 시 히스토리 삭제 실패 (무시): MemberProduct ID={}, 오류={}",
+                    memberProduct.getId(), e.getMessage());
             }
             
             // 해당 상품에 대한 PRODUCT_SALE 결제 제거 (상품 할당과 함께 제거)

@@ -79,7 +79,20 @@ public class Member {
     private LocalDate lastVisitDate;
 
     @Column(name = "coach_memo", length = 2000)
-    private String coachMemo; // 코치 메모
+    private String coachMemo; // 코치 메모 (등급 사유 등)
+
+    @Column(name = "coach_memo_pitcher", length = 1000)
+    private String coachMemoPitcher; // 투수 분야 코치 메모
+    @Column(name = "coach_memo_batter", length = 1000)
+    private String coachMemoBatter; // 타자 분야 코치 메모
+    @Column(name = "coach_memo_defense", length = 1000)
+    private String coachMemoDefense; // 수비 분야 코치 메모
+    @Column(name = "coach_memo_catcher", length = 1000)
+    private String coachMemoCatcher; // 포수 분야 코치 메모
+
+    /** 수치별 코치 메모 JSON: {"pitcher":["","",...],"batter":[...],"defense":[...],"catcher":[...]} 각 배열 5개 */
+    @Column(name = "coach_memo_stats", length = 4000)
+    private String coachMemoStats;
 
     @Column(name = "student_name")
     private String guardianName; // 수강생 이름 (유소년의 경우 실제 수강생 이름)
@@ -103,9 +116,11 @@ public class Member {
     @Column(name = "pitcher_power")
     private Double pitcherPower;
     @Column(name = "pitcher_control", length = 10)
-    private String pitcherControl; // 상, 중, 하 (HIGH, MID, LOW)
+    private String pitcherControl; // 제구력 1~5
+    @Column(name = "pitcher_breaking_ball", length = 10)
+    private String pitcherBreakingBall; // 변화구 1~5
     @Column(name = "pitcher_flexibility", length = 10)
-    private String pitcherFlexibility; // 상, 중, 하
+    private String pitcherFlexibility; // 유연성(공통) 1~5
     @Column(name = "running_speed")
     private Double runningSpeed; // 주력 (공통)
 
@@ -114,6 +129,24 @@ public class Member {
     private Double batterPower;
     @Column(name = "batter_flexibility")
     private Double batterFlexibility; // 타자 유연성 기록
+
+    /** 수비 지표 (1~5단계, 공통 유연성·주력은 기존 필드 활용) */
+    @Column(name = "defense_handling")
+    private Double defenseHandling; // 핸들링 1~5
+    @Column(name = "defense_step")
+    private Double defenseStep; // 스탭 1~5
+    @Column(name = "defense_throwing")
+    private Double defenseThrowing; // 송구(수비) 0~7
+    @Column(name = "defense_quickness")
+    private Double defenseQuickness; // 순발력(수비 전용) 0~7
+
+    /** 포수 지표 (0~7단계, 파워·유연성은 공통) */
+    @Column(name = "catcher_blocking")
+    private Double catcherBlocking; // 블로킹 0~7
+    @Column(name = "catcher_throwing")
+    private Double catcherThrowing; // 송구 0~7
+    @Column(name = "catcher_framing")
+    private Double catcherFraming; // 프레이밍 0~7
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "coach_id")
@@ -125,6 +158,10 @@ public class Member {
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @Size(max = 50)
+    @Column(name = "processed_by", length = 50)
+    private String processedBy; // 회원 가입 처리한 사용자 아이디 (히스토리 추적용)
 
     @OneToMany(mappedBy = "member", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore

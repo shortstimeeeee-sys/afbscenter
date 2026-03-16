@@ -5,18 +5,23 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
+import org.hibernate.annotations.BatchSize;
 
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "bookings")
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
+@BatchSize(size = 100)
+@Getter
+@Setter
+@ToString
 public class Booking {
+
+    public Booking() {}
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -51,11 +56,17 @@ public class Booking {
 
     @NotNull(message = "시작 시간은 필수입니다")
     @Column(name = "start_time", nullable = false)
+    @Getter(AccessLevel.NONE)
     private LocalDateTime startTime;
+
+    public LocalDateTime getStartTime() { return startTime; }
 
     @NotNull(message = "종료 시간은 필수입니다")
     @Column(name = "end_time", nullable = false)
+    @Getter(AccessLevel.NONE)
     private LocalDateTime endTime;
+
+    public LocalDateTime getEndTime() { return endTime; }
 
     @NotNull(message = "인원은 필수입니다")
     @Positive(message = "인원은 1명 이상이어야 합니다")
@@ -101,6 +112,10 @@ public class Booking {
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @Size(max = 50)
+    @Column(name = "processed_by", length = 50)
+    private String processedBy; // 예약 처리한 사용자 아이디 (히스토리 추적용)
 
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore

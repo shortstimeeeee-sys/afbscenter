@@ -1,6 +1,5 @@
 package com.afbscenter.controller;
 
-import com.afbscenter.model.Attendance;
 import com.afbscenter.model.Booking;
 import com.afbscenter.model.Coach;
 import com.afbscenter.model.Member;
@@ -25,15 +24,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.TransactionDefinition;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.type.TypeReference;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -90,15 +86,16 @@ public class MemberController {
             @RequestParam(required = false) String grade,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String branch,
+            @RequestParam(required = false) Boolean endedTicket,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
         try {
-            logger.debug("회원 목록 조회 시작: productCategory={}, grade={}, status={}, branch={}, page={}, size={}",
-                productCategory, grade, status, branch, page, size);
+            logger.debug("회원 목록 조회 시작: productCategory={}, grade={}, status={}, branch={}, endedTicket={}, page={}, size={}",
+                productCategory, grade, status, branch, endedTicket, page, size);
             
             // Service에서 필터링 및 변환 로직 처리
             List<com.afbscenter.dto.MemberResponseDTO> memberDTOs = 
-                    memberService.getAllMembersWithFilters(productCategory, grade, status, branch);
+                    memberService.getAllMembersWithFilters(productCategory, grade, status, branch, endedTicket);
             
             logger.debug("회원 DTO 변환 완료: {}명", memberDTOs != null ? memberDTOs.size() : 0);
             
@@ -181,6 +178,11 @@ public class MemberController {
             memberMap.put("joinDate", member.getJoinDate());
             memberMap.put("lastVisitDate", member.getLastVisitDate());
             memberMap.put("coachMemo", member.getCoachMemo());
+            memberMap.put("coachMemoPitcher", member.getCoachMemoPitcher());
+            memberMap.put("coachMemoBatter", member.getCoachMemoBatter());
+            memberMap.put("coachMemoDefense", member.getCoachMemoDefense());
+            memberMap.put("coachMemoCatcher", member.getCoachMemoCatcher());
+            memberMap.put("coachMemoStats", member.getCoachMemoStats());
             memberMap.put("guardianName", member.getGuardianName());
             memberMap.put("guardianPhone", member.getGuardianPhone());
             memberMap.put("school", member.getSchool());
@@ -189,10 +191,18 @@ public class MemberController {
             memberMap.put("pitchingSpeed", member.getPitchingSpeed());
             memberMap.put("pitcherPower", member.getPitcherPower());
             memberMap.put("pitcherControl", member.getPitcherControl());
+            memberMap.put("pitcherBreakingBall", member.getPitcherBreakingBall());
             memberMap.put("pitcherFlexibility", member.getPitcherFlexibility());
             memberMap.put("runningSpeed", member.getRunningSpeed());
             memberMap.put("batterPower", member.getBatterPower());
             memberMap.put("batterFlexibility", member.getBatterFlexibility());
+            memberMap.put("defenseHandling", member.getDefenseHandling());
+            memberMap.put("defenseStep", member.getDefenseStep());
+            memberMap.put("defenseThrowing", member.getDefenseThrowing());
+            memberMap.put("defenseQuickness", member.getDefenseQuickness());
+            memberMap.put("catcherBlocking", member.getCatcherBlocking());
+            memberMap.put("catcherThrowing", member.getCatcherThrowing());
+            memberMap.put("catcherFraming", member.getCatcherFraming());
             memberMap.put("createdAt", member.getCreatedAt());
             memberMap.put("updatedAt", member.getUpdatedAt());
             
@@ -305,9 +315,11 @@ public class MemberController {
             // 최근 레슨 날짜 계산
             java.time.LocalDate latestLessonDate = null;
             try {
-                List<com.afbscenter.model.Booking> latestLessons = bookingRepository.findLatestLessonByMemberId(id);
+                List<Booking> latestLessons = bookingRepository.findLatestLessonByMemberId(id);
                 if (latestLessons != null && !latestLessons.isEmpty()) {
-                    latestLessonDate = latestLessons.get(0).getStartTime().toLocalDate();
+                    Booking first = latestLessons.get(0);
+                    LocalDateTime start = first.getStartTime();
+                    latestLessonDate = start != null ? start.toLocalDate() : null;
                 }
             } catch (Exception e) {
                 logger.warn("최근 레슨 날짜 계산 실패 (Member ID: {}): {}", id, e.getMessage());
@@ -323,7 +335,7 @@ public class MemberController {
 
     @PostMapping
     @Transactional
-    public ResponseEntity<Map<String, Object>> createMember(@RequestBody Map<String, Object> requestData) {
+    public ResponseEntity<Map<String, Object>> createMember(@RequestBody Map<String, Object> requestData, HttpServletRequest request) {
         Map<String, Object> response = new HashMap<>();
         try {
             logger.info("회원 등록 요청 수신: {}", requestData);
@@ -413,6 +425,14 @@ public class MemberController {
             
             String coachMemo = (String) requestData.get("coachMemo");
             member.setCoachMemo(coachMemo != null && !coachMemo.trim().isEmpty() ? coachMemo : null);
+            String coachMemoPitcher = (String) requestData.get("coachMemoPitcher");
+            member.setCoachMemoPitcher(coachMemoPitcher != null && !coachMemoPitcher.trim().isEmpty() ? coachMemoPitcher : null);
+            String coachMemoBatter = (String) requestData.get("coachMemoBatter");
+            member.setCoachMemoBatter(coachMemoBatter != null && !coachMemoBatter.trim().isEmpty() ? coachMemoBatter : null);
+            String coachMemoDefense = (String) requestData.get("coachMemoDefense");
+            member.setCoachMemoDefense(coachMemoDefense != null && !coachMemoDefense.trim().isEmpty() ? coachMemoDefense : null);
+            String coachMemoCatcher = (String) requestData.get("coachMemoCatcher");
+            member.setCoachMemoCatcher(coachMemoCatcher != null && !coachMemoCatcher.trim().isEmpty() ? coachMemoCatcher : null);
             
             // 투수/타자 기록 (훈련 기록)
             if (requestData.get("pitchingSpeed") != null) {
@@ -423,7 +443,11 @@ public class MemberController {
             }
             if (requestData.get("pitcherControl") != null) {
                 String s = requestData.get("pitcherControl").toString().trim();
-                member.setPitcherControl(s.isEmpty() ? null : s.toUpperCase());
+                member.setPitcherControl(s.isEmpty() ? null : s);
+            }
+            if (requestData.get("pitcherBreakingBall") != null) {
+                String s = requestData.get("pitcherBreakingBall").toString().trim();
+                member.setPitcherBreakingBall(s.isEmpty() ? null : s);
             }
             if (requestData.get("pitcherFlexibility") != null) {
                 String s = requestData.get("pitcherFlexibility").toString().trim();
@@ -443,6 +467,27 @@ public class MemberController {
             }
             if (requestData.get("batterFlexibility") != null) {
                 try { member.setBatterFlexibility(((Number) requestData.get("batterFlexibility")).doubleValue()); } catch (Exception e) { logger.warn("타자 유연성 파싱 실패: {}", requestData.get("batterFlexibility")); }
+            }
+            if (requestData.get("defenseHandling") != null) {
+                try { member.setDefenseHandling(((Number) requestData.get("defenseHandling")).doubleValue()); } catch (Exception e) { logger.warn("수비 핸들링 파싱 실패: {}", requestData.get("defenseHandling")); }
+            }
+            if (requestData.get("defenseStep") != null) {
+                try { member.setDefenseStep(((Number) requestData.get("defenseStep")).doubleValue()); } catch (Exception e) { logger.warn("수비 스탭 파싱 실패: {}", requestData.get("defenseStep")); }
+            }
+            if (requestData.get("defenseThrowing") != null) {
+                try { member.setDefenseThrowing(((Number) requestData.get("defenseThrowing")).doubleValue()); } catch (Exception e) { logger.warn("수비 송구 파싱 실패: {}", requestData.get("defenseThrowing")); }
+            }
+            if (requestData.get("defenseQuickness") != null) {
+                try { member.setDefenseQuickness(((Number) requestData.get("defenseQuickness")).doubleValue()); } catch (Exception e) { logger.warn("수비 순발력 파싱 실패: {}", requestData.get("defenseQuickness")); }
+            }
+            if (requestData.get("catcherBlocking") != null) {
+                try { member.setCatcherBlocking(((Number) requestData.get("catcherBlocking")).doubleValue()); } catch (Exception e) { logger.warn("포수 블로킹 파싱 실패: {}", requestData.get("catcherBlocking")); }
+            }
+            if (requestData.get("catcherThrowing") != null) {
+                try { member.setCatcherThrowing(((Number) requestData.get("catcherThrowing")).doubleValue()); } catch (Exception e) { logger.warn("포수 송구 파싱 실패: {}", requestData.get("catcherThrowing")); }
+            }
+            if (requestData.get("catcherFraming") != null) {
+                try { member.setCatcherFraming(((Number) requestData.get("catcherFraming")).doubleValue()); } catch (Exception e) { logger.warn("포수 프레이밍 파싱 실패: {}", requestData.get("catcherFraming")); }
             }
             
             // 등급
@@ -569,6 +614,8 @@ public class MemberController {
             if (member.getGender() == null) {
                 throw new IllegalArgumentException("성별은 필수입니다.");
             }
+            String username = request != null ? (String) request.getAttribute("username") : null;
+            if (username != null && !username.isEmpty()) member.setProcessedBy(username);
             
             logger.info("MemberService.createMember() 호출 전 - Member 객체: name={}, phoneNumber={}, gender={}, grade={}, status={}, joinDate={}, createdAt={}, memberNumber={}", 
                 member.getName(), member.getPhoneNumber(), member.getGender(), member.getGrade(), 
@@ -606,6 +653,11 @@ public class MemberController {
             memberMap.put("joinDate", createdMember.getJoinDate());
             memberMap.put("lastVisitDate", createdMember.getLastVisitDate());
             memberMap.put("coachMemo", createdMember.getCoachMemo());
+            memberMap.put("coachMemoPitcher", createdMember.getCoachMemoPitcher());
+            memberMap.put("coachMemoBatter", createdMember.getCoachMemoBatter());
+            memberMap.put("coachMemoDefense", createdMember.getCoachMemoDefense());
+            memberMap.put("coachMemoCatcher", createdMember.getCoachMemoCatcher());
+            memberMap.put("coachMemoStats", createdMember.getCoachMemoStats());
             memberMap.put("guardianName", createdMember.getGuardianName());
             memberMap.put("guardianPhone", createdMember.getGuardianPhone());
             memberMap.put("school", createdMember.getSchool());
@@ -614,10 +666,18 @@ public class MemberController {
             memberMap.put("pitchingSpeed", createdMember.getPitchingSpeed());
             memberMap.put("pitcherPower", createdMember.getPitcherPower());
             memberMap.put("pitcherControl", createdMember.getPitcherControl());
+            memberMap.put("pitcherBreakingBall", createdMember.getPitcherBreakingBall());
             memberMap.put("pitcherFlexibility", createdMember.getPitcherFlexibility());
             memberMap.put("runningSpeed", createdMember.getRunningSpeed());
             memberMap.put("batterPower", createdMember.getBatterPower());
             memberMap.put("batterFlexibility", createdMember.getBatterFlexibility());
+            memberMap.put("defenseHandling", createdMember.getDefenseHandling());
+            memberMap.put("defenseStep", createdMember.getDefenseStep());
+            memberMap.put("defenseThrowing", createdMember.getDefenseThrowing());
+            memberMap.put("defenseQuickness", createdMember.getDefenseQuickness());
+            memberMap.put("catcherBlocking", createdMember.getCatcherBlocking());
+            memberMap.put("catcherThrowing", createdMember.getCatcherThrowing());
+            memberMap.put("catcherFraming", createdMember.getCatcherFraming());
             memberMap.put("createdAt", createdMember.getCreatedAt());
             
             return ResponseEntity.status(HttpStatus.CREATED).body(memberMap);
@@ -682,6 +742,11 @@ public class MemberController {
             memberMap.put("joinDate", updatedMember.getJoinDate());
             memberMap.put("lastVisitDate", updatedMember.getLastVisitDate());
             memberMap.put("coachMemo", updatedMember.getCoachMemo());
+            memberMap.put("coachMemoPitcher", updatedMember.getCoachMemoPitcher());
+            memberMap.put("coachMemoBatter", updatedMember.getCoachMemoBatter());
+            memberMap.put("coachMemoDefense", updatedMember.getCoachMemoDefense());
+            memberMap.put("coachMemoCatcher", updatedMember.getCoachMemoCatcher());
+            memberMap.put("coachMemoStats", updatedMember.getCoachMemoStats());
             memberMap.put("guardianName", updatedMember.getGuardianName());
             memberMap.put("guardianPhone", updatedMember.getGuardianPhone());
             memberMap.put("school", updatedMember.getSchool());
@@ -690,10 +755,18 @@ public class MemberController {
             memberMap.put("pitchingSpeed", updatedMember.getPitchingSpeed());
             memberMap.put("pitcherPower", updatedMember.getPitcherPower());
             memberMap.put("pitcherControl", updatedMember.getPitcherControl());
+            memberMap.put("pitcherBreakingBall", updatedMember.getPitcherBreakingBall());
             memberMap.put("pitcherFlexibility", updatedMember.getPitcherFlexibility());
             memberMap.put("runningSpeed", updatedMember.getRunningSpeed());
             memberMap.put("batterPower", updatedMember.getBatterPower());
             memberMap.put("batterFlexibility", updatedMember.getBatterFlexibility());
+            memberMap.put("defenseHandling", updatedMember.getDefenseHandling());
+            memberMap.put("defenseStep", updatedMember.getDefenseStep());
+            memberMap.put("defenseThrowing", updatedMember.getDefenseThrowing());
+            memberMap.put("defenseQuickness", updatedMember.getDefenseQuickness());
+            memberMap.put("catcherBlocking", updatedMember.getCatcherBlocking());
+            memberMap.put("catcherThrowing", updatedMember.getCatcherThrowing());
+            memberMap.put("catcherFraming", updatedMember.getCatcherFraming());
             memberMap.put("createdAt", updatedMember.getCreatedAt());
             memberMap.put("updatedAt", updatedMember.getUpdatedAt());
             
@@ -718,6 +791,61 @@ public class MemberController {
             return ResponseEntity.notFound().build();
         } catch (Exception e) {
             logger.error("회원 수정 중 오류 발생. ID: {}", id, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /** 코치 메모·분야별 메모만 수정 (개인 능력치/코치 메모 탭에서 저장 시) */
+    @PatchMapping("/{id}/memos")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updateMemberMemos(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+        try {
+            Member member = memberRepository.findById(id).orElse(null);
+            if (member == null) return ResponseEntity.notFound().build();
+            if (body.containsKey("coachMemo")) {
+                String v = body.get("coachMemo") != null ? body.get("coachMemo").toString().trim() : "";
+                member.setCoachMemo(v.isEmpty() ? null : v);
+            }
+            if (body.containsKey("coachMemoPitcher")) {
+                String v = body.get("coachMemoPitcher") != null ? body.get("coachMemoPitcher").toString().trim() : "";
+                member.setCoachMemoPitcher(v.isEmpty() ? null : v);
+            }
+            if (body.containsKey("coachMemoBatter")) {
+                String v = body.get("coachMemoBatter") != null ? body.get("coachMemoBatter").toString().trim() : "";
+                member.setCoachMemoBatter(v.isEmpty() ? null : v);
+            }
+            if (body.containsKey("coachMemoDefense")) {
+                String v = body.get("coachMemoDefense") != null ? body.get("coachMemoDefense").toString().trim() : "";
+                member.setCoachMemoDefense(v.isEmpty() ? null : v);
+            }
+            if (body.containsKey("coachMemoCatcher")) {
+                String v = body.get("coachMemoCatcher") != null ? body.get("coachMemoCatcher").toString().trim() : "";
+                member.setCoachMemoCatcher(v.isEmpty() ? null : v);
+            }
+            if (body.containsKey("coachMemoStats")) {
+                Object stats = body.get("coachMemoStats");
+                if (stats == null) {
+                    member.setCoachMemoStats(null);
+                } else {
+                    try {
+                        String json = (stats instanceof String) ? (String) stats : new ObjectMapper().writeValueAsString(stats);
+                        member.setCoachMemoStats(json);
+                    } catch (Exception ex) {
+                        logger.warn("coachMemoStats 직렬화 실패: {}", ex.getMessage());
+                    }
+                }
+            }
+            memberRepository.save(member);
+            Map<String, Object> out = new HashMap<>();
+            out.put("coachMemo", member.getCoachMemo());
+            out.put("coachMemoPitcher", member.getCoachMemoPitcher());
+            out.put("coachMemoBatter", member.getCoachMemoBatter());
+            out.put("coachMemoDefense", member.getCoachMemoDefense());
+            out.put("coachMemoCatcher", member.getCoachMemoCatcher());
+            out.put("coachMemoStats", member.getCoachMemoStats());
+            return ResponseEntity.ok(out);
+        } catch (Exception e) {
+            logger.error("회원 메모 수정 중 오류. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -855,7 +983,8 @@ public class MemberController {
                         Object resultObj = transactionTemplate.execute(status -> {
                             try {
                                 logger.debug("회원 ID={}의 createMissingPaymentsForMemberInternal 호출 시작", member.getId());
-                                Map<String, Object> internalResult = createMissingPaymentsForMemberInternal(member.getId());
+                                String processedBy = (String) request.getAttribute("username");
+                                Map<String, Object> internalResult = createMissingPaymentsForMemberInternal(member.getId(), processedBy);
                                 logger.debug("회원 ID={}의 createMissingPaymentsForMemberInternal 완료: {}", member.getId(), internalResult);
                                 return internalResult;
                             } catch (IllegalArgumentException e) {
@@ -971,7 +1100,7 @@ public class MemberController {
     }
     
     // 내부 메서드: 특정 회원의 누락된 결제 생성 (재사용 가능)
-    private Map<String, Object> createMissingPaymentsForMemberInternal(Long memberId) {
+    private Map<String, Object> createMissingPaymentsForMemberInternal(Long memberId, String processedBy) {
         Map<String, Object> result = new HashMap<>();
         int createdCount = 0;
         int skippedCount = 0;
@@ -1111,6 +1240,7 @@ public class MemberController {
                     }
                     payment.setPaidAt(purchaseDate);
                     payment.setCreatedAt(LocalDateTime.now());
+                    if (processedBy != null && !processedBy.isEmpty()) payment.setProcessedBy(processedBy);
                     
                     // 결제 번호 자동 생성
                     try {

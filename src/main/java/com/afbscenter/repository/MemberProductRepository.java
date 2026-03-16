@@ -65,4 +65,20 @@ public interface MemberProductRepository extends JpaRepository<MemberProduct, Lo
     /** 대관 회차용: 잔여만 조회 (getResultList 사용 → 결과 없으면 빈 리스트, 예외 없음) */
     @Query("SELECT mp.remainingCount FROM MemberProduct mp WHERE mp.id = :id")
     List<Integer> findRemainingCountListById(@Param("id") Long id);
+
+    /** 이용권이 전부 종료(EXPIRED/USED_UP)인 회원 수 (이용권 1개 종료 또는 전부 종료 → 종료 배지 표시) */
+    @Query("SELECT COUNT(DISTINCT m.id) FROM Member m WHERE EXISTS (SELECT 1 FROM MemberProduct mp WHERE mp.member.id = m.id AND (mp.status = 'EXPIRED' OR mp.status = 'USED_UP')) AND NOT EXISTS (SELECT 1 FROM MemberProduct mp2 WHERE mp2.member.id = m.id AND mp2.status = 'ACTIVE')")
+    long countMembersWithOnlyEndedProducts();
+
+    /** 이용권 일부만 종료이고, 종료된 지 3일 이내인 회원 수 (종료 배지 3일 유지 규칙) */
+    @Query("SELECT COUNT(DISTINCT mp.member.id) FROM MemberProduct mp WHERE (mp.status = com.afbscenter.model.MemberProduct.Status.EXPIRED OR mp.status = com.afbscenter.model.MemberProduct.Status.USED_UP) AND mp.endedAt >= :since AND EXISTS (SELECT 1 FROM MemberProduct mp2 WHERE mp2.member.id = mp.member.id AND mp2.status = com.afbscenter.model.MemberProduct.Status.ACTIVE)")
+    long countMembersWithPartialEndedSince(@Param("since") java.time.LocalDateTime since);
+
+    /** 이용권이 전부 종료인 회원 ID 목록 (종료 배지 표시 대상) */
+    @Query("SELECT DISTINCT m.id FROM Member m WHERE EXISTS (SELECT 1 FROM MemberProduct mp WHERE mp.member.id = m.id AND (mp.status = 'EXPIRED' OR mp.status = 'USED_UP')) AND NOT EXISTS (SELECT 1 FROM MemberProduct mp2 WHERE mp2.member.id = m.id AND mp2.status = 'ACTIVE')")
+    List<Long> findMemberIdsWithOnlyEndedProducts();
+
+    /** 이용권 일부만 종료이고 종료된 지 3일 이내인 회원 ID 목록 */
+    @Query("SELECT DISTINCT mp.member.id FROM MemberProduct mp WHERE (mp.status = com.afbscenter.model.MemberProduct.Status.EXPIRED OR mp.status = com.afbscenter.model.MemberProduct.Status.USED_UP) AND mp.endedAt >= :since AND EXISTS (SELECT 1 FROM MemberProduct mp2 WHERE mp2.member.id = mp.member.id AND mp2.status = com.afbscenter.model.MemberProduct.Status.ACTIVE)")
+    List<Long> findMemberIdsWithPartialEndedSince(@Param("since") java.time.LocalDateTime since);
 }

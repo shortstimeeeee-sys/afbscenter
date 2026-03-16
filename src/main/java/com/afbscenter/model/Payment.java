@@ -79,6 +79,10 @@ public class Payment {
     @Column(name = "payment_number", unique = true)
     private String paymentNumber; // 관리용 결제 번호 (예: PAY-2026-0001)
 
+    @Size(max = 50)
+    @Column(name = "processed_by", length = 50)
+    private String processedBy; // 결제(구매) 처리한 사용자 아이디 (히스토리 추적용)
+
     @PrePersist
     protected void onCreate() {
         // 저장 전에 refundAmount가 null이면 0으로 설정

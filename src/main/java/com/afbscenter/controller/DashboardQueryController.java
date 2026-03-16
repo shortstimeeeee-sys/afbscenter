@@ -68,7 +68,7 @@ public class DashboardQueryController {
                 return ResponseEntity.ok(expiringMembersCache);
             }
             LocalDate today = LocalDate.now();
-            LocalDate expiryThreshold = today.plusDays(7);
+            LocalDate expiryThreshold = today.plusDays(3);
             List<com.afbscenter.model.Member> allMembers = memberRepository.findAll();
             List<Map<String, Object>> expiringMembersList = new ArrayList<>();
             List<Map<String, Object>> expiredMembersList = new ArrayList<>();
@@ -108,7 +108,7 @@ public class DashboardQueryController {
                                     remainingCount = totalCount - actualUsedCount.intValue();
                                     if (remainingCount < 0) remainingCount = 0;
                                 }
-                                if (remainingCount != null && remainingCount <= 3 && remainingCount > 0) {
+                                if (remainingCount != null && remainingCount <= 2 && remainingCount > 0) {
                                     productExpiring = true;
                                     expiryReason = "남은 횟수: " + remainingCount + "회";
                                     productInfo.put("remainingCount", remainingCount);

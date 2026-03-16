@@ -235,11 +235,29 @@
                                     <div class="form-group">
                                         <label class="form-label">제구력</label>
                                         <div class="form-control-radio-group" id="member-pitcher-control-group" role="group" aria-label="제구력">
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-control" value="0"> 0</label>
                                             <label class="radio-option"><input type="radio" name="member-pitcher-control" value="1"> 1</label>
                                             <label class="radio-option"><input type="radio" name="member-pitcher-control" value="2"> 2</label>
                                             <label class="radio-option"><input type="radio" name="member-pitcher-control" value="3"> 3</label>
                                             <label class="radio-option"><input type="radio" name="member-pitcher-control" value="4"> 4</label>
                                             <label class="radio-option"><input type="radio" name="member-pitcher-control" value="5"> 5</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-control" value="6"> 6</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-control" value="7"> 7</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">변화구</label>
+                                        <div class="form-control-radio-group" id="member-pitcher-breaking-ball-group" role="group" aria-label="변화구">
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-breaking-ball" value="0"> 0</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-breaking-ball" value="1"> 1</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-breaking-ball" value="2"> 2</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-breaking-ball" value="3"> 3</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-breaking-ball" value="4"> 4</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-breaking-ball" value="5"> 5</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-breaking-ball" value="6"> 6</label>
+                                            <label class="radio-option"><input type="radio" name="member-pitcher-breaking-ball" value="7"> 7</label>
                                         </div>
                                     </div>
                                 </div>
@@ -248,15 +266,118 @@
                                 <div class="member-ability-form-section-title">타자 기록</div>
                                 <div class="form-row">
                                     <div class="form-group">
-                                        <label class="form-label">스윙 속도 (mph)</label>
+                                        <label class="form-label">스윙 스피드 (mph)</label>
                                         <input type="number" class="form-control" id="member-swing-speed" placeholder="예: 68.5" min="0" step="0.1">
                                     </div>
                                     <div class="form-group">
-                                        <label class="form-label">타구 속도 (mph)</label>
+                                        <label class="form-label">Tee 타구 스피드 (mph)</label>
                                         <input type="number" class="form-control" id="member-exit-velocity" placeholder="예: 81.0" min="0" step="0.1">
                                     </div>
                                 </div>
+                                <p class="form-hint" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">주력·유연성·파워는 아래 공통에서 입력합니다.</p>
                             </div>
+                        </div>
+                        <div class="member-ability-defense-row">
+                            <div class="member-ability-form-section-title">수비 기록</div>
+                            <div class="member-ability-common-fields">
+                                <div class="form-group common-radio-block">
+                                    <label class="form-label">핸들링</label>
+                                    <div class="form-control-radio-group" role="group" aria-label="핸들링">
+                                        <label class="radio-option"><input type="radio" name="member-defense-handling" value="0"> 0</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-handling" value="1"> 1</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-handling" value="2"> 2</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-handling" value="3"> 3</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-handling" value="4"> 4</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-handling" value="5"> 5</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-handling" value="6"> 6</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-handling" value="7"> 7</label>
+                                    </div>
+                                </div>
+                                <div class="form-group common-radio-block">
+                                    <label class="form-label">스탭</label>
+                                    <div class="form-control-radio-group" role="group" aria-label="스탭">
+                                        <label class="radio-option"><input type="radio" name="member-defense-step" value="0"> 0</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-step" value="1"> 1</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-step" value="2"> 2</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-step" value="3"> 3</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-step" value="4"> 4</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-step" value="5"> 5</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-step" value="6"> 6</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-step" value="7"> 7</label>
+                                    </div>
+                                </div>
+                                <div class="form-group common-radio-block">
+                                    <label class="form-label">송구(수비)</label>
+                                    <div class="form-control-radio-group" role="group" aria-label="송구(수비)">
+                                        <label class="radio-option"><input type="radio" name="member-defense-throwing" value="0"> 0</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-throwing" value="1"> 1</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-throwing" value="2"> 2</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-throwing" value="3"> 3</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-throwing" value="4"> 4</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-throwing" value="5"> 5</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-throwing" value="6"> 6</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-throwing" value="7"> 7</label>
+                                    </div>
+                                </div>
+                                <div class="form-group common-radio-block">
+                                    <label class="form-label">순발력</label>
+                                    <div class="form-control-radio-group" role="group" aria-label="순발력(수비)">
+                                        <label class="radio-option"><input type="radio" name="member-defense-quickness" value="0"> 0</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-quickness" value="1"> 1</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-quickness" value="2"> 2</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-quickness" value="3"> 3</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-quickness" value="4"> 4</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-quickness" value="5"> 5</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-quickness" value="6"> 6</label>
+                                        <label class="radio-option"><input type="radio" name="member-defense-quickness" value="7"> 7</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="member-ability-catcher-row">
+                            <div class="member-ability-form-section-title">포수 기록</div>
+                            <div class="member-ability-common-fields">
+                                <div class="form-group common-radio-block">
+                                    <label class="form-label">블로킹</label>
+                                    <div class="form-control-radio-group" role="group" aria-label="블로킹">
+                                        <label class="radio-option"><input type="radio" name="member-catcher-blocking" value="0"> 0</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-blocking" value="1"> 1</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-blocking" value="2"> 2</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-blocking" value="3"> 3</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-blocking" value="4"> 4</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-blocking" value="5"> 5</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-blocking" value="6"> 6</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-blocking" value="7"> 7</label>
+                                    </div>
+                                </div>
+                                <div class="form-group common-radio-block">
+                                    <label class="form-label">송구(포수)</label>
+                                    <div class="form-control-radio-group" role="group" aria-label="송구(포수)">
+                                        <label class="radio-option"><input type="radio" name="member-catcher-throwing" value="0"> 0</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-throwing" value="1"> 1</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-throwing" value="2"> 2</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-throwing" value="3"> 3</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-throwing" value="4"> 4</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-throwing" value="5"> 5</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-throwing" value="6"> 6</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-throwing" value="7"> 7</label>
+                                    </div>
+                                </div>
+                                <div class="form-group common-radio-block">
+                                    <label class="form-label">프레이밍</label>
+                                    <div class="form-control-radio-group" role="group" aria-label="프레이밍">
+                                        <label class="radio-option"><input type="radio" name="member-catcher-framing" value="0"> 0</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-framing" value="1"> 1</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-framing" value="2"> 2</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-framing" value="3"> 3</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-framing" value="4"> 4</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-framing" value="5"> 5</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-framing" value="6"> 6</label>
+                                        <label class="radio-option"><input type="radio" name="member-catcher-framing" value="7"> 7</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <p class="form-hint" style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">파워·유연성은 공통에서 입력합니다.</p>
                         </div>
                         <div class="member-ability-common-row">
                             <div class="member-ability-form-section-title">공통</div>
@@ -264,31 +385,40 @@
                                 <div class="form-group common-radio-block">
                                     <label class="form-label">파워</label>
                                     <div class="form-control-radio-group" role="group" aria-label="파워">
+                                        <label class="radio-option"><input type="radio" name="member-batter-power" value="0"> 0</label>
                                         <label class="radio-option"><input type="radio" name="member-batter-power" value="1"> 1</label>
                                         <label class="radio-option"><input type="radio" name="member-batter-power" value="2"> 2</label>
                                         <label class="radio-option"><input type="radio" name="member-batter-power" value="3"> 3</label>
                                         <label class="radio-option"><input type="radio" name="member-batter-power" value="4"> 4</label>
                                         <label class="radio-option"><input type="radio" name="member-batter-power" value="5"> 5</label>
+                                        <label class="radio-option"><input type="radio" name="member-batter-power" value="6"> 6</label>
+                                        <label class="radio-option"><input type="radio" name="member-batter-power" value="7"> 7</label>
                                     </div>
                                 </div>
                                 <div class="form-group common-radio-block">
                                     <label class="form-label">주력</label>
                                     <div class="form-control-radio-group" role="group" aria-label="주력">
+                                        <label class="radio-option"><input type="radio" name="member-running-speed" value="0"> 0</label>
                                         <label class="radio-option"><input type="radio" name="member-running-speed" value="1"> 1</label>
                                         <label class="radio-option"><input type="radio" name="member-running-speed" value="2"> 2</label>
                                         <label class="radio-option"><input type="radio" name="member-running-speed" value="3"> 3</label>
                                         <label class="radio-option"><input type="radio" name="member-running-speed" value="4"> 4</label>
                                         <label class="radio-option"><input type="radio" name="member-running-speed" value="5"> 5</label>
+                                        <label class="radio-option"><input type="radio" name="member-running-speed" value="6"> 6</label>
+                                        <label class="radio-option"><input type="radio" name="member-running-speed" value="7"> 7</label>
                                     </div>
                                 </div>
                                 <div class="form-group common-radio-block">
                                     <label class="form-label">유연성</label>
                                     <div class="form-control-radio-group" role="group" aria-label="유연성">
+                                        <label class="radio-option"><input type="radio" name="member-flexibility" value="0"> 0</label>
                                         <label class="radio-option"><input type="radio" name="member-flexibility" value="1"> 1</label>
                                         <label class="radio-option"><input type="radio" name="member-flexibility" value="2"> 2</label>
                                         <label class="radio-option"><input type="radio" name="member-flexibility" value="3"> 3</label>
                                         <label class="radio-option"><input type="radio" name="member-flexibility" value="4"> 4</label>
                                         <label class="radio-option"><input type="radio" name="member-flexibility" value="5"> 5</label>
+                                        <label class="radio-option"><input type="radio" name="member-flexibility" value="6"> 6</label>
+                                        <label class="radio-option"><input type="radio" name="member-flexibility" value="7"> 7</label>
                                     </div>
                                 </div>
                             </div>
@@ -397,6 +527,10 @@
                         <div class="form-control" style="background: var(--bg-tertiary); font-weight: 600; color: var(--accent-primary);" id="adjust-current-count">-</div>
                     </div>
                     <div class="form-group">
+                        <label class="form-label">현재 총 횟수</label>
+                        <div class="form-control" style="background: var(--bg-tertiary);" id="adjust-current-total">-</div>
+                    </div>
+                    <div class="form-group">
                         <label class="form-label">조정 방식</label>
                         <div style="display: flex; gap: 16px; margin-bottom: 12px;">
                             <label style="display: flex; align-items: center; cursor: pointer;">
@@ -414,6 +548,13 @@
                         <label class="form-label" id="adjust-amount-label">조정할 횟수</label>
                         <input type="number" class="form-control" id="adjust-amount" placeholder="양수: 추가, 음수: 차감 (예: +5, -3)" required>
                         <small style="color: var(--text-muted); font-size: 12px;" id="adjust-amount-hint">양수 입력 시 횟수 추가, 음수 입력 시 횟수 차감</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">총 횟수 설정 (선택)</label>
+                        <input type="number" class="form-control" id="adjust-total" placeholder="비워두면 기존 총 횟수 유지">
+                        <small style="color: var(--text-muted); font-size: 11px;">
+                            예: 현재 10/20인 이용권을 10/10으로 바꾸려면 잔여 10 설정 후 총 횟수에 10을 입력하세요.
+                        </small>
                     </div>
                 </form>
             </div>
@@ -474,6 +615,10 @@
                     <div class="form-group">
                         <label class="form-label">구매 금액</label>
                         <div class="form-control" style="background: var(--bg-tertiary);" id="extend-purchase-price">-</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">담당 코치/강사</label>
+                        <div class="form-control" style="background: var(--bg-tertiary);" id="extend-coach">-</div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">연장 횟수 *</label>

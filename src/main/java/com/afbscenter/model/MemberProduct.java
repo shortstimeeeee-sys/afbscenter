@@ -29,6 +29,10 @@ public class MemberProduct {
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"memberProducts"})
     private Product product;
 
+    /** 사람이 보기에 쉬운 이용권 번호 (예: MP-회원ID-상품ID-YYMMDDHHMMSS) */
+    @Column(name = "voucher_number", length = 50)
+    private String voucherNumber;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "coach_id")
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
@@ -52,6 +56,10 @@ public class MemberProduct {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Status status = Status.ACTIVE;
+
+    /** 이용권이 종료(EXPIRED/USED_UP)된 시각. 종료 배지 3일 유지 규칙용 */
+    @Column(name = "ended_at")
+    private LocalDateTime endedAt;
 
     public enum Status {
         ACTIVE,     // 사용 가능

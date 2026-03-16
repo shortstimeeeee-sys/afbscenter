@@ -50,19 +50,34 @@ public class BookingStatsController {
             LocalDateTime startDate;
             LocalDateTime endDate;
             if (start != null && !start.trim().isEmpty() && end != null && !end.trim().isEmpty()) {
+                String startTrim = start.trim();
+                String endTrim = end.trim();
                 try {
-                    startDate = OffsetDateTime.parse(start).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
-                    endDate = OffsetDateTime.parse(end).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+                    LocalDate startLocal = null;
+                    LocalDate endLocal = null;
+                    if (startTrim.length() >= 10 && endTrim.length() >= 10) {
+                        try {
+                            startLocal = LocalDate.parse(startTrim.substring(0, 10));
+                            endLocal = LocalDate.parse(endTrim.substring(0, 10));
+                        } catch (Exception ignored) { }
+                    }
+                    if (startLocal != null && endLocal != null) {
+                        startDate = startLocal.atStartOfDay();
+                        endDate = endLocal.atTime(23, 59, 59, 999_999_999);
+                    } else {
+                        startDate = OffsetDateTime.parse(start).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+                        endDate = OffsetDateTime.parse(end).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+                    }
                 } catch (Exception e) {
                     logger.warn("날짜 파싱 실패, 당월 사용: start={}, end={}", start, end);
                     LocalDate now = LocalDate.now();
                     startDate = now.withDayOfMonth(1).atStartOfDay();
-                    endDate = now.plusMonths(1).withDayOfMonth(1).atTime(23, 59, 59).minusNanos(1);
+                    endDate = now.withDayOfMonth(now.lengthOfMonth()).atTime(23, 59, 59, 999_999_999);
                 }
             } else {
                 LocalDate now = LocalDate.now();
                 startDate = now.withDayOfMonth(1).atStartOfDay();
-                endDate = now.plusMonths(1).withDayOfMonth(1).atTime(23, 59, 59).minusNanos(1);
+                endDate = now.withDayOfMonth(now.lengthOfMonth()).atTime(23, 59, 59, 999_999_999);
             }
 
             List<Booking> bookings = bookingRepository.findByDateRange(startDate, endDate);
@@ -431,18 +446,33 @@ public class BookingStatsController {
             LocalDateTime startDate;
             LocalDateTime endDate;
             if (start != null && !start.trim().isEmpty() && end != null && !end.trim().isEmpty()) {
+                String startTrim = start.trim();
+                String endTrim = end.trim();
                 try {
-                    startDate = OffsetDateTime.parse(start).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
-                    endDate = OffsetDateTime.parse(end).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+                    LocalDate startLocal = null;
+                    LocalDate endLocal = null;
+                    if (startTrim.length() >= 10 && endTrim.length() >= 10) {
+                        try {
+                            startLocal = LocalDate.parse(startTrim.substring(0, 10));
+                            endLocal = LocalDate.parse(endTrim.substring(0, 10));
+                        } catch (Exception ignored) { }
+                    }
+                    if (startLocal != null && endLocal != null) {
+                        startDate = startLocal.atStartOfDay();
+                        endDate = endLocal.atTime(23, 59, 59, 999_999_999);
+                    } else {
+                        startDate = OffsetDateTime.parse(start).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+                        endDate = OffsetDateTime.parse(end).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+                    }
                 } catch (Exception e) {
                     LocalDate now = LocalDate.now();
                     startDate = now.withDayOfMonth(1).atStartOfDay();
-                    endDate = now.plusMonths(1).withDayOfMonth(1).atTime(23, 59, 59).minusNanos(1);
+                    endDate = now.withDayOfMonth(now.lengthOfMonth()).atTime(23, 59, 59, 999_999_999);
                 }
             } else {
                 LocalDate now = LocalDate.now();
                 startDate = now.withDayOfMonth(1).atStartOfDay();
-                endDate = now.plusMonths(1).withDayOfMonth(1).atTime(23, 59, 59).minusNanos(1);
+                endDate = now.withDayOfMonth(now.lengthOfMonth()).atTime(23, 59, 59, 999_999_999);
             }
 
             List<Booking> bookings = bookingRepository.findByDateRange(startDate, endDate);

@@ -1,7 +1,9 @@
 package com.afbscenter.repository;
 
 import com.afbscenter.model.Booking;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -12,25 +14,39 @@ import java.util.Optional;
 
 @Repository
 public interface BookingRepository extends JpaRepository<Booking, Long> {
-    @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.member.coach LEFT JOIN FETCH b.coach LEFT JOIN FETCH b.memberProduct mp LEFT JOIN FETCH mp.product WHERE b.member.id = :memberId ORDER BY b.id DESC")
+    @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.coach LEFT JOIN FETCH b.memberProduct WHERE b.member.id = :memberId ORDER BY b.id DESC")
     List<Booking> findByMemberId(@Param("memberId") Long memberId);
     List<Booking> findByFacilityId(Long facilityId);
     List<Booking> findByStatus(Booking.BookingStatus status);
-    
-    @Query("SELECT DISTINCT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.member.coach LEFT JOIN FETCH b.coach LEFT JOIN FETCH b.memberProduct mp LEFT JOIN FETCH mp.product LEFT JOIN FETCH mp.member WHERE b.startTime >= :start AND b.startTime <= :end ORDER BY b.startTime ASC")
+
+    /** 체크인 미처리 예약용: CONFIRMED+COMPLETED를 facility/member/coach와 함께 한 번에 조회 (N+1 방지) */
+    @Query("SELECT DISTINCT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.member.coach LEFT JOIN FETCH b.coach WHERE b.status IN :statuses ORDER BY b.startTime DESC")
+    List<Booking> findByStatusInWithFacilityAndMember(@Param("statuses") List<Booking.BookingStatus> statuses);
+
+    /** JOIN FETCH 4개로 제한: 7개일 때 Hibernate가 루트를 ID별 개별 조회(bookings where id=?)하는 문제 방지. member.coach, mp.product, mp.member는 default_batch_fetch_size로 lazy 시 배치 로드 */
+    @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.coach LEFT JOIN FETCH b.memberProduct WHERE b.startTime >= :start AND b.startTime <= :end ORDER BY b.startTime ASC")
     List<Booking> findByDateRange(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 
     long countByStartTimeBetween(LocalDateTime start, LocalDateTime end);
     
-    // DISTINCT 제거: JOIN FETCH와 함께 사용 시 예상치 못한 결과 발생 가능. 대관 회차 표시를 위해 memberProduct/product/member 포함
-    @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.member.coach LEFT JOIN FETCH b.coach LEFT JOIN FETCH b.memberProduct mp LEFT JOIN FETCH mp.product LEFT JOIN FETCH mp.member ORDER BY b.startTime DESC")
+    /** JOIN FETCH 4개로 제한 (findByDateRange와 동일, N+1 방지) */
+    @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.coach LEFT JOIN FETCH b.memberProduct ORDER BY b.startTime DESC")
     List<Booking> findAllWithFacilityAndMember();
     
     @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.coach WHERE b.id = :id")
     Booking findByIdWithFacilityAndMember(@Param("id") Long id);
+
+    /** 체크인 전용: facility·member만 FETCH (memberProduct 없음 → null 예약에서도 예외 없음) */
+    @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member WHERE b.id = :id")
+    Optional<Booking> findByIdWithFacilityAndMemberOnly(@Param("id") Long id);
     
     @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.member LEFT JOIN FETCH b.coach LEFT JOIN FETCH b.memberProduct LEFT JOIN FETCH b.memberProduct.product WHERE b.id = :id")
     Booking findByIdWithAllRelations(@Param("id") Long id);
+
+    /** 체크인 시 동일 예약에 대한 동시 요청으로 인한 중복 차감 방지용 배타 락 */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT b FROM Booking b WHERE b.id = :id")
+    Optional<Booking> findByIdForUpdate(@Param("id") Long id);
     
     @Query("SELECT b FROM Booking b WHERE DATE(b.startTime) = DATE(:date)")
     List<Booking> findByDate(@Param("date") LocalDateTime date);

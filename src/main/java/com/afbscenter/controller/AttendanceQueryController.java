@@ -259,14 +259,17 @@ public class AttendanceQueryController {
         try {
             java.time.LocalDate today = java.time.LocalDate.now();
 
-            List<Booking> confirmedBookings = bookingRepository.findByStatus(Booking.BookingStatus.CONFIRMED);
-            List<Booking> completedBookings = bookingRepository.findByStatus(Booking.BookingStatus.COMPLETED);
+            List<Booking> allBookings = bookingRepository.findByStatusInWithFacilityAndMember(
+                    java.util.List.of(Booking.BookingStatus.CONFIRMED, Booking.BookingStatus.COMPLETED));
 
-            List<Booking> allBookings = new ArrayList<>();
-            allBookings.addAll(confirmedBookings);
-            allBookings.addAll(completedBookings);
+            // JOIN FETCH로 인한 중복 제거 (기능 동일성 보장)
+            java.util.Set<Long> seenIds = new java.util.HashSet<>();
+            allBookings = allBookings.stream()
+                    .filter(booking -> booking.getId() != null && seenIds.add(booking.getId()))
+                    .collect(Collectors.toList());
 
             final java.time.LocalDate finalToday = today;
+            int totalBeforeDateFilter = allBookings.size();
             allBookings = allBookings.stream()
                     .filter(booking -> {
                         if (booking.getStartTime() == null) return false;
@@ -275,13 +278,18 @@ public class AttendanceQueryController {
                     })
                     .collect(Collectors.toList());
 
-            logger.debug("체크인 미처리 예약 조회: 전체 {}건 중 오늘·과거 {}건",
-                    confirmedBookings.size() + completedBookings.size(), allBookings.size());
+            logger.debug("체크인 미처리 예약 조회: 전체 {}건 중 오늘·과거 {}건", totalBeforeDateFilter, allBookings.size());
 
             List<Long> bookingIdsWithAttendance = attendanceRepository.findDistinctBookingIds();
             final Set<Long> finalBookingsWithAttendance = new HashSet<>(bookingIdsWithAttendance != null ? bookingIdsWithAttendance : List.of());
             List<Booking> uncheckedBookings = allBookings.stream()
-                    .filter(booking -> booking.getMember() != null) // 비회원 예약 제외 (체크인 버튼 미사용)
+                    // 회원 예약만 체크인 목록에 포함. 비회원·체험은 체크인 불필요(자동 체크인)
+                    .filter(booking -> booking.getMember() != null)
+                    .filter(booking -> {
+                        String name = booking.getMember().getName();
+                        if (name != null && name.contains("체험")) return false;
+                        return true;
+                    })
                     .filter(booking -> !finalBookingsWithAttendance.contains(booking.getId()))
                     .sorted((a, b) -> {
                         if (a.getStartTime() == null && b.getStartTime() == null) return 0;

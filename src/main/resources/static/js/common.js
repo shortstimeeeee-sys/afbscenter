@@ -65,50 +65,48 @@ App.isAuthenticated = function() {
     return !!this.getAuthToken();
 };
 
+// 로그인 페이지 여부 (경로에 'login' 포함 시 true, 콘솔 로그/경고 억제용)
+function isLoginPagePath() {
+    return ((window.location.pathname || '').toLowerCase().indexOf('login') !== -1);
+}
+
 // 페이지 로드 시 인증 정보 복원
+// ※ 갑자기 로그인 문제: JWT 만료(401), localStorage 삭제(시크릿/다른 기기), 다른 브라우저 접속 등
 App.restoreAuth = function() {
-    const token = this.getAuthToken();
-    App.log('인증 정보 복원 시도, 토큰 존재:', !!token);
-    
+    var onLoginPage = isLoginPagePath();
+    var token = this.getAuthToken();
+
     if (token) {
-        const userStr = localStorage.getItem('currentUser');
-        App.log('사용자 정보 존재:', !!userStr);
-        
+        var userStr = localStorage.getItem('currentUser');
+        if (!onLoginPage) App.log('인증 정보 복원 시도, 토큰 존재:', true);
         if (userStr) {
             try {
                 this.currentUser = JSON.parse(userStr);
                 this.currentRole = this.currentUser.role;
-                App.log('인증 정보 복원 성공:', {
-                    username: this.currentUser.username,
-                    role: this.currentRole
-                });
-                // 사용자명 표시 업데이트
+                if (!onLoginPage) App.log('인증 정보 복원 성공:', this.currentUser.username);
                 this.updateUserDisplay();
             } catch (e) {
                 App.err('사용자 정보 복원 실패:', e);
                 this.clearAuth();
             }
         } else {
-            // 토큰은 있지만 사용자 정보가 없으면 세션 불일치 → 재로그인 유도
-            App.warn('토큰은 있으나 사용자 정보가 localStorage에 없습니다. 재로그인이 필요합니다.');
+            App.warn('토큰은 있으나 사용자 정보가 없습니다. 다시 로그인해 주세요.');
             this.clearAuth();
         }
     } else {
-        App.warn('인증 토큰이 localStorage에 없습니다');
+        if (!onLoginPage) App.warn('인증 토큰이 localStorage에 없습니다.');
     }
 };
 
 // 인증 헤더 가져오기
 App.getAuthHeaders = function() {
-    const headers = {
-        'ngrok-skip-browser-warning': 'true'
-    };
-    const token = this.getAuthToken();
+    var headers = { 'ngrok-skip-browser-warning': 'true' };
+    var token = this.getAuthToken();
     if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-        App.log('인증 헤더 추가됨, 토큰 길이:', token.length);
-    } else {
-        App.warn('인증 토큰이 없습니다!');
+        headers['Authorization'] = 'Bearer ' + token;
+        if (App.debug) App.log('인증 헤더 추가됨');
+    } else if (!isLoginPagePath()) {
+        App.warn('인증 토큰이 없습니다.');
     }
     return headers;
 };
@@ -419,6 +417,38 @@ App.api = {
             return responseData;
         } catch (error) {
             App.err('API PUT Error:', error);
+            throw error;
+        }
+    },
+
+    patch: async function(url, data) {
+        try {
+            const headers = App.getAuthHeaders();
+            headers['Content-Type'] = 'application/json';
+            const response = await fetch(`${App.apiBase}${url}`, {
+                method: 'PATCH',
+                headers: headers,
+                body: JSON.stringify(data)
+            });
+            if (response.status === 401) {
+                App.handle401();
+                throw new Error('인증이 만료되었습니다.');
+            }
+            let responseData = null;
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                try { responseData = await response.json(); } catch (e) { responseData = { error: '응답 파싱 실패' }; }
+            } else {
+                responseData = { error: (await response.text()) || `HTTP ${response.status}` };
+            }
+            if (!response.ok) {
+                const error = new Error(`HTTP ${response.status}`);
+                error.response = { status: response.status, data: responseData };
+                throw error;
+            }
+            return responseData;
+        } catch (error) {
+            App.err('API PATCH Error:', error);
             throw error;
         }
     },
@@ -1397,6 +1427,329 @@ App.addDarkModeToggle = function() {
     }
     
     App.log('테마 토글 버튼 추가 완료');
+    App.addAdminMemoButton();
+    App.addOrgChartButton();
+};
+
+/** 관리자 전용 메모 버튼 (대시보드 제목 표시줄, 테마 왼쪽) - 관리자만 표시 */
+App.addAdminMemoButton = function() {
+    const path = (window.location.pathname || '').replace(/\/$/, '') || '/';
+    if (path !== '/' && path !== '/index.html') return;
+    if (!App.currentUser || !App.currentUser.role || App.currentUser.role.toUpperCase() !== 'ADMIN') return;
+    if (document.getElementById('admin-memo-btn')) return;
+    const topbarRight = document.querySelector('.topbar-right');
+    const themeContainer = document.querySelector('.theme-toggle-container');
+    if (!topbarRight) return;
+    const memoContainer = document.createElement('div');
+    memoContainer.className = 'admin-memo-container';
+    const memoBtn = document.createElement('button');
+    memoBtn.type = 'button';
+    memoBtn.className = 'admin-memo-btn';
+    memoBtn.id = 'admin-memo-btn';
+    memoBtn.title = '관리자 메모';
+    memoBtn.innerHTML = '&#128221;';
+    memoBtn.setAttribute('aria-label', '관리자 메모');
+    const memoLabel = document.createElement('span');
+    memoLabel.className = 'admin-memo-label';
+    memoLabel.textContent = '메모';
+    memoContainer.appendChild(memoBtn);
+    memoContainer.appendChild(memoLabel);
+    if (themeContainer && themeContainer.parentNode === topbarRight) {
+        topbarRight.insertBefore(memoContainer, themeContainer);
+    } else {
+        topbarRight.prepend(memoContainer);
+    }
+    memoBtn.addEventListener('click', function() { App.openAdminMemoModal(); });
+};
+
+/** 관리자 전용 조직도 버튼 (메모 옆) - 관리자만 표시 */
+App.addOrgChartButton = function() {
+    const path = (window.location.pathname || '').replace(/\/$/, '') || '/';
+    if (path !== '/' && path !== '/index.html') return;
+    if (!App.currentUser || !App.currentUser.role || App.currentUser.role.toUpperCase() !== 'ADMIN') return;
+    if (document.getElementById('org-chart-btn')) return;
+    const topbarRight = document.querySelector('.topbar-right');
+    const memoContainer = document.querySelector('.admin-memo-container');
+    if (!topbarRight) return;
+    const orgContainer = document.createElement('div');
+    orgContainer.className = 'admin-memo-container org-chart-container';
+    const orgBtn = document.createElement('button');
+    orgBtn.type = 'button';
+    orgBtn.className = 'admin-memo-btn org-chart-btn';
+    orgBtn.id = 'org-chart-btn';
+    orgBtn.title = '조직도';
+    orgBtn.innerHTML = '&#127970;';
+    orgBtn.setAttribute('aria-label', '조직도');
+    const orgLabel = document.createElement('span');
+    orgLabel.className = 'admin-memo-label org-chart-label';
+    orgLabel.textContent = '조직도';
+    orgContainer.appendChild(orgBtn);
+    orgContainer.appendChild(orgLabel);
+    if (memoContainer) {
+        topbarRight.insertBefore(orgContainer, memoContainer);
+    } else {
+        const themeContainer = document.querySelector('.theme-toggle-container');
+        if (themeContainer) topbarRight.insertBefore(orgContainer, themeContainer);
+        else topbarRight.prepend(orgContainer);
+    }
+    orgBtn.addEventListener('click', function() { App.openOrgChartModal(); });
+};
+
+var _adminMemoSaveTimeout = null;
+var ADMIN_MEMO_STORAGE_KEY = 'afbs_dashboard_admin_memo';
+
+App.openAdminMemoModal = function() {
+    let modal = document.getElementById('admin-memo-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'admin-memo-modal';
+        modal.className = 'admin-memo-modal-overlay';
+        modal.innerHTML = '<div class="admin-memo-modal">' +
+            '<div class="admin-memo-modal-header">' +
+            '<h3 class="admin-memo-modal-title">관리자 메모</h3>' +
+            '<span class="admin-memo-saved" id="admin-memo-saved"></span>' +
+            '<button type="button" class="admin-memo-modal-close" aria-label="닫기">&times;</button>' +
+            '</div>' +
+            '<textarea class="admin-memo-textarea" id="admin-memo-textarea" placeholder="메모를 입력하세요. 자동으로 저장됩니다."></textarea>' +
+            '</div>';
+        document.body.appendChild(modal);
+        var textarea = document.getElementById('admin-memo-textarea');
+        var savedEl = document.getElementById('admin-memo-saved');
+        try {
+            textarea.value = localStorage.getItem(ADMIN_MEMO_STORAGE_KEY) || '';
+        } catch (e) { textarea.value = ''; }
+        function saveMemo() {
+            try {
+                localStorage.setItem(ADMIN_MEMO_STORAGE_KEY, textarea.value);
+                if (savedEl) {
+                    savedEl.textContent = '저장됨';
+                    savedEl.classList.add('visible');
+                    setTimeout(function() { savedEl.classList.remove('visible'); savedEl.textContent = ''; }, 1500);
+                }
+            } catch (e) {}
+        }
+        textarea.addEventListener('input', function() {
+            clearTimeout(_adminMemoSaveTimeout);
+            _adminMemoSaveTimeout = setTimeout(saveMemo, 500);
+        });
+        textarea.addEventListener('blur', saveMemo);
+        modal.querySelector('.admin-memo-modal-close').addEventListener('click', App.closeAdminMemoModal);
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) App.closeAdminMemoModal();
+        });
+    }
+    var textarea = document.getElementById('admin-memo-textarea');
+    if (textarea) {
+        try { textarea.value = localStorage.getItem(ADMIN_MEMO_STORAGE_KEY) || ''; } catch (e) { textarea.value = ''; }
+    }
+    modal.classList.add('open');
+    if (textarea) { textarea.focus(); }
+    var onEscape = function(e) {
+        if (e.key === 'Escape') {
+            App.closeAdminMemoModal();
+            document.removeEventListener('keydown', onEscape);
+        }
+    };
+    document.addEventListener('keydown', onEscape);
+    modal._adminMemoEscape = onEscape;
+};
+
+App.closeAdminMemoModal = function() {
+    var modal = document.getElementById('admin-memo-modal');
+    if (modal) {
+        clearTimeout(_adminMemoSaveTimeout);
+        _adminMemoSaveTimeout = null;
+        var textarea = document.getElementById('admin-memo-textarea');
+        if (textarea) try { localStorage.setItem(ADMIN_MEMO_STORAGE_KEY, textarea.value); } catch (e) {}
+        if (modal._adminMemoEscape) document.removeEventListener('keydown', modal._adminMemoEscape);
+        modal.classList.remove('open');
+    }
+};
+
+/** 조직도: 코치 이름별 고정 직책 (관리자용) */
+var ORG_CHART_ROLES = {
+    '서정민': '대표',
+    '서정훈': '이사',
+    '조장우': '메인코치',
+    '이원준': '메인코치',
+    '박준현': '메인 트레이너',
+    '김가영': '메인 필라테스'
+};
+var ORG_CHART_ORDER = ['서정민', '서정훈', '조장우', '이원준', '박준현', '김가영'];
+
+App.openOrgChartModal = function() {
+    var modal = document.getElementById('org-chart-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'org-chart-modal';
+        modal.className = 'admin-memo-modal-overlay org-chart-modal-overlay';
+        modal.innerHTML = '<div class="admin-memo-modal org-chart-modal">' +
+            '<div class="admin-memo-modal-header">' +
+            '<h3 class="admin-memo-modal-title">AF Baseball Center Organization Chart</h3>' +
+            '<button type="button" class="admin-memo-modal-close" aria-label="닫기">&times;</button>' +
+            '</div>' +
+            '<div class="org-chart-body" id="org-chart-body">로딩 중...</div>' +
+            '</div>';
+        document.body.appendChild(modal);
+        modal.querySelector('.admin-memo-modal-close').addEventListener('click', App.closeOrgChartModal);
+        modal.addEventListener('click', function(e) { if (e.target === modal) App.closeOrgChartModal(); });
+    }
+    modal.classList.add('open');
+    var body = document.getElementById('org-chart-body');
+    if (body) body.innerHTML = '로딩 중...';
+    (async function() {
+        try {
+            function baseName(full) {
+                var s = (full || '').trim();
+                var idx = s.indexOf(' [');
+                return (idx >= 0 ? s.substring(0, idx) : s).trim();
+            }
+            var list = await App.api.get('/coaches');
+            var coaches = Array.isArray(list) ? list : [];
+            var byBaseName = {};
+            coaches.forEach(function(c) {
+                var b = baseName(c.name);
+                if (b) byBaseName[b] = c;
+            });
+            function getCategory(spec, name) {
+                var s = ((spec || '') + ' ' + (name || '')).toLowerCase();
+                if (/대관|\[대관담당\]/.test(s)) return '대관';
+                if (/\[트레이너\]|트레이닝/.test(s)) return '트레이닝';
+                if (/\[강사\]|필라테스/.test(s)) return '필라테스';
+                if (/유소년/.test(s)) return '유소년';
+                if (/\[대표\]|\[코치\]|\[포수코치\]|\[투수코치\]|야구|타격|투구|수비|포수|투수/.test(s)) return '야구';
+                return '기타';
+            }
+            var top = [];
+            var directorRow = [];
+            var mainRow = [];
+            var restByBase = {};
+            var first = ORG_CHART_ORDER[0];
+            if (first) {
+                var c = byBaseName[first];
+                var title = ORG_CHART_ROLES[first] || '';
+                top.push({ name: c ? c.name : first, title: title, coach: c });
+            }
+            var second = ORG_CHART_ORDER[1];
+            if (second) {
+                var c = byBaseName[second];
+                var title = ORG_CHART_ROLES[second] || '';
+                directorRow.push({ name: c ? c.name : second, title: title, coach: c });
+            }
+            for (var i = 2; i < ORG_CHART_ORDER.length; i++) {
+                var name = ORG_CHART_ORDER[i];
+                var c = byBaseName[name];
+                var title = ORG_CHART_ROLES[name] || '';
+                mainRow.push({ name: c ? c.name : name, title: title, coach: c });
+            }
+            coaches.forEach(function(c) {
+                var n = (c.name || '').trim();
+                var b = baseName(n);
+                if (!b || ORG_CHART_ORDER.indexOf(b) >= 0) return;
+                if (!restByBase[b]) {
+                    restByBase[b] = { name: n, title: (c.specialties || '').replace(/\s*\[.*?\]\s*/g, ' ').trim() || '코치', coach: c };
+                }
+            });
+            var rest = Object.keys(restByBase).map(function(b) { return restByBase[b]; });
+            rest.sort(function(a, b) { return (a.name || '').localeCompare(b.name || '', 'ko'); });
+            var byCategory = { '야구': [], '유소년': [], '필라테스': [], '트레이닝': [], '대관': [], '기타': [] };
+            var catOrder = ['야구', '유소년', '트레이닝', '필라테스', '기타'];
+            rest.forEach(function(item) {
+                var cat = getCategory(item.coach ? item.coach.specialties : '', item.name);
+                if (byCategory[cat]) byCategory[cat].push(item);
+                else byCategory['기타'].push(item);
+            });
+            function nameWithTitle(name, title) {
+                var n = (name || '').replace(/\s*\[[^\]]*\]\s*$/, '').trim() || (name || '').trim();
+                var t = (title || '').trim();
+                return t ? n + ' ' + t : n;
+            }
+            var html = '';
+            if (top.length) {
+                var ceoLine = nameWithTitle(top[0].name, top[0].title);
+                html += '<div class="org-chart-level org-chart-level-1">';
+                html += '<div class="org-chart-one-cell org-chart-one-cell-ceo">';
+                html += '<div class="org-chart-one-cell-head org-chart-node-ceo">' + App.escapeHtml(ceoLine) + '</div>';
+                html += '<div class="org-chart-one-cell-divider"></div>';
+                html += '<div class="org-chart-one-cell-body org-chart-one-cell-body-ceo">야구 총괄</div>';
+                html += '</div></div>';
+            }
+            var rentalList = byCategory['대관'] || [];
+            if (directorRow.length) {
+                html += '<div class="org-chart-connector-wrap">';
+                html += '<div class="org-chart-connector"></div>';
+                html += '<div class="org-chart-level org-chart-level-2">';
+                directorRow.forEach(function(item) {
+                    var directorLine = nameWithTitle(item.name, item.title);
+                    html += '<div class="org-chart-one-cell">';
+                    html += '<div class="org-chart-one-cell-head">' + App.escapeHtml(directorLine) + '</div>';
+                    html += '<div class="org-chart-one-cell-divider"></div>';
+                    html += '<div class="org-chart-one-cell-body">';
+                    html += '<div class="org-chart-level-label">운영/대관</div>';
+                    rentalList.filter(function(r) {
+                        var n = (r.name || '').trim();
+                        var b = baseName(n);
+                        if (b === '서정훈') return false;
+                        if (n.indexOf('서정훈') === 0) return false;
+                        return true;
+                    }).forEach(function(r) {
+                        var spec = r.title ? ('<span class="org-chart-role">' + App.escapeHtml(r.title) + '</span>') : '';
+                        html += '<div class="org-chart-node org-chart-node-rest org-chart-node-vertical"><span class="org-chart-name">' + App.escapeHtml(r.name) + '</span>' + spec + '</div>';
+                    });
+                    html += '</div></div>';
+                });
+                html += '</div></div>';
+            }
+            if (mainRow.length) {
+                html += '<div class="org-chart-connector-wrap">';
+                html += '<div class="org-chart-connector"></div>';
+                html += '<div class="org-chart-level org-chart-level-3">';
+                mainRow.forEach(function(item) {
+                    var displayName = (baseName(item.name) === '김가영') ? '김가영 [필라테스]' : item.name;
+                    html += '<div class="org-chart-node"><span class="org-chart-name">' + App.escapeHtml(displayName) + '</span><span class="org-chart-role">' + App.escapeHtml(item.title) + '</span></div>';
+                });
+                html += '</div></div>';
+            }
+            var catLabels = { '유소년': '야구(유소년)', '트레이닝': '트레이너' };
+            var hasRest = catOrder.some(function(cat) { var list = byCategory[cat]; return (list && list.length > 0) || cat === '트레이닝'; });
+            if (hasRest) {
+                html += '<div class="org-chart-connector-wrap">';
+                html += '<div class="org-chart-connector"></div>';
+                html += '<div class="org-chart-level org-chart-level-4 org-chart-by-category">';
+                var catsWithContent = catOrder.filter(function(cat) { var list = byCategory[cat]; return (list && list.length > 0) || cat === '트레이닝'; });
+                catsWithContent.forEach(function(cat) {
+                    var list = byCategory[cat] || [];
+                    html += '<div class="org-chart-category-column">';
+                    html += '<div class="org-chart-level-label">' + App.escapeHtml(catLabels[cat] || cat) + '</div>';
+                    list.forEach(function(item) {
+                        html += '<div class="org-chart-node org-chart-node-rest org-chart-node-vertical"><span class="org-chart-name">' + App.escapeHtml(item.name) + '</span></div>';
+                    });
+                    if (cat === '트레이닝') {
+                        html += '<div class="org-chart-node org-chart-node-rest org-chart-node-vertical org-chart-empty-slot" aria-hidden="true">&nbsp;</div>';
+                    }
+                    html += '</div>';
+                });
+                html += '</div></div>';
+            }
+            if (body) body.innerHTML = html || '<p class="org-chart-empty">등록된 코치가 없습니다.</p>';
+        } catch (e) {
+            App.err('조직도 로드 실패:', e);
+            if (body) body.innerHTML = '<p class="org-chart-error">조직도를 불러오지 못했습니다.</p>';
+        }
+    })();
+    var onEscape = function(e) {
+        if (e.key === 'Escape') { App.closeOrgChartModal(); document.removeEventListener('keydown', onEscape); }
+    };
+    document.addEventListener('keydown', onEscape);
+    modal._orgChartEscape = onEscape;
+};
+
+App.closeOrgChartModal = function() {
+    var modal = document.getElementById('org-chart-modal');
+    if (modal) {
+        if (modal._orgChartEscape) document.removeEventListener('keydown', modal._orgChartEscape);
+        modal.classList.remove('open');
+    }
 };
 
 /** 알림 버튼을 컨테이너로 감싸고 "알림" 라벨을 아이콘 박스 밖 아래에 추가 (모든 페이지 공통) */
@@ -1619,6 +1972,32 @@ App.applyPageMask = function() {
     walkNonTable(document.body);
 };
 
+// 모바일: 사이드바 토글 버튼·오버레이 추가 (고정 사이드바로 인한 본문 가림 해결)
+function initMobileSidebar() {
+    if (window.location.search.indexOf('embed=1') >= 0) return;
+    var sidebar = document.querySelector('.sidebar');
+    var topbarLeft = document.querySelector('.topbar-left');
+    if (!sidebar || !topbarLeft) return;
+    if (document.getElementById('sidebar-toggle')) return;
+    var overlay = document.createElement('div');
+    overlay.className = 'sidebar-overlay';
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.addEventListener('click', function() { document.body.classList.remove('sidebar-open'); });
+    document.body.appendChild(overlay);
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sidebar-toggle-btn';
+    btn.id = 'sidebar-toggle';
+    btn.title = '메뉴';
+    btn.innerHTML = '\u2630';
+    btn.setAttribute('aria-label', '메뉴 열기');
+    btn.addEventListener('click', function() { document.body.classList.toggle('sidebar-open'); });
+    topbarLeft.insertBefore(btn, topbarLeft.firstChild);
+    sidebar.querySelectorAll('.menu-item').forEach(function(link) {
+        link.addEventListener('click', function() { document.body.classList.remove('sidebar-open'); });
+    });
+}
+
 // 스크린샷 발췌 미리보기: iframe에서 embed=1 로 열리면 사이드바/상단바 숨기고 본문만 표시
 document.addEventListener('DOMContentLoaded', function() {
     var params = new URLSearchParams(window.location.search);
@@ -1669,6 +2048,7 @@ document.addEventListener('DOMContentLoaded', () => {
         App.initDarkMode();
         App.initNotifications();
         App.initSearch();
+        initMobileSidebar();
         // 5분마다 알림 개수 업데이트
         setInterval(() => App.updateNotificationBadge(), 5 * 60 * 1000);
         

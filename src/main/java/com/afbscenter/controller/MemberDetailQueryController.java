@@ -76,16 +76,35 @@ public class MemberDetailQueryController {
         }
     }
 
-    /** 상중하 또는 1~5단계 -> 수치 (평균/순위용). 1~5는 그대로 1.0~5.0 반환 */
+    /** 등급별 개인 능력치 기준값. 엘리트 초/중/고만 구분, 나머지는 중 기준 */
+    private static Map<String, Object> gradeReference(Member.MemberGrade g) {
+        Map<String, Object> ref = new HashMap<>();
+        int swing = 80, exit = 85, stage = 7, velocity = 135; // 스윙/타구/구속 기본 중
+        if (g != null) {
+            switch (g) {
+                case ELITE_ELEMENTARY: swing = 70; exit = 70; velocity = 115; break;
+                case ELITE_MIDDLE: swing = 80; exit = 85; velocity = 135; break;
+                case ELITE_HIGH: swing = 85; exit = 95; velocity = 150; break;
+                default: break;
+            }
+        }
+        ref.put("refSwing", swing);
+        ref.put("refExit", exit);
+        ref.put("refStage", stage);
+        ref.put("refVelocity", velocity);
+        return ref;
+    }
+
+    /** 상중하 또는 1~7단계 -> 수치 (평균/순위용). 1~7은 그대로 1.0~7.0 반환 */
     private static double levelToNum(String s) {
         if (s == null || s.isEmpty()) return 0;
         String t = s.trim();
-        if (t.matches("[1-5]")) return Double.parseDouble(t);
+        if (t.matches("[0-7]")) return Double.parseDouble(t);
         String u = s.toUpperCase();
-        if ("HIGH".equals(u) || "상".equals(s)) return 1.0;
-        if ("MID".equals(u) || "MIDDLE".equals(u) || "중".equals(s)) return 0.6;
-        if ("LOW".equals(u) || "하".equals(s)) return 0.3;
-        return 0.5;
+        if ("HIGH".equals(u) || "상".equals(s)) return 7.0;
+        if ("MID".equals(u) || "MIDDLE".equals(u) || "중".equals(s)) return 4.0;
+        if ("LOW".equals(u) || "하".equals(s)) return 1.0;
+        return 4.0;
     }
 
     /** 개인 능력치 탭용: 해당 회원 등급, 등급 내 평균치, 등급 내 순위 */
@@ -103,14 +122,16 @@ public class MemberDetailQueryController {
             Map<String, Object> result = new HashMap<>();
             result.put("grade", grade != null ? grade.name() : null);
             result.put("gradeLabel", gradeToLabel(grade));
+            result.put("reference", gradeReference(grade));
 
-            // 투수 평균
-            double sumVel = 0, sumPitchPower = 0, sumCtrl = 0, sumFlex = 0, sumRun = 0;
-            int cntVel = 0, cntPitchPower = 0, cntCtrl = 0, cntFlex = 0, cntRun = 0;
+            // 투수 평균 (5툴: 구속, 제구력, 변화구, 유연성, 파워)
+            double sumVel = 0, sumPitchPower = 0, sumCtrl = 0, sumBreaking = 0, sumFlex = 0, sumRun = 0;
+            int cntVel = 0, cntPitchPower = 0, cntCtrl = 0, cntBreaking = 0, cntFlex = 0, cntRun = 0;
             for (Member m : sameGrade) {
                 if (m.getPitchingSpeed() != null) { sumVel += m.getPitchingSpeed(); cntVel++; }
                 if (m.getPitcherPower() != null) { sumPitchPower += m.getPitcherPower(); cntPitchPower++; }
                 if (m.getPitcherControl() != null && !m.getPitcherControl().isEmpty()) { sumCtrl += levelToNum(m.getPitcherControl()); cntCtrl++; }
+                if (m.getPitcherBreakingBall() != null && !m.getPitcherBreakingBall().isEmpty()) { sumBreaking += levelToNum(m.getPitcherBreakingBall()); cntBreaking++; }
                 if (m.getPitcherFlexibility() != null && !m.getPitcherFlexibility().isEmpty()) { sumFlex += levelToNum(m.getPitcherFlexibility()); cntFlex++; }
                 if (m.getRunningSpeed() != null) { sumRun += m.getRunningSpeed(); cntRun++; }
             }
@@ -118,8 +139,8 @@ public class MemberDetailQueryController {
             avgPitcher.put("velocity", cntVel > 0 ? sumVel / cntVel : null);
             avgPitcher.put("power", cntPitchPower > 0 ? sumPitchPower / cntPitchPower : null);
             avgPitcher.put("controlRatio", cntCtrl > 0 ? sumCtrl / cntCtrl : null);
+            avgPitcher.put("breakingBallRatio", cntBreaking > 0 ? sumBreaking / cntBreaking : null);
             avgPitcher.put("flexibilityRatio", cntFlex > 0 ? sumFlex / cntFlex : null);
-            avgPitcher.put("runningSpeed", cntRun > 0 ? sumRun / cntRun : null);
             result.put("averages", Map.of("pitcher", avgPitcher));
 
             // 타자 평균
@@ -143,18 +164,18 @@ public class MemberDetailQueryController {
             newAverages.put("batter", avgBatter);
             result.put("averages", newAverages);
 
-            // 순위: 각 스탯별로 (memberId, value) 정렬 후 rank + total 반환 (상위 N% 표시용)
+            // 순위: 투수 5툴 (구속, 제구력, 변화구, 유연성, 파워)
             Map<String, Object> rankPitcher = new HashMap<>();
             List<Map.Entry<Long, Double>> listVel = sameGrade.stream().filter(m -> m.getPitchingSpeed() != null).map(m -> Map.entry(m.getId(), m.getPitchingSpeed())).sorted((a, b) -> Double.compare(b.getValue(), a.getValue())).collect(Collectors.toList());
             rankPitcher.put("velocity", rankAndTotal(listVel, id));
-            List<Map.Entry<Long, Double>> listPitchPower = sameGrade.stream().filter(m -> m.getPitcherPower() != null).map(m -> Map.entry(m.getId(), m.getPitcherPower())).sorted((a, b) -> Double.compare(b.getValue(), a.getValue())).collect(Collectors.toList());
-            rankPitcher.put("power", rankAndTotal(listPitchPower, id));
             List<Map.Entry<Long, Double>> listCtrl = sameGrade.stream().filter(m -> m.getPitcherControl() != null && !m.getPitcherControl().isEmpty()).map(m -> Map.entry(m.getId(), levelToNum(m.getPitcherControl()))).sorted((a, b) -> Double.compare(b.getValue(), a.getValue())).collect(Collectors.toList());
             rankPitcher.put("control", rankAndTotal(listCtrl, id));
+            List<Map.Entry<Long, Double>> listBreaking = sameGrade.stream().filter(m -> m.getPitcherBreakingBall() != null && !m.getPitcherBreakingBall().isEmpty()).map(m -> Map.entry(m.getId(), levelToNum(m.getPitcherBreakingBall()))).sorted((a, b) -> Double.compare(b.getValue(), a.getValue())).collect(Collectors.toList());
+            rankPitcher.put("breakingBall", rankAndTotal(listBreaking, id));
             List<Map.Entry<Long, Double>> listFlex = sameGrade.stream().filter(m -> m.getPitcherFlexibility() != null && !m.getPitcherFlexibility().isEmpty()).map(m -> Map.entry(m.getId(), levelToNum(m.getPitcherFlexibility()))).sorted((a, b) -> Double.compare(b.getValue(), a.getValue())).collect(Collectors.toList());
             rankPitcher.put("flexibility", rankAndTotal(listFlex, id));
-            List<Map.Entry<Long, Double>> listRun = sameGrade.stream().filter(m -> m.getRunningSpeed() != null).map(m -> Map.entry(m.getId(), m.getRunningSpeed())).sorted((a, b) -> Double.compare(b.getValue(), a.getValue())).collect(Collectors.toList());
-            rankPitcher.put("runningSpeed", rankAndTotal(listRun, id));
+            List<Map.Entry<Long, Double>> listPitchPower = sameGrade.stream().filter(m -> m.getPitcherPower() != null).map(m -> Map.entry(m.getId(), m.getPitcherPower())).sorted((a, b) -> Double.compare(b.getValue(), a.getValue())).collect(Collectors.toList());
+            rankPitcher.put("power", rankAndTotal(listPitchPower, id));
 
             Map<String, Object> rankBatter = new HashMap<>();
             List<Map.Entry<Long, Double>> listSwing = sameGrade.stream().filter(m -> m.getSwingSpeed() != null).map(m -> Map.entry(m.getId(), m.getSwingSpeed())).sorted((a, b) -> Double.compare(b.getValue(), a.getValue())).collect(Collectors.toList());
@@ -163,6 +184,7 @@ public class MemberDetailQueryController {
             rankBatter.put("exitVelocity", rankAndTotal(listExit, id));
             List<Map.Entry<Long, Double>> listBatPower = sameGrade.stream().filter(m -> m.getBatterPower() != null).map(m -> Map.entry(m.getId(), m.getBatterPower())).sorted((a, b) -> Double.compare(b.getValue(), a.getValue())).collect(Collectors.toList());
             rankBatter.put("power", rankAndTotal(listBatPower, id));
+            List<Map.Entry<Long, Double>> listRun = sameGrade.stream().filter(m -> m.getRunningSpeed() != null).map(m -> Map.entry(m.getId(), m.getRunningSpeed())).sorted((a, b) -> Double.compare(b.getValue(), a.getValue())).collect(Collectors.toList());
             rankBatter.put("runningSpeed", rankAndTotal(listRun, id));
             List<Map.Entry<Long, Double>> listBatFlex = sameGrade.stream().filter(m -> m.getBatterFlexibility() != null).map(m -> Map.entry(m.getId(), m.getBatterFlexibility())).sorted((a, b) -> Double.compare(b.getValue(), a.getValue())).collect(Collectors.toList());
             rankBatter.put("flexibility", rankAndTotal(listBatFlex, id));
@@ -356,91 +378,35 @@ public class MemberDetailQueryController {
                         logger.warn("히스토리 기반 잔여 보정 실패: MemberProduct ID={}", mp.getId(), e);
                     }
                     if (totalCount == null) totalCount = mp.getTotalCount() != null ? mp.getTotalCount() : 0;
+                    // 회원 관리 페이지와 동일: COUNT_PASS는 항상 '총 횟수 - 실제 사용 횟수'로 통일
+                    if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.COUNT_PASS && totalCount != null) {
+                        Long usedByAtt = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(memberId, mp.getId());
+                        Long usedByBook = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
+                        long actualUsed = (usedByAtt != null && usedByAtt > 0) ? usedByAtt : (usedByBook != null ? usedByBook : 0L);
+                        remainingCount = Math.max(0, totalCount - (int) actualUsed);
+                    }
                     productMap.put("remainingCount", remainingCount != null ? remainingCount : mp.getRemainingCount());
                     productMap.put("usedCount", totalCount != null && remainingCount != null ? totalCount - remainingCount : 0);
                     productMap.put("totalCount", totalCount);
                 } else if (mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
-                    // 횟수권(패키지 아님)인 경우 실제 예약 데이터 기반 잔여 횟수 계산
-                    // 총 횟수: product.usageCount를 우선 사용 (상품의 실제 사용 횟수 반영, 데이터 일관성 보장)
+                    // 횟수권: 상세·예약 화면 통일을 위해 항상 '총 횟수 - 실제 체크인 건수'로 표시
                     Integer totalCount = mp.getProduct().getUsageCount();
                     if (totalCount == null || totalCount <= 0) {
-                        // product.usageCount가 없으면 mp.totalCount 사용
                         totalCount = mp.getTotalCount();
                         if (totalCount == null || totalCount <= 0) {
-                            // 그것도 없으면 기본값 사용
                             totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                         }
                     }
-                    
-                    // DB에 저장된 remainingCount를 우선 사용 (체크인 시 차감된 값이 정확함)
-                    Integer remainingCount = mp.getRemainingCount();
-                    
-                    // remainingCount가 null일 때만 재계산 (초기화가 필요한 경우)
-                    // 0도 유효한 값이므로 재계산하지 않음 (체크인 시 차감되어 0이 된 경우)
-                    if (remainingCount == null) {
-                        // 실제 사용된 횟수 계산
-                        // 주의: countCheckedInAttendancesByMemberAndProduct는 booking.memberProduct를 기반으로 카운트하므로
-                        // 예약에 memberProduct가 연결되지 않은 경우 0을 반환할 수 있음
-                        Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(memberId, mp.getId());
-                        if (usedCountByAttendance == null) {
-                            usedCountByAttendance = 0L;
-                        }
-                        
-                        // booking.memberProduct가 연결되지 않은 출석 기록도 카운트 (체크인 시 차감되었으므로)
-                        // 성능 최적화: MemberProductHistory를 한 번에 조회하여 N+1 쿼리 문제 방지
-                        try {
-                            // 해당 회원의 모든 출석 기록을 한 번에 조회
-                            List<com.afbscenter.model.Attendance> allAttendances = attendanceRepository.findByMemberId(memberId);
-                            
-                            // 해당 MemberProduct와 관련된 모든 히스토리를 한 번에 조회
-                            List<com.afbscenter.model.MemberProductHistory> histories = 
-                                memberProductHistoryRepository.findByMemberProductIdOrderByTransactionDateDesc(mp.getId());
-                            
-                            // 출석 ID를 Set으로 변환하여 빠른 조회
-                            java.util.Set<Long> attendanceIdsWithHistory = histories.stream()
-                                .filter(h -> h.getAttendance() != null && h.getAttendance().getCheckInTime() != null)
-                                .map(h -> h.getAttendance().getId())
-                                .collect(java.util.stream.Collectors.toSet());
-                            
-                            // 출석 기록에서 체크인된 것 중 booking.memberProduct가 연결된 것 또는 히스토리에 있는 것 카운트
-                            long directCount = allAttendances.stream()
-                                .filter(a -> a.getCheckInTime() != null && 
-                                           a.getBooking() != null &&
-                                           (a.getBooking().getMemberProduct() != null && a.getBooking().getMemberProduct().getId().equals(mp.getId()) ||
-                                            attendanceIdsWithHistory.contains(a.getId())))
-                                .count();
-                            
-                            if (directCount > usedCountByAttendance) {
-                                usedCountByAttendance = directCount;
-                            }
-                        } catch (Exception e) {
-                            logger.warn("출석 기록 직접 카운트 실패: {}", e.getMessage());
-                        }
-                        
-                        Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
-                        if (usedCountByBooking == null) {
-                            usedCountByBooking = 0L;
-                        }
-                        
-                        // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용 (중복 방지)
-                        Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
-                        
-                        // 잔여 횟수 = 총 횟수 - 실제 사용 횟수
-                        remainingCount = totalCount - actualUsedCount.intValue();
-                        if (remainingCount < 0) {
-                            remainingCount = 0; // 음수 방지
-                        }
-                        
-                        logger.info("회원 상품 잔여 횟수 재계산: MemberProduct ID={}, totalCount={}, usedCount={}, calculatedRemaining={}", 
-                            mp.getId(), totalCount, actualUsedCount, remainingCount);
-                    } else {
-                        // DB에 저장된 값을 사용 (체크인 시 차감된 정확한 값)
-                        logger.debug("회원 상품 잔여 횟수 DB 값 사용: MemberProduct ID={}, remainingCount={}", 
-                            mp.getId(), remainingCount);
-                    }
-                    
+                    Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(memberId, mp.getId());
+                    if (usedCountByAttendance == null) usedCountByAttendance = 0L;
+                    Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
+                    if (usedCountByBooking == null) usedCountByBooking = 0L;
+                    Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
+                    Integer remainingCount = totalCount != null
+                        ? Math.max(0, totalCount - (actualUsedCount != null ? actualUsedCount.intValue() : 0))
+                        : mp.getRemainingCount();
                     productMap.put("remainingCount", remainingCount);
-                    productMap.put("usedCount", totalCount - remainingCount);
+                    productMap.put("usedCount", totalCount != null && remainingCount != null ? totalCount - remainingCount : 0);
                     productMap.put("totalCount", totalCount);
                 } else {
                     // 그 외: DB remainingCount 사용
@@ -884,6 +850,7 @@ public class MemberDetailQueryController {
                     e.put("date", m.getCreatedAt());
                     e.put("label", "회원 가입");
                     e.put("detail", "");
+                    if (m.getProcessedBy() != null && !m.getProcessedBy().isEmpty()) e.put("processedBy", m.getProcessedBy());
                     events.add(e);
                 }
             });
@@ -905,6 +872,7 @@ public class MemberDetailQueryController {
                 e.put("productName", productName);
                 String amountStr = amount != null ? " ₩" + String.format("%,d", amount) : "";
                 e.put("detail", productName + amountStr);
+                if (p.getProcessedBy() != null && !p.getProcessedBy().isEmpty()) e.put("processedBy", p.getProcessedBy());
                 if (p.getProduct() != null && p.getProduct().getId() != null) {
                     List<MemberProduct> mps = memberProductRepository.findByMemberIdAndProductId(memberId, p.getProduct().getId());
                     for (MemberProduct mp : mps) {
@@ -944,6 +912,7 @@ public class MemberDetailQueryController {
                 e.put("endTime", b.getEndTime());
                 e.put("purpose", purposeKr);
                 e.put("facilityName", facilityName);
+                if (b.getProcessedBy() != null && !b.getProcessedBy().isEmpty()) e.put("processedBy", b.getProcessedBy());
                 events.add(e);
             }
             
@@ -981,6 +950,7 @@ public class MemberDetailQueryController {
                 e.put("remainingAfter", remainingAfter);
                 if (memberProductId != null) e.put("memberProductId", memberProductId);
                 if (totalCount != null) e.put("totalCount", totalCount);
+                if (a.getProcessedBy() != null && !a.getProcessedBy().isEmpty()) e.put("processedBy", a.getProcessedBy());
                 events.add(e);
             }
             
@@ -1008,6 +978,7 @@ public class MemberDetailQueryController {
                 e.put("description", h.getDescription());
                 e.put("productName", productName);
                 e.put("historyId", h.getId());
+                if (h.getProcessedBy() != null && !h.getProcessedBy().isEmpty()) e.put("processedBy", h.getProcessedBy());
                 events.add(e);
             }
             

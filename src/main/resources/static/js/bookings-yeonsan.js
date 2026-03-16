@@ -229,23 +229,19 @@ async function loadBookingStats() {
         const config = window.BOOKING_PAGE_CONFIG || { branch: 'YEONSAN', facilityType: 'BASEBALL' };
         const filterStart = document.getElementById('filter-date-start')?.value || '';
         const filterEnd = document.getElementById('filter-date-end')?.value || '';
-        let startISO, endISO;
+        let startParam, endParam;
         if (filterStart && filterEnd) {
-            const start = new Date(filterStart);
-            start.setHours(0, 0, 0, 0);
-            const end = new Date(filterEnd);
-            end.setHours(23, 59, 59, 999);
-            startISO = start.toISOString();
-            endISO = end.toISOString();
+            startParam = filterStart;
+            endParam = filterEnd;
         } else {
             const now = new Date();
-            const first = new Date(now.getFullYear(), now.getMonth(), 1);
-            const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-            last.setHours(23, 59, 59, 999);
-            startISO = first.toISOString();
-            endISO = last.toISOString();
+            const y = now.getFullYear(), m = now.getMonth();
+            const first = new Date(y, m, 1);
+            const last = new Date(y, m + 1, 0);
+            startParam = first.getFullYear() + '-' + String(first.getMonth() + 1).padStart(2, '0') + '-' + String(first.getDate()).padStart(2, '0');
+            endParam = last.getFullYear() + '-' + String(last.getMonth() + 1).padStart(2, '0') + '-' + String(last.getDate()).padStart(2, '0');
         }
-        const params = new URLSearchParams({ start: startISO, end: endISO });
+        const params = new URLSearchParams({ start: startParam, end: endParam });
         if (config.branch) params.append('branch', config.branch);
         if (config.facilityType) params.append('facilityType', config.facilityType);
         if (config.lessonCategory) params.append('lessonCategory', config.lessonCategory);
@@ -1472,23 +1468,24 @@ async function renderCalendar() {
                 event.style.backgroundColor = coachColor;
                 event.style.borderLeft = `3px solid ${coachColor}`;
                 
-                // 상태에 따라 아이콘 표시 추가 (완료 동그라미는 COMPLETED일 때만 — 삭제 후 재예약 시 종료시간만 지났다고 표시 안 함)
+                // 상태에 따라 아이콘 표시 추가 (완료/체크인 = 초록, 확정 = 파란 ✓)
                 const status = booking.status || 'PENDING';
+                const isNonMember = !booking.member || !booking.member.id || (booking.nonMemberName && booking.nonMemberName.trim() !== '');
                 let statusIcon = '';
                 let statusIconStyle = '';
-                if (status === 'COMPLETED') {
-                    // 서버에서 완료 처리된 예약만: 초록색 원형 배경(동그라미)
+                // 비회원 예약은 체크인 없이 자동 승인 → 대기/확정/완료 모두 초록 동그라미 표시
+                const showAsCompleted = (status === 'COMPLETED') || (isNonMember && (status === 'CONFIRMED' || status === 'PENDING'));
+                if (showAsCompleted) {
                     statusIcon = '';
                     statusIconStyle = 'display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; min-width: 16px; min-height: 16px; background-color: #2ECC71; border-radius: 50%; margin-right: 5px; vertical-align: middle; flex-shrink: 0; position: relative;';
                 } else if (status === 'CONFIRMED') {
-                    // 확정된 예약: 파란색 원형 배경에 흰색 체크 표시
                     statusIcon = '✓';
                     statusIconStyle = 'display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; background-color: #3498DB; border-radius: 50%; color: white; font-size: 11px; font-weight: 900; margin-right: 5px; vertical-align: middle; flex-shrink: 0;';
                 }
                 
                 // 이벤트 내용 설정 (한 줄로 표시: 아이콘 + 시간 / 이름)
                 if (statusIcon || statusIconStyle) {
-                    if (status === 'COMPLETED') {
+                    if (showAsCompleted) {
                         event.innerHTML = `<span style="${statusIconStyle}"></span>${timeStr} / ${memberName}`;
                     } else {
                         event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${timeStr} / ${memberName}`;
@@ -1764,7 +1761,18 @@ function editBookingFromSchedule(bookingId) {
 
 function changeMonth(delta) {
     currentDate.setMonth(currentDate.getMonth() + delta);
+    var y = currentDate.getFullYear();
+    var m = currentDate.getMonth();
+    var first = new Date(y, m, 1);
+    var last = new Date(y, m + 1, 0);
+    var startStr = first.getFullYear() + '-' + String(first.getMonth() + 1).padStart(2, '0') + '-' + String(first.getDate()).padStart(2, '0');
+    var endStr = last.getFullYear() + '-' + String(last.getMonth() + 1).padStart(2, '0') + '-' + String(last.getDate()).padStart(2, '0');
+    var filterStartEl = document.getElementById('filter-date-start');
+    var filterEndEl = document.getElementById('filter-date-end');
+    if (filterStartEl) filterStartEl.value = startStr;
+    if (filterEndEl) filterEndEl.value = endStr;
     renderCalendar();
+    loadBookingStats();
 }
 
 async function loadBookingsList() {
@@ -2324,11 +2332,11 @@ async function selectNonMember() {
     document.getElementById('member-info-section').style.display = 'none';
     document.getElementById('member-select-section').style.display = 'none';
     
-    // 비회원 예약은 항상 'PENDING' 상태로 고정 (승인 필요)
+    // 비회원 예약은 체크인 없이 자동 승인 → 기본 상태 '확정'
     const statusSelect = document.getElementById('booking-status');
     if (statusSelect) {
-        statusSelect.value = 'PENDING';
-        statusSelect.disabled = true; // 비회원은 상태 변경 불가
+        statusSelect.value = 'CONFIRMED';
+        statusSelect.disabled = true; // 비회원은 자동 확정으로 고정
     }
     
     // 비회원 예약 모달에서도 시설 즉시 로드 및 선택
@@ -2821,7 +2829,8 @@ async function loadBookingData(id) {
                 lessonCategoryEl.value = booking.lessonCategory;
             }
         }
-        document.getElementById('booking-status').value = booking.status || 'PENDING';
+        const loadedStatus = booking.status || 'PENDING';
+        document.getElementById('booking-status').value = (!booking.member && loadedStatus === 'PENDING') ? 'CONFIRMED' : loadedStatus;
         document.getElementById('booking-payment-method').value = booking.paymentMethod || '';
         document.getElementById('booking-notes').value = booking.memo || '';
         
@@ -3006,28 +3015,24 @@ async function saveBooking() {
         endDateTime: endDateTime
     });
     
-    // 회원 예약은 항상 PENDING 상태로 시작 (확인 후 CONFIRMED로 변경)
     const statusSelect = document.getElementById('booking-status');
     const bookingIdElement = document.getElementById('booking-id');
     const bookingId = bookingIdElement ? bookingIdElement.value.trim() : '';
-    
-    // 새 예약인지 확인 (bookingId가 없거나 빈 문자열이면 새 예약)
     const isNewBooking = !bookingId || bookingId === '';
+    const isNonMember = !(memberNumber && memberNumber.trim()) && !(memberId && memberId.trim());
     
     let bookingStatus = 'PENDING';
     
-    // 수정 모드인 경우에만 기존 상태 유지, 새 예약은 항상 PENDING
     if (!isNewBooking && statusSelect && statusSelect.value) {
-        // 수정 모드: 기존 상태 유지
         bookingStatus = statusSelect.value;
         App.log('[예약 저장] 수정 모드 - 상태 유지:', bookingStatus);
     } else {
-        // 새 예약: 항상 PENDING으로 설정
-        bookingStatus = 'PENDING';
+        // 새 예약: 비회원은 자동 승인으로 확정, 회원은 대기
+        bookingStatus = isNonMember ? 'CONFIRMED' : 'PENDING';
         if (statusSelect) {
-            statusSelect.value = 'PENDING';
+            statusSelect.value = bookingStatus;
         }
-        App.log('[예약 저장] 새 예약 - 상태 PENDING으로 설정');
+        App.log('[예약 저장] 새 예약 - 상태:', bookingStatus, isNonMember ? '(비회원 자동 승인)' : '(회원 대기)');
     }
     
     // 시설 선택 시 시설의 지점 정보를 우선적으로 사용
@@ -3048,13 +3053,9 @@ async function saveBooking() {
         }
     }
     
-    // 최종 상태 확인 및 강제 설정 (새 예약인 경우)
-    if (isNewBooking) {
-        bookingStatus = 'PENDING';
-        if (statusSelect) {
-            statusSelect.value = 'PENDING';
-        }
-        App.log('[예약 저장] 최종 확인 - 새 예약이므로 PENDING으로 강제 설정');
+    // 새 예약일 때 비회원이면 확정 유지 (위에서 이미 설정됨)
+    if (isNewBooking && !isNonMember && statusSelect) {
+        statusSelect.value = 'PENDING';
     }
     
     App.log('[예약 저장] 최종 상태:', {

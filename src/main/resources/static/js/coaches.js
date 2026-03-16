@@ -6,12 +6,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadCoaches() {
     try {
-        const coaches = await App.api.get('/coaches');
-        App.log('코치 목록 로드:', coaches);
-        // 디버깅: 각 코치의 availableBranches 확인
-        coaches.forEach(coach => {
-            App.log(`코치: ${coach.name}, availableBranches:`, coach.availableBranches);
-        });
+        const allCoaches = await App.api.get('/coaches');
+        App.log('코치 목록 로드:', allCoaches);
+        // 기본: 활성 코치만 표시 (퇴사 처리한 코치는 목록에서 제외)
+        const showInactive = document.getElementById('show-inactive-coaches') && document.getElementById('show-inactive-coaches').checked;
+        const coaches = showInactive ? allCoaches : (allCoaches || []).filter(c => c.active !== false);
         await renderCoachesTable(coaches);
         renderCoachSelect(coaches);
         updateCoachCount(coaches.length);
@@ -96,6 +95,7 @@ async function openStatsCoachModal(filterType, titleLabel) {
     try {
         var list = await App.api.get('/coaches');
         var coaches = Array.isArray(list) ? list : [];
+        coaches = coaches.filter(function(c) { return c.active !== false; });
         if (filterType && filterType !== 'all') {
             coaches = coaches.filter(function(c) {
                 var cat = classifyCoachCategories(c);
@@ -552,13 +552,13 @@ async function saveCoach() {
 }
 
 async function deleteCoach(id) {
-    if (!confirm('정말 삭제하시겠습니까?')) return;
+    if (!confirm('퇴사 처리하시겠습니까? 목록에서 제외되며, 예약·이용권 기록은 유지됩니다.')) return;
     
     try {
         await App.api.delete(`/coaches/${id}`);
-        App.showNotification('코치가 삭제되었습니다.', 'success');
+        App.showNotification('코치가 퇴사 처리되었습니다.', 'success');
         await loadCoaches();
     } catch (error) {
-        App.showNotification('삭제에 실패했습니다.', 'danger');
+        App.showNotification('퇴사 처리에 실패했습니다.', 'danger');
     }
 }

@@ -131,6 +131,16 @@ function getCoachIdFromBooking(booking) {
     return id != null ? Number(id) : null;
 }
 
+/** 체크인 대상 회원 예약인지 (비회원·체험은 false → 예약 목록에서 제외) */
+function isMemberBookingForCheckin(booking) {
+    if (!booking) return false;
+    if (!booking.member) return false;
+    if (booking.nonMemberName && String(booking.nonMemberName).trim() !== '') return false;
+    const name = booking.member.name;
+    if (name && String(name).includes('체험')) return false;
+    return true;
+}
+
 function filterTodayDisplay() {
     const catSelect = document.getElementById('today-lesson-category-filter');
     const branchSelect = document.getElementById('today-branch-filter');
@@ -138,7 +148,7 @@ function filterTodayDisplay() {
     const catValue = catSelect ? catSelect.value : '';
     const branchValue = branchSelect ? branchSelect.value : '';
     const coachValue = coachSelect ? coachSelect.value : '';
-    let list = _todayBookingsAll || [];
+    let list = (_todayBookingsAll || []).filter(isMemberBookingForCheckin);
     if (catValue) list = list.filter(b => getTodayBookingCategoryKey(b) === catValue);
     if (branchValue) list = list.filter(b => getBranchFromBooking(b) === branchValue);
     if (coachValue) {
@@ -262,7 +272,8 @@ function renderTodayBookings(bookings) {
         const memberHtml = buildMemberCellHtml(booking.member ? booking.member.id : null, memberName);
         
         const status = booking.status || 'PENDING';
-        const canCheckin = (status === 'CONFIRMED' || status === 'COMPLETED');
+        const isNonMemberOrTrial = !booking.member || (booking.nonMemberName && String(booking.nonMemberName).trim() !== '') || (booking.member && booking.member.name && String(booking.member.name).includes('체험'));
+        const canCheckin = (status === 'CONFIRMED' || status === 'COMPLETED') && !isNonMemberOrTrial;
         const showCheckinButton = canCheckin && (isToday || isPast);
         
         return `
@@ -278,7 +289,7 @@ function renderTodayBookings(bookings) {
                 <td>
                     ${showCheckinButton ? `
                         <button class="btn btn-sm btn-primary" onclick="openCheckinModal(${booking.id})">체크인</button>
-                    ` : isFuture ? '<span style="color: var(--text-muted); font-size: 12px;">예약 당일 체크인 가능</span>' : ''}
+                    ` : isFuture ? '<span style="color: var(--text-muted); font-size: 12px;">예약 당일 체크인 가능</span>' : (isNonMemberOrTrial ? '<span style="color: var(--text-muted); font-size: 12px;">자동 체크인</span>' : '')}
                 </td>
             </tr>
         `;
@@ -323,12 +334,18 @@ async function openCheckinModal(bookingId) {
 }
 
 async function processCheckin() {
-    const bookingId = document.getElementById('checkin-booking-id').value;
+    const bookingIdEl = document.getElementById('checkin-booking-id');
+    const bookingId = bookingIdEl ? bookingIdEl.value.trim() : '';
     const autoDeduct = document.getElementById('checkin-auto-deduct').checked;
+    
+    if (!bookingId) {
+        App.showNotification('예약 정보가 없습니다. 체크인 창을 닫았다가 다시 시도해 주세요.', 'warning');
+        return;
+    }
     
     try {
         const response = await App.api.post(`/attendance/checkin`, {
-            bookingId: bookingId,
+            bookingId: parseInt(bookingId, 10),
             autoDeduct: autoDeduct
         });
         
@@ -364,7 +381,24 @@ async function processCheckin() {
         loadAttendanceRecords();
         loadUncheckedBookings();
     } catch (error) {
-        App.showNotification('체크인 처리에 실패했습니다.', 'danger');
+        const data = error.response && error.response.data ? error.response.data : (error.data || {});
+        let msg = (data && data.error) ? data.error : '체크인 처리에 실패했습니다.';
+        if (error.response && error.response.status === 500) {
+            const step = data.failedStep || '(알 수 없음)';
+            const errType = data.errorType || '';
+            const cause = data.cause || '';
+            console.error('[체크인 500] 실패 단계:', step, '| errorType:', errType, '| cause:', cause, '| 전체:', JSON.stringify(data));
+            App.err('[체크인 500] 실패 단계(failedStep):', step);
+            App.err('[체크인 500] 서버 응답:', data);
+            msg = '체크인 실패 (단계: ' + step + '). ' + msg;
+        }
+        if (error.response && error.response.status === 400) {
+            App.err('[체크인 400] 서버 응답:', data);
+            loadTodayBookings();
+            loadUncheckedBookings();
+            loadAttendanceRecords();
+        }
+        App.showNotification(msg, 'danger');
     }
 }
 
@@ -1017,9 +1051,9 @@ function renderUncheckedBookings(bookings) {
         // 상태 추출
         const status = booking.status || 'PENDING';
         
-        // 체크인 버튼: 상태가 CONFIRMED 또는 COMPLETED이고, 오늘 날짜이거나 과거 날짜인 경우 표시
-        // 미래 날짜는 체크인 불가
-        const canCheckin = (status === 'CONFIRMED' || status === 'COMPLETED');
+        // 비회원·체험은 자동 체크인 → 체크인 버튼 숨김
+        const isNonMemberOrTrial = !booking.member || (booking.nonMemberName && String(booking.nonMemberName).trim() !== '') || (booking.member && booking.member.name && String(booking.member.name).includes('체험'));
+        const canCheckin = (status === 'CONFIRMED' || status === 'COMPLETED') && !isNonMemberOrTrial;
         const showCheckinButton = canCheckin && (isToday || isPast);
         
         // 디버깅 로그 (필요시 주석 해제)
@@ -1065,7 +1099,7 @@ function renderUncheckedBookings(bookings) {
                 <td>
                     ${showCheckinButton ? `
                         <button class="btn btn-sm btn-primary" onclick="openCheckinModal(${booking.id})">체크인</button>
-                    ` : isFuture ? '<span style="color: var(--text-muted); font-size: 12px;">예약 당일 체크인 가능</span>' : ''}
+                    ` : isFuture ? '<span style="color: var(--text-muted); font-size: 12px;">예약 당일 체크인 가능</span>' : (isNonMemberOrTrial ? '<span style="color: var(--text-muted); font-size: 12px;">자동 체크인</span>' : '')}
                 </td>
             </tr>
         `;

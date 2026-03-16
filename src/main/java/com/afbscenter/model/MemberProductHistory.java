@@ -54,6 +54,9 @@ public class MemberProductHistory {
     @Column(length = 500)
     private String description; // 설명 (예: "체크인으로 인한 차감", "결제로 인한 충전")
 
+    @Column(name = "processed_by", length = 50)
+    private String processedBy; // 이용권 변동 처리한 사용자 아이디 (히스토리 추적용)
+
     public enum TransactionType {
         CHARGE,     // 충전
         DEDUCT,     // 차감

@@ -87,32 +87,29 @@ public class CoachService {
         return coachRepository.save(coach);
     }
 
-    // 코치 삭제
+    // 코치 삭제 → 실제 삭제 대신 비활성(퇴사 처리)로 변경
     public void deleteCoach(Long id) {
-        if (!coachRepository.existsById(id)) {
-            throw new IllegalArgumentException("코치를 찾을 수 없습니다.");
-        }
-        coachRepository.deleteById(id);
+        Coach coach = coachRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("코치를 찾을 수 없습니다."));
+        // 이미 비활성인 경우에도 에러 없이 한 번 더 호출 가능
+        coach.setActive(false);
+        coachRepository.save(coach);
     }
 
     // 코치별 수강 인원 수 조회
-    // 상품 기반: 해당 코치가 담당인 상품을 가진 회원 수
-    // 기존 방식도 유지: Member.coach 필드, Booking.coach 필드
-    // 비회원 예약도 포함 (확정된 예약만 카운트)
+    // 기준: "코치를 선택해서 이용권이 구매되었으면 인원으로 침"
+    // - 회원: MEMBER_PRODUCTS에서 해당 코치(coach_id)로 배정된 활성(ACTIVE) 이용권을 가진 회원 수 (동일 회원은 1명으로 집계)
+    // - 비회원: 해당 코치의 확정(CONFIRMED) 비회원 예약 건수
     @Transactional(readOnly = true)
     public Long getStudentCount(Long coachId) {
         try {
-            // 코치 존재 여부 확인
             if (coachId == null || !coachRepository.existsById(coachId)) {
                 return 0L;
             }
-            
             Set<Long> uniqueMemberIds = new HashSet<>();
-            int nonMemberBookingCount = 0; // 비회원 예약 수
-            
-            // 1. MemberProduct.coach_id가 해당 코치인 회원들 조회 (회원 등록 시 선택한 코치)
-            // 이것이 가장 정확한 방법: 회원이 실제로 배정받은 코치를 기준으로 카운트
-            // 회원의 이용권과 배정된 코치가 정확히 연결되어야 하므로 이것만 사용
+            int nonMemberBookingCount = 0;
+
+            // 1. 해당 코치가 배정된 활성 이용권을 보유한 회원 수 (DISTINCT member_id → 1인 1명)
             try {
                 List<Long> memberProductCoachIds = jdbcTemplate.queryForList(
                     "SELECT DISTINCT mp.member_id FROM member_products mp " +
@@ -127,8 +124,8 @@ public class CoachService {
             } catch (Exception e) {
                 logger.warn("MemberProduct 코치별 회원 조회 실패 (coachId: {}): {}", coachId, e.getMessage());
             }
-            
-            // 2. 비회원 예약 수만 추가 (회원은 MemberProduct.coach_id로만 카운트)
+
+            // 2. 비회원 예약 건수 (해당 코치, 확정, 비회원)
             try {
                 Integer nonMemberCount = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM bookings WHERE coach_id = ? AND status = 'CONFIRMED' AND member_id IS NULL AND non_member_name IS NOT NULL AND non_member_name != ''",
@@ -141,8 +138,7 @@ public class CoachService {
             } catch (Exception e) {
                 logger.warn("비회원 예약 조회 실패 (coachId: {}): {}", coachId, e.getMessage());
             }
-            
-            // 회원 수 + 비회원 예약 수
+
             return (long) (uniqueMemberIds.size() + nonMemberBookingCount);
         } catch (Exception e) {
             logger.error("코치별 학생 수 조회 실패 (coachId: {}): {}", coachId, e.getMessage(), e);
@@ -151,9 +147,7 @@ public class CoachService {
         }
     }
 
-    // 코치별 수강 인원 목록 조회
-    // 상품 기반: 해당 코치가 담당인 상품을 가진 회원 목록
-    // 기존 방식도 유지: Member.coach 필드, Booking.coach 필드
+    // 코치별 수강 인원 목록 조회 (getStudentCount와 동일 기준: 해당 코치가 배정된 활성 이용권 보유 회원)
     @Transactional(readOnly = true)
     public List<Member> getStudents(Long coachId) {
         try {

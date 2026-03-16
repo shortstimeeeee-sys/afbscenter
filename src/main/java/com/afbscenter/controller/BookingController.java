@@ -90,6 +90,48 @@ public class BookingController {
         this.paymentRepository = paymentRepository;
     }
 
+    /** 무제한 이용권 여부: totalCount 또는 product.usageCount가 null 또는 999 이상 */
+    private boolean isUnlimitedPass(com.afbscenter.model.MemberProduct mp) {
+        if (mp == null) return false;
+        try {
+            Integer total = mp.getTotalCount();
+            if (total == null || total >= 999) return true;
+            if (mp.getProduct() != null) {
+                Integer usage = mp.getProduct().getUsageCount();
+                if (usage == null || usage >= 999) return true;
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+        return false;
+    }
+
+    /** 무제한권 레슨 예약은 체크인 없이 자동 출석 처리(자동 승인) */
+    private void createAutoAttendanceForUnlimitedPass(Booking booking) {
+        if (booking == null || booking.getPurpose() != Booking.BookingPurpose.LESSON) return;
+        if (booking.getStatus() != Booking.BookingStatus.CONFIRMED && booking.getStatus() != Booking.BookingStatus.COMPLETED) return;
+        if (booking.getMember() == null || booking.getFacility() == null) return;
+        com.afbscenter.model.MemberProduct mp = booking.getMemberProduct();
+        if (mp == null || !isUnlimitedPass(mp)) return;
+        if (attendanceRepository.findByBookingId(booking.getId()).isPresent()) return; // 이미 출석 있으면 스킵
+        try {
+            java.time.LocalDate date = booking.getStartTime() != null ? booking.getStartTime().toLocalDate() : LocalDate.now();
+            java.time.LocalDateTime checkInTime = booking.getStartTime() != null ? booking.getStartTime() : LocalDateTime.now();
+            com.afbscenter.model.Attendance att = new com.afbscenter.model.Attendance();
+            att.setBooking(booking);
+            att.setMember(booking.getMember());
+            att.setFacility(booking.getFacility());
+            att.setDate(date);
+            att.setCheckInTime(checkInTime);
+            att.setStatus(com.afbscenter.model.Attendance.AttendanceStatus.PRESENT);
+            att.setProcessedBy("무제한권 자동승인");
+            attendanceRepository.save(att);
+            logger.info("무제한권 자동 출석 생성: Booking ID={}, MemberProduct ID={}", booking.getId(), mp.getId());
+        } catch (Exception e) {
+            logger.warn("무제한권 자동 출석 생성 실패: Booking ID={}, {}", booking.getId(), e.getMessage());
+        }
+    }
+
     /** 예약 시간이 해당 시설의 운영 슬롯(또는 기본 운영시간) 내인지 검증. 위반 시 에러 메시지 반환 */
     private Optional<String> validateBookingWithinFacilitySlot(Facility facility, LocalDateTime start, LocalDateTime end) {
         if (facility == null || start == null || end == null) return Optional.empty();
@@ -131,6 +173,7 @@ public class BookingController {
             @RequestParam(required = false) String facilityType,
             @RequestParam(required = false) String lessonCategory) {
         try {
+            logger.info("[BOOKING_FLOW] getAllBookings start date={} start={} end={} memberId={} memberNumber={} branch={}", date, start, end, memberId, memberNumber != null ? "***" : null, branch);
             List<Booking> bookings = new java.util.ArrayList<>();
             
             // 지점 파라미터 파싱
@@ -200,12 +243,22 @@ public class BookingController {
                 }
                 
                 if (startDate != null && endDate != null) {
-                    bookings = bookingRepository.findByDateRange(startDate, endDate);
+                    List<Booking> rawBookingsRange = bookingRepository.findByDateRange(startDate, endDate);
+                    java.util.Set<Long> seenIdsRange = new java.util.HashSet<>();
+                    bookings = rawBookingsRange.stream()
+                            .filter(booking -> {
+                                if (booking.getId() == null) return false;
+                                if (seenIdsRange.contains(booking.getId())) return false;
+                                seenIdsRange.add(booking.getId());
+                                return true;
+                            })
+                            .collect(java.util.stream.Collectors.toList());
                 }
             } else {
                 // 전체 예약 조회
                 bookings = bookingRepository.findAllWithFacilityAndMember();
             }
+            logger.info("[BOOKING_FLOW] after main query bookings.size()={}", bookings.size());
             
             // 종료 시간이 지난 확정 예약을 자동으로 완료 상태로만 변경. 대관(RENTAL)은 체크인된 경우에만 자동 완료
             LocalDateTime now = LocalDateTime.now();
@@ -236,22 +289,16 @@ public class BookingController {
                 logger.info("{}개의 예약이 자동으로 완료 상태로 변경되었습니다.", autoCompletedCount);
             }
             
-            // 체크인된 예약 필터링 (date 파라미터가 있을 때만, 출석 관리 페이지에서 사용)
+            // 체크인된 예약 필터링 (date 파라미터가 있을 때만, 출석 관리 페이지에서 사용). ID만 조회하여 N+1 방지
             if (date != null && !date.trim().isEmpty()) {
                 try {
                     LocalDate localDateForAttendance = LocalDate.parse(date);
-                    List<com.afbscenter.model.Attendance> checkedInAttendances = attendanceRepository.findCheckedInByDate(localDateForAttendance);
-                    java.util.Set<Long> checkedInBookingIds = new java.util.HashSet<>();
-                    for (com.afbscenter.model.Attendance attendance : checkedInAttendances) {
-                        if (attendance.getBooking() != null) {
-                            checkedInBookingIds.add(attendance.getBooking().getId());
-                        }
-                    }
-                    final java.util.Set<Long> finalCheckedInBookingIds = checkedInBookingIds;
+                    List<Long> checkedInBookingIds = attendanceRepository.findCheckedInBookingIdsByDate(localDateForAttendance);
+                    java.util.Set<Long> finalCheckedInBookingIds = checkedInBookingIds != null ? new java.util.HashSet<>(checkedInBookingIds) : java.util.Collections.emptySet();
                     bookings = bookings.stream()
                             .filter(booking -> !finalCheckedInBookingIds.contains(booking.getId()))
                             .collect(java.util.stream.Collectors.toList());
-                    logger.debug("체크인된 예약 {}건 제외됨", checkedInBookingIds.size());
+                    logger.debug("체크인된 예약 {}건 제외됨", finalCheckedInBookingIds.size());
                 } catch (Exception e) {
                     logger.warn("체크인된 예약 필터링 중 오류 (무시): {}", e.getMessage());
                 }
@@ -321,7 +368,25 @@ public class BookingController {
                 }
             }
             
+            // 예약별 출석 한 번에 조회 (루프 내 findByBookingId N+1 제거)
+            java.util.Map<Long, com.afbscenter.model.Attendance> attendanceByBookingIdMap = new HashMap<>();
+            if (!bookings.isEmpty()) {
+                List<Long> allBookingIds = bookings.stream().map(Booking::getId).filter(java.util.Objects::nonNull).distinct().collect(java.util.stream.Collectors.toList());
+                logger.info("[BOOKING_FLOW] before findByBookingIdIn allBookingIds.size()={}", allBookingIds.size());
+                if (!allBookingIds.isEmpty()) {
+                    List<com.afbscenter.model.Attendance> attendancesForBookings = attendanceRepository.findByBookingIdIn(allBookingIds);
+                    logger.info("[BOOKING_FLOW] after findByBookingIdIn attendancesForBookings.size()={}", attendancesForBookings != null ? attendancesForBookings.size() : 0);
+                    for (com.afbscenter.model.Attendance a : attendancesForBookings) {
+                        if (a.getBooking() != null && a.getBooking().getId() != null)
+                            attendanceByBookingIdMap.put(a.getBooking().getId(), a);
+                    }
+                }
+                logger.info("[BOOKING_FLOW] attendanceByBookingIdMap.size()={}", attendanceByBookingIdMap.size());
+            }
+            final java.util.Map<Long, com.afbscenter.model.Attendance> attendanceByBookingId = attendanceByBookingIdMap;
+
             // Booking을 Map으로 변환하여 JSON 직렬화 문제 방지 (대관 회차: 같은 이용권별 "시각순 첫 예약 완료 여부" 캐시)
+            logger.info("[BOOKING_FLOW] starting response loop bookings.size()={}", bookings.size());
             List<Map<String, Object>> bookingMaps = new java.util.ArrayList<>();
             java.util.Map<Long, Boolean> rentalFirstCompletedByMpId = new HashMap<>();
             for (Booking booking : bookings) {
@@ -333,7 +398,12 @@ public class BookingController {
                     bookingMap.put("participants", booking.getParticipants());
                     bookingMap.put("purpose", booking.getPurpose());
                     bookingMap.put("lessonCategory", booking.getLessonCategory());
-                    bookingMap.put("status", booking.getStatus());
+                    // 비회원 예약은 체크인 없이 자동 승인 → 대기로 저장돼 있어도 목록에는 확정으로 표시
+                    Booking.BookingStatus displayStatus = booking.getStatus();
+                    if (booking.getMember() == null && displayStatus == Booking.BookingStatus.PENDING) {
+                        displayStatus = Booking.BookingStatus.CONFIRMED;
+                    }
+                    bookingMap.put("status", displayStatus);
                     bookingMap.put("branch", booking.getBranch()); // 지점 정보 추가
                     bookingMap.put("paymentMethod", booking.getPaymentMethod());
                     bookingMap.put("memo", booking.getMemo());
@@ -454,6 +524,7 @@ public class BookingController {
                                     } else if (baseRemaining != null && totalCount != null) {
                                         // DEDUCT 없음: 횟수 조정(ADJUST) 또는 DB 잔여로 2월 9일부터 7·8·9회차 반영
                                         boolean firstCompleted = mpId != null && Boolean.TRUE.equals(rentalFirstCompletedByMpId.computeIfAbsent(mpId, id -> {
+                                            logger.debug("[BOOKING_FLOW] findFirstByMemberProduct_IdOrderByStartTimeAscIdAsc mpId={}", id);
                                             Booking first = bookingRepository.findFirstByMemberProduct_IdOrderByStartTimeAscIdAsc(id).orElse(null);
                                             return first != null && first.getStatus() == Booking.BookingStatus.COMPLETED;
                                         }));
@@ -485,7 +556,7 @@ public class BookingController {
                                     // 체크인된 예약: DEDUCT 순번으로 회차 확정. 단, 체크인 시 회차 줄이지 않음 → 미완료 시 회차보다 작게 두지 않음
                                     long sessionFromDeductId = 0;
                                     try {
-                                        java.util.Optional<com.afbscenter.model.Attendance> attOpt = attendanceRepository.findByBookingId(booking.getId());
+                                        java.util.Optional<com.afbscenter.model.Attendance> attOpt = java.util.Optional.ofNullable(attendanceByBookingId.get(booking.getId()));
                                         if (attOpt.isPresent()) {
                                             java.util.Optional<com.afbscenter.model.MemberProductHistory> histOpt = memberProductHistoryRepository.findDeductByAttendanceId(attOpt.get().getId());
                                             if (histOpt.isPresent() && histOpt.get().getId() != null) {
@@ -615,7 +686,11 @@ public class BookingController {
             bookingMap.put("participants", booking.getParticipants());
             bookingMap.put("purpose", booking.getPurpose());
             bookingMap.put("lessonCategory", booking.getLessonCategory());
-            bookingMap.put("status", booking.getStatus());
+            Booking.BookingStatus s = booking.getStatus();
+            if (booking.getMember() == null && s == Booking.BookingStatus.PENDING) {
+                s = Booking.BookingStatus.CONFIRMED;
+            }
+            bookingMap.put("status", s);
             bookingMap.put("paymentMethod", booking.getPaymentMethod());
             bookingMap.put("memo", booking.getMemo());
             bookingMap.put("nonMemberName", booking.getNonMemberName());
@@ -864,7 +939,7 @@ public class BookingController {
 
     @PostMapping
     @Transactional(rollbackFor = Exception.class)
-    public ResponseEntity<Map<String, Object>> createBooking(@RequestBody Map<String, Object> requestData) {
+    public ResponseEntity<Map<String, Object>> createBooking(@RequestBody Map<String, Object> requestData, jakarta.servlet.http.HttpServletRequest request) {
         try {
             logger.info("예약 생성 요청 수신: purpose={}, branch={}", requestData.get("purpose"), requestData.get("branch"));
             // Booking 객체로 변환
@@ -896,40 +971,39 @@ public class BookingController {
                 return ResponseEntity.badRequest().build();
             }
             
-            // Member 설정 - MEMBER_NUMBER 우선 사용
+            // Member 설정 - 비회원(nonMemberName 있음) 우선, 그 다음 MEMBER_NUMBER / member.id
             Member member = null;
-            String memberNumber = (String) requestData.get("memberNumber");
-            if (memberNumber != null && !memberNumber.trim().isEmpty()) {
-                // MEMBER_NUMBER로 회원 찾기
-                member = memberRepository.findByMemberNumber(memberNumber)
-                        .orElse(null);
-                if (member == null) {
-                    logger.warn("회원번호로 회원을 찾을 수 없습니다: {}", memberNumber);
-                }
-            } else if (requestData.get("member") != null) {
-                // 하위 호환성: ID로도 찾기 시도
-                Map<String, Object> memberMap = (Map<String, Object>) requestData.get("member");
-                Object memberIdObj = memberMap.get("id");
-                if (memberIdObj != null) {
-                    try {
-                        Long memberId;
-                        if (memberIdObj instanceof Number) {
-                            memberId = ((Number) memberIdObj).longValue();
-                        } else {
-                            memberId = Long.parseLong(memberIdObj.toString());
+            String nonMemberNameReq = (String) requestData.get("nonMemberName");
+            boolean asNonMember = (nonMemberNameReq != null && !nonMemberNameReq.isBlank());
+            if (asNonMember) {
+                // 비회원 예약(체험 1회성): member_id 없이 저장 → 체크인 목록에 안 나옴
+                member = null;
+            } else {
+                String memberNumber = (String) requestData.get("memberNumber");
+                if (memberNumber != null && !memberNumber.trim().isEmpty()) {
+                    member = memberRepository.findByMemberNumber(memberNumber)
+                            .orElse(null);
+                    if (member == null) {
+                        logger.warn("회원번호로 회원을 찾을 수 없습니다: {}", memberNumber);
+                    }
+                } else if (requestData.get("member") != null) {
+                    Map<String, Object> memberMap = (Map<String, Object>) requestData.get("member");
+                    Object memberIdObj = memberMap.get("id");
+                    if (memberIdObj != null) {
+                        try {
+                            Long memberId = memberIdObj instanceof Number
+                                    ? ((Number) memberIdObj).longValue()
+                                    : Long.parseLong(memberIdObj.toString());
+                            member = memberRepository.findById(memberId).orElse(null);
+                        } catch (NumberFormatException e) {
+                            logger.warn("회원 ID 형식이 올바르지 않습니다: {}", memberIdObj);
                         }
-                        member = memberRepository.findById(memberId).orElse(null);
-                    } catch (NumberFormatException e) {
-                        logger.warn("회원 ID 형식이 올바르지 않습니다: {}", memberIdObj);
                     }
                 }
             }
-            
             booking.setMember(member);
-            
-            // 비회원 정보 설정
             if (member == null) {
-                booking.setNonMemberName((String) requestData.get("nonMemberName"));
+                booking.setNonMemberName(asNonMember ? nonMemberNameReq.trim() : (String) requestData.get("nonMemberName"));
                 booking.setNonMemberPhone((String) requestData.get("nonMemberPhone"));
             } else {
                 booking.setNonMemberName(null);
@@ -1039,6 +1113,10 @@ public class BookingController {
                     logger.warn("상태 파싱 실패: {}", requestData.get("status"));
                     booking.setStatus(Booking.BookingStatus.PENDING);
                 }
+            }
+            // 비회원 예약은 체크인 없이 자동 승인 → 항상 확정으로 저장
+            if (booking.getMember() == null) {
+                booking.setStatus(Booking.BookingStatus.CONFIRMED);
             }
 
             // 지점(Branch) 설정
@@ -1166,12 +1244,15 @@ public class BookingController {
                 } catch (org.springframework.dao.DataAccessException e) {
                     logger.error("MemberProduct 조회 중 데이터베이스 오류: MemberProduct ID={}", 
                         requestData.get("memberProductId"), e);
+                    // 트랜잭션이 이미 rollback-only로 표시되므로 예외를 다시 던져 UnexpectedRollbackException 방지
+                    throw new IllegalArgumentException("상품 조회 중 데이터베이스 오류: " + e.getMessage(), e);
                 } catch (Exception e) {
                     logger.error("상품 설정 중 예상치 못한 오류: MemberProduct ID={}, 오류 타입: {}, 메시지: {}", 
                         requestData.get("memberProductId"), e.getClass().getName(), e.getMessage(), e);
+                    // 트랜잭션이 이미 rollback-only로 표시될 수 있으므로 예외를 다시 던짐
+                    throw new IllegalArgumentException("상품 설정 중 오류: " + e.getMessage(), e);
                 }
                 
-                // 예외가 발생해도 예약은 저장됨 (memberProduct는 null일 수 있음)
                 booking.setMemberProduct(memberProductToSet);
             } else {
                 // memberProductId가 없거나 member가 null이면 null로 설정
@@ -1320,10 +1401,8 @@ public class BookingController {
                     // 최근 방문일 업데이트 실패해도 예약은 저장됨
                 }
             }
-            
-            // 예약이 확정되거나 완료될 때 memberProduct가 없으면 자동으로 할당
-            // 주의: PENDING 상태에서는 자동 할당하지 않음 (예약 생성 시에는 상품을 선택해야 함)
-            // 이 로직은 예약 수정 시에만 작동하도록 함
+            // 무제한권 레슨 예약: 체크인 없이 자동 출석(자동 승인)
+            createAutoAttendanceForUnlimitedPass(result);
             
             // JSON 직렬화를 위해 Map으로 변환 (순환 참조 방지)
             Map<String, Object> bookingMap = new HashMap<>();
@@ -1429,7 +1508,7 @@ public class BookingController {
 
     @PutMapping("/{id}")
     @Transactional
-    public ResponseEntity<Map<String, Object>> updateBooking(@PathVariable Long id, @RequestBody Map<String, Object> requestData) {
+    public ResponseEntity<Map<String, Object>> updateBooking(@PathVariable Long id, @RequestBody Map<String, Object> requestData, HttpServletRequest request) {
         try {
             // JOIN FETCH를 사용하여 관련 엔티티를 함께 로드
             Booking booking = bookingRepository.findByIdWithFacilityAndMember(id);
@@ -1607,6 +1686,8 @@ public class BookingController {
                             // 최근 방문일 업데이트 실패해도 예약은 저장됨
                         }
                     }
+                    // 무제한권 레슨 예약: 체크인 없이 자동 출석(자동 승인)
+                    createAutoAttendanceForUnlimitedPass(booking);
                 } catch (IllegalArgumentException e) {
                     logger.warn("상태 파싱 실패: {}", requestData.get("status"), e);
                 }
@@ -1681,14 +1762,19 @@ public class BookingController {
                 }
             }
             
-            // Member 업데이트 (memberNumber 또는 member.id로)
-            if (requestData.get("memberNumber") != null) {
+            // Member 업데이트 - 비회원(nonMemberName 있음) 우선, 그 다음 memberNumber / member.id
+            String nonMemberNameUpdate = (String) requestData.get("nonMemberName");
+            boolean asNonMemberUpdate = (nonMemberNameUpdate != null && !nonMemberNameUpdate.isBlank());
+            if (asNonMemberUpdate) {
+                booking.setMember(null);
+                booking.setNonMemberName(nonMemberNameUpdate.trim());
+                booking.setNonMemberPhone((String) requestData.get("nonMemberPhone"));
+            } else if (requestData.get("memberNumber") != null) {
                 String memberNumber = requestData.get("memberNumber").toString();
                 if (!memberNumber.trim().isEmpty()) {
                     Member member = memberRepository.findByMemberNumber(memberNumber).orElse(null);
                     booking.setMember(member);
                     if (member == null) {
-                        // 비회원 정보 설정
                         booking.setNonMemberName((String) requestData.get("nonMemberName"));
                         booking.setNonMemberPhone((String) requestData.get("nonMemberPhone"));
                     } else {
@@ -1708,12 +1794,9 @@ public class BookingController {
                     Object memberIdObj = memberMap.get("id");
                     if (memberIdObj != null) {
                         try {
-                            Long memberId;
-                            if (memberIdObj instanceof Number) {
-                                memberId = ((Number) memberIdObj).longValue();
-                            } else {
-                                memberId = Long.parseLong(memberIdObj.toString());
-                            }
+                            Long memberId = memberIdObj instanceof Number
+                                    ? ((Number) memberIdObj).longValue()
+                                    : Long.parseLong(memberIdObj.toString());
                             Member member = memberRepository.findById(memberId).orElse(null);
                             booking.setMember(member);
                             if (member == null) {
@@ -1728,6 +1811,10 @@ public class BookingController {
                         }
                     }
                 }
+            }
+            // 비회원 예약은 체크인 없이 자동 승인 → 항상 확정으로 저장
+            if (booking.getMember() == null) {
+                booking.setStatus(Booking.BookingStatus.CONFIRMED);
             }
 
             // 수정 시 이용권(memberProductId) 반영 - 미연결 예약에서 이용권 연결 시 목록에서 제거되도록
@@ -1766,6 +1853,8 @@ public class BookingController {
                 }
             }
 
+            String processedBy = request != null ? (String) request.getAttribute("username") : null;
+            if (processedBy != null && !processedBy.isEmpty()) booking.setProcessedBy(processedBy);
             Booking saved = bookingRepository.save(booking);
             
             // 주의: 횟수권 차감은 체크인 시에만 수행 (AttendanceController.processCheckin)
@@ -1946,7 +2035,8 @@ public class BookingController {
                                                     : itemName.equals(nameStr);
                                                 if (nameMatches) {
                                                     int remaining = item.get("remaining") instanceof Number ? ((Number) item.get("remaining")).intValue() : 0;
-                                                    item.put("remaining", remaining + 1);
+                                                    int capped = totalCount != null ? Math.min(remaining + 1, totalCount) : (remaining + 1);
+                                                    item.put("remaining", capped);
                                                     memberProduct.setPackageItemsRemaining(mapper.writeValueAsString(items));
                                                     int sum = 0;
                                                     for (Map<String, Object> i : items) {
@@ -2080,13 +2170,18 @@ public class BookingController {
                                 new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
                             String lessonName = (bookingToRestore.getPurpose() == Booking.BookingPurpose.RENTAL)
                                 ? "대관" : convertLessonCategoryToName(bookingToRestore.getLessonCategory());
+                            Integer totalCount = memberProduct.getTotalCount();
+                            if (totalCount == null && memberProduct.getProduct() != null && memberProduct.getProduct().getUsageCount() != null) {
+                                totalCount = memberProduct.getProduct().getUsageCount();
+                            }
                             boolean updated = false;
                             for (Map<String, Object> item : items) {
                                 if (lessonName.equals(item.get("name"))) {
-                                    int remaining = ((Number) item.get("remaining")).intValue();
-                                    item.put("remaining", remaining + 1);
+                                    int itemRem = ((Number) item.get("remaining")).intValue();
+                                    int restoreCapped = totalCount != null ? Math.min(itemRem + 1, totalCount) : (itemRem + 1);
+                                    item.put("remaining", restoreCapped);
                                     updated = true;
-                                    logger.info("예약 삭제 시 패키지 복구: {} - {}회 남음", lessonName, remaining + 1);
+                                    logger.info("예약 삭제 시 패키지 복구: {} - {}회 남음", lessonName, restoreCapped);
                                     break;
                                 }
                             }

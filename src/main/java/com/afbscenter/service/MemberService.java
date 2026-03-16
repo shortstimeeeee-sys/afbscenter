@@ -22,9 +22,11 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -343,8 +345,18 @@ public class MemberService {
      * Controller의 비즈니스 로직을 Service로 이동
      */
     @Transactional(readOnly = true)
-    public List<MemberResponseDTO> getAllMembersWithFilters(String productCategory, String grade, String status, String branch) {
+    public List<MemberResponseDTO> getAllMembersWithFilters(String productCategory, String grade, String status, String branch, Boolean endedTicket) {
         List<Member> members = memberRepository.findAllOrderByName();
+
+        // 이용권 종료 기준 필터링 (목록 '종료' 배지와 동일 규칙)
+        if (Boolean.TRUE.equals(endedTicket)) {
+            Set<Long> onlyEndedIds = new java.util.HashSet<>(memberProductRepository.findMemberIdsWithOnlyEndedProducts());
+            Set<Long> partialEndedIds = new java.util.HashSet<>(memberProductRepository.findMemberIdsWithPartialEndedSince(LocalDateTime.now().minusDays(3)));
+            Set<Long> endedTicketMemberIds = new java.util.HashSet<>(onlyEndedIds);
+            endedTicketMemberIds.addAll(partialEndedIds);
+            members = members.stream().filter(m -> endedTicketMemberIds.contains(m.getId())).collect(Collectors.toList());
+            logger.info("회원 목록 이용권 종료 필터: {}명", members.size());
+        }
         
         // 등급별 필터링
         if (grade != null && !grade.trim().isEmpty()) {
@@ -422,7 +434,8 @@ public class MemberService {
                 try {
                     List<com.afbscenter.model.Booking> latestLessons = bookingRepository.findLatestLessonByMemberId(member.getId());
                     if (latestLessons != null && !latestLessons.isEmpty()) {
-                        latestLessonDate = latestLessons.get(0).getStartTime().toLocalDate();
+                        java.time.LocalDateTime start = latestLessons.get(0).getStartTime();
+                        latestLessonDate = start != null ? start.toLocalDate() : null;
                     }
                 } catch (Exception e) {
                     logger.warn("최근 레슨 날짜 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
@@ -489,21 +502,13 @@ public class MemberService {
                                 // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용 (중복 방지)
                                 Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
                                 
-                                // remainingCount가 null일 때만 재계산 (DB에 저장된 값을 우선 사용)
-                                // 체크인 시 차감된 정확한 값을 유지하기 위해 0도 유효한 값으로 처리
-                                if (mpRemainingCount == null) {
-                                    mpRemainingCount = totalCount - actualUsedCount.intValue();
-                                    if (mpRemainingCount < 0) {
-                                        mpRemainingCount = 0;
-                                    }
-                                    
-                                    // 계산된 값을 MemberProduct 객체에 반영 (DTO에 전달되도록)
-                                    mp.setRemainingCount(mpRemainingCount);
-                                    if (mp.getTotalCount() == null || mp.getTotalCount() <= 0) {
-                                        mp.setTotalCount(totalCount);
-                                    }
+                                // 회원 목록과 상세(이용권 탭) 숫자 통일: COUNT_PASS는 항상 totalCount - actualUsedCount 사용
+                                int calculated = Math.max(0, totalCount - (actualUsedCount != null ? actualUsedCount.intValue() : 0));
+                                mpRemainingCount = calculated;
+                                mp.setRemainingCount(mpRemainingCount);
+                                if (mp.getTotalCount() == null || mp.getTotalCount() <= 0) {
+                                    mp.setTotalCount(totalCount);
                                 }
-                                // mpRemainingCount가 0이거나 양수인 경우 DB에 저장된 값을 그대로 사용 (체크인 시 차감된 정확한 값)
                                 
                                 if (mpRemainingCount < 0) {
                                     mpRemainingCount = 0;
@@ -945,6 +950,10 @@ public class MemberService {
         }
         if (updatedMember.getCoachMemo() != null) {
             member.setCoachMemo(updatedMember.getCoachMemo());
+            member.setCoachMemoPitcher(updatedMember.getCoachMemoPitcher());
+            member.setCoachMemoBatter(updatedMember.getCoachMemoBatter());
+            member.setCoachMemoDefense(updatedMember.getCoachMemoDefense());
+            member.setCoachMemoCatcher(updatedMember.getCoachMemoCatcher());
         }
         if (updatedMember.getGuardianName() != null) {
             member.setGuardianName(updatedMember.getGuardianName());
@@ -961,10 +970,18 @@ public class MemberService {
         member.setPitchingSpeed(updatedMember.getPitchingSpeed());
         member.setPitcherPower(updatedMember.getPitcherPower());
         member.setPitcherControl(updatedMember.getPitcherControl());
+        member.setPitcherBreakingBall(updatedMember.getPitcherBreakingBall());
         member.setPitcherFlexibility(updatedMember.getPitcherFlexibility());
         member.setRunningSpeed(updatedMember.getRunningSpeed());
         member.setBatterPower(updatedMember.getBatterPower());
         member.setBatterFlexibility(updatedMember.getBatterFlexibility());
+        member.setDefenseHandling(updatedMember.getDefenseHandling());
+        member.setDefenseStep(updatedMember.getDefenseStep());
+        member.setDefenseThrowing(updatedMember.getDefenseThrowing());
+        member.setDefenseQuickness(updatedMember.getDefenseQuickness());
+        member.setCatcherBlocking(updatedMember.getCatcherBlocking());
+        member.setCatcherThrowing(updatedMember.getCatcherThrowing());
+        member.setCatcherFraming(updatedMember.getCatcherFraming());
         // 코치 설정
         if (updatedMember.getCoach() != null && updatedMember.getCoach().getId() != null) {
             Coach coach = coachRepository.findById(updatedMember.getCoach().getId())

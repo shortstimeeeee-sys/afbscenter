@@ -369,6 +369,7 @@ public class MemberResponseDTO {
                     mpMap.put("remainingCount", mp.remainingCount);
                     mpMap.put("totalCount", mp.totalCount);
                     mpMap.put("status", mp.status);
+                    mpMap.put("endedAt", mp.endedAt);
                     mpMap.put("coachName", mp.coachName); // 상품에 지정된 코치명
                     
                     if (mp.product != null) {
@@ -441,6 +442,8 @@ public class MemberResponseDTO {
         public Integer remainingCount;
         public Integer totalCount;
         public String status;
+        /** 이용권이 종료(EXPIRED/USED_UP)된 시각. 종료 배지 3일 유지 규칙용 */
+        public LocalDateTime endedAt;
         public ProductInfo product;
         public String coachName; // 상품에 지정된 코치명
         
@@ -450,6 +453,7 @@ public class MemberResponseDTO {
         public Integer getRemainingCount() { return remainingCount; }
         public Integer getTotalCount() { return totalCount; }
         public String getStatus() { return status; }
+        public LocalDateTime getEndedAt() { return endedAt; }
         public ProductInfo getProduct() { return product; }
         public String getCoachName() { return coachName; }
     }

@@ -4,12 +4,14 @@ import com.afbscenter.model.Facility;
 import com.afbscenter.model.FacilitySlot;
 import com.afbscenter.model.Member;
 import com.afbscenter.model.MemberProduct;
+import com.afbscenter.model.MemberProductHistory;
 import com.afbscenter.model.Payment;
 import com.afbscenter.model.Product;
 import com.afbscenter.model.User;
 import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.FacilityRepository;
 import com.afbscenter.repository.FacilitySlotRepository;
+import com.afbscenter.repository.MemberProductHistoryRepository;
 import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.PaymentRepository;
@@ -68,6 +70,9 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
     
     @Autowired
     private PaymentRepository paymentRepository;
+    
+    @Autowired
+    private MemberProductHistoryRepository memberProductHistoryRepository;
     
     @Autowired
     private ProductRepository productRepository;
@@ -161,6 +166,30 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                 logger.warn("NULL 허용 컬럼 마이그레이션 실행 중 오류 (무시): {}", e.getMessage());
             }
             
+            // 비회원 대기 예약 → 확정으로 일괄 수정 (체크인 없이 자동 승인)
+            try {
+                int updated = jdbcTemplate.update("UPDATE bookings SET status = 'CONFIRMED' WHERE member_id IS NULL AND status = 'PENDING'");
+                if (updated > 0) {
+                    logger.info("비회원 대기 예약을 확정으로 일괄 수정: {}건", updated);
+                }
+            } catch (Exception e) {
+                logger.warn("비회원 대기 예약 수정 중 오류 (무시): {}", e.getMessage());
+            }
+            
+            // 회원으로 잘못 저장된 '체험' 예약 → 비회원으로 전환 (체크인 목록에서 제거)
+            try {
+                int converted = jdbcTemplate.update(
+                    "UPDATE bookings b INNER JOIN members m ON b.member_id = m.id " +
+                    "SET b.member_id = NULL, b.non_member_name = m.name, b.status = 'CONFIRMED' " +
+                    "WHERE m.name LIKE '%체험%'"
+                );
+                if (converted > 0) {
+                    logger.info("체험 회원 예약을 비회원으로 전환(자동 체크인 적용): {}건", converted);
+                }
+            } catch (Exception e) {
+                logger.warn("체험 예약 비회원 전환 중 오류 (무시): {}", e.getMessage());
+            }
+            
             // 초기 관리자 계정 생성
             try {
                 initializeDefaultUsers();
@@ -214,6 +243,14 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             }
             
             try {
+                logger.info("member_id FK 수정 마이그레이션 실행 (MEMBERS_COPY_3_1 -> members)");
+                fixAllMemberIdForeignKeysToMembers();
+                logger.info("member_id FK 수정 완료");
+            } catch (Exception e) {
+                logger.warn("member_id FK 수정 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
                 logger.info("애플리케이션 시작 시 누락된 결제(Payment) 자동 생성 실행");
                 createMissingPayments();
                 logger.info("누락된 결제(Payment) 자동 생성 완료");
@@ -227,6 +264,30 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                 logger.info("Users 테이블 approved 컬럼 마이그레이션 완료");
             } catch (Exception e) {
                 logger.warn("Users 테이블 approved 컬럼 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 회원 히스토리 추적용 processed_by 컬럼 마이그레이션 실행");
+                migrateProcessedByColumns();
+                logger.info("processed_by 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("processed_by 컬럼 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 분야별 코치 메모 컬럼 마이그레이션 실행");
+                migrateCoachMemoByFieldColumns();
+                logger.info("분야별 코치 메모 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("분야별 코치 메모 컬럼 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 수치별 코치 메모(JSON) 컬럼 마이그레이션 실행");
+                migrateCoachMemoStatsColumn();
+                logger.info("수치별 코치 메모 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("수치별 코치 메모 컬럼 마이그레이션 중 오류 (무시): {}", e.getMessage());
             }
 
             try {
@@ -324,6 +385,85 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
         } catch (Exception e) {
             logger.warn("Products 테이블 coach_id 컬럼 마이그레이션 중 오류: {}", e.getMessage());
             // 마이그레이션 실패해도 애플리케이션은 계속 실행되도록 함
+        }
+
+        // members 테이블에 pitcher_breaking_ball(변화구) 컬럼 추가
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBERS'"
+            );
+            if (!tables.isEmpty()) {
+                List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE UPPER(TABLE_NAME) = 'MEMBERS' AND UPPER(COLUMN_NAME) = 'PITCHER_BREAKING_BALL'"
+                );
+                if (columns.isEmpty()) {
+                    jdbcTemplate.execute("ALTER TABLE members ADD COLUMN pitcher_breaking_ball VARCHAR(10)");
+                    logger.info("Members 테이블에 pitcher_breaking_ball 컬럼 추가 완료");
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Members 테이블 pitcher_breaking_ball 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+
+        // member_products 테이블에 ended_at 컬럼 추가 (이용권 종료 시각, 종료 배지 3일 유지 규칙용)
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBER_PRODUCTS'"
+            );
+            if (!tables.isEmpty()) {
+                List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE UPPER(TABLE_NAME) = 'MEMBER_PRODUCTS' AND UPPER(COLUMN_NAME) = 'ENDED_AT'"
+                );
+                if (columns.isEmpty()) {
+                    jdbcTemplate.execute("ALTER TABLE member_products ADD COLUMN ended_at TIMESTAMP");
+                    logger.info("member_products 테이블에 ended_at 컬럼 추가 완료");
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("member_products ended_at 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+
+        // members 테이블에 수비 순발력 컬럼 추가
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBERS'"
+            );
+            if (!tables.isEmpty()) {
+                List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE UPPER(TABLE_NAME) = 'MEMBERS' AND UPPER(COLUMN_NAME) = 'DEFENSE_QUICKNESS'"
+                );
+                if (columns.isEmpty()) {
+                    jdbcTemplate.execute("ALTER TABLE members ADD COLUMN defense_quickness DOUBLE");
+                    logger.info("Members 테이블에 defense_quickness 컬럼 추가 완료");
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Members 테이블 defense_quickness 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+
+        // members 테이블에 포수 기록 컬럼 추가
+        for (String col : new String[]{"catcher_blocking", "catcher_throwing", "catcher_framing"}) {
+            try {
+                List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBERS'"
+                );
+                if (!tables.isEmpty()) {
+                    List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                        "WHERE UPPER(TABLE_NAME) = 'MEMBERS' AND UPPER(COLUMN_NAME) = ?",
+                        col.toUpperCase()
+                    );
+                    if (columns.isEmpty()) {
+                        jdbcTemplate.execute("ALTER TABLE members ADD COLUMN " + col + " DOUBLE");
+                        logger.info("Members 테이블에 {} 컬럼 추가 완료", col);
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Members 테이블 {} 컬럼 마이그레이션 중 오류: {}", col, e.getMessage());
+            }
         }
     }
 
@@ -611,7 +751,17 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
     
     /**
      * 누락된 결제(Payment) 자동 생성
-     * MemberProduct가 있지만 Payment가 없는 경우 자동으로 Payment를 생성합니다.
+     * MemberProduct가 있지만 Payment가 없는 경우 자동으로 Payment를 생성하고,
+     * COUNT_PASS 이용권은 이용권 구매/종료 이력(MemberProductHistory CHARGE)도 함께 생성합니다.
+     *
+     * 회원 상세 "연결된 부분" 처리 현황:
+     * - 기본 정보: members 테이블 (FK 무관)
+     * - 이용권: member_products (FK 수정으로 INSERT 정상)
+     * - 결제 내역: payments (FK 수정 + 본 메서드로 누락분 보정)
+     * - 예약 내역: bookings (FK 수정으로 INSERT 정상)
+     * - 출석 내역: attendances (FK 수정으로 INSERT 정상)
+     * - 이용권 구매/종료 이력: member_product_history (FK 수정 + 본 메서드에서 결제 생성 시 CHARGE 이력 추가)
+     * - 회원 히스토리/코치 메모: members 컬럼 (FK 무관)
      */
     @Transactional(readOnly = false)
     private void createMissingPayments() {
@@ -708,12 +858,32 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                             payment.setCreatedAt(LocalDateTime.now());
                             
                             // Payment 저장
-                            paymentRepository.save(payment);
+                            Payment savedPayment = paymentRepository.save(payment);
                             paymentRepository.flush();
                             totalCreated++;
                             
+                            // 이용권 구매/종료 이력(충전) 저장 - 결제 내역과 동일하게 처리
+                            if (product.getType() == Product.ProductType.COUNT_PASS) {
+                                try {
+                                    Integer afterRemaining = memberProduct.getRemainingCount() != null ? memberProduct.getRemainingCount() : 0;
+                                    Integer totalCount = memberProduct.getTotalCount() != null ? memberProduct.getTotalCount() : (product.getUsageCount() != null ? product.getUsageCount() : 0);
+                                    MemberProductHistory history = new MemberProductHistory();
+                                    history.setMemberProduct(memberProduct);
+                                    history.setMember(member);
+                                    history.setPayment(savedPayment);
+                                    history.setTransactionDate(LocalDateTime.now());
+                                    history.setType(MemberProductHistory.TransactionType.CHARGE);
+                                    history.setChangeAmount(totalCount != null ? totalCount : 0);
+                                    history.setRemainingCountAfter(afterRemaining);
+                                    history.setDescription("상품 할당 (자동 생성): " + productName);
+                                    memberProductHistoryRepository.save(history);
+                                } catch (Exception histEx) {
+                                    logger.debug("이용권 이력 저장 실패 (무시): {}", histEx.getMessage());
+                                }
+                            }
+                            
                             logger.debug("누락된 결제 생성 완료: Payment ID={}, 회원 ID={}, 상품 ID={}, 금액={}", 
-                                payment.getId(), member.getId(), productId, product.getPrice());
+                                savedPayment.getId(), member.getId(), productId, product.getPrice());
                         } catch (Exception e) {
                             logger.debug("MemberProduct 처리 중 오류: MemberProduct ID={}, 오류: {}", 
                                 memberProduct.getId(), e.getMessage());
@@ -850,6 +1020,205 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
         } catch (Exception e) {
             logger.warn("Users 테이블 approved 컬럼 마이그레이션 중 오류: {}", e.getMessage());
             // 마이그레이션 실패해도 애플리케이션은 계속 실행되도록 함
+        }
+    }
+
+    /**
+     * 회원 히스토리 추적용 processed_by 컬럼 추가 (members, payments, bookings, attendances, member_product_history)
+     */
+    private void migrateProcessedByColumns() {
+        String[] tableColumnPairs = {
+            "members", "processed_by",
+            "payments", "processed_by",
+            "bookings", "processed_by",
+            "attendances", "processed_by",
+            "member_product_history", "processed_by"
+        };
+        for (int i = 0; i < tableColumnPairs.length; i += 2) {
+            String tableName = tableColumnPairs[i];
+            String columnName = tableColumnPairs[i + 1];
+            try {
+                List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = ?",
+                    tableName.toUpperCase().replace("-", "_")
+                );
+                if (!tables.isEmpty()) {
+                    List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                        "WHERE UPPER(TABLE_NAME) = ? AND UPPER(COLUMN_NAME) = ?",
+                        tableName.toUpperCase().replace("-", "_"),
+                        columnName.toUpperCase()
+                    );
+                    if (columns.isEmpty()) {
+                        jdbcTemplate.execute("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " VARCHAR(50)");
+                        logger.info("{} 테이블에 {} 컬럼 추가 완료", tableName, columnName);
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("{} 테이블 {} 컬럼 마이그레이션 중 오류: {}", tableName, columnName, e.getMessage());
+            }
+        }
+    }
+
+    /** 분야별 코치 메모 컬럼 추가 (members) */
+    private void migrateCoachMemoByFieldColumns() {
+        String[] columns = {"coach_memo_pitcher", "coach_memo_batter", "coach_memo_defense", "coach_memo_catcher"};
+        for (String col : columns) {
+            try {
+                List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBERS'");
+                if (!tables.isEmpty()) {
+                    List<Map<String, Object>> existing = jdbcTemplate.queryForList(
+                        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'MEMBERS' AND UPPER(COLUMN_NAME) = ?",
+                        col.toUpperCase());
+                    if (existing.isEmpty()) {
+                        jdbcTemplate.execute("ALTER TABLE members ADD COLUMN " + col + " VARCHAR(1000)");
+                        logger.info("members 테이블에 {} 컬럼 추가 완료", col);
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("members {} 컬럼 마이그레이션 중 오류: {}", col, e.getMessage());
+            }
+        }
+    }
+
+    /** 수치별 코치 메모 JSON 컬럼 추가 (members.coach_memo_stats) */
+    private void migrateCoachMemoStatsColumn() {
+        try {
+            List<Map<String, Object>> existing = jdbcTemplate.queryForList(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'MEMBERS' AND UPPER(COLUMN_NAME) = 'COACH_MEMO_STATS'");
+            if (existing.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE members ADD COLUMN coach_memo_stats VARCHAR(4000)");
+                logger.info("members 테이블에 coach_memo_stats 컬럼 추가 완료");
+            }
+        } catch (Exception e) {
+            logger.warn("coach_memo_stats 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * member_id FK를 가진 테이블들 (H2 MEMBERS_COPY_3_1 참조 오류 수정 대상).
+     * 애플리케이션 코드는 MEMBERS_COPY_3_1을 참조하지 않으며, JPA는 항상 members 테이블을 사용함.
+     * 아래 7개 테이블이 Member 엔티티와 member_id로 연결된 전부이므로, 이 FK 수정으로
+     * 이용권 할당·결제·예약·출석·이력·기록 등 관련 기능이 정상 동작함.
+     */
+    private static final String[] MEMBER_ID_TABLES = {
+        "member_products", "payments", "bookings", "attendances",
+        "member_product_history", "baseball_records", "training_logs"
+    };
+
+    /** 에러 로그에서 확인된 잘못된 FK 제약 이름 (테이블 무관, 제거 시도용) */
+    private static final String[] KNOWN_BAD_FK_NAMES = {
+        "MEMBERS_COPY_3_1_FKK2BY4CTF2FV2VHFO1MBRTQJP1",
+        "MEMBERS_COPY_3_1_FKTVBQ19GRAFF4NNOQPNGBE762",
+        "MEMBERS_COPY_3_1_FK2HU43B2W26UM1GQL30WBF0173",  // bookings.member_id
+        "MEMBERS_COPY_3_1_FKBPSEF3FSYN2QIAPT3E0B1MIXA",  // member_product_history.member_id
+        "MEMBERS_COPY_3_1_FKR7CD1E30648D21VCIF5FGFTTU"   // attendances.member_id
+    };
+
+    /**
+     * member_id FK가 H2 내부 복사 테이블(MEMBERS_COPY_3_1)을 참조하는 모든 테이블을
+     * members(id) 참조로 수정. (member_products, payments, bookings, attendances 등)
+     */
+    private void fixAllMemberIdForeignKeysToMembers() {
+        try {
+            jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY FALSE");
+            try {
+                for (String tableName : MEMBER_ID_TABLES) {
+                    fixMemberIdForeignKeyForTable(tableName);
+                }
+            } finally {
+                jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY TRUE");
+            }
+        } catch (Exception e) {
+            logger.warn("member_id FK 일괄 수정 중 오류: {}", e.getMessage());
+            throw e;
+        }
+    }
+
+    private void fixMemberIdForeignKeyForTable(String tableName) {
+        String tableUpper = tableName.toUpperCase();
+        try {
+            // 1) 알려진 잘못된 제약 이름으로 제거 시도 (여러 개 있을 수 있으므로 모두 시도)
+            for (String name : KNOWN_BAD_FK_NAMES) {
+                try {
+                    jdbcTemplate.execute("ALTER TABLE " + tableName + " DROP CONSTRAINT \"" + name + "\"");
+                    logger.info("{} 잘못된 FK 제거(알려진 이름): {}", tableName, name);
+                } catch (Exception e) {
+                    try {
+                        jdbcTemplate.execute("ALTER TABLE " + tableName + " DROP CONSTRAINT " + name);
+                        logger.info("{} 잘못된 FK 제거(알려진 이름): {}", tableName, name);
+                    } catch (Exception e2) {
+                        logger.trace("제약 제거 시도 무시: {} - {}", name, e2.getMessage());
+                    }
+                }
+            }
+            // 2) INFORMATION_SCHEMA로 해당 테이블의 REFERENTIAL 제약 중 MEMBERS가 아닌 테이블 참조 제거 (또는 이름에 MEMBERS_COPY 포함)
+            List<Map<String, Object>> tcList = jdbcTemplate.queryForList(
+                "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS " +
+                "WHERE UPPER(TABLE_SCHEMA) = 'PUBLIC' AND UPPER(TABLE_NAME) = ? AND UPPER(CONSTRAINT_TYPE) = 'REFERENTIAL'",
+                tableUpper
+            );
+            for (Map<String, Object> tc : tcList) {
+                Object cnObj = tc.get("CONSTRAINT_NAME");
+                if (cnObj == null) continue;
+                String constraintName = cnObj.toString();
+                // 이름에 MEMBERS_COPY가 포함된 FK는 무조건 제거 (H2 ALTER TABLE 복사본 참조)
+                if (constraintName.toUpperCase().contains("MEMBERS_COPY")) {
+                    try {
+                        jdbcTemplate.execute("ALTER TABLE " + tableName + " DROP CONSTRAINT \"" + constraintName + "\"");
+                        logger.info("{} MEMBERS_COPY FK 제거(이름 패턴): {}", tableName, constraintName);
+                    } catch (Exception e) {
+                        try {
+                            jdbcTemplate.execute("ALTER TABLE " + tableName + " DROP CONSTRAINT " + constraintName);
+                            logger.info("{} MEMBERS_COPY FK 제거(이름 패턴): {}", tableName, constraintName);
+                        } catch (Exception e2) {
+                            logger.warn("{} FK 제거 실패: {} - {}", tableName, constraintName, e2.getMessage());
+                        }
+                    }
+                    continue;
+                }
+                List<Map<String, Object>> refList = jdbcTemplate.queryForList(
+                    "SELECT tc2.TABLE_NAME AS REF_TABLE FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc " +
+                    "JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc2 ON tc2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME AND tc2.CONSTRAINT_SCHEMA = rc.UNIQUE_CONSTRAINT_SCHEMA " +
+                    "WHERE rc.CONSTRAINT_NAME = ? AND rc.CONSTRAINT_SCHEMA = 'PUBLIC'",
+                    constraintName
+                );
+                if (!refList.isEmpty()) {
+                    Object refTable = refList.get(0).get("REF_TABLE");
+                    String refTableStr = refTable != null ? refTable.toString() : "";
+                    if (!"MEMBERS".equalsIgnoreCase(refTableStr)) {
+                        try {
+                            jdbcTemplate.execute("ALTER TABLE " + tableName + " DROP CONSTRAINT \"" + constraintName + "\"");
+                            logger.info("{} 잘못된 FK 제거: {} (참조: {})", tableName, constraintName, refTableStr);
+                        } catch (Exception e) {
+                            try {
+                                jdbcTemplate.execute("ALTER TABLE " + tableName + " DROP CONSTRAINT " + constraintName);
+                                logger.info("{} 잘못된 FK 제거: {} (참조: {})", tableName, constraintName, refTableStr);
+                            } catch (Exception e2) {
+                                logger.warn("{} FK 제거 실패 (무시): {} - {}", tableName, constraintName, e2.getMessage());
+                            }
+                        }
+                    }
+                }
+            }
+            // 3) member_id -> members(id) FK가 없으면 추가
+            List<Map<String, Object>> existingRefs = jdbcTemplate.queryForList(
+                "SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc_child " +
+                "JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc ON rc.CONSTRAINT_NAME = tc_child.CONSTRAINT_NAME AND rc.CONSTRAINT_SCHEMA = tc_child.CONSTRAINT_SCHEMA " +
+                "JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc_parent ON tc_parent.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME AND tc_parent.CONSTRAINT_SCHEMA = rc.UNIQUE_CONSTRAINT_SCHEMA " +
+                "WHERE UPPER(tc_child.TABLE_NAME) = ? AND tc_child.CONSTRAINT_TYPE = 'REFERENTIAL' AND UPPER(tc_parent.TABLE_NAME) = 'MEMBERS'",
+                tableUpper
+            );
+            if (existingRefs.isEmpty()) {
+                String fkName = "fk_" + tableName.replace(" ", "_") + "_member";
+                jdbcTemplate.execute(
+                    "ALTER TABLE " + tableName + " ADD CONSTRAINT " + fkName + " FOREIGN KEY (member_id) REFERENCES members(id)"
+                );
+                logger.info("{} -> members FK 추가 완료", tableName);
+            }
+        } catch (Exception e) {
+            logger.warn("{} member_id FK 수정 중 오류: {}", tableName, e.getMessage());
         }
     }
 

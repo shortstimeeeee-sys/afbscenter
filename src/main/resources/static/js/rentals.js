@@ -247,24 +247,20 @@ async function loadRentalStats() {
     try {
         const filterStart = document.getElementById('filter-date-start')?.value || '';
         const filterEnd = document.getElementById('filter-date-end')?.value || '';
-        let startISO, endISO;
+        let startParam, endParam;
         if (filterStart && filterEnd) {
-            const start = new Date(filterStart);
-            start.setHours(0, 0, 0, 0);
-            const end = new Date(filterEnd);
-            end.setHours(23, 59, 59, 999);
-            startISO = start.toISOString();
-            endISO = end.toISOString();
+            startParam = filterStart;
+            endParam = filterEnd;
         } else {
             const now = new Date();
-            const first = new Date(now.getFullYear(), now.getMonth(), 1);
-            const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-            last.setHours(23, 59, 59, 999);
-            startISO = first.toISOString();
-            endISO = last.toISOString();
+            const y = now.getFullYear(), m = now.getMonth();
+            const first = new Date(y, m, 1);
+            const last = new Date(y, m + 1, 0);
+            startParam = first.getFullYear() + '-' + String(first.getMonth() + 1).padStart(2, '0') + '-' + String(first.getDate()).padStart(2, '0');
+            endParam = last.getFullYear() + '-' + String(last.getMonth() + 1).padStart(2, '0') + '-' + String(last.getDate()).padStart(2, '0');
         }
-        window.rentalsStatsPeriod = { start: startISO, end: endISO };
-        const params = new URLSearchParams({ start: startISO, end: endISO });
+        window.rentalsStatsPeriod = { start: startParam, end: endParam };
+        const params = new URLSearchParams({ start: startParam, end: endParam });
         const data = await App.api.get(`/bookings/stats/rentals?${params.toString()}`);
         renderRentalStats(data);
     } catch (error) {
@@ -594,14 +590,13 @@ async function loadCoachesForBooking() {
     }
 }
 
-// 비회원 코치 목록 로드 (예약 모달용)
+// 비회원 코치 목록 로드 (예약 모달용, booking-coach 사용)
 async function loadCoachesForBookingNonMember() {
     try {
         const coaches = await App.api.get('/coaches');
-        const select = document.getElementById('booking-coach-nonmember');
+        const select = document.getElementById('booking-coach');
         if (!select) return;
         
-        // 활성 코치만 필터링
         const activeCoaches = coaches.filter(c => c.active !== false);
         select.innerHTML = '<option value="">코치 미지정</option>';
         activeCoaches.forEach(coach => {
@@ -1456,7 +1451,18 @@ function editBookingFromSchedule(bookingId) {
 
 function changeMonth(delta) {
     currentDate.setMonth(currentDate.getMonth() + delta);
+    var y = currentDate.getFullYear();
+    var m = currentDate.getMonth();
+    var first = new Date(y, m, 1);
+    var last = new Date(y, m + 1, 0);
+    var startStr = first.getFullYear() + '-' + String(first.getMonth() + 1).padStart(2, '0') + '-' + String(first.getDate()).padStart(2, '0');
+    var endStr = last.getFullYear() + '-' + String(last.getMonth() + 1).padStart(2, '0') + '-' + String(last.getDate()).padStart(2, '0');
+    var filterStartEl = document.getElementById('filter-date-start');
+    var filterEndEl = document.getElementById('filter-date-end');
+    if (filterStartEl) filterStartEl.value = startStr;
+    if (filterEndEl) filterEndEl.value = endStr;
     renderCalendar();
+    loadRentalStats();
 }
 
 async function loadBookingsList() {
@@ -2871,14 +2877,14 @@ async function loadBookingData(id) {
             document.getElementById('member-select-section').style.display = 'none';
             
             // 비회원 코치 목록 로드
-            if (document.getElementById('booking-coach-nonmember') && document.getElementById('booking-coach-nonmember').options.length <= 1) {
+            if (document.getElementById('booking-coach') && document.getElementById('booking-coach').options.length <= 1) {
                 await loadCoachesForBookingNonMember();
             }
             
             // 비회원 코치 선택 설정
-            const coachSelectNonMember = document.getElementById('booking-coach-nonmember');
-            if (coachSelectNonMember && booking.coach && booking.coach.id) {
-                coachSelectNonMember.value = booking.coach.id;
+            const coachSelect = document.getElementById('booking-coach');
+            if (coachSelect && booking.coach && booking.coach.id) {
+                coachSelect.value = booking.coach.id;
             }
         }
         

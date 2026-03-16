@@ -541,15 +541,11 @@
             // 관리자 계정 초기화 버튼 - 비밀번호 모달 열기
             const initAdminBtn = document.getElementById('init-admin-btn');
             if (initAdminBtn) {
-                console.log('관리자 계정 초기화 버튼 이벤트 리스너 등록');
                 initAdminBtn.addEventListener('click', function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    console.log('관리자 계정 초기화 버튼 클릭됨');
                     openAdminInitModal();
                 });
-            } else {
-                console.error('관리자 계정 초기화 버튼을 찾을 수 없습니다: init-admin-btn');
             }
         });
         

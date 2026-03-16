@@ -83,6 +83,11 @@ public class MemberQueryController {
             memberMap.put("lastVisitDate", member.getLastVisitDate());
             memberMap.put("school", member.getSchool());
             memberMap.put("coachMemo", member.getCoachMemo());
+            memberMap.put("coachMemoPitcher", member.getCoachMemoPitcher());
+            memberMap.put("coachMemoBatter", member.getCoachMemoBatter());
+            memberMap.put("coachMemoDefense", member.getCoachMemoDefense());
+            memberMap.put("coachMemoCatcher", member.getCoachMemoCatcher());
+            memberMap.put("coachMemoStats", member.getCoachMemoStats());
 
             if (member.getCoach() != null) {
                 Map<String, Object> coachMap = new HashMap<>();
@@ -145,7 +150,8 @@ public class MemberQueryController {
                 try {
                     List<Booking> latestLessons = bookingRepository.findLatestLessonByMemberId(member.getId());
                     if (latestLessons != null && !latestLessons.isEmpty()) {
-                        latestLessonDate = latestLessons.get(0).getStartTime().toLocalDate();
+                        java.time.LocalDateTime start = latestLessons.get(0).getStartTime();
+                        latestLessonDate = start != null ? start.toLocalDate() : null;
                     }
                 } catch (Exception e) {
                     logger.warn("최근 레슨 날짜 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
