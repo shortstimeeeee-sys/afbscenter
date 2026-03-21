@@ -94,14 +94,14 @@ public class MemberResponseDTO {
         dto.createdAt = member.getCreatedAt();
         dto.updatedAt = member.getUpdatedAt();
         
-        // 코치 정보
+        // 코치 정보 (ACTIVE 이용권이 없으면 아래에서 dto.coach를 null로 맞춤)
         if (member.getCoach() != null) {
             dto.coach = new CoachInfo();
             dto.coach.id = member.getCoach().getId();
             dto.coach.name = member.getCoach().getName();
         }
         
-        // 모든 상품의 담당 코치를 카테고리별로 수집 (중복 제거)
+        // 모든 상품의 담당 코치를 카테고리별로 수집 (ACTIVE만, 중복 제거)
         // 코치명과 카테고리 정보를 함께 저장
         class CoachWithCategory {
             String coachName;
@@ -126,79 +126,39 @@ public class MemberResponseDTO {
         }
         
         List<CoachWithCategory> coachList = new ArrayList<>();
+        java.util.function.BiConsumer<MemberProduct, List<CoachWithCategory>> addCoach = (mp, list) -> {
+            try {
+                String tempCoachName = null;
+                Product.ProductCategory tempCategory = null;
+                if (mp.getCoach() != null) tempCoachName = mp.getCoach().getName();
+                if (tempCoachName == null && mp.getProduct() != null) {
+                    if (mp.getProduct().getCoach() != null) tempCoachName = mp.getProduct().getCoach().getName();
+                    if (mp.getProduct().getCategory() != null) tempCategory = mp.getProduct().getCategory();
+                }
+                if (tempCoachName == null && member.getCoach() != null) tempCoachName = member.getCoach().getName();
+                final String coachName = tempCoachName;
+                Product.ProductCategory category = tempCategory;
+                if (coachName != null && !coachName.trim().isEmpty() && list.stream().noneMatch(c -> c.coachName.equals(coachName))) {
+                    if (category == null && mp.getProduct() != null) {
+                        String productName = mp.getProduct().getName() != null ? mp.getProduct().getName().toLowerCase() : "";
+                        if (productName.contains("야구") || productName.contains("baseball")) category = Product.ProductCategory.BASEBALL;
+                        else if (productName.contains("필라테스") || productName.contains("pilates")) category = Product.ProductCategory.PILATES;
+                        else if (productName.contains("트레이닝") || productName.contains("training")) category = Product.ProductCategory.TRAINING;
+                    }
+                    final Product.ProductCategory finalCategory = category;
+                    list.add(new CoachWithCategory(coachName, finalCategory));
+                }
+            } catch (Exception ignored) { }
+        };
+        // ACTIVE 이용권만 담당 코치에 반영 (종료된 이용권만 있는 회원은 코치 미표시)
         if (allMemberProducts != null) {
             for (MemberProduct mp : allMemberProducts) {
-                try {
-                    if (mp.getStatus() == MemberProduct.Status.ACTIVE) {
-                        String tempCoachName = null;
-                        Product.ProductCategory tempCategory = null;
-                        
-                        // MemberProduct의 코치 우선 사용
-                        try {
-                            if (mp.getCoach() != null) {
-                                tempCoachName = mp.getCoach().getName();
-                            }
-                        } catch (Exception e) {
-                            // coach 필드가 아직 로드되지 않았거나 없을 수 있음
-                        }
-                        
-                        // MemberProduct에 코치가 없으면 상품의 코치 사용
-                        if (tempCoachName == null && mp.getProduct() != null) {
-                            try {
-                                if (mp.getProduct().getCoach() != null) {
-                                    tempCoachName = mp.getProduct().getCoach().getName();
-                                }
-                                // 상품 카테고리 가져오기
-                                if (mp.getProduct().getCategory() != null) {
-                                    tempCategory = mp.getProduct().getCategory();
-                                }
-                            } catch (Exception e) {
-                                // 상품의 코치 로드 실패 시 무시
-                            }
-                        }
-                        
-                        // 둘 다 없으면 회원의 기본 코치 사용
-                        if (tempCoachName == null && member.getCoach() != null) {
-                            tempCoachName = member.getCoach().getName();
-                        }
-                        
-                        // 람다 표현식에서 사용하기 위해 final 변수로 복사
-                        final String coachName = tempCoachName;
-                        Product.ProductCategory category = tempCategory;
-                        
-                        // 코치명과 카테고리 정보 추가 (중복 제거)
-                        if (coachName != null && !coachName.trim().isEmpty()) {
-                            // 이미 같은 코치명이 있는지 확인
-                            boolean exists = coachList.stream()
-                                .anyMatch(c -> c.coachName.equals(coachName));
-                            
-                            if (!exists) {
-                                // 카테고리가 없으면 상품명에서 추론 시도
-                                if (category == null && mp.getProduct() != null) {
-                                    String productName = mp.getProduct().getName() != null ? 
-                                        mp.getProduct().getName().toLowerCase() : "";
-                                    if (productName.contains("야구") || productName.contains("baseball")) {
-                                        category = Product.ProductCategory.BASEBALL;
-                                    } else if (productName.contains("필라테스") || productName.contains("pilates")) {
-                                        category = Product.ProductCategory.PILATES;
-                                    } else if (productName.contains("트레이닝") || productName.contains("training")) {
-                                        category = Product.ProductCategory.TRAINING;
-                                    }
-                                }
-                                
-                                final Product.ProductCategory finalCategory = category;
-                                coachList.add(new CoachWithCategory(coachName, finalCategory));
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    // 코치 정보 로드 실패 시 무시
-                }
+                if (mp.getStatus() == MemberProduct.Status.ACTIVE) addCoach.accept(mp, coachList);
             }
         }
         
-        // 회원의 기본 코치도 추가 (없으면, 카테고리는 null)
-        if (member.getCoach() != null && member.getCoach().getName() != null) {
+        // ACTIVE 이용권이 있을 때만 회원 기본 코치 추가 (종료된 이용권만 있으면 코치 미표시)
+        if (!coachList.isEmpty() && member.getCoach() != null && member.getCoach().getName() != null) {
             String mainCoachName = member.getCoach().getName();
             boolean exists = coachList.stream()
                 .anyMatch(c -> c.coachName.equals(mainCoachName));
@@ -225,6 +185,7 @@ public class MemberResponseDTO {
                 .collect(java.util.stream.Collectors.joining("\n"));
         } else {
             dto.coachNames = null;
+            dto.coach = null; // 종료된 이용권만 있으면 담당 코치 미표시
         }
         
         // 집계 데이터
@@ -234,6 +195,7 @@ public class MemberResponseDTO {
         
         // 회원 상품 목록
         if (allMemberProducts != null) {
+            final LocalDate today = LocalDate.now();
             dto.memberProducts = allMemberProducts.stream()
                 .map(mp -> {
                     MemberProductInfo info = new MemberProductInfo();
@@ -242,7 +204,23 @@ public class MemberResponseDTO {
                     info.expiryDate = mp.getExpiryDate();
                     info.remainingCount = mp.getRemainingCount();
                     info.totalCount = mp.getTotalCount();
-                    info.status = mp.getStatus() != null ? mp.getStatus().name() : null;
+                    String statusName = mp.getStatus() != null ? mp.getStatus().name() : null;
+                    // 만료일이 지났는데 status가 ACTIVE로 남아있는 데이터가 있으면 표시 상태를 만료로 정규화
+                    if ("ACTIVE".equals(statusName) && info.expiryDate != null && info.expiryDate.isBefore(today)) {
+                        statusName = "EXPIRED";
+                    }
+                    info.status = statusName;
+                    // endedAt이 없으면 만료일 기준으로라도 채워 종료 배지 규칙에 사용
+                    try {
+                        info.endedAt = mp.getEndedAt();
+                        if (info.endedAt == null && "EXPIRED".equals(statusName) && info.expiryDate != null) {
+                            info.endedAt = info.expiryDate.atStartOfDay();
+                        }
+                    } catch (Exception e) {
+                        if ("EXPIRED".equals(statusName) && info.expiryDate != null) {
+                            info.endedAt = info.expiryDate.atStartOfDay();
+                        }
+                    }
                     
                     // Product 정보
                     if (mp.getProduct() != null) {

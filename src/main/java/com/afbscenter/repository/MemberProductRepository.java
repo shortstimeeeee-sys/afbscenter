@@ -71,7 +71,7 @@ public interface MemberProductRepository extends JpaRepository<MemberProduct, Lo
     long countMembersWithOnlyEndedProducts();
 
     /** 이용권 일부만 종료이고, 종료된 지 3일 이내인 회원 수 (종료 배지 3일 유지 규칙) */
-    @Query("SELECT COUNT(DISTINCT mp.member.id) FROM MemberProduct mp WHERE (mp.status = com.afbscenter.model.MemberProduct.Status.EXPIRED OR mp.status = com.afbscenter.model.MemberProduct.Status.USED_UP) AND mp.endedAt >= :since AND EXISTS (SELECT 1 FROM MemberProduct mp2 WHERE mp2.member.id = mp.member.id AND mp2.status = com.afbscenter.model.MemberProduct.Status.ACTIVE)")
+    @Query("SELECT COUNT(DISTINCT mp.member.id) FROM MemberProduct mp WHERE (mp.status = 'EXPIRED' OR mp.status = 'USED_UP') AND mp.endedAt >= :since AND EXISTS (SELECT 1 FROM MemberProduct mp2 WHERE mp2.member.id = mp.member.id AND mp2.status = 'ACTIVE')")
     long countMembersWithPartialEndedSince(@Param("since") java.time.LocalDateTime since);
 
     /** 이용권이 전부 종료인 회원 ID 목록 (종료 배지 표시 대상) */
@@ -79,6 +79,6 @@ public interface MemberProductRepository extends JpaRepository<MemberProduct, Lo
     List<Long> findMemberIdsWithOnlyEndedProducts();
 
     /** 이용권 일부만 종료이고 종료된 지 3일 이내인 회원 ID 목록 */
-    @Query("SELECT DISTINCT mp.member.id FROM MemberProduct mp WHERE (mp.status = com.afbscenter.model.MemberProduct.Status.EXPIRED OR mp.status = com.afbscenter.model.MemberProduct.Status.USED_UP) AND mp.endedAt >= :since AND EXISTS (SELECT 1 FROM MemberProduct mp2 WHERE mp2.member.id = mp.member.id AND mp2.status = com.afbscenter.model.MemberProduct.Status.ACTIVE)")
+    @Query("SELECT DISTINCT mp.member.id FROM MemberProduct mp WHERE (mp.status = 'EXPIRED' OR mp.status = 'USED_UP') AND mp.endedAt >= :since AND EXISTS (SELECT 1 FROM MemberProduct mp2 WHERE mp2.member.id = mp.member.id AND mp2.status = 'ACTIVE')")
     List<Long> findMemberIdsWithPartialEndedSince(@Param("since") java.time.LocalDateTime since);
 }

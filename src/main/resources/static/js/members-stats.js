@@ -29,6 +29,18 @@ function getMemberStatusBadge(s) {
 function getMemberStatusText(s) {
     return (App.Status && App.Status.member && App.Status.member.getText) ? App.Status.member.getText(s) : (s || '-');
 }
+// 시설(지점) 고유색용 클래스 반환 (비회원 목록 시설 열). facility.branch(SAHA/YEONSAN/RENTAL) 우선, 없으면 시설명으로 판단
+function getBranchLabelClass(facilityOrBranch, facilityName) {
+    var branch = (facilityOrBranch && facilityOrBranch.branch) ? String(facilityOrBranch.branch).toUpperCase() : (typeof facilityOrBranch === 'string' ? String(facilityOrBranch).toUpperCase() : '');
+    if (branch === 'SAHA') return 'branch-label--saha';
+    if (branch === 'YEONSAN') return 'branch-label--yeonsan';
+    if (branch === 'RENTAL') return 'branch-label--rental';
+    var n = (facilityName != null && typeof facilityName === 'string') ? facilityName.trim() : '';
+    if (n.indexOf('사하') !== -1) return 'branch-label--saha';
+    if (n.indexOf('연산') !== -1) return 'branch-label--yeonsan';
+    if (n === '대관' || n.indexOf('대관') !== -1) return 'branch-label--rental';
+    return '';
+}
 // 담당 코치 한 줄 표시 (공통 코치 색상)
 function renderCoachDisplay(member) {
     var name = (member.coach && member.coach.name) ? member.coach.name : (member.coachNames || '').split('\n')[0];
@@ -173,12 +185,16 @@ async function openStatsMemberModal(filterType, filterValue, titleLabel) {
                 var name = (b.nonMemberName || '-');
                 var phone = (b.nonMemberPhone || '-');
                 var facilityName = (b.facility && b.facility.name) ? b.facility.name : '-';
+                var branchClass = getBranchLabelClass(b.facility, facilityName);
+                var facilityHtml = branchClass
+                    ? '<span class="branch-label ' + branchClass + '">' + App.escapeHtml(facilityName) + '</span>'
+                    : App.escapeHtml(facilityName);
                 var coachName = (b.coach && b.coach.name) ? b.coach.name : (b.coachName || '');
                 var coachHtml = coachName ? renderCoachNameWithColor(coachName) : '-';
                 var statusKey = (b.status || '').toUpperCase();
                 var badge = statusBadge(statusKey);
                 var statusLabel = statusText(statusKey);
-                tableHtml += '<tr><td>' + App.escapeHtml(start) + '</td><td>' + App.escapeHtml(name) + '</td><td>' + App.escapeHtml(phone) + '</td><td class="cell-facility">' + App.escapeHtml(facilityName) + '</td><td class="cell-coach">' + coachHtml + '</td><td class="cell-status"><span class="badge badge-' + App.escapeHtml(badge) + '">' + App.escapeHtml(statusLabel) + '</span></td></tr>';
+                tableHtml += '<tr><td>' + App.escapeHtml(start) + '</td><td>' + App.escapeHtml(name) + '</td><td>' + App.escapeHtml(phone) + '</td><td class="cell-facility">' + facilityHtml + '</td><td class="cell-coach">' + coachHtml + '</td><td class="cell-status"><span class="badge badge-' + App.escapeHtml(badge) + '">' + App.escapeHtml(statusLabel) + '</span></td></tr>';
             });
             tableHtml += '</tbody></table></div>';
             bodyEl.innerHTML = tableHtml;
@@ -208,7 +224,8 @@ async function openStatsMemberModal(filterType, filterValue, titleLabel) {
             var statusKey = (m.status || 'ACTIVE').toUpperCase();
             var statusBadge = '<span class="badge badge-' + getMemberStatusBadge(statusKey) + '">' + App.escapeHtml(getMemberStatusText(statusKey)) + '</span>';
             var coachHtml = renderCoachDisplay(m);
-            tableHtml += '<tr class="stats-member-row" onclick="App.Modal.close(\'stats-members-modal\'); window.location.href=\'/members.html?id=' + (m.id || '') + '\'" style="cursor:pointer;"><td>' + App.escapeHtml(m.memberNumber || '-') + '</td><td>' + App.escapeHtml(m.name || '') + '</td><td class="cell-grade">' + gradeBadge + '</td><td class="cell-coach">' + coachHtml + '</td><td>' + App.escapeHtml(m.phoneNumber || '-') + '</td><td>' + App.escapeHtml(m.school || '-') + '</td><td class="cell-status">' + statusBadge + '</td></tr>';
+            var nameLink = '<span style="color: var(--accent-primary); text-decoration: underline; cursor: pointer;">' + App.escapeHtml(m.name || '') + '</span>';
+            tableHtml += '<tr class="stats-member-row" onclick="App.Modal.close(\'stats-members-modal\'); window.location.href=\'/members.html?openMember=' + (m.id || '') + '\'" style="cursor:pointer;"><td>' + App.escapeHtml(m.memberNumber || '-') + '</td><td>' + nameLink + '</td><td class="cell-grade">' + gradeBadge + '</td><td class="cell-coach">' + coachHtml + '</td><td>' + App.escapeHtml(m.phoneNumber || '-') + '</td><td>' + App.escapeHtml(m.school || '-') + '</td><td class="cell-status">' + statusBadge + '</td></tr>';
         });
         tableHtml += '</tbody></table></div>';
         bodyEl.innerHTML = tableHtml;

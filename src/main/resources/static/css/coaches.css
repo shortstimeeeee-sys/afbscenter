@@ -114,15 +114,80 @@ body.coaches-page .topbar {
 #stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--training { color: #2ECC71; }
 #stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--pilates { color: #5DADE2; }
 #stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--rental { color: #9B59B6; }
-#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--baseball { border-left: 4px solid #6E7AE8; background: rgba(94, 106, 210, 0.1); font-weight: 500; }
-#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--pilates { border-left: 4px solid #5DADE2; background: rgba(52, 152, 219, 0.1); font-weight: 500; }
-#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--training { border-left: 4px solid #2ECC71; background: rgba(46, 204, 113, 0.1); font-weight: 500; }
-#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--rental { border-left: 4px solid #9B59B6; background: rgba(155, 89, 182, 0.1); font-weight: 500; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--baseball { border-left: none; background: rgba(94, 106, 210, 0.1); font-weight: 500; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--pilates { border-left: none; background: rgba(52, 152, 219, 0.1); font-weight: 500; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--training { border-left: none; background: rgba(46, 204, 113, 0.1); font-weight: 500; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--rental { border-left: none; background: rgba(155, 89, 182, 0.1); font-weight: 500; }
 #stats-coaches-modal .stats-coaches-modal-table .table td .branch-label { font-weight: 500; }
 #stats-coaches-modal .stats-coaches-modal-table .table td .branch-label--saha { color: #1E8449; }
 #stats-coaches-modal .stats-coaches-modal-table .table td .branch-label--yeonsan { color: #DAA520; }
 #stats-coaches-modal .stats-coaches-modal-table .table td .branch-label--rental { color: #9B59B6; }
 #stats-coaches-modal .stats-coach-row:hover { background-color: var(--bg-hover); }
+
+/* 코치 수강 인원 모달: 크게 보이도록 + 내용 깔끔하게 */
+#coach-students-modal .modal.modal--coach-students {
+    width: 94%;
+    max-width: 1000px;
+    height: 88vh;
+    max-height: 88vh;
+}
+#coach-students-modal .modal-header {
+    padding: 18px 24px;
+}
+#coach-students-modal .modal-title {
+    font-size: 1.25rem;
+}
+#coach-students-modal .modal-body {
+    padding: 20px 24px;
+    overflow-y: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+#coach-students-modal #coach-students-list {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+    gap: 0;
+}
+/* 테이블 영역은 내용 높이만 사용하고, 남는 공간을 채우지 않음 → 상단 빈 공간 제거 */
+#coach-students-modal #coach-students-list .table-container {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 65vh;
+    overflow: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+}
+#coach-students-modal #coach-students-list .table {
+    margin: 0;
+    font-size: 14px;
+}
+#coach-students-modal #coach-students-list .table th,
+#coach-students-modal #coach-students-list .table td {
+    padding: 12px 14px;
+    white-space: nowrap;
+}
+#coach-students-modal #coach-students-list .table th {
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+#coach-students-modal #coach-students-list > div:first-child {
+    margin-bottom: 14px;
+    font-size: 15px;
+}
+#coach-students-modal .modal-footer {
+    padding: 16px 24px 20px;
+}
+
+/* 코치 수강 인원 모달: 회원 행 클릭 시 상세 보기 */
+#coach-students-list .coach-student-row:hover { background-color: var(--bg-hover); }
 
 /* 코치 목록 테이블 스크롤바 */
 .coaches-page .table-container {

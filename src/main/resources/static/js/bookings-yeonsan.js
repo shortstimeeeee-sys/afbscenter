@@ -1463,10 +1463,17 @@ async function renderCalendar() {
                 // 코치 정보 추출 (예약에 직접 할당된 코치 우선, 없으면 회원의 코치)
                 const coach = booking.coach || (booking.member && booking.member.coach ? booking.member.coach : null);
                 
-                // 코치별 색상 적용 (코치가 없으면 기본 색상 사용)
-                const coachColor = getCoachColor(coach) || '#5E6AD2';
-                event.style.backgroundColor = coachColor;
-                event.style.borderLeft = `3px solid ${coachColor}`;
+                // 코치별 색상 적용. 미배정이면 통계의 (미배정) 라벨과 동일한 어두운 스타일
+                const coachColor = coach ? getCoachColor(coach) : null;
+                if (coachColor) {
+                    event.style.backgroundColor = coachColor;
+                    event.style.borderLeft = `3px solid ${coachColor}`;
+                } else {
+                    event.style.backgroundColor = '#22242b';
+                    event.style.borderLeft = '3px solid #3d4152';
+                    event.style.color = '#e8e8e8';
+                    event.classList.add('booking-event--unassigned');
+                }
                 
                 // 상태에 따라 아이콘 표시 추가 (완료/체크인 = 초록, 확정 = 파란 ✓)
                 const status = booking.status || 'PENDING';
@@ -1726,9 +1733,13 @@ function renderDaySchedule(bookings) {
         const memberName = booking.member ? booking.member.name : 
                           (booking.nonMemberName || '비회원');
         
-        // 코치 이름
-        const coachName = booking.coach ? booking.coach.name : 
-                         (booking.member && booking.member.coach ? booking.member.coach.name : '-');
+        // 코치 이름 (고유색 적용)
+        const coach = booking.coach || (booking.member && booking.member.coach) || null;
+        const coachNameRaw = coach ? coach.name : '-';
+        const coachColor = (coach && App.CoachColors && App.CoachColors.getColor) ? App.CoachColors.getColor(coach) : null;
+        const coachHtml = coachNameRaw !== '-' && coachColor
+            ? `<span class="coach-name" style="color:${coachColor};font-weight:600;">${App.escapeHtml(coachNameRaw)}</span>`
+            : App.escapeHtml(coachNameRaw);
         
         // 레슨 종목
         const lessonCategory = booking.lessonCategory ? App.LessonCategory.getText(booking.lessonCategory) : '-';
@@ -1742,7 +1753,7 @@ function renderDaySchedule(bookings) {
                 <td>${timeStr}</td>
                 <td>${booking.facility ? booking.facility.name : '-'}</td>
                 <td>${memberName}</td>
-                <td>${coachName}</td>
+                <td>${coachHtml}</td>
                 <td>${lessonCategory}</td>
                 <td><span class="badge badge-${statusBadge}">${statusText}</span></td>
                 <td>

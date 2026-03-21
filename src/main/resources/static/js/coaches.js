@@ -173,7 +173,9 @@ async function openStatsCoachModal(filterType, titleLabel) {
             var specOut = formatSpecialtyWithColors(c.specialties, c.name);
             var branchesHtml = formatBranchesWithColors(c.availableBranches);
             var studentCount = c.studentCount != null ? c.studentCount : 0;
-            tableHtml += '<tr class="stats-coach-row" onclick="App.Modal.close(\'stats-coaches-modal\'); window.location.href=\'/coaches.html#coach-' + (c.id || '') + '\'" style="cursor:pointer;"><td class="cell-coach-name">' + coachNameHtml + '</td><td class="' + specOut.cellClass + '">' + specOut.html + '</td><td class="cell-branches">' + branchesHtml + '</td><td>' + App.escapeHtml(String(studentCount)) + '명</td></tr>';
+            var coachId = c.id || '';
+            var studentCellHtml = '<td class="cell-student-count" onclick="event.stopPropagation(); App.Modal.close(\'stats-coaches-modal\'); showCoachStudents(' + coachId + ')" style="cursor:pointer; color: var(--accent-primary); text-decoration: underline;" title="클릭하면 수강 인원 목록 보기">' + App.escapeHtml(String(studentCount)) + '명</td>';
+            tableHtml += '<tr class="stats-coach-row" onclick="App.Modal.close(\'stats-coaches-modal\'); window.location.href=\'/coaches.html#coach-' + coachId + '\'" style="cursor:pointer;"><td class="cell-coach-name">' + coachNameHtml + '</td><td class="' + specOut.cellClass + '">' + specOut.html + '</td><td class="cell-branches">' + branchesHtml + '</td>' + studentCellHtml + '</tr>';
         });
         tableHtml += '</tbody></table></div>';
         bodyEl.innerHTML = tableHtml;
@@ -183,52 +185,77 @@ async function openStatsCoachModal(filterType, titleLabel) {
     }
 }
 
+// 수강 인원 모달용: 한 명 분량의 테이블 행 HTML
+function buildCoachStudentRow(student) {
+    var isMember = student.type === 'MEMBER';
+    var gradeClass = getStudentGradeBadgeClass(student.grade);
+    var gradeLabel = getStudentGradeText(student.grade);
+    var gradeBadge = student.grade != null ? ('<span class="badge badge-' + gradeClass + '">' + (App.escapeHtml ? App.escapeHtml(gradeLabel) : gradeLabel) + '</span>') : '-';
+    var memberId = student.id || '';
+    var typeBadge = isMember ? '<span class="badge badge-info">회원</span>' : '<span class="badge badge-secondary">비회원</span>';
+    var nameHtml = isMember
+        ? '<span style="color: var(--accent-primary); text-decoration: underline; cursor: pointer;">' + (App.escapeHtml ? App.escapeHtml(student.name || '') : (student.name || '')) + '</span>'
+        : (App.escapeHtml ? App.escapeHtml(student.name || '-') : (student.name || '-'));
+    var rowAttrs = isMember
+        ? 'class="coach-student-row" data-member-id="' + memberId + '" style="cursor: pointer;" onclick="App.Modal.close(\'coach-students-modal\'); window.location.href=\'/members.html?openMember=' + memberId + '\';" title="클릭 시 회원 상세 보기"'
+        : 'class="coach-student-row coach-student-row--nonmember" title="비회원(예약 기준)"';
+    var idCell = isMember ? (student.id || '-') : ('예약 ' + (student.id || '-'));
+    return '<tr ' + rowAttrs + '><td class="cell-type">' + typeBadge + '</td><td>' + idCell + '</td><td>' + nameHtml + '</td><td>' + (student.phoneNumber || '-') + '</td><td class="cell-grade">' + gradeBadge + '</td><td>' + (student.school || '-') + '</td></tr>';
+}
+
+// 비회원 보기 체크 시 목록 갱신 (저장된 전체 목록 사용)
+function coachesToggleNonMembers(showNonMembers) {
+    var fullList = window._coachStudentsFullList;
+    if (!Array.isArray(fullList)) return;
+    var list = showNonMembers ? fullList : fullList.filter(function(s) { return s.type === 'MEMBER'; });
+    var countEl = document.getElementById('coach-students-count');
+    var tbody = document.getElementById('coach-students-tbody');
+    if (countEl) {
+        var memberCount = fullList.filter(function(s) { return s.type === 'MEMBER'; }).length;
+        var nonCount = fullList.filter(function(s) { return s.type === 'NON_MEMBER'; }).length;
+        if (showNonMembers) {
+            countEl.innerHTML = '<strong>총 ' + fullList.length + '명</strong> (회원 ' + memberCount + '명, 비회원 ' + nonCount + '명)';
+        } else {
+            countEl.innerHTML = '<strong>회원 ' + list.length + '명</strong>';
+        }
+    }
+    if (tbody) {
+        tbody.innerHTML = list.map(function(s) { return buildCoachStudentRow(s); }).join('');
+    }
+}
+
 // 코치 수강 인원 보기
 async function showCoachStudents(coachId) {
     try {
-        // 코치 정보 가져오기
-        const coach = await App.api.get(`/coaches/${coachId}`);
-        document.getElementById('coach-students-modal-title').textContent = `${coach.name} 코치 수강 인원`;
-        
-        // 수강 인원 목록 가져오기
-        const students = await App.api.get(`/coaches/${coachId}/students`);
-        
-        const listContainer = document.getElementById('coach-students-list');
-        
+        var coach = await App.api.get('/coaches/' + coachId);
+        document.getElementById('coach-students-modal-title').textContent = coach.name + ' 코치 수강 인원';
+
+        var raw = await App.api.get('/coaches/' + coachId + '/students-with-nonmembers');
+        var students = Array.isArray(raw) ? raw : (raw && raw.students) || [];
+
+        window._coachStudentsFullList = students;
+        var listContainer = document.getElementById('coach-students-list');
+        var membersOnly = students.filter(function(s) { return s.type === 'MEMBER'; });
+        var initialList = membersOnly;
+        var memberCount = membersOnly.length;
+        var nonCount = students.length - memberCount;
+
         if (!students || students.length === 0) {
             listContainer.innerHTML = '<p style="text-align: center; color: var(--text-muted);">수강 인원이 없습니다.</p>';
         } else {
-            listContainer.innerHTML = `
-                <div style="margin-bottom: 15px;">
-                    <strong>총 ${students.length}명</strong>
-                </div>
-                <div class="table-container">
-                    <table class="table" style="margin-top: 10px;">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>이름</th>
-                                <th>전화번호</th>
-                                <th>등급</th>
-                                <th>학교/소속</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${students.map(student => `
-                                <tr>
-                                    <td>${student.id}</td>
-                                    <td>${student.name}</td>
-                                    <td>${student.phoneNumber}</td>
-                                    <td>${getStudentGradeText(student.grade)}</td>
-                                    <td>${student.school || '-'}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            `;
+            listContainer.innerHTML =
+                '<div id="coach-students-count" style="margin-bottom: 10px;"><strong>회원 ' + initialList.length + '명</strong></div>' +
+                '<label class="coach-students-show-nonmember-label" style="display: inline-flex; align-items: center; gap: 8px; margin-bottom: 12px; cursor: pointer;">' +
+                '<input type="checkbox" id="coach-students-show-nonmembers" onchange="coachesToggleNonMembers(this.checked)"> 비회원 보기' + (nonCount > 0 ? ' (' + nonCount + '명)' : '') +
+                '</label>' +
+                '<div class="table-container">' +
+                '<table class="table" style="margin-top: 10px;">' +
+                '<thead><tr><th>구분</th><th>ID</th><th>이름</th><th>전화번호</th><th>등급</th><th>학교/소속</th></tr></thead>' +
+                '<tbody id="coach-students-tbody">' +
+                initialList.map(function(student) { return buildCoachStudentRow(student); }).join('') +
+                '</tbody></table></div>';
         }
-        
+
         App.Modal.open('coach-students-modal');
     } catch (error) {
         App.err('수강 인원 로드 실패:', error);
@@ -239,6 +266,21 @@ async function showCoachStudents(coachId) {
 // 회원 등급 텍스트는 common.js의 App.MemberGrade 사용
 function getStudentGradeText(grade) {
     return App.MemberGrade.getText(grade);
+}
+
+// 수강 인원 모달 등급 배지 클래스 (members.css / common.css 배지와 동일)
+function getStudentGradeBadgeClass(grade) {
+    if (!grade) return 'info';
+    var g = String(grade).toUpperCase();
+    switch (g) {
+        case 'ELITE_ELEMENTARY': return 'elite-elementary';
+        case 'ELITE_MIDDLE': return 'elite-middle';
+        case 'ELITE_HIGH': return 'elite-high';
+        case 'SOCIAL': return 'secondary';
+        case 'YOUTH': return 'youth';
+        case 'OTHER': return 'other';
+        default: return 'info';
+    }
 }
 
 async function renderCoachesTable(coaches) {

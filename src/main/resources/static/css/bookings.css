@@ -173,6 +173,16 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
     color: var(--text-muted);
 }
 
+/* 캘린더: 미배정 일정 — 통계 (미배정) 라벨과 동일한 어두운 스타일 */
+.booking-event--unassigned {
+    background-color: #22242b !important;
+    border-left: 3px solid #3d4152 !important;
+    color: #e8e8e8 !important;
+}
+.booking-event--unassigned * {
+    color: inherit;
+}
+
 .calendar-container {
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);

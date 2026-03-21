@@ -13,11 +13,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -96,10 +97,9 @@ public class CoachService {
         coachRepository.save(coach);
     }
 
-    // 코치별 수강 인원 수 조회
-    // 기준: "코치를 선택해서 이용권이 구매되었으면 인원으로 침"
-    // - 회원: MEMBER_PRODUCTS에서 해당 코치(coach_id)로 배정된 활성(ACTIVE) 이용권을 가진 회원 수 (동일 회원은 1명으로 집계)
-    // - 비회원: 해당 코치의 확정(CONFIRMED) 비회원 예약 건수
+    // 코치별 수강 인원 수 조회 (getStudents 목록과 동일 기준: 해당 코치가 배정된 활성 이용권 보유 회원 수만)
+    // - 회원만 집계. 비회원 예약은 포함하지 않음 (비회원 예약은 예약 수(건수)에만 반영됨).
+    // - MEMBER_PRODUCTS에서 해당 코치(coach_id)로 배정된 활성(ACTIVE) 이용권을 가진 회원 수 (동일 회원 1명으로 집계)
     @Transactional(readOnly = true)
     public Long getStudentCount(Long coachId) {
         try {
@@ -107,9 +107,8 @@ public class CoachService {
                 return 0L;
             }
             Set<Long> uniqueMemberIds = new HashSet<>();
-            int nonMemberBookingCount = 0;
 
-            // 1. 해당 코치가 배정된 활성 이용권을 보유한 회원 수 (DISTINCT member_id → 1인 1명)
+            // 해당 코치가 배정된 활성 이용권을 보유한 회원 수 (DISTINCT member_id → 1인 1명)
             try {
                 List<Long> memberProductCoachIds = jdbcTemplate.queryForList(
                     "SELECT DISTINCT mp.member_id FROM member_products mp " +
@@ -125,24 +124,9 @@ public class CoachService {
                 logger.warn("MemberProduct 코치별 회원 조회 실패 (coachId: {}): {}", coachId, e.getMessage());
             }
 
-            // 2. 비회원 예약 건수 (해당 코치, 확정, 비회원)
-            try {
-                Integer nonMemberCount = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM bookings WHERE coach_id = ? AND status = 'CONFIRMED' AND member_id IS NULL AND non_member_name IS NOT NULL AND non_member_name != ''",
-                    Integer.class,
-                    coachId
-                );
-                if (nonMemberCount != null) {
-                    nonMemberBookingCount += nonMemberCount;
-                }
-            } catch (Exception e) {
-                logger.warn("비회원 예약 조회 실패 (coachId: {}): {}", coachId, e.getMessage());
-            }
-
-            return (long) (uniqueMemberIds.size() + nonMemberBookingCount);
+            return (long) uniqueMemberIds.size();
         } catch (Exception e) {
             logger.error("코치별 학생 수 조회 실패 (coachId: {}): {}", coachId, e.getMessage(), e);
-            // 모든 예외를 catch하여 0 반환
             return 0L;
         }
     }
@@ -194,5 +178,43 @@ public class CoachService {
             logger.error("코치 수강 인원 조회 중 오류 발생 (coachId: {}): {}", coachId, e.getMessage(), e);
             return new ArrayList<>();
         }
+    }
+
+    /**
+     * 코치별 수강 인원(회원) + 해당 코치 비회원 예약을 합친 목록.
+     * 각 항목에 type: "MEMBER" | "NON_MEMBER", id, name, phoneNumber, grade, school 포함.
+     * 수강 인원 모달에서 회원/비회원 구분 컬럼 표시용.
+     */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getStudentsWithNonMembers(Long coachId) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (coachId == null || !coachRepository.existsById(coachId)) {
+            return result;
+        }
+        for (Member m : getStudents(coachId)) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("type", "MEMBER");
+            row.put("id", m.getId());
+            row.put("memberNumber", m.getMemberNumber());
+            row.put("name", m.getName());
+            row.put("phoneNumber", m.getPhoneNumber());
+            row.put("grade", m.getGrade() != null ? m.getGrade().toString() : null);
+            row.put("school", m.getSchool());
+            result.add(row);
+        }
+        List<Booking> nonMemberBookings = bookingRepository.findByCoachIdAndMemberIsNull(coachId);
+        for (Booking b : nonMemberBookings) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("type", "NON_MEMBER");
+            row.put("id", b.getId()); // 예약 ID (회원 상세 링크 없음)
+            row.put("memberNumber", null);
+            row.put("name", b.getNonMemberName() != null ? b.getNonMemberName() : "-");
+            row.put("phoneNumber", b.getNonMemberPhone() != null ? b.getNonMemberPhone() : "-");
+            row.put("grade", null);
+            row.put("school", null);
+            result.add(row);
+        }
+        logger.info("코치 {} 수강 인원(회원+비회원): {}명", coachId, result.size());
+        return result;
     }
 }

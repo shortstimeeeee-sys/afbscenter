@@ -73,14 +73,15 @@
             </header>
 
             <div class="content-area">
-                <!-- 기간 선택 (훈련 횟수만 기간 필터 적용) - 개인정보 보호 시 마스킹 제외 -->
+                <!-- 조회 기간: 모든 랭킹에 기간 필터 적용 (기본: 전체 기간) -->
                 <div class="card rankings-filter-card">
                     <div class="card-header">
-                        <h2 class="card-title">조회 기간 (훈련 횟수 기준)</h2>
+                        <h2 class="card-title">조회 기간</h2>
                     </div>
                     <div class="card-body">
                         <div class="period-selector">
-                            <button class="btn btn-sm btn-secondary period-btn active" data-days="7">최근 7일</button>
+                            <button class="btn btn-sm btn-secondary period-btn active" data-days="all">전체</button>
+                            <button class="btn btn-sm btn-secondary period-btn" data-days="7">최근 7일</button>
                             <button class="btn btn-sm btn-secondary period-btn" data-days="30">최근 30일</button>
                             <button class="btn btn-sm btn-secondary period-btn" data-days="90">최근 90일</button>
                             <button class="btn btn-sm btn-secondary period-btn" data-days="365">최근 1년</button>
@@ -126,11 +127,11 @@
                         </div>
                     </div>
 
-                    <!-- 타구속도 랭킹 -->
+                    <!-- TEE 타구 속도 랭킹 -->
                     <div class="card ranking-card">
                         <div class="card-header">
-                            <h3 class="card-title">⚡ 타구 속도 랭킹</h3>
-                            <span class="ranking-subtitle" id="exit-velocity-subtitle">훈련 기록 기준</span>
+                            <h3 class="card-title">TEE 타구 속도 랭킹</h3>
+                            <span class="ranking-subtitle" id="exit-velocity-subtitle">기록 보유자 기준</span>
                         </div>
                         <div class="card-body">
                             <div id="exit-velocity-ranking" class="ranking-list">

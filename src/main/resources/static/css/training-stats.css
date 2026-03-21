@@ -194,3 +194,58 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* 수강 인원 모달: 코치/훈련통계 공통 - 크게 보이도록 (coaches.css와 동일) */
+#coach-students-modal .modal.modal--coach-students {
+    width: 94%;
+    max-width: 1000px;
+    height: 88vh;
+    max-height: 88vh;
+}
+#coach-students-modal .modal-header {
+    padding: 18px 24px;
+}
+#coach-students-modal .modal-title {
+    font-size: 1.25rem;
+}
+#coach-students-modal .modal-body {
+    padding: 20px 24px;
+    overflow-y: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+#coach-students-modal #coach-students-list {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+    gap: 0;
+}
+#coach-students-modal #coach-students-list .table-container {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 65vh;
+    overflow: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+}
+#coach-students-modal #coach-students-list .table th,
+#coach-students-modal #coach-students-list .table td {
+    padding: 12px 14px;
+}
+#coach-students-modal #coach-students-list .table th {
+    font-weight: 600;
+    background: var(--bg-tertiary);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+#coach-students-modal #coach-students-list > div:first-child {
+    margin-bottom: 14px;
+    font-size: 15px;
+}
+#coach-students-modal .modal-footer {
+    padding: 16px 24px 20px;
+}

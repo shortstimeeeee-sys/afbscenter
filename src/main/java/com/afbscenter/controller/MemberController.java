@@ -224,6 +224,7 @@ public class MemberController {
             // memberProducts를 안전하게 로드 (JOIN FETCH 사용)
             List<Map<String, Object>> memberProductsList = new java.util.ArrayList<>();
             try {
+                final LocalDate today = LocalDate.now();
                 List<MemberProduct> memberProducts = memberProductRepository.findByMemberIdWithProduct(id);
                 if (memberProducts != null && !memberProducts.isEmpty()) {
                     for (MemberProduct mp : memberProducts) {
@@ -232,11 +233,45 @@ public class MemberController {
                             mpMap.put("id", mp.getId());
                             mpMap.put("purchaseDate", mp.getPurchaseDate());
                             mpMap.put("expiryDate", mp.getExpiryDate());
-                            mpMap.put("remainingCount", mp.getRemainingCount());
-                            mpMap.put("totalCount", mp.getTotalCount());
-                            mpMap.put("status", mp.getStatus() != null ? mp.getStatus().name() : null);
+                            // 잔여/상태/총횟수: 목록과 상세가 일치하도록 상세에서도 동일한 계산 규칙 적용
+                            Integer remainingCount = mp.getRemainingCount();
+                            Integer totalCount = mp.getTotalCount();
+                            String statusName = mp.getStatus() != null ? mp.getStatus().name() : null;
+
+                            // 만료일이 지났는데 status가 ACTIVE로 남아있는 데이터는 상세에서도 만료로 정규화
+                            LocalDate expiryDate = mp.getExpiryDate();
+                            if ("ACTIVE".equals(statusName) && expiryDate != null && expiryDate.isBefore(today)) {
+                                statusName = "EXPIRED";
+                                remainingCount = 0;
+                            }
+
+                            // 횟수권: 출석/예약 기반으로 실제 잔여 계산 (DB remainingCount가 0이어도 목록과 동일하게 보이도록)
+                            try {
+                                if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.COUNT_PASS
+                                    && "ACTIVE".equals(statusName)) {
+                                    Integer usage = null;
+                                    try { usage = mp.getProduct().getUsageCount(); } catch (Exception ignore) {}
+                                    if (usage == null || usage <= 0) usage = totalCount;
+                                    if (usage == null || usage <= 0) usage = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
+                                    totalCount = usage;
+
+                                    Long usedByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(id, mp.getId());
+                                    if (usedByAttendance == null) usedByAttendance = 0L;
+                                    Long usedByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
+                                    if (usedByBooking == null) usedByBooking = 0L;
+                                    Long actualUsed = usedByAttendance > 0 ? usedByAttendance : usedByBooking;
+                                    int calc = Math.max(0, usage - (actualUsed != null ? actualUsed.intValue() : 0));
+                                    remainingCount = calc;
+                                }
+                            } catch (Exception e) {
+                                logger.debug("상세 잔여 계산 스킵 (MemberProduct ID={}): {}", mp.getId(), e.getMessage());
+                            }
+
+                            mpMap.put("remainingCount", remainingCount);
+                            mpMap.put("totalCount", totalCount);
+                            mpMap.put("status", statusName);
                             
-                            // 코치 정보 (MemberProduct.coach -> Product.coach -> Member.coach 순서)
+                            // 코치 정보 유지 (종료된 이용권도 당시 배정 코치 표시)
                             Map<String, Object> coachMap = null;
                             try {
                                 if (mp.getCoach() != null) {
@@ -244,10 +279,7 @@ public class MemberController {
                                     coachMap.put("id", mp.getCoach().getId());
                                     coachMap.put("name", mp.getCoach().getName());
                                 }
-                            } catch (Exception e) {
-                                // coach 필드가 아직 로드되지 않았거나 없을 수 있음
-                            }
-                            
+                            } catch (Exception e) { }
                             if (coachMap == null && mp.getProduct() != null) {
                                 try {
                                     if (mp.getProduct().getCoach() != null) {
@@ -255,20 +287,16 @@ public class MemberController {
                                         coachMap.put("id", mp.getProduct().getCoach().getId());
                                         coachMap.put("name", mp.getProduct().getCoach().getName());
                                     }
-                                } catch (Exception e) {
-                                    // 상품의 코치 로드 실패 시 무시
-                                }
+                                } catch (Exception e) { }
                             }
-                            
                             if (coachMap == null && member.getCoach() != null) {
                                 coachMap = new HashMap<>();
                                 coachMap.put("id", member.getCoach().getId());
                                 coachMap.put("name", member.getCoach().getName());
                             }
-                            
                             if (coachMap != null) {
                                 mpMap.put("coach", coachMap);
-                                mpMap.put("coachName", coachMap.get("name")); // 하위 호환성
+                                mpMap.put("coachName", coachMap.get("name"));
                             }
                             
                             // Product 정보 안전하게 로드

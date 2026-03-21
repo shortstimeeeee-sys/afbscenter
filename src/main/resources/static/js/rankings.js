@@ -30,20 +30,20 @@ document.addEventListener('DOMContentLoaded', function() {
     // 관리자는 랭킹에서 이름이 이미 전체 표시되므로 열람 버튼 숨김 / 그 외 등급만 버튼 표시
     var rankingsViewBtn = document.getElementById('rankings-unlock-btn');
     if (rankingsViewBtn) rankingsViewBtn.style.display = (App.currentRole === 'ADMIN') ? 'none' : '';
-    // 기본 7일 랭킹 로드
-    loadRankings(7);
+    // 기본: 전체 기간(모든 회원 정보) 기준 랭킹 로드
+    loadRankings('all');
     
-    // 기간 선택 버튼 이벤트
+    // 기간 선택 버튼 이벤트 (전체 / 7일 / 30일 / 90일 / 1년)
     document.querySelectorAll('.period-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
             
-            const days = parseInt(this.getAttribute('data-days'));
-            currentDays = days;
+            const dataDays = this.getAttribute('data-days');
+            currentDays = dataDays === 'all' ? 'all' : parseInt(dataDays, 10);
             currentStartDate = null;
             currentEndDate = null;
-            loadRankings(days);
+            loadRankings(currentDays);
         });
     });
     
@@ -60,26 +60,30 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadRankings(days, startDate = null, endDate = null) {
     try {
-        // 기간 계산
+        // 기간 계산: 'all'이면 전체 기간(모든 회원 정보 기준), 아니면 해당 일수 또는 직접 입력 기간
         let start, end;
         if (startDate && endDate) {
             start = startDate;
             end = endDate;
+        } else if (days === 'all') {
+            end = new Date().toISOString().split('T')[0];
+            start = '2000-01-01'; // 전체 기간
         } else {
             end = new Date().toISOString().split('T')[0];
             const startDateObj = new Date();
-            startDateObj.setDate(startDateObj.getDate() - days);
+            startDateObj.setDate(startDateObj.getDate() - (parseInt(days, 10) || 7));
             start = startDateObj.toISOString().split('T')[0];
         }
         
-        // 회원 목록 로드 (회원 기록 포함 - 스윙 속도용)
+        // 회원 목록 로드 (회원 기록 포함 - 스윙 속도·TEE 타구 속도용)
         const members = await App.api.get('/members');
         
-        // 훈련 기록 랭킹 API 호출 (타구 속도, 구속, 훈련 횟수용)
+        // 훈련 기록 랭킹 API 호출 (타구 속도, 구속, 훈련 횟수용). 전체 기간이면 start/end만 사용
+        const daysNum = days === 'all' ? 99999 : (days || Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)));
         const trainingRankingsParams = new URLSearchParams({
             startDate: start,
             endDate: end,
-            days: days || Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24))
+            days: daysNum
         });
         if (currentGrade !== 'ALL') {
             trainingRankingsParams.append('grade', currentGrade);
@@ -89,7 +93,7 @@ async function loadRankings(days, startDate = null, endDate = null) {
         // 디버깅: API 응답 확인
         App.log('훈련 기록 랭킹 API 응답:', trainingRankings);
         App.log('스윙 속도 랭킹:', trainingRankings.swingSpeedRanking);
-        App.log('타구 속도 랭킹:', trainingRankings.ballSpeedRanking);
+        App.log('TEE 타구 속도 랭킹:', trainingRankings.ballSpeedRanking);
         App.log('구속 랭킹:', trainingRankings.pitchSpeedRanking);
         App.log('훈련 횟수 랭킹:', trainingRankings.recordCountRanking);
         App.log('조회 기간:', start, '~', end);
@@ -102,8 +106,9 @@ async function loadRankings(days, startDate = null, endDate = null) {
             App.log('테스트1 swingSpeed:', testMember.swingSpeed);
         }
         
-        // 기간 정보 표시
-        updatePeriodInfo({ start, end, days: days || Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)) }, currentGrade);
+        // 기간 정보 표시 (전체일 때 days는 'all')
+        const periodDays = days === 'all' ? 'all' : (days || Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)));
+        updatePeriodInfo({ start, end, days: periodDays }, currentGrade);
         
         // 등급 필터링
         let filteredMembers = members;
@@ -115,8 +120,9 @@ async function loadRankings(days, startDate = null, endDate = null) {
         const swingSpeedRanking = buildSwingSpeedRanking(filteredMembers, trainingRankings.swingSpeedRanking || []);
         renderSwingSpeedRanking('swing-speed-ranking', swingSpeedRanking);
         
-        // 타구 속도: 훈련 기록 기반
-        renderTrainingLogRanking('exit-velocity-ranking', trainingRankings.ballSpeedRanking || [], 'ballSpeedMax', '⚡ 타구 속도', 'km/h', '훈련 기록');
+        // TEE 타구 속도: 회원 기록(exitVelocity) + 훈련 기록(ballSpeed) 병합 → 기록 보유자 기준
+        const teeBallSpeedRanking = buildTeeBallSpeedRanking(filteredMembers, trainingRankings.ballSpeedRanking || []);
+        renderTeeBallSpeedRanking('exit-velocity-ranking', teeBallSpeedRanking);
         
         // 구속: 훈련 기록 기반
         renderTrainingLogRanking('pitching-speed-ranking', trainingRankings.pitchSpeedRanking || [], 'pitchSpeedMax', '🔥 구속', 'km/h', '훈련 기록');
@@ -132,9 +138,6 @@ async function loadRankings(days, startDate = null, endDate = null) {
 
 function updatePeriodInfo(period, filterGrade) {
     const periodInfo = document.getElementById('period-info');
-    const startDate = new Date(period.start);
-    const endDate = new Date(period.end);
-    
     const gradeLabel = {
         'ALL': '전체',
         'SOCIAL': '사회인',
@@ -143,9 +146,13 @@ function updatePeriodInfo(period, filterGrade) {
         'OTHER': '기타 종목'
     }[filterGrade || 'ALL'];
     
+    const isAllPeriod = period.days === 'all';
+    const periodText = isAllPeriod
+        ? '<strong>전체 기간</strong> (모든 회원 정보 기준)'
+        : `<strong>${period.start}</strong> ~ <strong>${period.end}</strong> (${period.days}일간)`;
+    
     periodInfo.innerHTML = `
-        <strong>${period.start}</strong> ~ <strong>${period.end}</strong> 
-        (${period.days}일간) 
+        ${periodText}
         <span style="margin-left: 16px; padding: 4px 12px; background: var(--accent-primary); color: white; border-radius: 12px; font-size: 12px; font-weight: 600;">${gradeLabel}</span>
         <span style="margin-left: 8px; color: var(--text-muted);">최종 업데이트: ${new Date().toLocaleString('ko-KR')}</span>
     `;
@@ -194,6 +201,106 @@ function buildSwingSpeedRanking(members, trainingLogRanking) {
     return Array.from(memberMap.values())
         .sort((a, b) => b.swingSpeed - a.swingSpeed)
         .slice(0, 10);
+}
+
+// TEE 타구 속도 랭킹: 회원 기록(exitVelocity) + 훈련 기록(ballSpeedMax) 병합 → 기록 보유자 기준
+function buildTeeBallSpeedRanking(members, trainingLogRanking) {
+    const memberMap = new Map();
+
+    // 1. 회원 등록 TEE 타구 속도(exitVelocity) 추가
+    members.forEach(member => {
+        if (member.exitVelocity != null && member.exitVelocity > 0) {
+            memberMap.set(member.id, {
+                memberId: member.id,
+                memberName: member.name,
+                memberNumber: member.memberNumber,
+                memberGrade: member.grade,
+                ballSpeedMax: member.exitVelocity,
+                source: '회원 등록 기록'
+            });
+        }
+    });
+
+    // 2. 훈련 기록의 타구속도(ballSpeed) 최고값과 병합 (더 높으면 업데이트)
+    (trainingLogRanking || []).forEach(training => {
+        const memberId = training.memberId;
+        const trainingBallSpeed = training.ballSpeedMax || 0;
+
+        if (trainingBallSpeed > 0) {
+            const existing = memberMap.get(memberId);
+            if (!existing || trainingBallSpeed > existing.ballSpeedMax) {
+                memberMap.set(memberId, {
+                    memberId: memberId,
+                    memberName: training.memberName,
+                    memberNumber: training.memberNumber,
+                    memberGrade: training.memberGrade,
+                    ballSpeedMax: trainingBallSpeed,
+                    source: '훈련 기록'
+                });
+            }
+        }
+    });
+
+    return Array.from(memberMap.values())
+        .sort((a, b) => b.ballSpeedMax - a.ballSpeedMax)
+        .slice(0, 10);
+}
+
+// TEE 타구 속도 랭킹 렌더링 (기록 보유자별 출처 표시)
+function renderTeeBallSpeedRanking(containerId, rankingData) {
+    const container = document.getElementById(containerId);
+    const subtitle = document.getElementById('exit-velocity-subtitle');
+    if (subtitle) subtitle.textContent = '기록 보유자 기준';
+
+    if (!rankingData || rankingData.length === 0) {
+        container.innerHTML = '<div class="ranking-empty">해당 기간에 기록이 없습니다.</div>';
+        return;
+    }
+
+    const gradeLabel = {
+        'SOCIAL': '사회인',
+        'ELITE_ELEMENTARY': '엘리트(초)',
+        'ELITE_MIDDLE': '엘리트(중)',
+        'ELITE_HIGH': '엘리트(고)',
+        'YOUTH': '유소년',
+        'OTHER': '기타 종목'
+    };
+
+    let currentRank = 1;
+    let previousValue = null;
+
+    container.innerHTML = rankingData.map((item, index) => {
+        const value = item.ballSpeedMax;
+        if (previousValue !== null && previousValue !== value) currentRank = index + 1;
+        previousValue = value;
+
+        const rank = currentRank;
+        const positionClass = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
+        const itemBgClass = rank === 1 ? 'ranking-item-gold' : rank === 2 ? 'ranking-item-silver' : rank === 3 ? 'ranking-item-bronze' : '';
+        const grade = item.memberGrade || 'SOCIAL';
+        const memberId = item.memberId;
+        const nameDisplay = maskRankingName(item.memberName);
+        const numberDisplay = maskRankingMemberNumber(item.memberNumber);
+        const memberLink = memberId ? `<a href="/members.html?openMember=${memberId}" class="ranking-member-link" title="회원 개인정보 보기">${nameDisplay}</a>` : nameDisplay;
+        const numberLink = memberId ? `<a href="/members.html?openMember=${memberId}" class="ranking-member-link" title="회원 개인정보 보기">${numberDisplay}</a>` : numberDisplay;
+
+        return `
+            <div class="ranking-item ${itemBgClass}">
+                <div class="ranking-position ${positionClass}">${rank}</div>
+                <div class="ranking-member-info">
+                    <div class="ranking-member-name">
+                        ${memberLink}
+                        <span class="ranking-grade-badge ranking-grade-${(grade || 'SOCIAL').toLowerCase().replace(/_/g, '-')}">${gradeLabel[grade] || grade}</span>
+                    </div>
+                    <div class="ranking-member-number">${numberLink}</div>
+                </div>
+                <div class="ranking-value">
+                    <div class="ranking-main-value">${typeof value === 'number' ? value.toFixed(1) : value} mph</div>
+                    <div class="ranking-sub-value">${item.source || '회원 등록 기록'}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 // 스윙 속도 랭킹 렌더링

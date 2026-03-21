@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -165,7 +166,9 @@ public class MemberQueryController {
                     allMemberProducts = new java.util.ArrayList<>();
                 }
 
+                // 목록·상세와 동일한 단일 기준: MemberService와 동일한 잔여 계산 (출석 우선, 만료일 제외, mp에 반영)
                 int remainingCount = 0;
+                final LocalDate today = LocalDate.now();
                 try {
                     if (allMemberProducts != null) {
                         for (MemberProduct mp : allMemberProducts) {
@@ -175,53 +178,65 @@ public class MemberQueryController {
                                         mp.getStatus() != MemberProduct.Status.ACTIVE) {
                                     continue;
                                 }
-
-                                Integer mpRemainingCount = mp.getRemainingCount();
-                                if (mpRemainingCount == null || mpRemainingCount == 0) {
-                                    Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(member.getId(), mp.getId());
-                                    if (usedCountByAttendance == null) {
-                                        usedCountByAttendance = 0L;
-                                    }
-
-                                    Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
-                                    if (usedCountByBooking == null) {
-                                        usedCountByBooking = 0L;
-                                    }
-
-                                    Long usedCount = Math.max(usedCountByAttendance, usedCountByBooking);
-
-                                    Integer totalCount = mp.getTotalCount();
-                                    if (totalCount == null || totalCount <= 0) {
-                                        if (mp.getProduct() != null) {
-                                            totalCount = mp.getProduct().getUsageCount();
-                                            if (totalCount == null || totalCount <= 0) {
-                                                logger.warn("상품의 usageCount가 설정되지 않음: 상품 ID={}, 상품명={}",
-                                                        mp.getProduct().getId(), mp.getProduct().getName());
-                                                totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
-                                            }
-                                        } else {
-                                            totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
-                                        }
-                                    }
-
-                                    if (usedCount == 0) {
-                                        mpRemainingCount = totalCount;
-                                    } else if (mpRemainingCount == null) {
-                                        mpRemainingCount = Math.max(0, totalCount - usedCount.intValue());
-                                    }
+                                if (mp.getExpiryDate() != null && mp.getExpiryDate().isBefore(today)) {
+                                    continue;
                                 }
-
-                                if (mpRemainingCount != null && mpRemainingCount > 0) {
-                                    remainingCount += mpRemainingCount;
+                                Integer totalCount = null;
+                                if (mp.getProduct() != null) {
+                                    totalCount = mp.getProduct().getUsageCount();
                                 }
+                                if (totalCount == null || totalCount <= 0) {
+                                    totalCount = mp.getTotalCount();
+                                }
+                                if (totalCount == null || totalCount <= 0) {
+                                    totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
+                                }
+                                Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(member.getId(), mp.getId());
+                                if (usedCountByAttendance == null) usedCountByAttendance = 0L;
+                                Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
+                                if (usedCountByBooking == null) usedCountByBooking = 0L;
+                                Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
+                                int calculated = Math.max(0, totalCount - (actualUsedCount != null ? actualUsedCount.intValue() : 0));
+                                mp.setRemainingCount(calculated);
+                                if (mp.getTotalCount() == null || mp.getTotalCount() <= 0) {
+                                    mp.setTotalCount(totalCount);
+                                }
+                                remainingCount += calculated;
                             } catch (Exception e) {
                                 logger.warn("회원 상품 잔여 횟수 계산 실패 (Member ID: {}, MemberProduct ID: {}): {}",
-                                        member.getId(), mp.getId(), e.getMessage());
+                                        member.getId(), mp != null ? mp.getId() : "null", e.getMessage());
                             }
                         }
                     }
                 } catch (Exception e) {
                     logger.warn("회원 잔여 횟수 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
+                }
+                try {
+                    if (allMemberProducts != null) {
+                        for (MemberProduct mp : allMemberProducts) {
+                            if (mp.getStatus() != MemberProduct.Status.ACTIVE) continue;
+                            if (mp.getExpiryDate() != null && mp.getExpiryDate().isBefore(today)) continue;
+                            if (mp.getProduct() == null || mp.getProduct().getType() != Product.ProductType.TEAM_PACKAGE) continue;
+                            String json = mp.getPackageItemsRemaining();
+                            if (json == null || json.trim().isEmpty()) continue;
+                            try {
+                                com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                                java.util.List<Map<String, Object>> items = om.readValue(json,
+                                    new com.fasterxml.jackson.core.type.TypeReference<java.util.List<Map<String, Object>>>() {});
+                                int sum = 0;
+                                for (Map<String, Object> item : items) {
+                                    Object r = item.get("remaining");
+                                    if (r instanceof Number) sum += ((Number) r).intValue();
+                                }
+                                mp.setRemainingCount(sum);
+                                remainingCount += sum;
+                            } catch (Exception e) {
+                                logger.debug("패키지 잔여 합산 스킵 (MemberProduct ID={}): {}", mp.getId(), e.getMessage());
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("패키지 잔여 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
                 }
 
                 MemberProduct activePeriodPass = null;

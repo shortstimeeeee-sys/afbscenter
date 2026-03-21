@@ -396,7 +396,7 @@ function renderMembersTable(members, showLoadMore) {
             <td>${member.latestLessonDate ? App.formatDate(member.latestLessonDate) : '-'}</td>
             <td>${App.formatCurrency(member.totalPayment || 0)}</td>
             <td>
-                <button class="btn btn-sm btn-primary" onclick="openExtendProductModal(${member.id})" title="이용권 연장" style="margin-right: 4px;">연장</button>
+                <button class="btn btn-sm btn-primary" onclick="openExtendProductModal(${member.id})" title="이용권 구매 또는 연장" style="margin-right: 4px;">이용권 구매/연장</button>
                 <button class="btn btn-sm btn-secondary" onclick="editMember(${member.id})">수정</button>
                 ${App.currentUser && App.currentUser.role === 'ADMIN' ? `<button class="btn btn-sm btn-danger" onclick="deleteMember(${member.id})">삭제</button>` : ''}
             </td>
@@ -2415,7 +2415,7 @@ async function loadMemberProductsForDetail(memberId) {
     try {
         const products = await App.api.get(`/member-products?memberId=${memberId}`);
         App.log('이용권 목록 로드:', products);
-        content.innerHTML = renderProductsList(products);
+        content.innerHTML = renderProductsList(products, memberId);
         if (typeof window.applyCoachNameColors === 'function') {
             window.applyCoachNameColors(content);
         }
@@ -2425,11 +2425,23 @@ async function loadMemberProductsForDetail(memberId) {
     }
 }
 
-function renderProductsList(products) {
+function renderProductsList(products, memberId) {
+    const purchaseBtn = (memberId != null && memberId !== '') ? `
+        <div style="margin-bottom: 14px;">
+            <button type="button" class="btn btn-primary" onclick="openExtendProductModal(${memberId})" title="새 이용권 구매 또는 기존 이용권 연장">
+                이용권 구매/연장
+            </button>
+        </div>
+    ` : '';
     if (!products || products.length === 0) {
-        return '<p style="color: var(--text-muted);">이용권이 없습니다.</p>';
+        return purchaseBtn + '<p style="color: var(--text-muted);">이용권이 없습니다.</p>';
     }
-    return `
+    const extendBtn = (memberId != null && memberId !== '') ? `
+                            <button class="btn btn-sm btn-primary" onclick="openExtendProductModal(${memberId})" title="이용권 연장" style="margin-right: 4px;">
+                                연장
+                            </button>
+                        ` : '';
+    return purchaseBtn + `
         <div class="product-list">
             ${products.map(p => {
                 const product = p.product || {};
@@ -2471,6 +2483,7 @@ function renderProductsList(products) {
                 const isMonthlyPass = product.type === 'MONTHLY_PASS';
                 const startDate = p.purchaseDate ? App.formatDate(p.purchaseDate.split('T')[0]) : '-';
                 
+                // 종료된 이용권도 당시 배정된 코치 유지 표시
                 const rawCoachName = p.coachName || (p.coach && p.coach.name) || (product.coach && product.coach.name) || '미지정';
                 const coachDisplay = renderCoachNamesWithColorsFromText(rawCoachName);
                 
@@ -2590,6 +2603,7 @@ function renderProductsList(products) {
                         </div>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        ${extendBtn}
                         <span class="badge badge-${status === 'ACTIVE' ? 'success' : status === 'EXPIRED' ? 'warning' : 'secondary'}">${statusDisplay}</span>
                         ${isCountPass ? `
                             <button class="btn btn-sm btn-secondary" onclick="openAdjustCountModal(${productId}, ${remaining}, ${total})" title="횟수 조정">

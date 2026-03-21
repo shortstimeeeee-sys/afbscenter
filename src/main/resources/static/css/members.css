@@ -122,13 +122,18 @@ body.members-page .topbar { margin-top: 0; }
 .members-stats-item--withdrawn .members-stats-item-value {
     color: #c0392b;
 }
-/* 비회원: 예약 건수 표시용 */
+/* 비회원: 검은 배경 + 흰 글씨로 휴면과 구분 */
 .members-stats-item--nonmember {
-    border-left: 4px solid #6c757d;
-    background: rgba(108, 117, 125, 0.08);
+    border-left: 4px solid #444;
+    background: #1a1a1a;
 }
+.members-stats-item--nonmember .members-stats-item-label,
 .members-stats-item--nonmember .members-stats-item-value {
-    color: #6c757d;
+    color: #fff;
+}
+.members-stats-item--nonmember.members-stats-item-clickable:hover {
+    background: #2d2d2d;
+    border-color: #555;
 }
 
 /* 통계 클릭 모달: 공통 테이블·배지·코치 색상 디자인 */
@@ -156,6 +161,12 @@ body.members-page .topbar { margin-top: 0; }
     font-size: 11px;
     padding: 4px 10px;
 }
+/* 비회원 목록: 시설(지점) 고유색 (사하점/연산점/대관) */
+#stats-members-modal .cell-facility .branch-label { font-weight: 500; }
+#stats-members-modal .cell-facility .branch-label--saha { color: #1E8449; }
+#stats-members-modal .cell-facility .branch-label--yeonsan { color: #DAA520; }
+#stats-members-modal .cell-facility .branch-label--rental { color: #9B59B6; }
+
 #stats-members-modal .cell-coach .coach-name {
     font-weight: 600;
 }
@@ -717,34 +728,95 @@ body.light-mode .badge-expired {
 .member-stats-ability-col--single .member-stats-detail .member-stats-list .stat-value {
     font-size: 19px;
 }
-/* 타이틀–숫자 사이: 1열 고정, 2열 빈칸 40px, 3열 수치 140px, 수치 뒤 빈칸 4개 */
+/* 단계 리스트(단일 카드): 3구역(타이틀 / 단계 / 메모아이콘)으로 고정 분할 */
 .member-stats-ability-col--single .member-stats-detail .member-stats-list li {
-    display: grid;
-    grid-template-columns: 120px 40px 140px 12px 12px 12px 12px;
-    align-items: center;
+    display: grid !important;
+    grid-template-columns: minmax(120px, 200px) minmax(180px, 260px) 32px !important; /* 타이틀 | 단계 | 메모아이콘 */
+    align-items: center !important;
+    height: 52px;
+    min-height: 52px;
+    box-sizing: border-box;
+    position: relative;
+}
+/* 일부 화면에서 detail 래퍼/우선순위가 달라도 동일하게 적용 */
+.member-stats-ability-col--single .member-stats-list > li {
+    display: grid !important;
+    grid-template-columns: minmax(120px, 200px) minmax(180px, 260px) 32px !important;
+    align-items: center !important;
+    height: 52px;
+    min-height: 52px;
+    box-sizing: border-box;
 }
 .member-stats-ability-col--single .member-stats-detail .member-stats-list .stat-label {
     min-width: 0;
     grid-column: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.35;
 }
-/* 값 칸(3열) 전체를 쓰고, 그 안에서 '-'/숫자 모두 같은 칸·중앙 정렬 */
 .member-stats-ability-col--single .member-stats-detail .member-stats-list .stat-value {
-    grid-column: 3;
+    grid-column: 2;
     justify-self: stretch;
     width: 100%;
     min-width: 0;
-    text-align: center;
+    text-align: left;
+    line-height: 1.35;
+    align-self: stretch;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
     align-items: center;
+    justify-content: flex-start;
+    padding-left: 10px; /* 단계 텍스트 시작선 */
+    word-break: keep-all; /* 3단계가 3단/계로 쪼개지는 것 방지 */
+    position: static;
+    transform: none;
+    pointer-events: auto;
+}
+/* 동일 적용(우선순위 보강) */
+.member-stats-ability-col--single .member-stats-list .stat-value {
+    grid-column: 2;
+    justify-self: stretch;
+    text-align: left;
+    align-self: stretch;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-start;
+    padding-left: 10px;
+    word-break: keep-all;
+    position: static;
+    transform: none;
+    pointer-events: auto;
 }
 .member-stats-ability-col--single .member-stats-detail .member-stats-list .stat-value .stat-rank {
-    display: block;
-    margin-top: 2px;
+    display: inline;
+    margin-top: 0;
     color: #eab308;
+    line-height: 1.35;
+    white-space: nowrap;
 }
 .member-stats-ability-col--single .member-stats-detail .member-stats-list .stat-value .stat-rank.stat-rank-gold {
     color: #eab308;
+}
+/* 행 안 메모 아이콘도 세로 중앙 */
+.member-stats-ability-col--single .member-stats-detail .member-stats-list li .member-field-memo-icon {
+    align-self: center;
+    grid-column: 3;
+    justify-self: end;
+}
+
+/* 가운데 기준선(가이드) 숨김: 혹시 다른 곳에서 pseudo-element로 그리는 경우까지 차단 */
+.member-stats-ability-col--single .member-stats-detail .member-stats-list li::before,
+.member-stats-ability-col--single .member-stats-detail .member-stats-list li::after,
+.member-stats-ability-col--single .member-stats-list > li::before,
+.member-stats-ability-col--single .member-stats-list > li::after {
+    display: none !important;
+    content: none !important;
 }
 .member-stats-ability-title {
     margin: 0 0 10px 0;
@@ -850,11 +922,42 @@ body.light-mode .badge-expired {
     padding: 0;
     font-size: 14px;
 }
-/* 2개 그래프(투수+타자)일 때만 flex·양끝정렬 적용 (단일 그래프와 중복 방지) */
+
+/* 능력치 리스트(일반 카드 포함): 타이틀 | 단계 | 메모아이콘 3칸 고정 */
+.member-stats-ability-col .member-stats-list li {
+    display: grid !important;
+    grid-template-columns: minmax(120px, 200px) minmax(180px, 260px) 32px !important;
+    align-items: center !important;
+}
+.member-stats-ability-col .member-stats-list .stat-label {
+    grid-column: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.member-stats-ability-col .member-stats-list .stat-value {
+    grid-column: 2;
+    justify-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    text-align: left;
+    padding-left: 10px;
+    flex-wrap: wrap;
+    gap: 6px;
+    word-break: keep-all;
+}
+.member-stats-ability-col .member-stats-list li .member-field-memo-icon {
+    grid-column: 3;
+    justify-self: end;
+}
+/* 2개 그래프(투수+타자)일 때는 기존 flex 정렬 유지 */
 .member-stats-ability-col:not(.member-stats-ability-col--single) .member-stats-list li {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    min-height: 44px;
 }
 .member-stats-list li {
     padding: 8px 12px;
@@ -869,6 +972,10 @@ body.light-mode .badge-expired {
 .member-stats-list .stat-value {
     font-weight: 600;
     color: var(--text-primary);
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* 코치 메모 탭: 상단 텍스트 입력, 하단 수치별 메모 */

@@ -106,6 +106,10 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     /** 비회원 예약 건수 (member_id가 null인 예약) */
     long countByMemberIsNull();
 
+    /** 특정 코치의 비회원 예약 목록 (수강 인원 모달용) */
+    @Query("SELECT b FROM Booking b WHERE b.coach.id = :coachId AND b.member IS NULL ORDER BY b.id DESC")
+    List<Booking> findByCoachIdAndMemberIsNull(@Param("coachId") Long coachId);
+
     /** 같은 이용권 중 시각순 첫 예약 1건 (회차 표시: 첫 예약이 완료면 firstSession 보정용) */
     Optional<Booking> findFirstByMemberProduct_IdOrderByStartTimeAscIdAsc(Long memberProductId);
 }

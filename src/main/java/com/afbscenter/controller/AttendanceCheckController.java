@@ -482,7 +482,9 @@ public class AttendanceCheckController {
                 Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(memberProductId);
                 if (usedCountByBooking == null) usedCountByBooking = 0L;
 
-                Long actualUsedCount = Math.max(usedCountByAttendance, usedCountByBooking);
+                // 회원 목록·상세와 동일: 출석 있으면 출석 건수, 없으면 예약 건수 사용 (다른 화면과 숫자 일치)
+                Long actualUsedCount = (usedCountByAttendance != null && usedCountByAttendance > 0)
+                    ? usedCountByAttendance : usedCountByBooking;
                 Integer calculatedRemaining = Math.max(0, currentRemaining - actualUsedCount.intValue());
 
                 logger.info("사용 기록 기반 재계산: MemberProduct ID={}, totalCount={}, usedCountByBooking={}, usedCountByAttendance={}, actualUsedCount={}, calculatedRemaining={}",

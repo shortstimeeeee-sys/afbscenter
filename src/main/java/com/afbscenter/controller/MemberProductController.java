@@ -94,10 +94,20 @@ public class MemberProductController {
                 map.put("expiryDate", mp.getExpiryDate());
                 
                 // 회차권/패키지 remainingCount 계산
+                final LocalDate today = LocalDate.now();
                 Integer remainingCount = mp.getRemainingCount();
-                // 패키지 상품(대관 10회권 등): 직접 설정(조정) 값이 있으면 DB 우선, 없으면 JSON 합 + DEDUCT 히스토리
-                if (mp.getPackageItemsRemaining() != null && !mp.getPackageItemsRemaining().isEmpty()) {
-                    Integer totalCount = mp.getTotalCount();
+                Integer computedTotalCount = mp.getTotalCount();
+                String statusName = mp.getStatus() != null ? mp.getStatus().name() : null;
+
+                // 만료일이 지났는데 status가 ACTIVE로 남아있는 데이터는 API 응답 기준으로 만료로 정규화
+                if ("ACTIVE".equals(statusName) && mp.getExpiryDate() != null && mp.getExpiryDate().isBefore(today)) {
+                    statusName = "EXPIRED";
+                    remainingCount = 0;
+                }
+                final boolean isTeamPackage = (mp.getProduct() != null && mp.getProduct().getType() == com.afbscenter.model.Product.ProductType.TEAM_PACKAGE);
+                // 패키지 상품(TEAM_PACKAGE)만 패키지 로직 적용 (COUNT_PASS에 packageItemsRemaining이 잘못 들어간 경우 무시)
+                if (isTeamPackage && mp.getPackageItemsRemaining() != null && !mp.getPackageItemsRemaining().isEmpty()) {
+                    Integer totalCount = computedTotalCount;
                     try {
                         com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
                         @SuppressWarnings("unchecked")
@@ -118,6 +128,7 @@ public class MemberProductController {
                             remainingCount = sumRemaining;
                         }
                         if (totalCount == null || totalCount <= 0) totalCount = sumTotal > 0 ? sumTotal : mp.getTotalCount();
+                        computedTotalCount = totalCount;
                     } catch (Exception e) {
                         logger.warn("패키지 잔여 합산 실패: MemberProduct ID={}", mp.getId(), e);
                         remainingCount = mp.getRemainingCount();
@@ -138,18 +149,20 @@ public class MemberProductController {
                             if (remainingCount == null || remainingCount > fromHistory)
                                 remainingCount = fromHistory;
                         }
+                        computedTotalCount = totalCount;
                     } catch (Exception e) {
                         logger.warn("히스토리 기반 잔여 보정 실패: MemberProduct ID={}", mp.getId(), e);
                     }
                 } else if (mp.getProduct() != null && mp.getProduct().getType() == com.afbscenter.model.Product.ProductType.COUNT_PASS) {
                     // 일반 횟수권: 총 횟수 계산
-                    Integer totalCount = mp.getTotalCount();
+                    Integer totalCount = computedTotalCount;
                     if (totalCount == null || totalCount <= 0) {
                         totalCount = mp.getProduct().getUsageCount();
                         if (totalCount == null || totalCount <= 0) {
                             totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
                         }
                     }
+                    computedTotalCount = totalCount;
                     
                     Long actualMemberId = memberId;
                     if (actualMemberId == null && mp.getMember() != null) {
@@ -182,13 +195,13 @@ public class MemberProductController {
                 }
                 
                 map.put("remainingCount", remainingCount);
-                map.put("totalCount", mp.getTotalCount());
-                map.put("status", mp.getStatus() != null ? mp.getStatus().name() : null);
+                map.put("totalCount", computedTotalCount);
+                map.put("status", statusName);
                 
                 // 만료 여부 확인 (상태가 ACTIVE이지만 expiryDate가 지난 경우)
-                if (mp.getStatus() == MemberProduct.Status.ACTIVE && 
-                    mp.getExpiryDate() != null && 
-                    mp.getExpiryDate().isBefore(LocalDate.now())) {
+                if ("ACTIVE".equals(statusName) &&
+                    mp.getExpiryDate() != null &&
+                    mp.getExpiryDate().isBefore(today)) {
                     map.put("isActuallyExpired", true);
                 } else {
                     map.put("isActuallyExpired", false);
@@ -300,6 +313,7 @@ public class MemberProductController {
             
             // 횟수권인 경우에만 횟수 추가
             Integer previousRemainingCount = memberProduct.getRemainingCount();
+            Integer previousTotalForExtend = null; // 응답용·연장 전 총횟수
             if (memberProduct.getProduct() != null && 
                 memberProduct.getProduct().getType() == Product.ProductType.COUNT_PASS) {
                 
@@ -319,26 +333,27 @@ public class MemberProductController {
                     memberProduct.setTotalCount(totalCount);
                 }
                 
-                // 1) 이미 소진된 이용권(remaining=0 또는 USED_UP)을 연장하는 경우:
-                //    연장 횟수 = 새 회차의 총 횟수로 보고, 잔여/총횟수를 모두 연장 횟수로 초기화 (예: 10회권 완료 후 10회 연장 → 10/10)
+                // 1) 잔여 0(또는 null) 소진 상태 연장: 잔여·총횟수를 연장 횟수로 맞춤 (예: 10회 연장 → 10/10)
+                // 2) 잔여가 있는 경우: 잔여·총횟수 모두 연장 횟수만큼 증가 (예: 1+10→11/11, 10+10→20/20)
                 Integer newRemainingCount;
+                previousTotalForExtend = memberProduct.getTotalCount();
                 boolean fullyUsedBeforeExtend = (previousRemainingCount == null || previousRemainingCount <= 0);
                 if (fullyUsedBeforeExtend) {
                     newRemainingCount = extendDays;
                     memberProduct.setRemainingCount(newRemainingCount);
                     memberProduct.setTotalCount(extendDays);
                 } else {
-                    // 2) 아직 남은 횟수가 있는 이용권에 추가 연장: 잔여 = min(기존 총횟수, 현재잔여 + 연장횟수)로 제한
                     newRemainingCount = currentRemaining + extendDays;
-                    if (totalCount != null && totalCount > 0) {
-                        newRemainingCount = Math.min(totalCount, newRemainingCount);
-                    }
                     memberProduct.setRemainingCount(newRemainingCount);
-                    // 총 횟수는 그대로 유지 (10회권은 계속 10으로 유지)
+                    int baseTotal = (previousTotalForExtend != null && previousTotalForExtend > 0)
+                            ? previousTotalForExtend
+                            : (totalCount != null && totalCount > 0 ? totalCount : extendDays);
+                    memberProduct.setTotalCount(baseTotal + extendDays);
                 }
                 
-                // 사용 완료 상태였던 경우 활성 상태로 변경
-                if (memberProduct.getStatus() == MemberProduct.Status.USED_UP) {
+                // 소진·만료 상태였던 경우 연장 후 사용 가능으로 복귀
+                if (memberProduct.getStatus() == MemberProduct.Status.USED_UP
+                        || memberProduct.getStatus() == MemberProduct.Status.EXPIRED) {
                     memberProduct.setStatus(MemberProduct.Status.ACTIVE);
                 }
                 
@@ -473,11 +488,10 @@ public class MemberProductController {
                 logger.debug("이용권 연장 시 코치 정보 없음: MemberProduct ID={}", memberProduct.getId());
             }
             
-            // totalCount도 함께 업데이트 (연장된 횟수만큼 총 횟수도 증가)
-            Integer newTotalCount = memberProduct.getTotalCount() + extendDays;
-            memberProduct.setTotalCount(newTotalCount);
-            logger.info("이용권 총 횟수 업데이트: MemberProduct ID={}, 기존 총={}회, 추가={}회, 새 총={}회", 
-                    memberProduct.getId(), memberProduct.getTotalCount() - extendDays, extendDays, newTotalCount);
+            // 총·잔여는 위 COUNT_PASS 분기에서 이미 반영함 (소진 시 10/10, 잔여 있으면 총·잔여 각각 +연장)
+            Integer newTotalCount = memberProduct.getTotalCount();
+            logger.info("이용권 연장 후 총횟수: MemberProduct ID={}, 새 총={}회, 새 잔여={}회", 
+                    memberProduct.getId(), newTotalCount, memberProduct.getRemainingCount());
             
             MemberProduct saved = memberProductRepository.save(memberProduct);
             
@@ -487,7 +501,7 @@ public class MemberProductController {
             result.put("status", saved.getStatus() != null ? saved.getStatus().name() : null);
             result.put("previousRemainingCount", previousRemainingCount);
             result.put("newRemainingCount", saved.getRemainingCount());
-            result.put("previousTotalCount", newTotalCount - extendDays);
+            result.put("previousTotalCount", previousTotalForExtend);
             result.put("newTotalCount", newTotalCount);
             
             // 코치 정보도 응답에 포함

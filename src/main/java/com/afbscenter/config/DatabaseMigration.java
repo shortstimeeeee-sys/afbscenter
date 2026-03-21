@@ -258,6 +258,29 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                 logger.warn("누락된 결제(Payment) 자동 생성 중 오류 (무시): {}", e.getMessage());
             }
             
+            // 레거시 패키지 데이터 정리: TEAM_PACKAGE를 더 이상 사용하지 않는 운영 방식이면
+            // COUNT_PASS 등 일반 이용권에 잘못 남아있는 package_items_remaining을 비워 잔여/표시 불일치 방지
+            try {
+                int cleared = 0;
+                try {
+                    cleared = jdbcTemplate.update(
+                        "UPDATE member_products mp " +
+                        "JOIN products p ON p.id = mp.product_id " +
+                        "SET mp.package_items_remaining = NULL " +
+                        "WHERE mp.package_items_remaining IS NOT NULL " +
+                        "  AND TRIM(mp.package_items_remaining) <> '' " +
+                        "  AND (p.type IS NULL OR p.type <> 'TEAM_PACKAGE')"
+                    );
+                } catch (Exception e) {
+                    logger.debug("package_items_remaining 정리 JOIN UPDATE 실패(무시): {}", e.getMessage());
+                }
+                if (cleared > 0) {
+                    logger.info("레거시 package_items_remaining 정리 완료: {}건", cleared);
+                }
+            } catch (Exception e) {
+                logger.warn("레거시 package_items_remaining 정리 중 오류 (무시): {}", e.getMessage());
+            }
+
             try {
                 logger.info("애플리케이션 시작 시 Users 테이블 approved 컬럼 마이그레이션 실행");
                 migrateUsersTableApprovedColumn();

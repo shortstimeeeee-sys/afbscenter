@@ -453,6 +453,7 @@ public class MemberService {
                 // 횟수권 남은 횟수 계산 (allMemberProducts 사용)
                 int remainingCount = 0;
                 try {
+                    final LocalDate today = LocalDate.now();
                     // allMemberProducts에서 횟수권 필터링 (이미 product가 로드되어 있음)
                     if (allMemberProducts != null) {
                         for (MemberProduct mp : allMemberProducts) {
@@ -461,6 +462,10 @@ public class MemberService {
                                 if (mp.getProduct() == null || 
                                     mp.getProduct().getType() != Product.ProductType.COUNT_PASS ||
                                     mp.getStatus() != MemberProduct.Status.ACTIVE) {
+                                    continue;
+                                }
+                                // 만료일이 있는 횟수권은 만료일이 지나면 집계에서 제외 (status가 ACTIVE로 남아있어도 만료로 취급)
+                                if (mp.getExpiryDate() != null && mp.getExpiryDate().isBefore(today)) {
                                     continue;
                                 }
                                 
@@ -523,6 +528,38 @@ public class MemberService {
                     }
                 } catch (Exception e) {
                     logger.warn("횟수권 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
+                }
+
+                // 패키지 상품(TEAM_PACKAGE 등): JSON 항목 합산 잔여를 설정 → 목록과 상세 숫자 일치
+                try {
+                    if (allMemberProducts != null) {
+                        final LocalDate today = LocalDate.now();
+                        for (MemberProduct mp : allMemberProducts) {
+                            if (mp.getStatus() != MemberProduct.Status.ACTIVE) continue;
+                            // 만료일이 있는 패키지는 만료일이 지나면 집계에서 제외
+                            if (mp.getExpiryDate() != null && mp.getExpiryDate().isBefore(today)) continue;
+                            // TEAM_PACKAGE만 패키지 잔여 합산 적용
+                            if (mp.getProduct() == null || mp.getProduct().getType() != Product.ProductType.TEAM_PACKAGE) continue;
+                            String json = mp.getPackageItemsRemaining();
+                            if (json == null || json.trim().isEmpty()) continue;
+                            try {
+                                com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                                List<Map<String, Object>> items = om.readValue(json,
+                                    new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+                                int sum = 0;
+                                for (Map<String, Object> item : items) {
+                                    Object r = item.get("remaining");
+                                    if (r instanceof Number) sum += ((Number) r).intValue();
+                                }
+                                mp.setRemainingCount(sum);
+                                remainingCount += sum;
+                            } catch (Exception e) {
+                                logger.debug("패키지 잔여 합산 스킵 (MemberProduct ID={}): {}", mp.getId(), e.getMessage());
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("패키지 잔여 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
                 }
                 
                 // 기간권 정보

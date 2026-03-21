@@ -165,4 +165,20 @@ public class CoachController {
             return ResponseEntity.ok(errorResponse);
         }
     }
+
+    /** 수강 인원 모달용: 회원 + 비회원 통합 목록 (각 항목에 type: MEMBER | NON_MEMBER 포함) */
+    @GetMapping("/{id}/students-with-nonmembers")
+    @Transactional(readOnly = true)
+    public ResponseEntity<?> getStudentsWithNonMembers(@PathVariable Long id) {
+        try {
+            if (!coachService.getCoachById(id).isPresent()) {
+                return ResponseEntity.ok(new java.util.ArrayList<>());
+            }
+            return ResponseEntity.ok(coachService.getStudentsWithNonMembers(id));
+        } catch (Exception e) {
+            org.slf4j.LoggerFactory.getLogger(CoachController.class)
+                .error("코치 수강 인원(회원+비회원) 조회 실패 (coachId: {}): {}", id, e.getMessage(), e);
+            return ResponseEntity.ok(new java.util.ArrayList<>());
+        }
+    }
 }

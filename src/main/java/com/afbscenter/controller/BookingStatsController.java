@@ -130,6 +130,7 @@ public class BookingStatsController {
             int month = startDate.getMonthValue();
             String monthLabel = year + "년 " + month + "월";
 
+            // 코치별 예약 수(건수): 회원 예약 + 비회원 예약 모두 포함 (수강 인원(회원 수)과 별개)
             java.util.Map<Long, java.util.Map<String, Object>> coachMap = new java.util.LinkedHashMap<>();
             for (Booking b : bookings) {
                 Coach c = b.getCoach();

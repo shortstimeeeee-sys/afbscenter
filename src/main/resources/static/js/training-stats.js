@@ -1007,7 +1007,7 @@ async function loadTopRecords() {
         }));
         renderTopRecordsFromLogs('top-swing-speed', topSwing, 'mph');
         
-        // 타구속도 TOP 3 (동점자 포함)
+        // TEE 타구 속도 TOP 3 (동점자 포함)
         const topBall = getTop3WithTies(
             recordsArray.filter(r => r.maxBallSpeed > 0),
             r => r.maxBallSpeed
