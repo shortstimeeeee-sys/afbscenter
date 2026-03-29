@@ -10,7 +10,10 @@ import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.PaymentRepository;
+import com.afbscenter.repository.CoachRepository;
+import com.afbscenter.repository.UserRepository;
 import com.afbscenter.service.MemberService;
+import com.afbscenter.model.Coach;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -21,6 +24,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -43,24 +47,39 @@ public class MemberQueryController {
     private final AttendanceRepository attendanceRepository;
     private final MemberProductRepository memberProductRepository;
     private final PaymentRepository paymentRepository;
+    private final UserRepository userRepository;
+    private final CoachRepository coachRepository;
 
     public MemberQueryController(MemberRepository memberRepository,
                                  MemberService memberService,
                                  BookingRepository bookingRepository,
                                  AttendanceRepository attendanceRepository,
                                  MemberProductRepository memberProductRepository,
-                                 PaymentRepository paymentRepository) {
+                                 PaymentRepository paymentRepository,
+                                 UserRepository userRepository,
+                                 CoachRepository coachRepository) {
         this.memberRepository = memberRepository;
         this.memberService = memberService;
         this.bookingRepository = bookingRepository;
         this.attendanceRepository = attendanceRepository;
         this.memberProductRepository = memberProductRepository;
         this.paymentRepository = paymentRepository;
+        this.userRepository = userRepository;
+        this.coachRepository = coachRepository;
+    }
+
+    private Optional<Long> resolveCoachIdFromRequest(HttpServletRequest request) {
+        if (request == null) return Optional.empty();
+        String username = (String) request.getAttribute("username");
+        if (username == null || username.trim().isEmpty()) return Optional.empty();
+        return userRepository.findByUsername(username.trim())
+                .flatMap(u -> coachRepository.findByUserId(u.getId()))
+                .map(Coach::getId);
     }
 
     @GetMapping("/by-number/{memberNumber}")
     @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> getMemberByMemberNumber(@PathVariable String memberNumber) {
+    public ResponseEntity<Map<String, Object>> getMemberByMemberNumber(@PathVariable String memberNumber, HttpServletRequest request) {
         try {
             Optional<Member> memberOpt = memberRepository.findByMemberNumber(memberNumber);
             if (memberOpt.isEmpty()) {
@@ -70,6 +89,14 @@ public class MemberQueryController {
             }
 
             Member member = memberOpt.get();
+            String role = request != null ? (String) request.getAttribute("role") : null;
+            if ("COACH".equalsIgnoreCase(role)) {
+                Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
+                Long memberCoachId = member.getCoach() != null ? member.getCoach().getId() : null;
+                if (coachIdOpt.isEmpty() || memberCoachId == null || !coachIdOpt.get().equals(memberCoachId)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                }
+            }
 
             Map<String, Object> memberMap = new HashMap<>();
             memberMap.put("id", member.getId());
@@ -121,7 +148,8 @@ public class MemberQueryController {
     @Transactional(readOnly = true)
     public ResponseEntity<List<Map<String, Object>>> searchMembers(@RequestParam(required = false) String name,
                                                                    @RequestParam(required = false) String memberNumber,
-                                                                   @RequestParam(required = false) String phoneNumber) {
+                                                                   @RequestParam(required = false) String phoneNumber,
+                                                                   HttpServletRequest request) {
         List<Member> members;
         if (memberNumber != null && !memberNumber.isEmpty()) {
             members = memberService.searchMembersByMemberNumber(memberNumber);
@@ -131,6 +159,19 @@ public class MemberQueryController {
             members = memberService.searchMembersByName(name);
         } else {
             members = memberService.getAllMembers();
+        }
+
+        String role = request != null ? (String) request.getAttribute("role") : null;
+        if ("COACH".equalsIgnoreCase(role)) {
+            Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
+            if (coachIdOpt.isEmpty()) {
+                members = new java.util.ArrayList<>();
+            } else {
+                Long myCoachId = coachIdOpt.get();
+                members = members.stream()
+                        .filter(m -> m != null && m.getCoach() != null && myCoachId.equals(m.getCoach().getId()))
+                        .collect(java.util.stream.Collectors.toList());
+            }
         }
 
         List<com.afbscenter.dto.MemberResponseDTO> memberDTOs = new java.util.ArrayList<>();
@@ -166,8 +207,8 @@ public class MemberQueryController {
                     allMemberProducts = new java.util.ArrayList<>();
                 }
 
-                // 목록·상세와 동일한 단일 기준: MemberService와 동일한 잔여 계산 (출석 우선, 만료일 제외, mp에 반영)
                 int remainingCount = 0;
+                java.util.Map<Long, Integer> remainingOverrideByProductId = new java.util.HashMap<>();
                 final LocalDate today = LocalDate.now();
                 try {
                     if (allMemberProducts != null) {
@@ -181,27 +222,10 @@ public class MemberQueryController {
                                 if (mp.getExpiryDate() != null && mp.getExpiryDate().isBefore(today)) {
                                     continue;
                                 }
-                                Integer totalCount = null;
-                                if (mp.getProduct() != null) {
-                                    totalCount = mp.getProduct().getUsageCount();
-                                }
-                                if (totalCount == null || totalCount <= 0) {
-                                    totalCount = mp.getTotalCount();
-                                }
-                                if (totalCount == null || totalCount <= 0) {
-                                    totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
-                                }
-                                Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(member.getId(), mp.getId());
-                                if (usedCountByAttendance == null) usedCountByAttendance = 0L;
-                                Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
-                                if (usedCountByBooking == null) usedCountByBooking = 0L;
-                                Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
-                                int calculated = Math.max(0, totalCount - (actualUsedCount != null ? actualUsedCount.intValue() : 0));
-                                mp.setRemainingCount(calculated);
-                                if (mp.getTotalCount() == null || mp.getTotalCount() <= 0) {
-                                    mp.setTotalCount(totalCount);
-                                }
-                                remainingCount += calculated;
+                                int displayRem = com.afbscenter.util.MemberProductCountPassHelper.resolveRemainingForRead(
+                                        mp, member.getId(), attendanceRepository, bookingRepository);
+                                remainingOverrideByProductId.put(mp.getId(), displayRem);
+                                remainingCount += displayRem;
                             } catch (Exception e) {
                                 logger.warn("회원 상품 잔여 횟수 계산 실패 (Member ID: {}, MemberProduct ID: {}): {}",
                                         member.getId(), mp != null ? mp.getId() : "null", e.getMessage());
@@ -228,7 +252,7 @@ public class MemberQueryController {
                                     Object r = item.get("remaining");
                                     if (r instanceof Number) sum += ((Number) r).intValue();
                                 }
-                                mp.setRemainingCount(sum);
+                                remainingOverrideByProductId.put(mp.getId(), sum);
                                 remainingCount += sum;
                             } catch (Exception e) {
                                 logger.debug("패키지 잔여 합산 스킵 (MemberProduct ID={}): {}", mp.getId(), e.getMessage());
@@ -269,7 +293,7 @@ public class MemberQueryController {
                 }
 
                 com.afbscenter.dto.MemberResponseDTO dto = com.afbscenter.dto.MemberResponseDTO.fromMember(member, totalPayment, latestLessonDate,
-                        remainingCount, allMemberProducts, activePeriodPass);
+                        remainingCount, allMemberProducts, activePeriodPass, remainingOverrideByProductId);
                 memberDTOs.add(dto);
             } catch (Exception e) {
                 logger.error("회원 DTO 변환 실패 (Member ID: {}): {}",

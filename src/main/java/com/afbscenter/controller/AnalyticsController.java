@@ -1,5 +1,6 @@
 package com.afbscenter.controller;
 
+import com.afbscenter.constants.AccountingPolicy;
 import com.afbscenter.model.Booking;
 import com.afbscenter.model.Facility;
 import com.afbscenter.model.Member;
@@ -253,6 +254,7 @@ public class AnalyticsController {
             }
             Map<Long, Integer> memberTotalInPeriod = new HashMap<>();
             for (Payment p : paymentsForTopSpenders) {
+                if (AccountingPolicy.excludedFromRevenueSummary(p)) continue;
                 if (p.getMember() == null) continue;
                 Long mid = p.getMember().getId();
                 int amount = p.getAmount() != null ? p.getAmount() : 0;
@@ -600,6 +602,7 @@ public class AnalyticsController {
         // 전월 카테고리별 매출 계산
         Map<String, Integer> prevByCategory = new HashMap<>();
         for (Payment payment : prevPayments) {
+            if (AccountingPolicy.excludedFromRevenueSummary(payment)) continue;
             int amount = payment.getAmount() != null ? payment.getAmount() : 0;
             int refund = payment.getRefundAmount() != null ? payment.getRefundAmount() : 0;
             int netAmount = amount - refund;
@@ -643,6 +646,7 @@ public class AnalyticsController {
         logger.info("매출 지표 계산 시작 - 결제 수: {}건, 기간: {} ~ {}", payments.size(), start, end);
         
         for (Payment payment : payments) {
+            if (AccountingPolicy.excludedFromRevenueSummary(payment)) continue;
             int amount = payment.getAmount() != null ? payment.getAmount() : 0;
             int refund = payment.getRefundAmount() != null ? payment.getRefundAmount() : 0;
             int netAmount = amount - refund;
@@ -1017,6 +1021,7 @@ public class AnalyticsController {
         // 코치별 매출
         Map<String, Integer> byCoach = new HashMap<>();
         for (Payment payment : payments) {
+            if (AccountingPolicy.excludedFromRevenueSummary(payment)) continue;
             // 코치 정보 가져오기 (예약의 코치 우선, 없으면 회원의 담당 코치)
             com.afbscenter.model.Coach coach = null;
             try {
@@ -1057,6 +1062,7 @@ public class AnalyticsController {
         Map<String, Map<String, Integer>> productCoachCount = new HashMap<>(); // 상품별 코치별 판매 횟수
         
         for (Payment payment : payments) {
+            if (AccountingPolicy.excludedFromRevenueSummary(payment)) continue;
             if (payment.getCategory() == Payment.PaymentCategory.PRODUCT_SALE && payment.getProduct() != null) {
                 try {
                     String productName = payment.getProduct().getName();
@@ -1138,6 +1144,7 @@ public class AnalyticsController {
         // 전월 일별 매출 계산
         Map<LocalDate, Integer> prevDailyRevenue = new HashMap<>();
         for (Payment payment : prevPayments) {
+            if (AccountingPolicy.excludedFromRevenueSummary(payment)) continue;
             if (payment.getPaidAt() != null) {
                 LocalDate date = payment.getPaidAt().toLocalDate();
                 int amount = payment.getAmount() != null ? payment.getAmount() : 0;
@@ -1363,7 +1370,7 @@ public class AnalyticsController {
         Map<String, Long> categoryMemberCount = new HashMap<>(); // 카테고리별 회원 수
         Map<String, Long> categoryActiveProducts = new HashMap<>(); // 카테고리별 활성 이용권 수
         try {
-            List<com.afbscenter.model.MemberProduct> allMemberProducts = memberProductRepository.findAll();
+            List<com.afbscenter.model.MemberProduct> allMemberProducts = memberProductRepository.findAllByDeletedAtIsNull();
             Set<Long> categoryMemberIds = new HashSet<>();
             
             for (com.afbscenter.model.MemberProduct mp : allMemberProducts) {
@@ -1398,7 +1405,7 @@ public class AnalyticsController {
         long totalMemberProducts = 0L;
         long membersWithProducts = 0L;
         try {
-            List<com.afbscenter.model.MemberProduct> allMemberProducts = memberProductRepository.findAll();
+            List<com.afbscenter.model.MemberProduct> allMemberProducts = memberProductRepository.findAllByDeletedAtIsNull();
             Map<Long, Long> memberProductCount = new HashMap<>();
             for (com.afbscenter.model.MemberProduct mp : allMemberProducts) {
                 if (mp.getMember() != null && mp.getStatus() == com.afbscenter.model.MemberProduct.Status.ACTIVE) {

@@ -10,8 +10,10 @@ import java.util.Optional;
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUsername(String username);
+    Optional<User> findByEmployeeCode(String employeeCode);
     Optional<User> findByUsernameAndActiveTrue(String username);
     boolean existsByUsername(String username);
+    boolean existsByEmployeeCode(String employeeCode);
     
     // 승인 대기 사용자 조회 (approved = false AND active = true)
     List<User> findByApprovedFalseAndActiveTrue();

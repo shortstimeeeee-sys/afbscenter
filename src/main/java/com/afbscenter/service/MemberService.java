@@ -63,6 +63,21 @@ public class MemberService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /**
+     * 이용권 소프트 삭제. 행·FK는 유지하여 결제·member_product_history 감사 추적이 가능합니다.
+     */
+    public void softDeleteMemberProduct(MemberProduct memberProduct, String deletedBy) {
+        if (memberProduct == null) {
+            return;
+        }
+        if (memberProduct.getDeletedAt() != null) {
+            return;
+        }
+        memberProduct.setDeletedAt(LocalDateTime.now());
+        memberProduct.setDeletedBy(deletedBy != null && !deletedBy.isBlank() ? deletedBy.trim() : null);
+        memberProductRepository.save(memberProduct);
+    }
+
     // 회원 생성
     @Transactional(rollbackFor = Exception.class)
     public Member createMember(Member member) {
@@ -450,78 +465,28 @@ public class MemberService {
                     allMemberProducts = new java.util.ArrayList<>();
                 }
                 
-                // 횟수권 남은 횟수 계산 (allMemberProducts 사용)
+                // 횟수권·패키지 잔여: DB 저장값 우선(조회 시 엔티티 수정 없음). 상품 총횟수만 바꿔도 잔여 자동 변경 안 함.
                 int remainingCount = 0;
+                java.util.Map<Long, Integer> remainingOverrideByProductId = new java.util.HashMap<>();
                 try {
                     final LocalDate today = LocalDate.now();
-                    // allMemberProducts에서 횟수권 필터링 (이미 product가 로드되어 있음)
                     if (allMemberProducts != null) {
                         for (MemberProduct mp : allMemberProducts) {
                             try {
-                                // 횟수권인지 확인
-                                if (mp.getProduct() == null || 
+                                if (mp.getProduct() == null ||
                                     mp.getProduct().getType() != Product.ProductType.COUNT_PASS ||
                                     mp.getStatus() != MemberProduct.Status.ACTIVE) {
                                     continue;
                                 }
-                                // 만료일이 있는 횟수권은 만료일이 지나면 집계에서 제외 (status가 ACTIVE로 남아있어도 만료로 취급)
                                 if (mp.getExpiryDate() != null && mp.getExpiryDate().isBefore(today)) {
                                     continue;
                                 }
-                                
-                                Integer mpRemainingCount = mp.getRemainingCount();
-                                
-                                // 총 횟수: product.usageCount를 우선 사용 (상품의 실제 사용 횟수 반영, 데이터 일관성 보장)
-                                Integer totalCount = null;
-                                try {
-                                    if (mp.getProduct() != null) {
-                                        totalCount = mp.getProduct().getUsageCount();
-                                    }
-                                } catch (Exception e) {
-                                    logger.warn("Product 정보 로드 실패 (MemberProduct ID: {}): {}", 
-                                        mp.getId(), e.getMessage());
-                                }
-                                // product.usageCount가 없으면 mp.totalCount 사용
-                                if (totalCount == null || totalCount <= 0) {
-                                    totalCount = mp.getTotalCount();
-                                }
-                                // 그것도 없으면 기본값 사용
-                                if (totalCount == null || totalCount <= 0) {
-                                    totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
-                                }
-                                
-                                // 체크인된 출석 기록 수 (가장 정확한 데이터)
-                                Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(member.getId(), mp.getId());
-                                if (usedCountByAttendance == null) {
-                                    usedCountByAttendance = 0L;
-                                }
-                                
-                                // 체크인된 예약 수 (출석 기록이 없는 경우를 대비)
-                                // 주의: countConfirmedBookingsByMemberProductId는 이제 체크인된 예약만 카운트하므로
-                                // 출석 기록과 중복될 수 있음. 출석 기록을 우선 사용
-                                Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
-                                if (usedCountByBooking == null) {
-                                    usedCountByBooking = 0L;
-                                }
-                                
-                                // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용 (중복 방지)
-                                Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
-                                
-                                // 회원 목록과 상세(이용권 탭) 숫자 통일: COUNT_PASS는 항상 totalCount - actualUsedCount 사용
-                                int calculated = Math.max(0, totalCount - (actualUsedCount != null ? actualUsedCount.intValue() : 0));
-                                mpRemainingCount = calculated;
-                                mp.setRemainingCount(mpRemainingCount);
-                                if (mp.getTotalCount() == null || mp.getTotalCount() <= 0) {
-                                    mp.setTotalCount(totalCount);
-                                }
-                                
-                                if (mpRemainingCount < 0) {
-                                    mpRemainingCount = 0;
-                                }
-                                
-                                remainingCount += mpRemainingCount;
+                                int displayRem = com.afbscenter.util.MemberProductCountPassHelper.resolveRemainingForRead(
+                                        mp, member.getId(), attendanceRepository, bookingRepository);
+                                remainingOverrideByProductId.put(mp.getId(), displayRem);
+                                remainingCount += displayRem;
                             } catch (Exception e) {
-                                logger.warn("회원 상품 잔여 횟수 계산 실패 (Member ID: {}, MemberProduct ID: {}): {}", 
+                                logger.warn("회원 상품 잔여 횟수 계산 실패 (Member ID: {}, MemberProduct ID: {}): {}",
                                         member.getId(), mp != null ? mp.getId() : "null", e.getMessage());
                             }
                         }
@@ -530,15 +495,12 @@ public class MemberService {
                     logger.warn("횟수권 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
                 }
 
-                // 패키지 상품(TEAM_PACKAGE 등): JSON 항목 합산 잔여를 설정 → 목록과 상세 숫자 일치
                 try {
                     if (allMemberProducts != null) {
                         final LocalDate today = LocalDate.now();
                         for (MemberProduct mp : allMemberProducts) {
                             if (mp.getStatus() != MemberProduct.Status.ACTIVE) continue;
-                            // 만료일이 있는 패키지는 만료일이 지나면 집계에서 제외
                             if (mp.getExpiryDate() != null && mp.getExpiryDate().isBefore(today)) continue;
-                            // TEAM_PACKAGE만 패키지 잔여 합산 적용
                             if (mp.getProduct() == null || mp.getProduct().getType() != Product.ProductType.TEAM_PACKAGE) continue;
                             String json = mp.getPackageItemsRemaining();
                             if (json == null || json.trim().isEmpty()) continue;
@@ -551,7 +513,7 @@ public class MemberService {
                                     Object r = item.get("remaining");
                                     if (r instanceof Number) sum += ((Number) r).intValue();
                                 }
-                                mp.setRemainingCount(sum);
+                                remainingOverrideByProductId.put(mp.getId(), sum);
                                 remainingCount += sum;
                             } catch (Exception e) {
                                 logger.debug("패키지 잔여 합산 스킵 (MemberProduct ID={}): {}", mp.getId(), e.getMessage());
@@ -595,8 +557,8 @@ public class MemberService {
                     logger.warn("기간권 조회 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
                 }
                 
-                MemberResponseDTO dto = MemberResponseDTO.fromMember(member, totalPayment, latestLessonDate, 
-                        remainingCount, allMemberProducts, activePeriodPass);
+                MemberResponseDTO dto = MemberResponseDTO.fromMember(member, totalPayment, latestLessonDate,
+                        remainingCount, allMemberProducts, activePeriodPass, remainingOverrideByProductId);
                 memberDTOs.add(dto);
             } catch (Exception e) {
                 logger.error("회원 DTO 변환 실패 (Member ID: {}): {}", 

@@ -75,6 +75,27 @@
             </header>
             
             <div class="content-area">
+                <div class="card" style="margin-bottom: 24px; border-left: 3px solid var(--accent-secondary, #2ecc71);">
+                    <div class="card-header">
+                        <h2 class="card-title">전달 사항 · 회비 입금 전용계좌</h2>
+                    </div>
+                    <div style="padding: 0 16px 8px 16px;">
+                        <p style="margin: 0 0 12px 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+                            아래 내용은 저장 시 시스템 설정에 반영되며, <strong>상단 알림(종)에 표시</strong>를 켜 두면 모든 운영 화면에서 알림 목록에 노출됩니다.
+                        </p>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label class="form-label" for="membership-dues-notice">안내 문구</label>
+                            <textarea class="form-control" id="membership-dues-notice" rows="5" placeholder="예: 국민은행 123-456-789012 (예금주: ○○야구센터)"></textarea>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px;">
+                                <input type="checkbox" id="membership-dues-bell">
+                                <span>상단 알림(종)에 회비 입금 전용계좌 알림 표시</span>
+                            </label>
+                        </div>
+                        <button type="button" class="btn btn-primary" onclick="saveMembershipDuesHandover()">전달 사항 저장</button>
+                    </div>
+                </div>
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">공지사항</h2>
@@ -88,6 +109,8 @@
                                     <th>작성일</th>
                                     <th>노출 기간</th>
                                     <th>상태</th>
+                                    <th>회원공개</th>
+                                    <th>운영화면 숨김</th>
                                     <th>작업</th>
                                 </tr>
                             </thead>
@@ -96,8 +119,8 @@
                         </table>
                     </div>
                 </div>
-                
-                <div class="card">
+
+                <div class="card" id="mb-messages-card">
                     <div class="card-header">
                         <h2 class="card-title">메시지 발송</h2>
                         <button class="btn btn-primary" onclick="openMessageModal()">메시지 발송</button>
@@ -115,6 +138,56 @@
                             <tbody id="messages-table-body">
                             </tbody>
                         </table>
+                    </div>
+                </div>
+
+                <div class="card" id="desk-inbox-card">
+                    <div id="desk-inbox-body">
+                        <div class="card-header" style="align-items: center; gap: 12px;">
+                            <h2 class="card-title">
+                                회원 쪽지함
+                                <span id="desk-inbox-badge" class="badge badge-danger" style="display: none; margin-left: 8px; vertical-align: middle;">0</span>
+                            </h2>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="loadDeskInbox()">새로고침</button>
+                        </div>
+                        <p style="color: var(--text-secondary); font-size: 14px; margin: 0 0 12px 0;">
+                            목록에서 <strong>누가 보냈는지</strong>·최근 글을 확인하고 <strong>보기</strong>로 답장할 수 있습니다. 민감한 대화는 해당 창에서만 <strong>이 대화 잠금(PIN)</strong>을 걸 수 있습니다.
+                        </p>
+                        <details style="margin-bottom: 14px; font-size: 13px; color: var(--text-secondary);">
+                            <summary style="cursor: pointer; color: var(--text-primary);">아직 쪽지가 없는 회원에게 첫 답장만 열기 (선택)</summary>
+                            <div class="form-row" style="margin-top: 10px; align-items: flex-end; gap: 10px; flex-wrap: wrap">
+                                <div class="form-group" style="margin-bottom: 0; min-width: 200px; flex: 1">
+                                    <label class="form-label" for="desk-lookup-member-number">회원번호</label>
+                                    <input
+                                        type="text"
+                                        class="form-control"
+                                        id="desk-lookup-member-number"
+                                        placeholder="등록된 회원번호"
+                                        autocomplete="off"
+                                    />
+                                </div>
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="openDeskThreadByMemberNumber()">
+                                    대화 열기
+                                </button>
+                            </div>
+                        </details>
+                        <div class="table-container">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>회원</th>
+                                        <th>회원번호</th>
+                                        <th>잠금</th>
+                                        <th>최근 글</th>
+                                        <th>미읽음(회원→)</th>
+                                        <th>보기</th>
+                                        <th>삭제</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="desk-inbox-table-body">
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -148,6 +221,18 @@
                             <input type="date" class="form-control" id="announcement-end-date">
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px;">
+                            <input type="checkbox" id="announcement-visible-to-members">
+                            <span>회원 예약 페이지에 공개 (체크 시에만 회원이 종 알림·목록에서 볼 수 있음)</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px;">
+                            <input type="checkbox" id="announcement-hide-from-staff-feed" disabled>
+                            <span>대시보드·운영자 상단 종 알림에서는 숨김 (회원 페이지에서만 노출, 공지 관리 목록에는 계속 표시)</span>
+                        </label>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
@@ -168,11 +253,39 @@
                 <form id="message-form">
                     <div class="form-group">
                         <label class="form-label">발송 대상 *</label>
-                        <select class="form-control" id="message-target" required>
+                        <select class="form-control" id="message-target" required onchange="onMessageTargetChange()">
                             <option value="ALL">전체</option>
                             <option value="GRADE">등급별</option>
                             <option value="BOOKING">예약자</option>
+                            <option value="MEMBER">회원 개인(회원번호)</option>
                         </select>
+                    </div>
+                    <div class="form-group" id="message-grade-group" style="display: none">
+                        <label class="form-label" for="message-grade">발송 등급 *</label>
+                        <select class="form-control" id="message-grade">
+                            <option value="SOCIAL">사회인</option>
+                            <option value="ELITE_ELEMENTARY">엘리트 (초)</option>
+                            <option value="ELITE_MIDDLE">엘리트 (중)</option>
+                            <option value="ELITE_HIGH">엘리트 (고)</option>
+                            <option value="YOUTH">유소년</option>
+                            <option value="OTHER">기타 종목</option>
+                        </select>
+                        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 6px; margin-bottom: 0">
+                            목록에 어떤 등급으로 발송했는지 표시됩니다.
+                        </p>
+                    </div>
+                    <div class="form-group" id="message-member-number-group" style="display: none">
+                        <label class="form-label" for="message-member-number">회원번호 *</label>
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="message-member-number"
+                            placeholder="등록된 회원번호 입력"
+                            autocomplete="off"
+                        />
+                        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 6px; margin-bottom: 0">
+                            회원번호가 시스템과 일치할 때만 발송됩니다.
+                        </p>
                     </div>
                     <div class="form-group">
                         <label class="form-label">내용 *</label>
@@ -183,6 +296,69 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="App.Modal.close('message-modal')">취소</button>
                 <button class="btn btn-primary" onclick="sendMessage()">발송</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="desk-thread-modal">
+        <div class="modal" style="max-width: 560px; width: 92vw;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="desk-thread-modal-title">쪽지</h2>
+                <button type="button" class="modal-close" onclick="App.Modal.close('desk-thread-modal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div
+                    id="desk-thread-lock-gate"
+                    style="display: none; padding: 16px; border-radius: 8px; background: rgba(0, 0, 0, 0.2); margin-bottom: 12px; text-align: center;"
+                >
+                    <p style="margin: 0 0 12px 0; font-size: 14px; color: var(--text-primary);">이 회원과의 대화는 잠금되어 있습니다.</p>
+                    <input
+                        type="password"
+                        class="form-control"
+                        id="desk-thread-unlock-pin"
+                        placeholder="PIN 입력"
+                        style="max-width: 280px; margin: 0 auto 10px auto;"
+                        autocomplete="current-password"
+                    />
+                    <button type="button" class="btn btn-primary btn-sm" onclick="submitDeskThreadUnlock()">확인</button>
+                </div>
+                <div id="desk-thread-main-area">
+                    <div id="desk-thread-messages" style="max-height: 320px; overflow-y: auto; margin-bottom: 16px; font-size: 14px;"></div>
+                    <div
+                        class="form-group"
+                        id="desk-thread-lock-settings"
+                        style="padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 14px;"
+                    >
+                        <label class="form-label" style="margin-bottom: 6px;">이 대화만 잠금 (다른 직원이 내용을 보려면 PIN 필요)</label>
+                        <p style="font-size: 12px; color: var(--text-secondary); margin: 0 0 8px 0;">
+                            비워 두고 저장하면 이 대화의 잠금이 해제됩니다.
+                        </p>
+                        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                            <input
+                                type="password"
+                                class="form-control"
+                                id="desk-thread-lock-pin-set"
+                                placeholder="새 PIN (변경·설정 시만)"
+                                style="max-width: 220px; flex: 1; min-width: 140px;"
+                                autocomplete="new-password"
+                            />
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="saveDeskThreadLock()">잠금 저장</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">답장</label>
+                        <textarea class="form-control" id="desk-thread-reply" rows="4" placeholder="답장 내용을 입력하세요"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="flex-wrap: wrap; gap: 8px; justify-content: space-between;">
+                <button type="button" class="btn btn-danger btn-sm" onclick="deleteDeskThreadFromModal()" id="desk-thread-delete-all-btn">
+                    이 회원과의 쪽지 전체 삭제
+                </button>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-secondary" onclick="App.Modal.close('desk-thread-modal')">닫기</button>
+                    <button type="button" class="btn btn-primary" onclick="sendDeskReply()">답장 보내기</button>
+                </div>
             </div>
         </div>
     </div>

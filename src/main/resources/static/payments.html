@@ -111,13 +111,19 @@
                 
                 <!-- 필터 -->
                 <div class="card">
+                    <p class="payments-period-hint" style="font-size: 12px; color: var(--text-secondary); margin: 0 0 10px 0;">목록·통계·엑셀 기본: <strong>이번 달</strong> · &quot;전체&quot;는 모든 기간, &quot;기간 지정&quot;에서 시작·종료를 선택한 뒤 적용하세요.</p>
                     <div class="filter-group">
+                        <select class="form-control" id="filter-period" style="width: 130px;" title="조회 기간">
+                            <option value="month">이번 달</option>
+                            <option value="all">전체 기간</option>
+                            <option value="custom">기간 지정</option>
+                        </select>
                         <select class="form-control" id="filter-payment-method" style="width: 150px;">
                             <option value="">전체 결제수단</option>
                             <option value="CASH">현금</option>
                             <option value="CARD">카드</option>
-                            <option value="BANK">계좌이체</option>
-                            <option value="MOBILE">간편결제</option>
+                            <option value="BANK_TRANSFER">계좌이체</option>
+                            <option value="EASY_PAY">간편결제</option>
                         </select>
                         <select class="form-control" id="filter-status" style="width: 150px;">
                             <option value="">전체 상태</option>
@@ -129,10 +135,10 @@
                             <option value="">전체 분류</option>
                             <option value="RENTAL">대관</option>
                             <option value="LESSON">레슨</option>
-                            <option value="PRODUCT">상품판매</option>
+                            <option value="PRODUCT_SALE">상품판매</option>
                         </select>
-                        <input type="date" class="form-control" id="filter-date-start" style="width: 130px;">
-                        <input type="date" class="form-control" id="filter-date-end" style="width: 130px;">
+                        <input type="date" class="form-control" id="filter-date-start" style="width: 130px;" title="기간 지정 시 시작일">
+                        <input type="date" class="form-control" id="filter-date-end" style="width: 130px;" title="기간 지정 시 종료일">
                         <button class="btn btn-primary" onclick="applyFilters()">적용</button>
                         <button class="btn btn-secondary" onclick="exportReport()">정산 리포트</button>
                         <button class="btn btn-primary" id="payments-create-missing-btn" onclick="createMissingPayments()" style="margin-left: 10px;">📝 기존 상품 할당 결제 생성</button>
@@ -319,7 +325,7 @@
                 <button class="modal-close" onclick="App.Modal.close('payment-coach-unassigned-modal')">×</button>
             </div>
             <div class="modal-body">
-                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">예약·회원 담당 코치가 없어 결제 목록에 코치가 '-'로 표시된 건입니다.</p>
+                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">예약·회원 담당·이용권·상품 기본 코치를 모두 찾지 못한 결제만 표시됩니다. (이용권 코치는 구매 시각과 가장 가까운 이용권 기준)</p>
                 <div id="payment-coach-unassigned-list" class="table-container" style="max-height: 60vh; overflow: auto;"></div>
             </div>
             <div class="modal-footer">

@@ -398,6 +398,16 @@ function openKpiDetailModal(type) {
     const contentEl = document.getElementById('kpi-detail-content');
     const actionBtn = document.getElementById('kpi-detail-action-btn');
     if (!modal || !titleEl || !contentEl) return;
+    const modalBox = modal.querySelector('.modal');
+    if (modalBox) {
+        if (type === 'monthly-revenue') {
+            modalBox.style.maxWidth = 'min(1120px, 96vw)';
+            modalBox.style.width = '96vw';
+        } else {
+            modalBox.style.maxWidth = '900px';
+            modalBox.style.width = '';
+        }
+    }
     const currentMonth = new Date().getMonth() + 1;
     const titles = {
         'total-members': '총 회원 수 상세',
@@ -412,13 +422,25 @@ function openKpiDetailModal(type) {
     contentEl.innerHTML = '<p style="text-align: center; color: var(--text-muted);">로딩 중...</p>';
     actionBtn.style.display = 'none';
     actionBtn.onclick = kpiDetailActionClick;
+    if (modal) {
+        if (type === 'monthly-revenue') modal.classList.add('kpi-detail-modal--monthly-revenue');
+        else modal.classList.remove('kpi-detail-modal--monthly-revenue');
+    }
     modal.style.display = 'flex';
     loadKpiDetail(type);
 }
 
 function closeKpiDetailModal() {
     const modal = document.getElementById('kpi-detail-modal');
-    if (modal) modal.style.display = 'none';
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('kpi-detail-modal--monthly-revenue');
+        const modalBox = modal.querySelector('.modal');
+        if (modalBox) {
+            modalBox.style.maxWidth = '900px';
+            modalBox.style.width = '';
+        }
+    }
     kpiDetailCurrentType = null;
 }
 
@@ -589,9 +611,14 @@ async function loadKpiDetail(type) {
             actionBtn.textContent = '사하점 예약으로 이동';
             actionBtn.style.display = 'inline-block';
         } else if (type === 'monthly-revenue') {
-            const payments = await App.api.get('/payments?startDate=' + monthStartStr + '&endDate=' + monthEndStr);
+            const [kpiData, payments] = await Promise.all([
+                App.api.get('/dashboard/kpi'),
+                App.api.get('/payments?period=month')
+            ]);
             const list = (Array.isArray(payments) ? payments : []).filter(function(p) { return p.member != null && p.member.id != null; });
-            contentEl.innerHTML = renderPaymentsDetail(list, '이번 달');
+            var kpiTotal = kpiData && kpiData.monthlyRevenue != null ? Number(kpiData.monthlyRevenue) : null;
+            var kpiCnt = kpiData && kpiData.monthlyRevenuePaymentCount != null ? Number(kpiData.monthlyRevenuePaymentCount) : null;
+            contentEl.innerHTML = renderMonthlyRevenueDetail(list, '이번 달', kpiTotal, kpiCnt);
             actionBtn.textContent = '결제/정산으로 이동';
             actionBtn.style.display = 'inline-block';
         }
@@ -694,6 +721,141 @@ function paymentMethodText(method) {
     return method;
 }
 
+/** 상품 category → 월 매출 모달용 구분 (야구/트레이닝/필라테스/기타) */
+function getProductSportBucket(p) {
+    var cat = p.product && p.product.category ? String(p.product.category).toUpperCase() : '';
+    if (cat === 'BASEBALL') return 'baseball';
+    if (cat === 'TRAINING' || cat === 'TRAINING_FITNESS') return 'training';
+    if (cat === 'PILATES') return 'pilates';
+    return 'other';
+}
+
+function coachKeyForPayment(p) {
+    if (p.coach && p.coach.id != null) return 'id:' + p.coach.id;
+    if (p.coach && p.coach.name) return 'name:' + p.coach.name;
+    return '_none';
+}
+
+function coachLabelForPayment(p) {
+    if (p.coach && p.coach.name) return p.coach.name;
+    return '담당 코치·강사 미지정';
+}
+
+function buildPaymentDetailRow(p) {
+    var amt = p.amount != null ? p.amount : 0;
+    var paidAt = p.paidAt ? (typeof p.paidAt === 'string' ? p.paidAt.split('T')[0] : '-') : '-';
+    var memberName = App.escapeHtml((p.member && p.member.name) ? p.member.name : '-');
+    var productName = App.escapeHtml((p.product && p.product.name) ? p.product.name : '-');
+    return '<tr><td>' + paidAt + '</td><td>' + memberName + '</td><td>' + (productName || '-') + '</td><td>' + App.formatCurrency(amt) + '</td><td>' + App.escapeHtml(paymentMethodText(p.paymentMethod)) + '</td></tr>';
+}
+
+/**
+ * 월 매출 KPI 모달: 상단 합계 = 대시보드 월 매출 카드와 동일(/dashboard/kpi 순매출).
+ * @param kpiMonthlyTotal 대시보드 monthlyRevenue (없으면 목록 금액 합)
+ * @param kpiPaymentCount 집계 포함 건수 monthlyRevenuePaymentCount (없으면 목록 건수)
+ */
+function renderMonthlyRevenueDetail(payments, periodLabel, kpiMonthlyTotal, kpiPaymentCount) {
+    var list = payments || [];
+    if (list.length === 0 && (kpiMonthlyTotal == null || kpiMonthlyTotal === 0 || isNaN(Number(kpiMonthlyTotal)))) {
+        return '<p style="color: var(--text-muted);">' + periodLabel + ' 결제 내역이 없습니다.</p>';
+    }
+    var buckets = [
+        { key: 'baseball', title: '야구', icon: '⚾' },
+        { key: 'training', title: '트레이닝', icon: '💪' },
+        { key: 'pilates', title: '필라테스', icon: '🧘' },
+        { key: 'other', title: '기타', sub: '대관·일반·미지정', icon: '📋' }
+    ];
+    var totalHero = 0;
+    if (kpiMonthlyTotal != null && !isNaN(Number(kpiMonthlyTotal))) {
+        totalHero = Number(kpiMonthlyTotal);
+    } else {
+        list.forEach(function(p) { totalHero += (p.amount != null ? p.amount : 0); });
+    }
+    var countHero = list.length;
+    if (kpiPaymentCount != null && !isNaN(Number(kpiPaymentCount))) {
+        countHero = Number(kpiPaymentCount);
+    }
+    var monthNum = new Date().getMonth() + 1;
+    var html = '';
+    html += '<div class="monthly-revenue-detail">';
+    html += '<div class="mr-total-card">';
+    html += '<div class="mr-total-label">' + monthNum + '월 전체 매출 (대시보드와 동일)</div>';
+    html += '<div class="mr-total-amount">' + App.formatCurrency(totalHero) + '</div>';
+    html += '<div class="mr-total-meta">' + countHero + '건 · 순매출(환불 반영)·이용권 삭제 제외 등 집계 기준은 카드와 동일 · 아래는 상세·카테고리·코치 분류</div>';
+    html += '</div>';
+
+    html += '<div class="mr-category-grid">';
+    buckets.forEach(function(b) {
+        var catList = list.filter(function(p) { return getProductSportBucket(p) === b.key; });
+        var sub = 0;
+        catList.forEach(function(p) { sub += (p.amount != null ? p.amount : 0); });
+        html += '<details class="mr-category-details">';
+        html += '<summary class="mr-category-summary">';
+        html += '<div class="mr-category-face">';
+        html += '<span class="mr-category-icon" aria-hidden="true">' + b.icon + '</span>';
+        html += '<div class="mr-category-text">';
+        html += '<span class="mr-category-title">' + App.escapeHtml(b.title) + '</span>';
+        if (b.sub) {
+            html += '<span class="mr-category-sub">' + App.escapeHtml(b.sub) + '</span>';
+        }
+        html += '<span class="mr-category-sum">' + App.formatCurrency(sub) + '</span>';
+        html += '<span class="mr-category-count">' + catList.length + '건</span>';
+        html += '</div>';
+        html += '<span class="mr-category-chevron" aria-hidden="true"></span>';
+        html += '</div>';
+        html += '</summary>';
+        html += '<div class="mr-category-panel">';
+        if (catList.length === 0) {
+            html += '<p class="mr-empty-msg">이번 달 해당 카테고리 결제가 없습니다.</p>';
+        } else {
+            var coachMap = {};
+            catList.forEach(function(p) {
+                var k = coachKeyForPayment(p);
+                if (!coachMap[k]) coachMap[k] = { label: coachLabelForPayment(p), payments: [] };
+                coachMap[k].payments.push(p);
+            });
+            var coachKeys = Object.keys(coachMap);
+            coachKeys.sort(function(a, b) {
+                var sumA = 0, sumB = 0;
+                coachMap[a].payments.forEach(function(x) { sumA += x.amount || 0; });
+                coachMap[b].payments.forEach(function(x) { sumB += x.amount || 0; });
+                return sumB - sumA;
+            });
+            coachKeys.forEach(function(k) {
+                var cg = coachMap[k];
+                var csum = 0;
+                cg.payments.forEach(function(x) { csum += x.amount || 0; });
+                html += '<details class="mr-coach-details">';
+                html += '<summary class="mr-coach-summary">';
+                html += '<span class="mr-coach-name">' + App.escapeHtml(cg.label) + '</span>';
+                html += '<span class="mr-coach-sum">' + App.formatCurrency(csum) + '</span>';
+                html += '<span class="mr-coach-count">' + cg.payments.length + '건</span>';
+                html += '<span class="mr-coach-chevron" aria-hidden="true"></span>';
+                html += '</summary>';
+                html += '<div class="mr-coach-table-wrap">';
+                html += '<table class="table mr-coach-table"><thead><tr><th>결제일</th><th>회원</th><th>상품</th><th>금액</th><th>결제 수단</th></tr></thead><tbody>';
+                cg.payments.forEach(function(p) { html += buildPaymentDetailRow(p); });
+                html += '</tbody></table></div></details>';
+            });
+        }
+        html += '</div></details>';
+    });
+    html += '</div>';
+
+    html += '<details class="mr-full-details">';
+    html += '<summary class="mr-full-summary">';
+    html += '<div class="mr-full-face">';
+    html += '<span class="mr-full-title">전체 결제 목록</span>';
+    html += '<span class="mr-full-meta">' + list.length + '건 · 합계 포함</span>';
+    html += '<span class="mr-category-chevron" aria-hidden="true"></span>';
+    html += '</div>';
+    html += '</summary>';
+    html += '<div class="mr-full-panel">' + renderPaymentsDetail(list, periodLabel) + '</div>';
+    html += '</details>';
+    html += '</div>';
+    return html;
+}
+
 function renderPaymentsDetail(payments, periodLabel) {
     if (!payments || payments.length === 0) {
         return '<p style="color: var(--text-muted);">' + periodLabel + ' 결제 내역이 없습니다.</p>';
@@ -702,10 +864,7 @@ function renderPaymentsDetail(payments, periodLabel) {
     const rows = payments.map(function(p) {
         const amt = p.amount != null ? p.amount : 0;
         total += amt;
-        const paidAt = p.paidAt ? (typeof p.paidAt === 'string' ? p.paidAt.split('T')[0] : '-') : '-';
-        const memberName = App.escapeHtml((p.member && p.member.name) ? p.member.name : '-');
-        const productName = App.escapeHtml((p.product && p.product.name) ? p.product.name : '-');
-        return '<tr><td>' + paidAt + '</td><td>' + memberName + '</td><td>' + (productName || '-') + '</td><td>' + App.formatCurrency(amt) + '</td><td>' + App.escapeHtml(paymentMethodText(p.paymentMethod)) + '</td></tr>';
+        return buildPaymentDetailRow(p);
     });
     const totalRow = '<tr style="font-weight: 700; background: var(--bg-tertiary);"><td colspan="3">합계</td><td>' + App.formatCurrency(total) + '</td><td></td></tr>';
     return '<div style="overflow-x: auto;"><table class="table" style="width: 100%; font-size: 13px;"><thead><tr><th>결제일</th><th>회원</th><th>상품</th><th>금액</th><th>결제 수단</th></tr></thead><tbody>' + rows.join('') + totalRow + '</tbody></table></div>';
@@ -932,6 +1091,19 @@ function renderActiveAnnouncements(announcements) {
 }
 
 function showAnnouncementDetail(id) {
+    if (Number(id) === -1) {
+        App.api.get('/announcements/-1')
+            .then(function(announcement) {
+                if (typeof App.showMembershipDuesAnnouncementModal === 'function') {
+                    App.showMembershipDuesAnnouncementModal(announcement);
+                }
+            })
+            .catch(function(error) {
+                App.err('공지사항 상세 조회 실패:', error);
+                App.showNotification('공지사항을 불러오는데 실패했습니다.', 'danger');
+            });
+        return;
+    }
     // 공지사항 상세 내용을 모달로 표시
     App.api.get(`/announcements/${id}`)
         .then(announcement => {
@@ -1112,6 +1284,17 @@ function updateTabCounts(expiringCount, expiredCount, noProductCount) {
     }
 }
 
+/** onclick="fn(..., 'HERE', ...)" 안에 넣을 때 단일따옴표·역슬래시·개행을 이스케이프 */
+function escapeForJsSingleQuotedString(value) {
+    return String(value ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
+}
+
 function renderMembersList() {
     const listContainer = document.getElementById('expiring-members-list');
     if (!listContainer) {
@@ -1146,13 +1329,13 @@ function renderMembersList() {
                     </button>
                 </div>
             ` : '';
+            const ptSafe = escapeForJsSingleQuotedString(product.productType || '');
+            const pnSafe = escapeForJsSingleQuotedString(product.productName || '');
+            const usageDefault = product.usageCount != null && product.usageCount > 0 ? product.usageCount : 'null';
             const buttonsHtml = hasButtons ? `
                 <div style="display: flex; gap: 8px; margin-left: 12px; flex-wrap: wrap;">
-                    <button class="btn btn-sm" onclick="openExtendModal(${member.id}, ${product.id}, '${product.productType}', '${product.productName || ''}')" style="background-color: var(--success); color: white; padding: 6px 12px; font-size: 12px;">
-                        연장
-                    </button>
-                    <button class="btn btn-sm" onclick="openRepurchaseModal(${member.id}, ${product.id}, '${product.productType}', '${product.productName || ''}')" style="background-color: var(--accent-primary); color: white; padding: 6px 12px; font-size: 12px;">
-                        재구매
+                    <button class="btn btn-sm" onclick="openUnifiedExtendRepurchaseModal(${member.id}, ${product.id}, '${ptSafe}', '${pnSafe}', ${usageDefault})" style="background: linear-gradient(135deg, var(--success) 0%, var(--accent-primary) 100%); color: white; padding: 6px 12px; font-size: 12px; font-weight: 600;" title="잔여가 있으면 연장(횟수·결제 누적), 종료·소진이면 재구매(새 이용권). 코치는 기존과 동일하게 유지됩니다.">
+                        연장·재구매
                     </button>
                     <button class="btn btn-sm" onclick="openNewProductModal(${member.id})" style="background-color: var(--info, #17a2b8); color: white; padding: 6px 12px; font-size: 12px;">
                         추가 상품 구매
@@ -1263,8 +1446,41 @@ let extendRepurchaseData = {
     action: null // 'extend' or 'repurchase' or 'new'
 };
 
+/**
+ * 만료 임박 탭 → 연장(기존 행에 잔여·총횟수·결제 누적), 종료 탭 → 재구매(새 이용권 행). 코치는 각 API에서 유지/승계.
+ */
+async function openUnifiedExtendRepurchaseModal(memberId, memberProductId, productType, productName, usageCountDefault) {
+    if (memberProductId == null || productType === 'NONE') {
+        App.showNotification('이용권이 없습니다. 아래에서 추가 상품 구매를 이용해 주세요.', 'warning');
+        return;
+    }
+    if (currentTab === 'expiring') {
+        // 횟수권 연장은 회원 관리와 동일한「상품/이용권 연장」모달 사용
+        if (productType === 'COUNT_PASS' && document.getElementById('extend-product-modal') && typeof openExtendProductModal === 'function') {
+            await openExtendProductModal(memberId, {
+                memberProductId: memberProductId,
+                defaultExtendDays: typeof usageCountDefault === 'number' && usageCountDefault > 0 ? usageCountDefault : undefined
+            });
+            return;
+        }
+        await openExtendModal(memberId, memberProductId, productType, productName, usageCountDefault);
+        const titleEl = document.getElementById('extend-repurchase-title');
+        const sub = document.getElementById('extend-repurchase-subtitle');
+        if (titleEl) titleEl.textContent = '이용권 연장';
+        if (sub) sub.textContent = '잔여 횟수가 있을 때: 같은 이용권에 횟수가 더해지고 연장 결제가 기록됩니다. (예: 1/10에서 10회 연장 → 11/20)';
+    } else {
+        await openRepurchaseModal(memberId, memberProductId, productType, productName);
+        const titleEl = document.getElementById('extend-repurchase-title');
+        const sub = document.getElementById('extend-repurchase-subtitle');
+        if (titleEl) titleEl.textContent = '이용권 재구매';
+        if (sub) sub.textContent = '소진·만료 후: 동일 상품의 새 이용권이 생깁니다. 담당 코치는 기존과 같습니다. (예: 0/10 → 10/10)';
+    }
+}
+
+window.openUnifiedExtendRepurchaseModal = openUnifiedExtendRepurchaseModal;
+
 // 연장 모달 열기
-async function openExtendModal(memberId, memberProductId, productType, productName) {
+async function openExtendModal(memberId, memberProductId, productType, productName, defaultUsageCount) {
     extendRepurchaseData = {
         memberId: memberId,
         memberProductId: memberProductId,
@@ -1280,14 +1496,19 @@ async function openExtendModal(memberId, memberProductId, productType, productNa
     
     title.textContent = '상품 연장';
     submitBtn.textContent = '연장하기';
+    const sub = document.getElementById('extend-repurchase-subtitle');
+    if (sub) sub.textContent = '';
+
+    const countDefault = (typeof defaultUsageCount === 'number' && defaultUsageCount > 0) ? defaultUsageCount : 10;
+    const daysDefault = 30;
     
     if (productType === 'COUNT_PASS') {
         content.innerHTML = `
             <div class="form-group">
                 <label class="form-label">연장할 횟수 *</label>
-                <input type="number" id="extend-count" class="form-control" min="1" value="10" required>
+                <input type="number" id="extend-count" class="form-control" min="1" value="${countDefault}" required>
                 <small style="color: var(--text-muted); font-size: 12px; margin-top: 4px; display: block;">
-                    추가할 횟수를 입력하세요.
+                    10회권이면 보통 상품 횟수(예: 10)만큼 연장합니다. 잔여·총횟수에 더해집니다.
                 </small>
             </div>
             <div style="padding: 12px; background-color: var(--bg-secondary); border-radius: 8px; margin-top: 16px;">
@@ -1299,7 +1520,7 @@ async function openExtendModal(memberId, memberProductId, productType, productNa
         content.innerHTML = `
             <div class="form-group">
                 <label class="form-label">연장할 일수 *</label>
-                <input type="number" id="extend-days" class="form-control" min="1" value="30" required>
+                <input type="number" id="extend-days" class="form-control" min="1" value="${daysDefault}" required>
                 <small style="color: var(--text-muted); font-size: 12px; margin-top: 4px; display: block;">
                     추가할 일수를 입력하세요.
                 </small>
@@ -1331,7 +1552,9 @@ async function openRepurchaseModal(memberId, memberProductId, productType, produ
     
     title.textContent = '상품 재구매';
     submitBtn.textContent = '재구매하기';
-    
+    const subEl = document.getElementById('extend-repurchase-subtitle');
+    if (subEl) subEl.textContent = '';
+
     // 기존 상품 정보 조회
     try {
         const memberProduct = await App.api.get(`/member-products/${memberProductId}`);
@@ -1394,6 +1617,8 @@ function closeExtendRepurchaseModal() {
     if (modal) {
         modal.style.display = 'none';
     }
+    const sub = document.getElementById('extend-repurchase-subtitle');
+    if (sub) sub.textContent = '';
     extendRepurchaseData = {
         memberId: null,
         memberProductId: null,
@@ -1509,13 +1734,7 @@ function renderCurrentMemberProducts(memberProducts) {
         const statusDisplay = statusText[status] || status;
         const statusColorValue = statusColor[status] || '#6c757d';
         
-        // 잔여 횟수 계산
-        let remaining = mp.remainingCount;
-        if (status === 'USED_UP') {
-            remaining = 0;
-        } else if (remaining === null || remaining === undefined) {
-            remaining = product.usageCount || mp.totalCount || 0;
-        }
+        let remaining = App.resolveDisplayRemainingCount(mp, { whenAllUnknown: 'zero' });
         
         // 만료일 표시
         let expiryText = '';
@@ -1793,6 +2012,13 @@ async function submitNewProductPurchase() {
             productCoachMap[productId] = parseInt(coachId);
         }
     });
+
+    for (const productId of productIds) {
+        if (!productCoachMap[productId]) {
+            App.showNotification('선택한 상품마다 담당 코치를 선택해 주세요.', 'warning');
+            return;
+        }
+    }
     
     try {
         let successCount = 0;
@@ -1803,10 +2029,7 @@ async function submitNewProductPurchase() {
             try {
                 const requestData = { productId: parseInt(productId) };
                 
-                // 코치가 선택된 경우 추가
-                if (productCoachMap[productId]) {
-                    requestData.coachId = productCoachMap[productId];
-                }
+                requestData.coachId = productCoachMap[productId];
                 
                 // skipPayment는 false로 설정 (새 구매이므로 결제 생성 필요)
                 requestData.skipPayment = false;
@@ -1934,14 +2157,34 @@ async function submitExtendRepurchase() {
     
     try {
         if (action === 'extend') {
-            // 연장 처리
-            let extendValue;
+            // 연장 처리 (숫자만 허용 — 소수·문자 섞임 시 안내)
+            let rawInput = '';
             if (productType === 'COUNT_PASS') {
-                extendValue = parseInt(document.getElementById('extend-count').value);
+                const el = document.getElementById('extend-count');
+                rawInput = el ? el.value : '';
             } else if (productType === 'MONTHLY_PASS') {
-                extendValue = parseInt(document.getElementById('extend-days').value);
+                const el = document.getElementById('extend-days');
+                rawInput = el ? el.value : '';
+            } else {
+                App.showNotification('연장할 상품 유형을 확인할 수 없습니다.', 'danger');
+                submitBtn.disabled = false;
+                submitBtn.textContent = action === 'extend' ? '연장하기' : '재구매하기';
+                return;
             }
-            
+            const t = String(rawInput).trim();
+            if (t === '') {
+                App.showNotification('연장 값을 입력해 주세요.', 'danger');
+                submitBtn.disabled = false;
+                submitBtn.textContent = action === 'extend' ? '연장하기' : '재구매하기';
+                return;
+            }
+            if (!/^\d+$/.test(t)) {
+                App.showNotification('숫자만 입력해 주세요.', 'danger');
+                submitBtn.disabled = false;
+                submitBtn.textContent = action === 'extend' ? '연장하기' : '재구매하기';
+                return;
+            }
+            const extendValue = parseInt(t, 10);
             if (!extendValue || extendValue <= 0) {
                 App.showNotification('연장할 값은 1 이상이어야 합니다.', 'danger');
                 submitBtn.disabled = false;
@@ -1966,10 +2209,22 @@ async function submitExtendRepurchase() {
                 return;
             }
             const productId = memberProduct.product.id;
+
+            let coachIdForPurchase =
+                memberProduct.coachId ||
+                (memberProduct.coach && memberProduct.coach.id) ||
+                (memberProduct.product && memberProduct.product.coach && memberProduct.product.coach.id);
+            if (!coachIdForPurchase) {
+                App.showNotification('이 이용권에 담당 코치가 없어 재구매할 수 없습니다. 회원 상세에서 코치를 지정한 뒤 다시 시도해 주세요.', 'warning');
+                submitBtn.disabled = false;
+                submitBtn.textContent = action === 'extend' ? '연장하기' : '재구매하기';
+                return;
+            }
             
             let purchaseData = {
                 productId: productId,
-                skipPayment: false
+                skipPayment: false,
+                coachId: coachIdForPurchase
             };
             
             if (productType === 'COUNT_PASS') {
@@ -2283,26 +2538,8 @@ function renderProductsListForDashboard(products) {
                 const product = p.product || {};
                 const productName = product.name || '알 수 없음';
                 
-                // remainingCount 계산 (상태가 USED_UP이면 0으로 표시)
-                let remaining = p.remainingCount;
                 const status = p.status || 'UNKNOWN';
-                
-                // 상태가 USED_UP이면 잔여 횟수는 0
-                if (status === 'USED_UP') {
-                    remaining = 0;
-                }
-                // remainingCount가 null이나 undefined일 때만 대체값 사용 (0은 유효한 값)
-                else if (remaining === null || remaining === undefined) {
-                    remaining = p.totalCount;
-                    if (remaining === null || remaining === undefined) {
-                        remaining = product.usageCount;
-                    }
-                    if (remaining === null || remaining === undefined) {
-                        remaining = 0;
-                    }
-                }
-                // remainingCount가 0이면 0으로 유지 (대체값 사용하지 않음)
-                remaining = remaining !== null && remaining !== undefined ? remaining : 0;
+                let remaining = App.resolveDisplayRemainingCount(p, { whenAllUnknown: 'zero' });
                 
                 // totalCount 계산 (totalCount가 null이면 product.usageCount 사용)
                 let total = p.totalCount;
@@ -2461,7 +2698,7 @@ async function loadMemberProductsForDetail(memberId) {
         
         // dashboard.js의 renderProductsListForDashboard 함수 사용 또는 members.js의 함수 사용
         if (typeof window.renderProductsList === 'function') {
-            content.innerHTML = window.renderProductsList(memberProducts);
+            content.innerHTML = window.renderProductsList(memberProducts, memberId);
             if (typeof window.applyCoachNameColors === 'function') {
                 window.applyCoachNameColors(content);
             }

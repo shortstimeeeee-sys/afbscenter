@@ -32,6 +32,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 
 import java.time.LocalDate;
 import com.afbscenter.util.LessonCategoryUtil;
+import com.afbscenter.constants.CompanionBookingPolicy;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
@@ -47,6 +49,14 @@ import java.util.stream.Collectors;
 public class BookingController {
 
     private static final Logger logger = LoggerFactory.getLogger(BookingController.class);
+
+    private static void putBookingSource(Map<String, Object> bookingMap, Booking booking) {
+        if (booking == null || booking.getBookingSource() == null) {
+            bookingMap.put("bookingSource", "ADMIN");
+        } else {
+            bookingMap.put("bookingSource", booking.getBookingSource().name());
+        }
+    }
 
     private final BookingRepository bookingRepository;
     private final FacilityRepository facilityRepository;
@@ -161,6 +171,216 @@ public class BookingController {
         return Optional.empty();
     }
 
+    /** 같은 회원의 시간 겹침 예약 차단 (종목/시설 무관, 취소 건 제외) */
+    private Optional<String> validateMemberTimeConflict(Member member, LocalDateTime start, LocalDateTime end, Long excludeBookingId) {
+        if (member == null || member.getId() == null || start == null || end == null) return Optional.empty();
+        if (!end.isAfter(start)) return Optional.empty();
+
+        long overlapCount;
+        if (excludeBookingId == null) {
+            overlapCount = bookingRepository.countMemberTimeOverlaps(
+                    member.getId(),
+                    start,
+                    end,
+                    Booking.BookingStatus.CANCELLED
+            );
+        } else {
+            overlapCount = bookingRepository.countMemberTimeOverlapsExcludingBooking(
+                    member.getId(),
+                    start,
+                    end,
+                    excludeBookingId,
+                    Booking.BookingStatus.CANCELLED
+            );
+        }
+
+        if (overlapCount > 0) {
+            return Optional.of("같은 시간대에 이미 예약이 있습니다. 종목이 달라도 중복 예약은 불가합니다.");
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * 동일 회원 ID·동일 시작·종료 시각의 예약이 이미 있으면 차단(취소 제외). 이름 동명이인과 무관하게 member_id로 판별.
+     * 운영·회원 예약 공통.
+     */
+    private Optional<String> validateExactDuplicateMemberBooking(Booking booking, Long excludeBookingId) {
+        if (booking.getMember() == null || booking.getMember().getId() == null) {
+            return Optional.empty();
+        }
+        LocalDateTime st = booking.getStartTime();
+        LocalDateTime en = booking.getEndTime();
+        if (st == null || en == null) {
+            return Optional.empty();
+        }
+        Long memberId = booking.getMember().getId();
+        boolean dup;
+        if (excludeBookingId == null) {
+            dup = bookingRepository.existsExactDuplicateBookingForMember(
+                    memberId, st, en, Booking.BookingStatus.CANCELLED);
+        } else {
+            dup = bookingRepository.existsExactDuplicateBookingForMemberExcluding(
+                    memberId, st, en, excludeBookingId, Booking.BookingStatus.CANCELLED);
+        }
+        if (dup) {
+            return Optional.of("동일 회원·동일 일시의 예약이 이미 있습니다. 이름이 같아도 회원은 구분됩니다.");
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * 회원 공개 예약(MEMBER_WEB): 정시(:00)만 기본 허용.
+     * :30 시작은 같은 시설에서 그 시각에 끝나는(동반 등으로 연장된) 예약이 있을 때만 허용.
+     */
+    private Optional<String> validateMemberWebStartTime(Facility facility, LocalDateTime start, boolean memberWeb) {
+        if (!memberWeb || start == null || facility == null || facility.getId() == null) {
+            return Optional.empty();
+        }
+        if (start.getSecond() != 0 || start.getNano() != 0) {
+            return Optional.of("시작 시각은 00초 기준으로 입력해 주세요.");
+        }
+        int m = start.getMinute();
+        if (m == 0) {
+            return Optional.empty();
+        }
+        if (m == 30) {
+            boolean ok = bookingRepository.existsNonCancelledBookingEndingAt(
+                    facility.getId(),
+                    start,
+                    Booking.BookingStatus.CANCELLED);
+            if (!ok) {
+                return Optional.of("이 시각(:30)은 이전 동반 수업이 종료된 뒤에만 예약할 수 있습니다. 먼저 정시(:00) 슬롯을 이용해 주세요.");
+            }
+            return Optional.empty();
+        }
+        return Optional.of("예약 시작은 정시(:00)이거나, 이전 수업 종료 시각(:30)만 가능합니다.");
+    }
+
+    private static boolean isLessonLikePurposeString(String purposeStr) {
+        if (purposeStr == null || purposeStr.isBlank()) {
+            return true;
+        }
+        String u = purposeStr.trim().toUpperCase();
+        return "LESSON".equals(u) || "PERSONAL_TRAINING".equals(u);
+    }
+
+    private static boolean isLessonLikePurposeOnBooking(Booking booking) {
+        if (booking == null || booking.getPurpose() == null) {
+            return true;
+        }
+        Booking.BookingPurpose p = booking.getPurpose();
+        return p == Booking.BookingPurpose.LESSON || p == Booking.BookingPurpose.PERSONAL_TRAINING;
+    }
+
+    /** 회원 공개 예약(레슨·개인훈련): 클라이언트는 기본 1시간 구간(시작+60분) — 연장은 서버에서만 */
+    private Optional<String> validateMemberWebBaseSixtyMinuteLesson(Booking booking, boolean applyRule) {
+        if (!applyRule || booking.getStartTime() == null || booking.getEndTime() == null) {
+            return Optional.empty();
+        }
+        long mins = Duration.between(booking.getStartTime(), booking.getEndTime()).toMinutes();
+        if (mins != 60) {
+            return Optional.of("회원 예약은 기본 1시간 구간(시작 시각부터 60분)으로만 신청할 수 있습니다.");
+        }
+        return Optional.empty();
+    }
+
+    /** 연장 반영 후: 1명 1시간, 2~3명 최대 1시간 30분 (레슨·개인훈련만) */
+    private Optional<String> validateMemberWebLessonDurationCap(Booking booking, boolean applyRule) {
+        if (!applyRule || booking.getStartTime() == null || booking.getEndTime() == null) {
+            return Optional.empty();
+        }
+        int p = booking.getParticipants() != null ? booking.getParticipants() : 1;
+        long mins = Duration.between(booking.getStartTime(), booking.getEndTime()).toMinutes();
+        if (p <= 1) {
+            if (mins > 60) {
+                return Optional.of("수업 시간은 1시간을 초과할 수 없습니다.");
+            }
+        } else if (p <= CompanionBookingPolicy.MAX_PARTICIPANTS_PER_BOOKING) {
+            if (mins > 60 + CompanionBookingPolicy.EXTRA_MINUTES_FOR_TWO_OR_MORE) {
+                return Optional.of("동반(2~3명) 수업 시간은 최대 1시간 30분입니다.");
+            }
+        }
+        return Optional.empty();
+    }
+
+    private int parseParticipantsFromRequest(Map<String, Object> requestData, int defaultValue) {
+        Object o = requestData.get("participants");
+        if (o == null) {
+            return defaultValue;
+        }
+        try {
+            if (o instanceof Number) {
+                return ((Number) o).intValue();
+            }
+            return Integer.parseInt(o.toString().trim());
+        } catch (Exception e) {
+            return defaultValue;
+        }
+    }
+
+    private Optional<String> validateParticipantsRange(int p) {
+        if (p < CompanionBookingPolicy.MIN_PARTICIPANTS || p > CompanionBookingPolicy.MAX_PARTICIPANTS_PER_BOOKING) {
+            return Optional.of("동반 인원은 " + CompanionBookingPolicy.MIN_PARTICIPANTS + "~"
+                    + CompanionBookingPolicy.MAX_PARTICIPANTS_PER_BOOKING + "명까지 설정할 수 있습니다.");
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * 클라이언트가 보낸 종료 시각을 기준(보통 1시간 레슨)으로 두고, 2~3명이면 30분 연장.
+     * 기본 수업 시간이 정확히 60분일 때만 연장(대관·장시간 레슨은 제외).
+     */
+    private void applyCompanionLessonEndExtension(Booking booking, boolean lessonLike) {
+        if (!lessonLike || booking.getStartTime() == null || booking.getEndTime() == null) {
+            return;
+        }
+        int p = booking.getParticipants() != null ? booking.getParticipants() : 1;
+        long mins = Duration.between(booking.getStartTime(), booking.getEndTime()).toMinutes();
+        if (mins == 60 && p >= 2 && p <= CompanionBookingPolicy.MAX_PARTICIPANTS_PER_BOOKING) {
+            booking.setEndTime(booking.getEndTime().plusMinutes(CompanionBookingPolicy.EXTRA_MINUTES_FOR_TWO_OR_MORE));
+        }
+    }
+
+    /**
+     * 같은 시설에서 시간이 겹치면 시작 시각이 모두 같아야 하며, 같은 시작 슬롯의 인원 합은 {@link CompanionBookingPolicy#MAX_TOTAL_PARTICIPANTS} 이하여야 함.
+     */
+    private Optional<String> validateFacilityCompanionRules(Booking booking, Long excludeBookingId) {
+        if (booking.getFacility() == null || booking.getStartTime() == null || booking.getEndTime() == null) {
+            return Optional.empty();
+        }
+        List<Booking> overlaps;
+        if (excludeBookingId == null) {
+            overlaps = bookingRepository.findOverlappingAtFacility(
+                    booking.getFacility().getId(),
+                    booking.getStartTime(),
+                    booking.getEndTime(),
+                    Booking.BookingStatus.CANCELLED);
+        } else {
+            overlaps = bookingRepository.findOverlappingAtFacilityExcluding(
+                    booking.getFacility().getId(),
+                    booking.getStartTime(),
+                    booking.getEndTime(),
+                    excludeBookingId,
+                    Booking.BookingStatus.CANCELLED);
+        }
+        LocalDateTime st = booking.getStartTime();
+        int newP = booking.getParticipants() != null ? booking.getParticipants() : 1;
+        for (Booking o : overlaps) {
+            if (!o.getStartTime().equals(st)) {
+                return Optional.of("해당 시설은 선택한 시간과 겹치는 다른 예약이 있습니다. 동반 예약은 같은 시작 시각으로만 가능합니다.");
+            }
+        }
+        int sum = newP;
+        for (Booking o : overlaps) {
+            int op = o.getParticipants() != null ? o.getParticipants() : 1;
+            sum += op;
+        }
+        if (sum > CompanionBookingPolicy.MAX_TOTAL_PARTICIPANTS) {
+            return Optional.of("동일 시간대 동반 인원은 최대 " + CompanionBookingPolicy.MAX_TOTAL_PARTICIPANTS + "명까지 가능합니다.");
+        }
+        return Optional.empty();
+    }
+
     @GetMapping
     @Transactional(readOnly = true)
     public ResponseEntity<List<Map<String, Object>>> getAllBookings(
@@ -171,7 +391,8 @@ public class BookingController {
             @RequestParam(required = false) String memberNumber,
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) String facilityType,
-            @RequestParam(required = false) String lessonCategory) {
+            @RequestParam(required = false) String lessonCategory,
+            @RequestParam(required = false, defaultValue = "false") boolean publicMemberCalendar) {
         try {
             logger.info("[BOOKING_FLOW] getAllBookings start date={} start={} end={} memberId={} memberNumber={} branch={}", date, start, end, memberId, memberNumber != null ? "***" : null, branch);
             List<Booking> bookings = new java.util.ArrayList<>();
@@ -186,9 +407,45 @@ public class BookingController {
                     logger.warn("잘못된 지점 파라미터: {}", branch);
                 }
             }
-            
-            // 회원 번호로 조회하는 경우
-            if (memberNumber != null && !memberNumber.trim().isEmpty()) {
+
+            /** 공개 회원 예약: 지점·기간이 있으면 해당 구간 전체 예약을 조회한 뒤, 타인 예약은 응답에서 비식별 처리 */
+            boolean publicMemberCalendarOccupancyMode = Boolean.TRUE.equals(publicMemberCalendar)
+                    && memberNumber != null && !memberNumber.trim().isEmpty()
+                    && start != null && !start.trim().isEmpty()
+                    && end != null && !end.trim().isEmpty()
+                    && branch != null && !branch.trim().isEmpty();
+            Long viewerMemberIdForPublic = null;
+            if (publicMemberCalendarOccupancyMode) {
+                Optional<Member> vmOpt = memberRepository.findByMemberNumber(memberNumber.trim());
+                if (vmOpt.isEmpty()) {
+                    return ResponseEntity.ok(new java.util.ArrayList<>());
+                }
+                viewerMemberIdForPublic = vmOpt.get().getId();
+                LocalDateTime startDate = null;
+                LocalDateTime endDate = null;
+                try {
+                    startDate = OffsetDateTime.parse(start)
+                            .atZoneSameInstant(ZoneId.systemDefault())
+                            .toLocalDateTime();
+                    endDate = OffsetDateTime.parse(end)
+                            .atZoneSameInstant(ZoneId.systemDefault())
+                            .toLocalDateTime();
+                } catch (Exception e) {
+                    logger.warn("publicMemberCalendar 기간 파싱 실패: {}", e.getMessage());
+                    return ResponseEntity.ok(new java.util.ArrayList<>());
+                }
+                List<Booking> rawBookingsRange = bookingRepository.findByDateRange(startDate, endDate);
+                java.util.Set<Long> seenIdsRange = new java.util.HashSet<>();
+                bookings = rawBookingsRange.stream()
+                        .filter(booking -> {
+                            if (booking.getId() == null) return false;
+                            if (seenIdsRange.contains(booking.getId())) return false;
+                            seenIdsRange.add(booking.getId());
+                            return true;
+                        })
+                        .collect(Collectors.toList());
+                logger.info("[BOOKING_FLOW] publicMemberCalendar occupancy: range {}..{} raw {}건", startDate, endDate, bookings.size());
+            } else if (memberNumber != null && !memberNumber.trim().isEmpty()) {
                 try {
                     java.util.Optional<Member> memberOpt = memberRepository.findByMemberNumber(memberNumber);
                     if (memberOpt.isPresent()) {
@@ -259,6 +516,31 @@ public class BookingController {
                 bookings = bookingRepository.findAllWithFacilityAndMember();
             }
             logger.info("[BOOKING_FLOW] after main query bookings.size()={}", bookings.size());
+
+            // 회원번호/회원ID로만 조회한 경우에도 start·end가 있으면 해당 기간과 겹치는 예약만 (공개 회원 종합 달력)
+            if (start != null && end != null && !bookings.isEmpty()) {
+                boolean memberScoped = (memberNumber != null && !memberNumber.trim().isEmpty()) || memberId != null;
+                if (memberScoped && !publicMemberCalendarOccupancyMode) {
+                    try {
+                        LocalDateTime rangeStart = OffsetDateTime.parse(start)
+                                .atZoneSameInstant(ZoneId.systemDefault())
+                                .toLocalDateTime();
+                        LocalDateTime rangeEnd = OffsetDateTime.parse(end)
+                                .atZoneSameInstant(ZoneId.systemDefault())
+                                .toLocalDateTime();
+                        final LocalDateTime rs = rangeStart;
+                        final LocalDateTime re = rangeEnd;
+                        bookings = bookings.stream()
+                                .filter(b -> b.getStartTime() != null && b.getEndTime() != null
+                                        && !b.getStartTime().isAfter(re)
+                                        && !b.getEndTime().isBefore(rs))
+                                .collect(Collectors.toList());
+                        logger.info("[BOOKING_FLOW] member date-range filter bookings.size()={}", bookings.size());
+                    } catch (Exception e) {
+                        logger.warn("회원 예약 기간 필터 실패: {}", e.getMessage());
+                    }
+                }
+            }
             
             // 종료 시간이 지난 확정 예약을 자동으로 완료 상태로만 변경. 대관(RENTAL)은 체크인된 경우에만 자동 완료
             LocalDateTime now = LocalDateTime.now();
@@ -409,6 +691,7 @@ public class BookingController {
                     bookingMap.put("memo", booking.getMemo());
                     bookingMap.put("nonMemberName", booking.getNonMemberName());
                     bookingMap.put("nonMemberPhone", booking.getNonMemberPhone());
+                    putBookingSource(bookingMap, booking);
                     
                     // Facility 정보
                     if (booking.getFacility() != null) {
@@ -428,6 +711,7 @@ public class BookingController {
                         Map<String, Object> coachMap = new HashMap<>();
                         coachMap.put("id", booking.getCoach().getId());
                         coachMap.put("name", booking.getCoach().getName());
+                        coachMap.put("specialties", booking.getCoach().getSpecialties());
                         bookingMap.put("coach", coachMap);
                     } else {
                         bookingMap.put("coach", null);
@@ -448,6 +732,7 @@ public class BookingController {
                             Map<String, Object> memberCoachMap = new HashMap<>();
                             memberCoachMap.put("id", booking.getMember().getCoach().getId());
                             memberCoachMap.put("name", booking.getMember().getCoach().getName());
+                            memberCoachMap.put("specialties", booking.getMember().getCoach().getSpecialties());
                             memberMap.put("coach", memberCoachMap);
                         } else {
                             memberMap.put("coach", null);
@@ -465,7 +750,7 @@ public class BookingController {
                         Long thisId = booking.getId();
 
                         boolean isRental = branch != null && "RENTAL".equalsIgnoreCase(branch.trim());
-                        com.afbscenter.model.MemberProduct mpForCount = isRental ? memberProductRepository.findById(mpId).orElse(null) : null;
+                        com.afbscenter.model.MemberProduct mpForCount = isRental ? memberProductRepository.findByIdAndDeletedAtIsNull(mpId).orElse(null) : null;
                         com.afbscenter.model.MemberProduct mpEntity = (mpForCount != null) ? mpForCount : booking.getMemberProduct();
 
                         Integer totalCount = mpEntity.getTotalCount();
@@ -646,9 +931,27 @@ public class BookingController {
                             memberProductMap.put("productName", mpEntity.getProduct().getName());
                             memberProductMap.put("productType", mpEntity.getProduct().getType());
                         }
+                        Coach coachForCalendar = mpEntity.getCoach();
+                        if (coachForCalendar == null && mpEntity.getProduct() != null) {
+                            coachForCalendar = mpEntity.getProduct().getCoach();
+                        }
+                        if (coachForCalendar != null) {
+                            memberProductMap.put("coachId", coachForCalendar.getId());
+                            memberProductMap.put("coachName", coachForCalendar.getName());
+                        }
                         bookingMap.put("memberProduct", memberProductMap);
                     } else {
                         bookingMap.put("memberProduct", null);
+                    }
+
+                    if (publicMemberCalendarOccupancyMode && viewerMemberIdForPublic != null) {
+                        Long viewerMid = booking.getMember() != null ? booking.getMember().getId() : null;
+                        if (viewerMid == null || !viewerMid.equals(viewerMemberIdForPublic)) {
+                            bookingMap = redactBookingMapForPublicViewer(bookingMap);
+                        } else if (booking.getBookingSource() == Booking.BookingSource.MEMBER_WEB) {
+                            /** 회원 공개 페이지에서 본인이 직접 잡은 예약만 — 운영(코치) 예약은 false */
+                            bookingMap.put("calendarMine", true);
+                        }
                     }
                     
                     bookingMaps.add(bookingMap);
@@ -665,6 +968,38 @@ public class BookingController {
             // 오류 발생 시 빈 리스트 반환 (서비스 중단 방지)
             return ResponseEntity.ok(new java.util.ArrayList<>());
         }
+    }
+
+    /** 공개 회원 달력: 타인 예약은 시간·시설·코치(색상용)만 노출 */
+    private Map<String, Object> redactBookingMapForPublicViewer(Map<String, Object> full) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("id", full.get("id"));
+        m.put("startTime", full.get("startTime"));
+        m.put("endTime", full.get("endTime"));
+        m.put("branch", full.get("branch"));
+        m.put("purpose", full.get("purpose"));
+        m.put("lessonCategory", full.get("lessonCategory"));
+        m.put("status", full.get("status"));
+        m.put("facility", full.get("facility"));
+        m.put("coach", full.get("coach"));
+        // 예약 코치가 비어 있어도 이용권 담당 코치명·색상 매칭을 위해 최소 필드만 전달 (공개 캘린더 시간 옆 코치명 표시)
+        @SuppressWarnings("unchecked")
+        Map<String, Object> mpFull = (Map<String, Object>) full.get("memberProduct");
+        if (mpFull != null) {
+            Object coachId = mpFull.get("coachId");
+            Object coachName = mpFull.get("coachName");
+            if (coachId != null || (coachName != null && !String.valueOf(coachName).trim().isEmpty())) {
+                Map<String, Object> mpMini = new HashMap<>();
+                if (mpFull.get("id") != null) {
+                    mpMini.put("id", mpFull.get("id"));
+                }
+                mpMini.put("coachId", coachId);
+                mpMini.put("coachName", coachName);
+                m.put("memberProduct", mpMini);
+            }
+        }
+        m.put("calendarPrivacyMasked", true);
+        return m;
     }
 
     @GetMapping("/{id}")
@@ -695,6 +1030,7 @@ public class BookingController {
             bookingMap.put("memo", booking.getMemo());
             bookingMap.put("nonMemberName", booking.getNonMemberName());
             bookingMap.put("nonMemberPhone", booking.getNonMemberPhone());
+            putBookingSource(bookingMap, booking);
             
             // Facility 정보
             if (booking.getFacility() != null) {
@@ -730,6 +1066,7 @@ public class BookingController {
                     Map<String, Object> memberCoachMap = new HashMap<>();
                     memberCoachMap.put("id", booking.getMember().getCoach().getId());
                     memberCoachMap.put("name", booking.getMember().getCoach().getName());
+                    memberCoachMap.put("specialties", booking.getMember().getCoach().getSpecialties());
                     memberMap.put("coach", memberCoachMap);
                 } else {
                     memberMap.put("coach", null);
@@ -768,7 +1105,7 @@ public class BookingController {
                 // 대관인데 totalCount가 비어 있으면 DB에서 이용권 재조회해 채움 (잔여 보정 블록 진입 위해)
                 boolean isRental = (booking.getPurpose() == Booking.BookingPurpose.RENTAL || (booking.getBranch() != null && booking.getBranch() == Booking.Branch.RENTAL));
                 if (isRental && totalCount == null && mpId != null) {
-                    com.afbscenter.model.MemberProduct mpReload = memberProductRepository.findById(mpId).orElse(null);
+                    com.afbscenter.model.MemberProduct mpReload = memberProductRepository.findByIdAndDeletedAtIsNull(mpId).orElse(null);
                     if (mpReload != null) {
                         totalCount = mpReload.getTotalCount();
                         if (totalCount == null && mpReload.getProduct() != null && mpReload.getProduct().getUsageCount() != null)
@@ -793,7 +1130,7 @@ public class BookingController {
 
                 if (isRental && totalCount != null && booking.getStartTime() != null && booking.getId() != null) {
                     try {
-                        com.afbscenter.model.MemberProduct mpForCount = memberProductRepository.findById(mpId).orElse(null);
+                        com.afbscenter.model.MemberProduct mpForCount = memberProductRepository.findByIdAndDeletedAtIsNull(mpId).orElse(null);
                         Integer baseRemaining = (mpForCount != null && mpForCount.getRemainingCount() != null) ? mpForCount.getRemainingCount() : remainingCount;
                         boolean baseRemainingFromAdjust = false;
                         Integer displayTotal = totalCount;
@@ -890,7 +1227,7 @@ public class BookingController {
                 }
                 if (!isRental && totalCount != null && booking.getStartTime() != null && booking.getId() != null) {
                     try {
-                        com.afbscenter.model.MemberProduct mpForCount = memberProductRepository.findById(mpId).orElse(null);
+                        com.afbscenter.model.MemberProduct mpForCount = memberProductRepository.findByIdAndDeletedAtIsNull(mpId).orElse(null);
                         if (mpForCount != null) {
                             List<com.afbscenter.model.MemberProductHistory> histories =
                                 memberProductHistoryRepository.findByMemberProductIdOrderByTransactionDateDesc(mpId);
@@ -1043,7 +1380,42 @@ public class BookingController {
                 logger.warn("종료 시간이 없습니다.");
                 return ResponseEntity.badRequest().build();
             }
-            
+
+            // 인원(동반): 회원 공개 예약만 1~3명 제한·동반 규칙 적용, 운영(ADMIN) 예약은 제한 없음
+            int participants = parseParticipantsFromRequest(requestData, 1);
+            boolean memberWebCreate = requestData.get("bookingSource") != null
+                    && "MEMBER_WEB".equalsIgnoreCase(requestData.get("bookingSource").toString().trim());
+            if (memberWebCreate) {
+                Optional<String> participantsError = validateParticipantsRange(participants);
+                if (participantsError.isPresent()) {
+                    Map<String, Object> errBody = new HashMap<>();
+                    errBody.put("message", participantsError.get());
+                    return ResponseEntity.badRequest().body(errBody);
+                }
+            }
+            booking.setParticipants(participants);
+            String purposeStrEarly = requestData.get("purpose") != null ? requestData.get("purpose").toString().trim() : "";
+            boolean lessonLikeCreate = isLessonLikePurposeString(purposeStrEarly);
+            Optional<String> baseLessonErr = validateMemberWebBaseSixtyMinuteLesson(booking, memberWebCreate && lessonLikeCreate);
+            if (baseLessonErr.isPresent()) {
+                Map<String, Object> errBody = new HashMap<>();
+                errBody.put("message", baseLessonErr.get());
+                return ResponseEntity.badRequest().body(errBody);
+            }
+            applyCompanionLessonEndExtension(booking, lessonLikeCreate && memberWebCreate);
+            Optional<String> startRuleErr = validateMemberWebStartTime(booking.getFacility(), booking.getStartTime(), memberWebCreate);
+            if (startRuleErr.isPresent()) {
+                Map<String, Object> errBody = new HashMap<>();
+                errBody.put("message", startRuleErr.get());
+                return ResponseEntity.badRequest().body(errBody);
+            }
+            Optional<String> durationCapErr = validateMemberWebLessonDurationCap(booking, memberWebCreate && lessonLikeCreate);
+            if (durationCapErr.isPresent()) {
+                Map<String, Object> errBody = new HashMap<>();
+                errBody.put("message", durationCapErr.get());
+                return ResponseEntity.badRequest().body(errBody);
+            }
+
             // 시설 운영 슬롯 내 예약인지 검증
             Optional<String> slotError = validateBookingWithinFacilitySlot(booking.getFacility(), booking.getStartTime(), booking.getEndTime());
             if (slotError.isPresent()) {
@@ -1051,12 +1423,27 @@ public class BookingController {
                 errBody.put("message", slotError.get());
                 return ResponseEntity.badRequest().body(errBody);
             }
-            
-            // 기타 필드 설정
-            if (requestData.get("participants") != null) {
-                booking.setParticipants(((Number) requestData.get("participants")).intValue());
+            Optional<String> exactDupErr = validateExactDuplicateMemberBooking(booking, null);
+            if (exactDupErr.isPresent()) {
+                Map<String, Object> errBody = new HashMap<>();
+                errBody.put("message", exactDupErr.get());
+                return ResponseEntity.badRequest().body(errBody);
             }
-            
+            if (memberWebCreate) {
+                Optional<String> facilityCompanionError = validateFacilityCompanionRules(booking, null);
+                if (facilityCompanionError.isPresent()) {
+                    Map<String, Object> errBody = new HashMap<>();
+                    errBody.put("message", facilityCompanionError.get());
+                    return ResponseEntity.badRequest().body(errBody);
+                }
+                Optional<String> memberConflictError = validateMemberTimeConflict(booking.getMember(), booking.getStartTime(), booking.getEndTime(), null);
+                if (memberConflictError.isPresent()) {
+                    Map<String, Object> errBody = new HashMap<>();
+                    errBody.put("message", memberConflictError.get());
+                    return ResponseEntity.badRequest().body(errBody);
+                }
+            }
+
             // purpose는 요청값으로만 설정하고, 차감 여부는 이 값으로만 판단 (DB/엔티티 상태 의존 제거)
             final Booking.BookingPurpose requestedPurpose;
             if (requestData.get("purpose") != null && !requestData.get("purpose").toString().trim().isEmpty()) {
@@ -1283,6 +1670,19 @@ public class BookingController {
                 booking.setLessonCategory(null);
             }
 
+            // 예약 출처: 기본 운영(데스크), 회원 공개 예약 API에서만 MEMBER_WEB 전달
+            booking.setBookingSource(Booking.BookingSource.ADMIN);
+            if (requestData.get("bookingSource") != null) {
+                try {
+                    String src = requestData.get("bookingSource").toString().trim().toUpperCase();
+                    if ("MEMBER_WEB".equals(src)) {
+                        booking.setBookingSource(Booking.BookingSource.MEMBER_WEB);
+                    }
+                } catch (Exception e) {
+                    // ADMIN 유지
+                }
+            }
+
             // 저장 전 최종 검증
             if (booking.getFacility() == null) {
                 logger.error("예약 저장 실패: 시설이 설정되지 않았습니다.");
@@ -1421,6 +1821,7 @@ public class BookingController {
             bookingMap.put("nonMemberPhone", result.getNonMemberPhone());
             bookingMap.put("createdAt", result.getCreatedAt());
             bookingMap.put("updatedAt", result.getUpdatedAt());
+            putBookingSource(bookingMap, result);
             
             // Facility 정보
             if (result.getFacility() != null) {
@@ -1549,6 +1950,60 @@ public class BookingController {
                     logger.warn("종료 시간 파싱 실패: {}", requestData.get("endTime"), e);
                 }
             }
+            boolean memberWebUpdate = booking.getBookingSource() == Booking.BookingSource.MEMBER_WEB;
+            if (requestData.get("participants") != null) {
+                try {
+                    int p = parseParticipantsFromRequest(requestData, booking.getParticipants() != null ? booking.getParticipants() : 1);
+                    if (memberWebUpdate) {
+                        Optional<String> pErr = validateParticipantsRange(p);
+                        if (pErr.isPresent()) {
+                            Map<String, Object> errBody = new HashMap<>();
+                            errBody.put("message", pErr.get());
+                            return ResponseEntity.badRequest().body(errBody);
+                        }
+                    }
+                    booking.setParticipants(p);
+                } catch (Exception e) {
+                    logger.warn("인원 파싱 실패: {}", requestData.get("participants"), e);
+                }
+            }
+            boolean lessonLikeForExtension;
+            if (requestData.containsKey("purpose") && requestData.get("purpose") != null) {
+                lessonLikeForExtension = isLessonLikePurposeString(requestData.get("purpose").toString());
+            } else {
+                lessonLikeForExtension = isLessonLikePurposeOnBooking(booking);
+            }
+
+            if (requestData.containsKey("participants") && !requestData.containsKey("endTime") && booking.getStartTime() != null) {
+                int p = booking.getParticipants() != null ? booking.getParticipants() : 1;
+                java.time.LocalDateTime st = booking.getStartTime();
+                java.time.LocalDateTime baseEnd = st.plusHours(1);
+                if (memberWebUpdate && lessonLikeForExtension && p >= 2 && p <= CompanionBookingPolicy.MAX_PARTICIPANTS_PER_BOOKING) {
+                    booking.setEndTime(baseEnd.plusMinutes(CompanionBookingPolicy.EXTRA_MINUTES_FOR_TWO_OR_MORE));
+                } else {
+                    booking.setEndTime(baseEnd);
+                }
+            } else {
+                applyCompanionLessonEndExtension(booking, lessonLikeForExtension && memberWebUpdate);
+            }
+            boolean lessonLikeUpdate;
+            if (requestData.containsKey("purpose") && requestData.get("purpose") != null) {
+                lessonLikeUpdate = isLessonLikePurposeString(requestData.get("purpose").toString());
+            } else {
+                lessonLikeUpdate = isLessonLikePurposeOnBooking(booking);
+            }
+            Optional<String> startRuleErrUpdate = validateMemberWebStartTime(booking.getFacility(), booking.getStartTime(), memberWebUpdate);
+            if (startRuleErrUpdate.isPresent()) {
+                Map<String, Object> errBody = new HashMap<>();
+                errBody.put("message", startRuleErrUpdate.get());
+                return ResponseEntity.badRequest().body(errBody);
+            }
+            Optional<String> durationCapErrUpdate = validateMemberWebLessonDurationCap(booking, memberWebUpdate && lessonLikeUpdate);
+            if (durationCapErrUpdate.isPresent()) {
+                Map<String, Object> errBody = new HashMap<>();
+                errBody.put("message", durationCapErrUpdate.get());
+                return ResponseEntity.badRequest().body(errBody);
+            }
             // 시설 운영 슬롯 내 예약인지 검증 (시간/시설 변경 시)
             Optional<String> slotError = validateBookingWithinFacilitySlot(booking.getFacility(), booking.getStartTime(), booking.getEndTime());
             if (slotError.isPresent()) {
@@ -1556,16 +2011,18 @@ public class BookingController {
                 errBody.put("message", slotError.get());
                 return ResponseEntity.badRequest().body(errBody);
             }
-            if (requestData.get("participants") != null) {
-                try {
-                    Object participantsObj = requestData.get("participants");
-                    if (participantsObj instanceof Number) {
-                        booking.setParticipants(((Number) participantsObj).intValue());
-                    } else if (participantsObj instanceof String) {
-                        booking.setParticipants(Integer.parseInt((String) participantsObj));
-                    }
-                } catch (Exception e) {
-                    logger.warn("인원 파싱 실패: {}", requestData.get("participants"), e);
+            Optional<String> exactDupErrUpdate = validateExactDuplicateMemberBooking(booking, booking.getId());
+            if (exactDupErrUpdate.isPresent()) {
+                Map<String, Object> errBody = new HashMap<>();
+                errBody.put("message", exactDupErrUpdate.get());
+                return ResponseEntity.badRequest().body(errBody);
+            }
+            if (memberWebUpdate) {
+                Optional<String> facilityCompanionErrorUpdate = validateFacilityCompanionRules(booking, booking.getId());
+                if (facilityCompanionErrorUpdate.isPresent()) {
+                    Map<String, Object> errBody = new HashMap<>();
+                    errBody.put("message", facilityCompanionErrorUpdate.get());
+                    return ResponseEntity.badRequest().body(errBody);
                 }
             }
             if (requestData.get("purpose") != null) {
@@ -1853,6 +2310,15 @@ public class BookingController {
                 }
             }
 
+            if (memberWebUpdate) {
+                Optional<String> memberConflictError = validateMemberTimeConflict(booking.getMember(), booking.getStartTime(), booking.getEndTime(), booking.getId());
+                if (memberConflictError.isPresent()) {
+                    Map<String, Object> errBody = new HashMap<>();
+                    errBody.put("message", memberConflictError.get());
+                    return ResponseEntity.badRequest().body(errBody);
+                }
+            }
+
             String processedBy = request != null ? (String) request.getAttribute("username") : null;
             if (processedBy != null && !processedBy.isEmpty()) booking.setProcessedBy(processedBy);
             Booking saved = bookingRepository.save(booking);
@@ -1883,6 +2349,7 @@ public class BookingController {
             bookingMap.put("nonMemberPhone", result.getNonMemberPhone());
             bookingMap.put("createdAt", result.getCreatedAt());
             bookingMap.put("updatedAt", result.getUpdatedAt());
+            putBookingSource(bookingMap, result);
             
             // Facility 정보
             if (result.getFacility() != null) {

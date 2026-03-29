@@ -19,6 +19,12 @@ public class Settings {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /**
+     * 레거시 DB 호환: 단일 설정 행 식별 (NOT NULL 컬럼과 매핑)
+     */
+    @Column(name = "setting_key", length = 64, nullable = false)
+    private String settingKey = "main";
+
     // 센터 기본 정보 (지점별)
     @Column(name = "center_name_saha", length = 100)
     private String centerNameSaha; // 사하점 센터명
@@ -89,8 +95,27 @@ public class Settings {
     @Column(name = "notes", length = 1000)
     private String notes; // 비고
 
+    /** 회비 입금 전용계좌 안내 (전달 사항 · 공지/메시지 페이지에서 편집) */
+    @Column(name = "membership_dues_account_notice", length = 2000)
+    private String membershipDuesAccountNotice;
+
+    /** 상단 알림(종)에 회비 입금 전용계좌 안내 표시 여부 */
+    @Column(name = "show_membership_dues_in_bell")
+    private Boolean showMembershipDuesInBell = true;
+
+    /** 회원 쪽지함(공지/메시지) 잠금 PIN — BCrypt 해시, null/공백이면 잠금 미사용 */
+    @Column(name = "desk_inbox_lock_pin_hash", length = 120)
+    private String deskInboxLockPinHash;
+
     @Column(name = "updated_at")
     private LocalDateTime updatedAt; // 수정 시간
+
+    @PrePersist
+    protected void onCreate() {
+        if (settingKey == null || settingKey.isBlank()) {
+            settingKey = "main";
+        }
+    }
 
     @PreUpdate
     protected void onUpdate() {

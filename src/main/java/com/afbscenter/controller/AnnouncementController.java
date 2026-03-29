@@ -1,10 +1,12 @@
 package com.afbscenter.controller;
 
 import com.afbscenter.model.Announcement;
+import com.afbscenter.model.Settings;
 import com.afbscenter.repository.AnnouncementRepository;
+import com.afbscenter.repository.SettingsRepository;
+import com.afbscenter.util.MembershipDuesAnnouncementHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,9 +26,12 @@ public class AnnouncementController {
     private static final Logger logger = LoggerFactory.getLogger(AnnouncementController.class);
 
     private final AnnouncementRepository announcementRepository;
+    private final SettingsRepository settingsRepository;
 
-    public AnnouncementController(AnnouncementRepository announcementRepository) {
+    public AnnouncementController(AnnouncementRepository announcementRepository,
+                                  SettingsRepository settingsRepository) {
         this.announcementRepository = announcementRepository;
+        this.settingsRepository = settingsRepository;
     }
 
     @GetMapping
@@ -56,9 +61,14 @@ public class AnnouncementController {
                     isActive = false;
                 }
                 map.put("isActive", isActive);
-                
+                map.put("type", announcement.getType());
+                map.put("visibleToMembers", Boolean.TRUE.equals(announcement.getVisibleToMembers()));
+                map.put("hideFromStaffFeed", Boolean.TRUE.equals(announcement.getHideFromStaffFeed()));
+
                 result.add(map);
             }
+
+            prependMembershipDuesFromSettings(result);
             
             return ResponseEntity.ok(result);
         } catch (Exception e) {
@@ -71,6 +81,16 @@ public class AnnouncementController {
     @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getAnnouncementById(@PathVariable Long id) {
         try {
+            if (id != null && id == MembershipDuesAnnouncementHelper.SYNTHETIC_ANNOUNCEMENT_ID) {
+                Settings settings = settingsRepository.findAll().stream().findFirst().orElse(null);
+                if (MembershipDuesAnnouncementHelper.shouldExposeInBell(settings)) {
+                    return ResponseEntity.ok(MembershipDuesAnnouncementHelper.toSyntheticMap(settings));
+                }
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "회비 입금 전용계좌 안내가 설정되어 있지 않습니다.");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+            }
+
             Announcement announcement = announcementRepository.findById(id)
                     .orElse(null);
             
@@ -99,11 +119,21 @@ public class AnnouncementController {
                 isActive = false;
             }
             map.put("isActive", isActive);
-            
+            map.put("type", announcement.getType());
+            map.put("visibleToMembers", Boolean.TRUE.equals(announcement.getVisibleToMembers()));
+            map.put("hideFromStaffFeed", Boolean.TRUE.equals(announcement.getHideFromStaffFeed()));
+
             return ResponseEntity.ok(map);
         } catch (Exception e) {
             logger.error("공지 조회 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    private void prependMembershipDuesFromSettings(List<Map<String, Object>> result) {
+        Settings settings = settingsRepository.findAll().stream().findFirst().orElse(null);
+        if (MembershipDuesAnnouncementHelper.shouldExposeInBell(settings)) {
+            result.add(0, MembershipDuesAnnouncementHelper.toSyntheticMap(settings));
         }
     }
 
@@ -167,7 +197,33 @@ public class AnnouncementController {
             } else {
                 announcement.setEndDate(null);
             }
-            
+
+            boolean visibleToMembers = false;
+            Object vtm = announcementData.get("visibleToMembers");
+            if (vtm instanceof Boolean) {
+                visibleToMembers = (Boolean) vtm;
+            } else if (vtm instanceof Number) {
+                visibleToMembers = ((Number) vtm).intValue() != 0;
+            } else if (vtm != null) {
+                String s = vtm.toString().trim().toLowerCase();
+                visibleToMembers = "true".equals(s) || "1".equals(s) || "yes".equals(s);
+            }
+            announcement.setVisibleToMembers(visibleToMembers);
+
+            boolean hideFromStaff = false;
+            if (visibleToMembers) {
+                Object hfs = announcementData.get("hideFromStaffFeed");
+                if (hfs instanceof Boolean) {
+                    hideFromStaff = (Boolean) hfs;
+                } else if (hfs instanceof Number) {
+                    hideFromStaff = ((Number) hfs).intValue() != 0;
+                } else if (hfs != null) {
+                    String s = hfs.toString().trim().toLowerCase();
+                    hideFromStaff = "true".equals(s) || "1".equals(s) || "yes".equals(s);
+                }
+            }
+            announcement.setHideFromStaffFeed(hideFromStaff);
+
             logger.info("공지 저장 시도: 제목={}, 내용 길이={}, 시작일={}, 종료일={}, createdAt={}", 
                 announcement.getTitle(), announcement.getContent().length(), 
                 announcement.getStartDate(), announcement.getEndDate(), announcement.getCreatedAt());
@@ -189,6 +245,8 @@ public class AnnouncementController {
             response.put("startDate", saved.getStartDate());
             response.put("endDate", saved.getEndDate());
             response.put("createdAt", saved.getCreatedAt());
+            response.put("visibleToMembers", Boolean.TRUE.equals(saved.getVisibleToMembers()));
+            response.put("hideFromStaffFeed", Boolean.TRUE.equals(saved.getHideFromStaffFeed()));
             response.put("message", "공지가 등록되었습니다.");
             
             logger.info("공지 등록 완료: ID={}, 제목={}", saved.getId(), saved.getTitle());
@@ -273,31 +331,62 @@ public class AnnouncementController {
                 announcement.setContent(announcementData.get("content").toString());
             }
             
-            // 시작일 파싱
-            if (announcementData.get("startDate") != null) {
-                String startDateStr = announcementData.get("startDate").toString().trim();
-                if (startDateStr.isEmpty()) {
+            // 시작일 (JSON에 키가 있으면 null 전달도 반영 — 이전에는 null이면 스킵되어 초기화가 안 됨)
+            if (announcementData.containsKey("startDate")) {
+                Object startDateObj = announcementData.get("startDate");
+                if (startDateObj == null || startDateObj.toString().trim().isEmpty()
+                        || "null".equalsIgnoreCase(startDateObj.toString().trim())) {
                     announcement.setStartDate(null);
                 } else {
                     try {
-                        announcement.setStartDate(LocalDate.parse(startDateStr));
+                        announcement.setStartDate(LocalDate.parse(startDateObj.toString().trim()));
                     } catch (Exception e) {
-                        logger.warn("시작일 파싱 실패: {}", startDateStr);
+                        logger.warn("시작일 파싱 실패: {}", startDateObj);
                     }
                 }
             }
-            
-            // 종료일 파싱
-            if (announcementData.get("endDate") != null) {
-                String endDateStr = announcementData.get("endDate").toString().trim();
-                if (endDateStr.isEmpty()) {
+
+            if (announcementData.containsKey("endDate")) {
+                Object endDateObj = announcementData.get("endDate");
+                if (endDateObj == null || endDateObj.toString().trim().isEmpty()
+                        || "null".equalsIgnoreCase(endDateObj.toString().trim())) {
                     announcement.setEndDate(null);
                 } else {
                     try {
-                        announcement.setEndDate(LocalDate.parse(endDateStr));
+                        announcement.setEndDate(LocalDate.parse(endDateObj.toString().trim()));
                     } catch (Exception e) {
-                        logger.warn("종료일 파싱 실패: {}", endDateStr);
+                        logger.warn("종료일 파싱 실패: {}", endDateObj);
                     }
+                }
+            }
+
+            if (announcementData.containsKey("visibleToMembers")) {
+                Object vtm = announcementData.get("visibleToMembers");
+                if (vtm instanceof Boolean) {
+                    announcement.setVisibleToMembers((Boolean) vtm);
+                } else if (vtm instanceof Number) {
+                    announcement.setVisibleToMembers(((Number) vtm).intValue() != 0);
+                } else if (vtm != null) {
+                    String s = vtm.toString().trim().toLowerCase();
+                    announcement.setVisibleToMembers("true".equals(s) || "1".equals(s) || "yes".equals(s));
+                } else {
+                    announcement.setVisibleToMembers(false);
+                }
+            }
+            boolean vtmNow = Boolean.TRUE.equals(announcement.getVisibleToMembers());
+            if (!vtmNow) {
+                announcement.setHideFromStaffFeed(false);
+            } else if (announcementData.containsKey("hideFromStaffFeed")) {
+                Object hfs = announcementData.get("hideFromStaffFeed");
+                if (hfs instanceof Boolean) {
+                    announcement.setHideFromStaffFeed((Boolean) hfs);
+                } else if (hfs instanceof Number) {
+                    announcement.setHideFromStaffFeed(((Number) hfs).intValue() != 0);
+                } else if (hfs != null) {
+                    String s = hfs.toString().trim().toLowerCase();
+                    announcement.setHideFromStaffFeed("true".equals(s) || "1".equals(s) || "yes".equals(s));
+                } else {
+                    announcement.setHideFromStaffFeed(false);
                 }
             }
             
@@ -312,6 +401,8 @@ public class AnnouncementController {
             response.put("startDate", saved.getStartDate());
             response.put("endDate", saved.getEndDate());
             response.put("updatedAt", saved.getUpdatedAt());
+            response.put("visibleToMembers", Boolean.TRUE.equals(saved.getVisibleToMembers()));
+            response.put("hideFromStaffFeed", Boolean.TRUE.equals(saved.getHideFromStaffFeed()));
             response.put("message", "공지가 수정되었습니다.");
             
             logger.info("공지 수정 완료: ID={}, 제목={}", saved.getId(), saved.getTitle());

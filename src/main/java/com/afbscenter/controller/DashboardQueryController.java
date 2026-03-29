@@ -1,10 +1,13 @@
 package com.afbscenter.controller;
 
 import com.afbscenter.model.Announcement;
+import com.afbscenter.model.Settings;
 import com.afbscenter.model.Booking;
 import com.afbscenter.model.MemberProduct;
 import com.afbscenter.model.Product;
 import com.afbscenter.repository.AnnouncementRepository;
+import com.afbscenter.repository.SettingsRepository;
+import com.afbscenter.util.MembershipDuesAnnouncementHelper;
 import com.afbscenter.repository.AttendanceRepository;
 import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.CoachRepository;
@@ -44,19 +47,22 @@ public class DashboardQueryController {
     private final MemberProductRepository memberProductRepository;
     private final CoachRepository coachRepository;
     private final AnnouncementRepository announcementRepository;
+    private final SettingsRepository settingsRepository;
 
     public DashboardQueryController(BookingRepository bookingRepository,
                                     AttendanceRepository attendanceRepository,
                                     MemberRepository memberRepository,
                                     MemberProductRepository memberProductRepository,
                                     CoachRepository coachRepository,
-                                    AnnouncementRepository announcementRepository) {
+                                    AnnouncementRepository announcementRepository,
+                                    SettingsRepository settingsRepository) {
         this.bookingRepository = bookingRepository;
         this.attendanceRepository = attendanceRepository;
         this.memberRepository = memberRepository;
         this.memberProductRepository = memberProductRepository;
         this.coachRepository = coachRepository;
         this.announcementRepository = announcementRepository;
+        this.settingsRepository = settingsRepository;
     }
 
     @GetMapping("/expiring-members")
@@ -112,6 +118,9 @@ public class DashboardQueryController {
                                     productExpiring = true;
                                     expiryReason = "남은 횟수: " + remainingCount + "회";
                                     productInfo.put("remainingCount", remainingCount);
+                                    if (mp.getProduct().getUsageCount() != null && mp.getProduct().getUsageCount() > 0) {
+                                        productInfo.put("usageCount", mp.getProduct().getUsageCount());
+                                    }
                                 }
                             }
                             if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS && mp.getExpiryDate() != null) {
@@ -376,7 +385,7 @@ public class DashboardQueryController {
     @Transactional(readOnly = true)
     public ResponseEntity<List<Map<String, Object>>> getActiveAnnouncements() {
         try {
-            List<Announcement> announcements = announcementRepository.findActiveAnnouncements(LocalDate.now());
+            List<Announcement> announcements = announcementRepository.findActiveAnnouncementsVisibleToStaff(LocalDate.now());
             List<Map<String, Object>> result = new ArrayList<>();
             for (Announcement a : announcements) {
                 Map<String, Object> map = new HashMap<>();
@@ -387,6 +396,10 @@ public class DashboardQueryController {
                 map.put("endDate", a.getEndDate());
                 map.put("createdAt", a.getCreatedAt());
                 result.add(map);
+            }
+            Settings settings = settingsRepository.findAll().stream().findFirst().orElse(null);
+            if (MembershipDuesAnnouncementHelper.shouldExposeInBell(settings)) {
+                result.add(0, MembershipDuesAnnouncementHelper.toSyntheticMap(settings));
             }
             return ResponseEntity.ok(result);
         } catch (Exception e) {

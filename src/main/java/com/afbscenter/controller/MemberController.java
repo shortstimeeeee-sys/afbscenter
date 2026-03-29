@@ -15,6 +15,7 @@ import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.ProductRepository;
+import com.afbscenter.repository.UserRepository;
 import com.afbscenter.service.MemberService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -50,6 +51,7 @@ public class MemberController {
     private final PaymentRepository paymentRepository;
     private final BookingRepository bookingRepository;
     private final AttendanceRepository attendanceRepository;
+    private final UserRepository userRepository;
     private final com.afbscenter.repository.MemberProductHistoryRepository memberProductHistoryRepository;
     private final TransactionTemplate transactionTemplate;
     private final ActionAuditLogRepository actionAuditLogRepository;
@@ -62,6 +64,7 @@ public class MemberController {
                            PaymentRepository paymentRepository,
                            BookingRepository bookingRepository,
                            AttendanceRepository attendanceRepository,
+                           UserRepository userRepository,
                            com.afbscenter.repository.MemberProductHistoryRepository memberProductHistoryRepository,
                            org.springframework.transaction.PlatformTransactionManager transactionManager,
                            ActionAuditLogRepository actionAuditLogRepository) {
@@ -73,10 +76,20 @@ public class MemberController {
         this.paymentRepository = paymentRepository;
         this.bookingRepository = bookingRepository;
         this.attendanceRepository = attendanceRepository;
+        this.userRepository = userRepository;
         this.memberProductHistoryRepository = memberProductHistoryRepository;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.actionAuditLogRepository = actionAuditLogRepository;
+    }
+
+    private Optional<Long> resolveCoachIdFromRequest(HttpServletRequest request) {
+        if (request == null) return Optional.empty();
+        String username = (String) request.getAttribute("username");
+        if (username == null || username.trim().isEmpty()) return Optional.empty();
+        return userRepository.findByUsername(username.trim())
+                .flatMap(u -> coachRepository.findByUserId(u.getId()))
+                .map(Coach::getId);
     }
 
     @GetMapping
@@ -88,7 +101,8 @@ public class MemberController {
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) Boolean endedTicket,
             @RequestParam(required = false) Integer page,
-            @RequestParam(required = false) Integer size) {
+            @RequestParam(required = false) Integer size,
+            HttpServletRequest request) {
         try {
             logger.debug("회원 목록 조회 시작: productCategory={}, grade={}, status={}, branch={}, endedTicket={}, page={}, size={}",
                 productCategory, grade, status, branch, endedTicket, page, size);
@@ -96,6 +110,20 @@ public class MemberController {
             // Service에서 필터링 및 변환 로직 처리
             List<com.afbscenter.dto.MemberResponseDTO> memberDTOs = 
                     memberService.getAllMembersWithFilters(productCategory, grade, status, branch, endedTicket);
+
+            String role = request != null ? (String) request.getAttribute("role") : null;
+            if ("COACH".equalsIgnoreCase(role)) {
+                Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
+                if (coachIdOpt.isEmpty()) {
+                    logger.warn("코치 계정에 연결된 coach 정보가 없어 회원 목록을 비웁니다.");
+                    memberDTOs = new java.util.ArrayList<>();
+                } else {
+                    Long myCoachId = coachIdOpt.get();
+                    memberDTOs = memberDTOs.stream()
+                            .filter(dto -> dto != null && dto.getCoach() != null && myCoachId.equals(dto.getCoach().getId()))
+                            .collect(java.util.stream.Collectors.toList());
+                }
+            }
             
             logger.debug("회원 DTO 변환 완료: {}명", memberDTOs != null ? memberDTOs.size() : 0);
             
@@ -149,7 +177,7 @@ public class MemberController {
 
     @GetMapping("/{id}")
     @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> getMemberById(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> getMemberById(@PathVariable Long id, HttpServletRequest request) {
         try {
             if (id == null) {
                 return ResponseEntity.badRequest().build();
@@ -159,6 +187,15 @@ public class MemberController {
                 return ResponseEntity.notFound().build();
             }
             Member member = memberOpt.get();
+
+            String role = request != null ? (String) request.getAttribute("role") : null;
+            if ("COACH".equalsIgnoreCase(role)) {
+                Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
+                Long memberCoachId = member.getCoach() != null ? member.getCoach().getId() : null;
+                if (coachIdOpt.isEmpty() || memberCoachId == null || !coachIdOpt.get().equals(memberCoachId)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                }
+            }
             
             // Map으로 변환하여 안전하게 직렬화
             Map<String, Object> memberMap = new HashMap<>();
@@ -245,23 +282,13 @@ public class MemberController {
                                 remainingCount = 0;
                             }
 
-                            // 횟수권: 출석/예약 기반으로 실제 잔여 계산 (DB remainingCount가 0이어도 목록과 동일하게 보이도록)
+                            // 횟수권: DB 잔여 우선(총횟수만 변경해도 잔여 자동 조정 안 함). null일 때만 출석·예약 추정.
                             try {
                                 if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.COUNT_PASS
                                     && "ACTIVE".equals(statusName)) {
-                                    Integer usage = null;
-                                    try { usage = mp.getProduct().getUsageCount(); } catch (Exception ignore) {}
-                                    if (usage == null || usage <= 0) usage = totalCount;
-                                    if (usage == null || usage <= 0) usage = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
-                                    totalCount = usage;
-
-                                    Long usedByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(id, mp.getId());
-                                    if (usedByAttendance == null) usedByAttendance = 0L;
-                                    Long usedByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
-                                    if (usedByBooking == null) usedByBooking = 0L;
-                                    Long actualUsed = usedByAttendance > 0 ? usedByAttendance : usedByBooking;
-                                    int calc = Math.max(0, usage - (actualUsed != null ? actualUsed.intValue() : 0));
-                                    remainingCount = calc;
+                                    totalCount = com.afbscenter.util.MemberProductCountPassHelper.resolveTotalCount(mp);
+                                    remainingCount = com.afbscenter.util.MemberProductCountPassHelper.resolveRemainingForRead(
+                                            mp, id, attendanceRepository, bookingRepository);
                                 }
                             } catch (Exception e) {
                                 logger.debug("상세 잔여 계산 스킵 (MemberProduct ID={}): {}", mp.getId(), e.getMessage());
@@ -288,11 +315,6 @@ public class MemberController {
                                         coachMap.put("name", mp.getProduct().getCoach().getName());
                                     }
                                 } catch (Exception e) { }
-                            }
-                            if (coachMap == null && member.getCoach() != null) {
-                                coachMap = new HashMap<>();
-                                coachMap.put("id", member.getCoach().getId());
-                                coachMap.put("name", member.getCoach().getName());
                             }
                             if (coachMap != null) {
                                 mpMap.put("coach", coachMap);
@@ -1252,6 +1274,7 @@ public class MemberController {
                     Payment payment = new Payment();
                     payment.setMember(member);
                     payment.setProduct(product);
+                    payment.setMemberProduct(memberProduct);
                     payment.setAmount(productPrice);
                     payment.setPaymentMethod(com.afbscenter.constants.PaymentDefaults.getDefaultPaymentMethod());
                     payment.setStatus(com.afbscenter.constants.PaymentDefaults.getDefaultPaymentStatus());

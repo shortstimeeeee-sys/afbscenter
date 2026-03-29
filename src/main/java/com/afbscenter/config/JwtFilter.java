@@ -5,6 +5,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpMethod;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +29,8 @@ public class JwtFilter extends OncePerRequestFilter {
             "/api/auth/login",
             "/api/auth/register",
             "/api/auth/validate",
-            "/api/auth/init-admin"
+            "/api/auth/init-admin",
+            "/api/public/"
     );
 
     @Override
@@ -38,7 +40,7 @@ public class JwtFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
 
         // 정적 리소스나 인증 관련 경로는 필터 건너뛰기
-        if (shouldSkipFilter(path)) {
+        if (shouldSkipFilter(path, request)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -88,9 +90,13 @@ public class JwtFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private boolean shouldSkipFilter(String path) {
+    private boolean shouldSkipFilter(String path, HttpServletRequest request) {
         // 인증 API는 제외
         if (EXCLUDED_PATHS.stream().anyMatch(path::startsWith)) {
+            return true;
+        }
+        // 비로그인 회원 예약 메뉴에서 훈련 랭킹 열람용 — GET만 허용 (컨텍스트 경로 있어도 동작하도록 endsWith)
+        if (path.endsWith("/api/training-logs/rankings") && HttpMethod.GET.matches(request.getMethod())) {
             return true;
         }
         

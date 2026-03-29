@@ -43,6 +43,17 @@ public class Announcement {
     @Column(nullable = false, length = 50)
     private String type = "GENERAL"; // 공지 타입
 
+    /** 회원 예약 페이지(비로그인)에 노출 — 운영자만 체크 시 공개 */
+    @Column(name = "visible_to_members", nullable = false)
+    private Boolean visibleToMembers = false;
+
+    /**
+     * true면 대시보드 활성 공지·직원 종 알림에서 제외. 회원 공개 API와 공지 관리 목록에는 그대로 표시.
+     * 회원에게 공개하지 않을 때는 의미 없으므로 항상 false로 둔다.
+     */
+    @Column(name = "hide_from_staff_feed", nullable = false)
+    private Boolean hideFromStaffFeed = false;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) {
@@ -54,10 +65,22 @@ public class Announcement {
         if (type == null) {
             type = "GENERAL";
         }
+        if (visibleToMembers == null) {
+            visibleToMembers = false;
+        }
+        if (hideFromStaffFeed == null) {
+            hideFromStaffFeed = false;
+        }
+        if (!Boolean.TRUE.equals(visibleToMembers)) {
+            hideFromStaffFeed = false;
+        }
     }
 
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+        if (!Boolean.TRUE.equals(visibleToMembers)) {
+            hideFromStaffFeed = false;
+        }
     }
 }

@@ -1,6 +1,9 @@
 package com.afbscenter.controller;
 
+import com.afbscenter.model.Member;
+import com.afbscenter.model.Member.MemberGrade;
 import com.afbscenter.model.Message;
+import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.MessageRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +16,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RestController
@@ -22,9 +26,11 @@ public class MessageController {
     private static final Logger logger = LoggerFactory.getLogger(MessageController.class);
 
     private final MessageRepository messageRepository;
+    private final MemberRepository memberRepository;
 
-    public MessageController(MessageRepository messageRepository) {
+    public MessageController(MessageRepository messageRepository, MemberRepository memberRepository) {
         this.messageRepository = messageRepository;
+        this.memberRepository = memberRepository;
     }
 
     @GetMapping
@@ -49,6 +55,27 @@ public class MessageController {
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             logger.error("메시지 목록 조회 중 오류 발생", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * 상단 종 알림용: 마지막으로 확인한 message id 이후 신규 발송 건수.
+     * {@code afterId=0}이면 id&gt;0 인 전체 건수(초기 동기화에 사용 가능).
+     */
+    @GetMapping("/stats/bell")
+    @Transactional(readOnly = true)
+    public ResponseEntity<Map<String, Object>> bellStats(@RequestParam(defaultValue = "0") long afterId) {
+        try {
+            long maxId = messageRepository.findMaxId();
+            long aid = Math.max(0L, afterId);
+            long newCount = messageRepository.countByIdGreaterThan(aid);
+            Map<String, Object> out = new HashMap<>();
+            out.put("newCount", newCount);
+            out.put("maxId", maxId);
+            return ResponseEntity.ok(out);
+        } catch (Exception e) {
+            logger.error("메시지 종 알림 통계 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -85,16 +112,27 @@ public class MessageController {
     @Transactional
     public ResponseEntity<Map<String, Object>> createMessage(@RequestBody Map<String, Object> messageData) {
         try {
-            // 필수 필드 검증
-            String recipient = messageData.get("recipient") != null ? messageData.get("recipient").toString() : null;
             String content = messageData.get("content") != null ? messageData.get("content").toString() : null;
-            
-            if (recipient == null || recipient.trim().isEmpty()) {
+
+            String targetValidationError = validateMessageTarget(messageData);
+            if (targetValidationError != null) {
                 Map<String, Object> error = new HashMap<>();
-                error.put("error", "수신자는 필수입니다.");
+                error.put("error", targetValidationError);
                 return ResponseEntity.badRequest().body(error);
             }
-            
+
+            String recipient = resolveRecipientFromTargetOrLegacy(messageData);
+            if (recipient == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "발송 대상 또는 수신자 정보를 확인해 주세요.");
+                return ResponseEntity.badRequest().body(error);
+            }
+            if (recipient.isEmpty()) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "등록된 회원번호가 아닙니다.");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+            }
+
             if (content == null || content.trim().isEmpty()) {
                 Map<String, Object> error = new HashMap<>();
                 error.put("error", "메시지 내용은 필수입니다.");
@@ -143,6 +181,112 @@ public class MessageController {
             error.put("error", "메시지 생성 중 오류가 발생했습니다: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
+    }
+
+    /**
+     * target별 필수 파라미터(등급, 회원번호) 검증. 통과 시 null.
+     */
+    private String validateMessageTarget(Map<String, Object> messageData) {
+        Object targetObj = messageData.get("target");
+        if (targetObj == null || targetObj.toString().trim().isEmpty()) {
+            return null;
+        }
+        String t = targetObj.toString().trim().toUpperCase();
+        if ("GRADE".equals(t)) {
+            String g = messageData.get("grade") != null ? messageData.get("grade").toString().trim() : "";
+            if (g.isEmpty()) {
+                return "등급을 선택해 주세요.";
+            }
+            try {
+                MemberGrade.valueOf(g.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return "올바른 등급이 아닙니다.";
+            }
+        }
+        if ("MEMBER".equals(t)) {
+            String mn = messageData.get("memberNumber") != null
+                    ? messageData.get("memberNumber").toString().trim() : "";
+            if (mn.isEmpty()) {
+                return "회원번호를 입력해 주세요.";
+            }
+        }
+        return null;
+    }
+
+    private static String memberGradeDisplayName(MemberGrade grade) {
+        if (grade == null) {
+            return "";
+        }
+        switch (grade) {
+            case SOCIAL:
+                return "사회인";
+            case ELITE_ELEMENTARY:
+                return "엘리트 (초)";
+            case ELITE_MIDDLE:
+                return "엘리트 (중)";
+            case ELITE_HIGH:
+                return "엘리트 (고)";
+            case YOUTH:
+                return "유소년";
+            case OTHER:
+                return "기타 종목";
+            default:
+                return grade.name();
+        }
+    }
+
+    /**
+     * 프론트의 발송 대상(target) 또는 레거시 recipient 문자열로 수신자 표기 결정.
+     * MEMBER: 회원번호로 조회해 일치할 때만 발송(저장).
+     * GRADE: validateMessageTarget 통과 후 등급명 포함 표기.
+     *
+     * @return 수신자 표기 문자열, null이면 파라미터 부족 등, 빈 문자열이면 회원 없음(MEMBER)
+     */
+    private String resolveRecipientFromTargetOrLegacy(Map<String, Object> messageData) {
+        Object targetObj = messageData.get("target");
+        if (targetObj != null && !targetObj.toString().trim().isEmpty()) {
+            String t = targetObj.toString().trim().toUpperCase();
+            switch (t) {
+                case "ALL":
+                    return "전체";
+                case "GRADE": {
+                    String g = messageData.get("grade") != null
+                            ? messageData.get("grade").toString().trim().toUpperCase() : "";
+                    if (g.isEmpty()) {
+                        return null;
+                    }
+                    try {
+                        MemberGrade mg = MemberGrade.valueOf(g);
+                        return "등급별 " + memberGradeDisplayName(mg) + " (" + mg.name() + ")";
+                    } catch (IllegalArgumentException e) {
+                        return null;
+                    }
+                }
+                case "BOOKING":
+                    return "예약자";
+                case "MEMBER":
+                    String mn = messageData.get("memberNumber") != null
+                            ? messageData.get("memberNumber").toString().trim() : "";
+                    if (mn.isEmpty()) {
+                        return null;
+                    }
+                    Optional<Member> opt = memberRepository.findByMemberNumber(mn);
+                    if (opt.isEmpty()) {
+                        return "";
+                    }
+                    Member mem = opt.get();
+                    String phone = mem.getPhoneNumber() != null ? mem.getPhoneNumber().trim() : "";
+                    String name = mem.getName() != null ? mem.getName().trim() : "";
+                    return "회원개인 " + mn + " / " + name + " / " + phone;
+                default:
+                    break;
+            }
+        }
+        String legacy = messageData.get("recipient") != null ? messageData.get("recipient").toString().trim() : null;
+        if (legacy != null && !legacy.isEmpty()) {
+            return legacy;
+        }
+        return null;
     }
 
     @PutMapping("/{id}")

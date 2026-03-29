@@ -21,7 +21,7 @@ public class AuthController {
 
     private final AuthService authService;
     
-    @Value("${admin.init.password:07-503392}")
+    @Value("${admin.init.password:07-503392a!!}")
     private String adminInitPassword;
 
     @Autowired

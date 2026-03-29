@@ -623,12 +623,12 @@
                     <div class="form-group">
                         <label class="form-label">연장 횟수 *</label>
                         <input type="number" class="form-control" id="extend-days" min="1" placeholder="추가할 횟수를 입력하세요" required>
-                        <small style="color: var(--text-muted); font-size: 12px;">횟수권의 경우 입력한 횟수만큼 남은 횟수가 추가됩니다</small>
+                        <small style="color: var(--text-muted); font-size: 12px;">이용권에 <strong>더할 회차 수</strong>를 입력합니다. (예: 10회 묶음을 한 번 더 사는 경우 10, 1회만 추가하면 1)</small>
                     </div>
                     <div class="form-group">
                         <label class="form-label">예상 연장 금액</label>
                         <div class="form-control" style="background: var(--bg-tertiary); font-weight: 600; color: var(--accent-primary);" id="extend-calculated-price">-</div>
-                        <small style="color: var(--text-muted); font-size: 12px;">구매 금액과 연장 횟수에 따라 자동 계산됩니다</small>
+                        <small style="color: var(--text-muted); font-size: 12px;">표시된 구매 금액 ÷ 상품 기준 횟수(회당 단가) × 위 연장 횟수입니다. 누적 총횟수가 아니라 <strong>상품에 정의된 1묶음 횟수</strong>로 나눕니다.</small>
                     </div>
                 </form>
             </div>

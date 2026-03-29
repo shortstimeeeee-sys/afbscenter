@@ -94,6 +94,16 @@ public class Member {
     @Column(name = "coach_memo_stats", length = 4000)
     private String coachMemoStats;
 
+    /** 데스크↔회원 쪽지 스레드 열람 잠금(관리자 화면) — BCrypt 해시, null이면 미사용 */
+    @Column(name = "desk_thread_lock_pin_hash", length = 120)
+    private String deskThreadLockPinHash;
+
+    /**
+     * 회원이 «쪽지 초기화»를 한 시각. 이전 쪽지는 회원 화면·회원용 미읽음에서만 숨김(DB·관리자 쪽지함에는 유지).
+     */
+    @Column(name = "desk_thread_cleared_at")
+    private LocalDateTime deskThreadClearedAt;
+
     @Column(name = "student_name")
     private String guardianName; // 수강생 이름 (유소년의 경우 실제 수강생 이름)
 

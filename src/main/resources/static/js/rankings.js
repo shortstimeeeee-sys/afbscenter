@@ -75,8 +75,15 @@ async function loadRankings(days, startDate = null, endDate = null) {
             start = startDateObj.toISOString().split('T')[0];
         }
         
-        // 회원 목록 로드 (회원 기록 포함 - 스윙 속도·TEE 타구 속도용)
-        const members = await App.api.get('/members');
+        // 회원 목록 (등록 기록 스윙·타구 속도 병합용) — 로그인 시에만. 비로그인은 훈련 기록 랭킹만 사용
+        let members = [];
+        if (App.isAuthenticated()) {
+            try {
+                members = await App.api.get('/members');
+            } catch (e) {
+                members = [];
+            }
+        }
         
         // 훈련 기록 랭킹 API 호출 (타구 속도, 구속, 훈련 횟수용). 전체 기간이면 start/end만 사용
         const daysNum = days === 'all' ? 99999 : (days || Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)));
@@ -98,14 +105,7 @@ async function loadRankings(days, startDate = null, endDate = null) {
         App.log('훈련 횟수 랭킹:', trainingRankings.recordCountRanking);
         App.log('조회 기간:', start, '~', end);
         App.log('등급 필터:', currentGrade);
-        
-        // 디버깅: 회원 스윙 속도 확인
-        const testMember = members.find(m => m.name === '테스트1');
-        if (testMember) {
-            App.log('테스트1 회원 정보:', testMember);
-            App.log('테스트1 swingSpeed:', testMember.swingSpeed);
-        }
-        
+
         // 기간 정보 표시 (전체일 때 days는 'all')
         const periodDays = days === 'all' ? 'all' : (days || Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)));
         updatePeriodInfo({ start, end, days: periodDays }, currentGrade);

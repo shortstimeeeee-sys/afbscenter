@@ -13,6 +13,7 @@ import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.ProductRepository;
+import com.afbscenter.util.PaymentPurchasePriceHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -285,6 +286,9 @@ public class MemberDetailQueryController {
                         long minTimeDiff = Long.MAX_VALUE;
                         
                         for (Payment payment : purchasePayments) {
+                            if (PaymentPurchasePriceHelper.isLikelyExtensionChargePayment(payment)) {
+                                continue;
+                            }
                             if (payment.getRefundAmount() == null || payment.getRefundAmount() == 0) {
                                 long timeDiff = Math.abs(java.time.Duration.between(payment.getPaidAt(), purchaseDate).toMillis());
                                 if (timeDiff < minTimeDiff) {
@@ -310,6 +314,9 @@ public class MemberDetailQueryController {
                         if (beforePayments != null && !beforePayments.isEmpty()) {
                             // 구매일 이전의 가장 최근 결제 기록 사용 (환불 금액 제외)
                             for (Payment payment : beforePayments) {
+                                if (PaymentPurchasePriceHelper.isLikelyExtensionChargePayment(payment)) {
+                                    continue;
+                                }
                                 if (payment.getRefundAmount() == null || payment.getRefundAmount() == 0) {
                                     actualPurchasePrice = payment.getAmount();
                                     break;
@@ -378,43 +385,29 @@ public class MemberDetailQueryController {
                         logger.warn("히스토리 기반 잔여 보정 실패: MemberProduct ID={}", mp.getId(), e);
                     }
                     if (totalCount == null) totalCount = mp.getTotalCount() != null ? mp.getTotalCount() : 0;
-                    // 회원 관리 페이지와 동일: COUNT_PASS는 항상 '총 횟수 - 실제 사용 횟수'로 통일
-                    if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.COUNT_PASS && totalCount != null) {
-                        Long usedByAtt = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(memberId, mp.getId());
-                        Long usedByBook = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
-                        long actualUsed = (usedByAtt != null && usedByAtt > 0) ? usedByAtt : (usedByBook != null ? usedByBook : 0L);
-                        remainingCount = Math.max(0, totalCount - (int) actualUsed);
+                    if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
+                        remainingCount = com.afbscenter.util.MemberProductCountPassHelper.resolveRemainingForRead(
+                                mp, memberId, attendanceRepository, bookingRepository);
                     }
                     productMap.put("remainingCount", remainingCount != null ? remainingCount : mp.getRemainingCount());
                     productMap.put("usedCount", totalCount != null && remainingCount != null ? totalCount - remainingCount : 0);
                     productMap.put("totalCount", totalCount);
-                } else if (mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
-                    // 횟수권: 상세·예약 화면 통일을 위해 항상 '총 횟수 - 실제 체크인 건수'로 표시
-                    Integer totalCount = mp.getProduct().getUsageCount();
-                    if (totalCount == null || totalCount <= 0) {
-                        totalCount = mp.getTotalCount();
-                        if (totalCount == null || totalCount <= 0) {
-                            totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
-                        }
-                    }
-                    Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(memberId, mp.getId());
-                    if (usedCountByAttendance == null) usedCountByAttendance = 0L;
-                    Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(mp.getId());
-                    if (usedCountByBooking == null) usedCountByBooking = 0L;
-                    Long actualUsedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
-                    Integer remainingCount = totalCount != null
-                        ? Math.max(0, totalCount - (actualUsedCount != null ? actualUsedCount.intValue() : 0))
-                        : mp.getRemainingCount();
-                    productMap.put("remainingCount", remainingCount);
-                    productMap.put("usedCount", totalCount != null && remainingCount != null ? totalCount - remainingCount : 0);
-                    productMap.put("totalCount", totalCount);
                 } else {
-                    // 그 외: DB remainingCount 사용
-                    Integer remainingCount = mp.getRemainingCount();
-                    Integer totalCount = mp.getTotalCount() != null ? mp.getTotalCount() : 0;
-                    productMap.put("remainingCount", remainingCount);
-                    productMap.put("usedCount", totalCount != null && remainingCount != null ? totalCount - remainingCount : 0);
-                    productMap.put("totalCount", totalCount);
+                    if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
+                        int totalCountPass = com.afbscenter.util.MemberProductCountPassHelper.resolveTotalCount(mp);
+                        int remainingPass = com.afbscenter.util.MemberProductCountPassHelper.resolveRemainingForRead(
+                                mp, memberId, attendanceRepository, bookingRepository);
+                        productMap.put("remainingCount", remainingPass);
+                        productMap.put("usedCount", Math.max(0, totalCountPass - remainingPass));
+                        productMap.put("totalCount", totalCountPass);
+                    } else {
+                        // 그 외: DB remainingCount 사용
+                        Integer remainingDb = mp.getRemainingCount();
+                        int totalDb = mp.getTotalCount() != null ? mp.getTotalCount() : 0;
+                        productMap.put("remainingCount", remainingDb);
+                        productMap.put("usedCount", remainingDb != null ? totalDb - remainingDb : 0);
+                        productMap.put("totalCount", totalDb);
+                    }
                 }
                 
                 productsWithRemainingCount.add(productMap);

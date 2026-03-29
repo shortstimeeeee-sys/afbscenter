@@ -6,13 +6,75 @@ let currentSortBy = 'date';
 let currentSortOrder = 'desc';
 let allPayments = []; // 클라이언트 측 정렬/검색용
 
+function getMonthRangeStrings() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const pad = function(n) { return String(n).padStart(2, '0'); };
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    return {
+        start: y + '-' + pad(m + 1) + '-01',
+        end: y + '-' + pad(m + 1) + '-' + pad(lastDay)
+    };
+}
+
+function syncPeriodUi() {
+    var sel = document.getElementById('filter-period');
+    var startEl = document.getElementById('filter-date-start');
+    var endEl = document.getElementById('filter-date-end');
+    if (!sel) return;
+    var v = sel.value;
+    if (v === 'month') {
+        var r = getMonthRangeStrings();
+        if (startEl) { startEl.value = r.start; startEl.disabled = true; }
+        if (endEl) { endEl.value = r.end; endEl.disabled = true; }
+    } else if (v === 'all') {
+        if (startEl) { startEl.value = ''; startEl.disabled = true; }
+        if (endEl) { endEl.value = ''; endEl.disabled = true; }
+    } else {
+        if (startEl) startEl.disabled = false;
+        if (endEl) endEl.disabled = false;
+    }
+}
+
+function initPaymentPeriodAndLoad() {
+    currentFilters.period = 'month';
+    var r = getMonthRangeStrings();
+    currentFilters.startDate = r.start;
+    currentFilters.endDate = r.end;
+    var periodSel = document.getElementById('filter-period');
+    if (periodSel) periodSel.value = 'month';
+    syncPeriodUi();
+    loadPayments();
+    loadPaymentSummary();
+    loadPaymentMethodStatistics();
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // 기존 상품 할당 결제 생성 버튼은 관리자만 표시
     var createMissingBtn = document.getElementById('payments-create-missing-btn');
     if (createMissingBtn) createMissingBtn.style.display = (App.currentRole === 'ADMIN') ? '' : 'none';
-    loadPayments();
-    loadPaymentSummary();
-    loadPaymentMethodStatistics();
+
+    var periodSel = document.getElementById('filter-period');
+    if (periodSel) {
+        periodSel.addEventListener('change', function() {
+            syncPeriodUi();
+            currentFilters.period = periodSel.value;
+            if (periodSel.value === 'month') {
+                var mr = getMonthRangeStrings();
+                currentFilters.startDate = mr.start;
+                currentFilters.endDate = mr.end;
+            } else if (periodSel.value === 'all') {
+                delete currentFilters.startDate;
+                delete currentFilters.endDate;
+            }
+            currentPage = 1;
+            loadPayments();
+            loadPaymentMethodStatistics();
+        });
+    }
+
+    initPaymentPeriodAndLoad();
     
     // 검색 기능
     const searchInput = document.getElementById('payment-search');
@@ -103,6 +165,9 @@ async function loadPayments() {
         const params = new URLSearchParams();
         if (currentPage) {
             params.append('page', currentPage);
+        }
+        if (currentFilters.period) {
+            params.append('period', currentFilters.period);
         }
         
         // 필터 파라미터 추가
@@ -350,19 +415,35 @@ async function openMemberInfoModal(memberId) {
 }
 
 function applyFilters() {
+    const searchInput = document.getElementById('payment-search');
+    const searchVal = searchInput && searchInput.value ? searchInput.value.trim() : '';
+    const periodEl = document.getElementById('filter-period');
+    const period = periodEl ? periodEl.value : 'month';
     const method = document.getElementById('filter-payment-method').value;
     const status = document.getElementById('filter-status').value;
     const category = document.getElementById('filter-category').value;
     const startDate = document.getElementById('filter-date-start').value;
     const endDate = document.getElementById('filter-date-end').value;
-    
+
     currentFilters = {};
+    if (searchVal) currentFilters.search = searchVal;
+    currentFilters.period = period;
     if (method) currentFilters.paymentMethod = method;
     if (status) currentFilters.status = status;
     if (category) currentFilters.category = category;
-    if (startDate) currentFilters.startDate = startDate;
-    if (endDate) currentFilters.endDate = endDate;
-    
+    if (period === 'month') {
+        const mr = getMonthRangeStrings();
+        currentFilters.startDate = mr.start;
+        currentFilters.endDate = mr.end;
+        syncPeriodUi();
+    } else if (period === 'all') {
+        delete currentFilters.startDate;
+        delete currentFilters.endDate;
+    } else if (period === 'custom') {
+        if (startDate) currentFilters.startDate = startDate;
+        if (endDate) currentFilters.endDate = endDate;
+    }
+
     currentPage = 1;
     loadPayments();
     loadPaymentMethodStatistics(); // 필터 변경 시 통계도 업데이트
@@ -453,6 +534,9 @@ async function exportReport() {
 async function loadPaymentMethodStatistics() {
     try {
         const params = new URLSearchParams();
+        if (currentFilters.period) {
+            params.append('period', currentFilters.period);
+        }
         if (currentFilters.startDate) {
             params.append('startDate', currentFilters.startDate);
         }
@@ -482,13 +566,17 @@ function renderPaymentMethodStatistics(statistics) {
         'CASH': '현금',
         'CARD': '카드',
         'BANK': '계좌이체',
-        'MOBILE': '간편결제'
+        'BANK_TRANSFER': '계좌이체',
+        'MOBILE': '간편결제',
+        'EASY_PAY': '간편결제'
     };
     const methodItemClass = {
         'CASH': 'payment-method-stats-item--cash',
         'CARD': 'payment-method-stats-item--card',
         'BANK': 'payment-method-stats-item--bank',
-        'MOBILE': 'payment-method-stats-item--mobile'
+        'BANK_TRANSFER': 'payment-method-stats-item--bank',
+        'MOBILE': 'payment-method-stats-item--mobile',
+        'EASY_PAY': 'payment-method-stats-item--mobile'
     };
     
     const entries = Object.entries(methodCount);
@@ -548,6 +636,7 @@ async function openPaymentMethodListModal(filterMethod, titleLabel) {
     App.Modal.open('payment-method-list-modal');
     try {
         var params = new URLSearchParams();
+        if (currentFilters.period) params.append('period', currentFilters.period);
         if (currentFilters.startDate) params.append('startDate', currentFilters.startDate);
         if (currentFilters.endDate) params.append('endDate', currentFilters.endDate);
         if (filterMethod) params.append('paymentMethod', filterMethod);

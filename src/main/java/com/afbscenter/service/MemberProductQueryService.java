@@ -31,9 +31,9 @@ public class MemberProductQueryService {
     public Integer getRemainingCountFromDb(Long memberProductId) {
         if (memberProductId == null) return null;
         String[] sqls = {
-            "SELECT remaining_count FROM member_products WHERE id = ?",
-            "SELECT REMAINING_COUNT FROM MEMBER_PRODUCTS WHERE ID = ?",
-            "SELECT \"remaining_count\" FROM \"member_products\" WHERE \"id\" = ?"
+            "SELECT remaining_count FROM member_products WHERE id = ? AND deleted_at IS NULL",
+            "SELECT REMAINING_COUNT FROM MEMBER_PRODUCTS WHERE ID = ? AND DELETED_AT IS NULL",
+            "SELECT \"remaining_count\" FROM \"member_products\" WHERE \"id\" = ? AND \"deleted_at\" IS NULL"
         };
         for (String sql : sqls) {
             try {
@@ -47,7 +47,7 @@ public class MemberProductQueryService {
             }
         }
         try {
-            Query q = entityManager.createNativeQuery("SELECT remaining_count FROM member_products WHERE id = ?1");
+            Query q = entityManager.createNativeQuery("SELECT remaining_count FROM member_products WHERE id = ?1 AND deleted_at IS NULL");
             q.setParameter(1, memberProductId);
             @SuppressWarnings("unchecked")
             java.util.List<Object> list = q.getResultList();

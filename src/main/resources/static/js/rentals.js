@@ -655,34 +655,24 @@ async function loadMemberProducts(memberId) {
             const option = document.createElement('option');
             option.value = mp.id;
             const product = mp.product;
-            // 상품 이름과 가격 표시
-            let text = product.name || '상품';
-            if (product.price) {
-                text += ` - ${App.formatCurrency(product.price)}`;
-            }
-            
-            // 잔여 횟수는 dataset에만 저장 (표시는 하지 않음)
             if (product.type === 'COUNT_PASS') {
-                // 백엔드에서 계산된 remainingCount 사용 (실제 예약 데이터 기반)
-                // remainingCount가 있으면 사용, 없으면 product.usageCount를 우선 사용 (상품의 실제 사용 횟수 반영)
                 let remaining;
                 if (mp.remainingCount !== null && mp.remainingCount !== undefined) {
                     remaining = mp.remainingCount;
                 } else if (product.usageCount !== null && product.usageCount !== undefined) {
-                    // 상품의 실제 usageCount를 우선 사용 (데이터 일관성 보장)
                     remaining = product.usageCount;
                 } else if (mp.totalCount !== null && mp.totalCount !== undefined) {
                     remaining = mp.totalCount;
                 } else {
-                    // 모든 값이 없을 때만 기본값 10 사용
                     remaining = 10;
                 }
                 option.dataset.remainingCount = remaining;
             } else {
                 option.dataset.remainingCount = 0;
             }
-            
-            option.textContent = text;
+            option.textContent = typeof App.formatMemberProductOptionLabel === 'function'
+                ? App.formatMemberProductOptionLabel(mp)
+                : ((product.name || '상품') + (product.price ? ` - ${App.formatCurrency(product.price)}` : ''));
             option.dataset.productType = product.type;
             if (product.coach && (product.coach.id || product.coach)) {
                 option.dataset.coachId = String(product.coach.id || product.coach);
@@ -2139,9 +2129,9 @@ async function loadMemberProductsForQuickModal(memberId) {
             var opt = document.createElement('option');
             opt.value = mp.id;
             var product = mp.product || {};
-            var text = product.name || '상품';
-            if (product.price) text += ' - ' + (App.formatCurrency ? App.formatCurrency(product.price) : ('₩' + Number(product.price).toLocaleString()));
-            opt.textContent = text;
+            opt.textContent = typeof App.formatMemberProductOptionLabel === 'function'
+                ? App.formatMemberProductOptionLabel(mp)
+                : ((product.name || '상품') + (product.price ? (' - ' + (App.formatCurrency ? App.formatCurrency(product.price) : ('₩' + Number(product.price).toLocaleString()))) : ''));
             opt.dataset.productType = product.type || '';
             opt.dataset.remainingCount = (mp.remainingCount != null ? mp.remainingCount : (product.type === 'COUNT_PASS' ? (product.usageCount != null ? product.usageCount : 10) : 0));
             select.appendChild(opt);

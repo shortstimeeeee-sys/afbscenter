@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import com.afbscenter.util.MemberProductCoachResolver;
+
 /**
  * 회원 응답용 DTO
  * Member 엔티티를 안전하게 직렬화하기 위한 DTO
@@ -62,11 +64,12 @@ public class MemberResponseDTO {
         this.memberProducts = new ArrayList<>();
     }
     
-    // Static factory method
-    public static MemberResponseDTO fromMember(Member member, Integer totalPayment, 
+    /** @param remainingOverrideByProductId COUNT_PASS/패키지 등 조회용 잔여(저장값 우선 반영). null이면 엔티티 필드 사용 */
+    public static MemberResponseDTO fromMember(Member member, Integer totalPayment,
                                                LocalDate latestLessonDate, Integer remainingCount,
                                                List<MemberProduct> allMemberProducts,
-                                               MemberProduct activePeriodPass) {
+                                               MemberProduct activePeriodPass,
+                                               Map<Long, Integer> remainingOverrideByProductId) {
         MemberResponseDTO dto = new MemberResponseDTO();
         
         // 기본 회원 정보
@@ -135,7 +138,6 @@ public class MemberResponseDTO {
                     if (mp.getProduct().getCoach() != null) tempCoachName = mp.getProduct().getCoach().getName();
                     if (mp.getProduct().getCategory() != null) tempCategory = mp.getProduct().getCategory();
                 }
-                if (tempCoachName == null && member.getCoach() != null) tempCoachName = member.getCoach().getName();
                 final String coachName = tempCoachName;
                 Product.ProductCategory category = tempCategory;
                 if (coachName != null && !coachName.trim().isEmpty() && list.stream().noneMatch(c -> c.coachName.equals(coachName))) {
@@ -154,16 +156,6 @@ public class MemberResponseDTO {
         if (allMemberProducts != null) {
             for (MemberProduct mp : allMemberProducts) {
                 if (mp.getStatus() == MemberProduct.Status.ACTIVE) addCoach.accept(mp, coachList);
-            }
-        }
-        
-        // ACTIVE 이용권이 있을 때만 회원 기본 코치 추가 (종료된 이용권만 있으면 코치 미표시)
-        if (!coachList.isEmpty() && member.getCoach() != null && member.getCoach().getName() != null) {
-            String mainCoachName = member.getCoach().getName();
-            boolean exists = coachList.stream()
-                .anyMatch(c -> c.coachName.equals(mainCoachName));
-            if (!exists) {
-                coachList.add(new CoachWithCategory(mainCoachName, null));
             }
         }
         
@@ -202,7 +194,11 @@ public class MemberResponseDTO {
                     info.id = mp.getId();
                     info.purchaseDate = mp.getPurchaseDate();
                     info.expiryDate = mp.getExpiryDate();
-                    info.remainingCount = mp.getRemainingCount();
+                    if (remainingOverrideByProductId != null && remainingOverrideByProductId.containsKey(mp.getId())) {
+                        info.remainingCount = remainingOverrideByProductId.get(mp.getId());
+                    } else {
+                        info.remainingCount = mp.getRemainingCount();
+                    }
                     info.totalCount = mp.getTotalCount();
                     String statusName = mp.getStatus() != null ? mp.getStatus().name() : null;
                     // 만료일이 지났는데 status가 ACTIVE로 남아있는 데이터가 있으면 표시 상태를 만료로 정규화
@@ -248,30 +244,8 @@ public class MemberResponseDTO {
                         info.product = productInfo;
                     }
                     
-                    // 코치 정보 (MemberProduct.coach -> Product.coach -> Member.coach 순서)
-                    String coachName = null;
-                    try {
-                        if (mp.getCoach() != null) {
-                            coachName = mp.getCoach().getName();
-                        }
-                    } catch (Exception e) {
-                        // coach 필드가 아직 로드되지 않았거나 없을 수 있음
-                    }
-                    
-                    if (coachName == null && mp.getProduct() != null) {
-                        try {
-                            if (mp.getProduct().getCoach() != null) {
-                                coachName = mp.getProduct().getCoach().getName();
-                            }
-                        } catch (Exception e) {
-                            // 상품의 코치 로드 실패 시 무시
-                        }
-                    }
-                    
-                    if (coachName == null && member.getCoach() != null) {
-                        coachName = member.getCoach().getName();
-                    }
-                    
+                    // 코치 정보: 이용권 직접 배정 → 상품 기본 (회원 기본 코치와 혼동 방지)
+                    String coachName = MemberProductCoachResolver.resolveDisplayCoachName(mp);
                     if (coachName != null) {
                         info.coachName = coachName;
                     }
@@ -290,7 +264,15 @@ public class MemberResponseDTO {
         
         return dto;
     }
-    
+
+    public static MemberResponseDTO fromMember(Member member, Integer totalPayment,
+                                               LocalDate latestLessonDate, Integer remainingCount,
+                                               List<MemberProduct> allMemberProducts,
+                                               MemberProduct activePeriodPass) {
+        return fromMember(member, totalPayment, latestLessonDate, remainingCount,
+                allMemberProducts, activePeriodPass, null);
+    }
+
     // Map으로 변환
     public Map<String, Object> toMap() {
         Map<String, Object> map = new HashMap<>();
@@ -423,7 +405,7 @@ public class MemberResponseDTO {
         /** 이용권이 종료(EXPIRED/USED_UP)된 시각. 종료 배지 3일 유지 규칙용 */
         public LocalDateTime endedAt;
         public ProductInfo product;
-        public String coachName; // 상품에 지정된 코치명
+        public String coachName; // 이용권 직접 배정 또는 상품 기본 코치명
         
         public Long getId() { return id; }
         public LocalDateTime getPurchaseDate() { return purchaseDate; }

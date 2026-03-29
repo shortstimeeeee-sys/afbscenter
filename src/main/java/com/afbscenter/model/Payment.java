@@ -34,6 +34,11 @@ public class Payment {
     @JoinColumn(name = "product_id")
     private Product product;
 
+    /** 상품판매(이용권) 결제 시 연결된 이용권. 소프트 삭제 시 순매출 집계에서 제외. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "member_product_id")
+    private MemberProduct memberProduct;
+
     @NotNull(message = "결제 금액은 필수입니다")
     @Positive(message = "결제 금액은 0보다 커야 합니다")
     @Column(nullable = false)

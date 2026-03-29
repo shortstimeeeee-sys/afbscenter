@@ -1076,34 +1076,15 @@ async function loadMemberProducts(memberId) {
             const option = document.createElement('option');
             option.value = mp.id;
             const product = mp.product;
-            // 상품 이름과 가격 표시
-            let text = product.name || '상품';
-            if (product.price) {
-                text += ` - ${App.formatCurrency(product.price)}`;
-            }
-            
-            // 잔여 횟수는 dataset에만 저장 (표시는 하지 않음)
             if (product.type === 'COUNT_PASS') {
-                // 백엔드에서 계산된 remainingCount 사용 (실제 예약 데이터 기반)
-                // remainingCount가 있으면 사용, 없으면 product.usageCount를 우선 사용 (상품의 실제 사용 횟수 반영)
-                let remaining;
-                if (mp.remainingCount !== null && mp.remainingCount !== undefined) {
-                    remaining = mp.remainingCount;
-                } else if (product.usageCount !== null && product.usageCount !== undefined) {
-                    // 상품의 실제 usageCount를 우선 사용 (데이터 일관성 보장)
-                    remaining = product.usageCount;
-                } else if (mp.totalCount !== null && mp.totalCount !== undefined) {
-                    remaining = mp.totalCount;
-                } else {
-                    // 모든 값이 없을 때만 기본값 10 사용
-                    remaining = 10;
-                }
+                const remaining = App.resolveDisplayRemainingCount(mp, { whenAllUnknown: 'ten' });
                 option.dataset.remainingCount = remaining;
             } else {
                 option.dataset.remainingCount = 0;
             }
-            
-            option.textContent = text;
+            option.textContent = typeof App.formatMemberProductOptionLabel === 'function'
+                ? App.formatMemberProductOptionLabel(mp)
+                : ((product.name || '상품') + (product.price ? ` - ${App.formatCurrency(product.price)}` : ''));
             option.dataset.productType = product.type;
             // 상품 카테고리 저장 (레슨 종목 자동 선택용)
             // product.category가 문자열이면 그대로 사용, 객체면 name 속성 사용
@@ -1215,8 +1196,8 @@ async function loadMemberProducts(memberId) {
                 // 상품 카테고리에 따라 레슨 종목 자동 선택
                 const productCategory = selectedOption.dataset.productCategory;
                 const productName = selectedOption.textContent || '';
-                // 상품명에서 가격 부분 제거 (예: "트레이닝 10회권 - ₩700,000" → "트레이닝 10회권")
-                const productNameOnly = productName.split(' - ')[0].trim();
+                // 상품명만 (옵션 라벨은 " · " 구분 — 구형 " - " 도 호환)
+                const productNameOnly = (productName.split(' · ')[0] || productName.split(' - ')[0] || '').trim();
                 App.log('[상품 선택] 상품 선택됨:', {
                     productName: productName,
                     productNameOnly: productNameOnly,
@@ -1849,6 +1830,17 @@ async function renderCalendar() {
     } catch (error) {
         App.err('예약 데이터 로드 실패:', error);
     }
+
+    let calendarMarksMap = {};
+    try {
+        const ymd = (d) =>
+            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        if (typeof App.loadCalendarMarksMap === 'function') {
+            calendarMarksMap = await App.loadCalendarMarksMap(ymd(queryStart), ymd(queryEnd));
+        }
+    } catch (e) {
+        App.warn('달력 표시(공휴일) 로드 생략:', e);
+    }
     
     // 코치 필터 시 예약 없음 안내: 달력 그리기 전에 메시지 박스 먼저 표시
     const container = grid.parentElement;
@@ -1922,17 +1914,38 @@ async function renderCalendar() {
             App.log(`날짜 ${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}에 ${dayBookings.length}개 예약 발견:`, dayBookings);
         }
         
-        // 날짜 헤더 생성 (날짜 번호 + 스케줄 아이콘)
+        // 날짜 헤더 생성 (날짜 번호 + 설정 메모 한 줄 + 스케줄 아이콘)
         const dayHeader = document.createElement('div');
         dayHeader.style.display = 'flex';
         dayHeader.style.justifyContent = 'space-between';
-        dayHeader.style.alignItems = 'center';
+        dayHeader.style.alignItems = 'flex-start';
         dayHeader.style.width = '100%';
         
         const dayNumber = document.createElement('div');
         dayNumber.className = 'calendar-day-number';
         dayNumber.textContent = current.getDate();
-        dayHeader.appendChild(dayNumber);
+        const dk = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+        const mk = calendarMarksMap[dk];
+        const markMemo = mk ? String(mk.memo || '').trim() : '';
+        if (mk) {
+            if (mk.redDay) dayNumber.classList.add('calendar-day-number--holiday-red');
+            if (markMemo) dayNumber.title = markMemo;
+        }
+        const dayNumCol = document.createElement('div');
+        dayNumCol.style.display = 'flex';
+        dayNumCol.style.flexDirection = 'column';
+        dayNumCol.style.alignItems = 'flex-start';
+        dayNumCol.style.minWidth = '0';
+        dayNumCol.appendChild(dayNumber);
+        if (markMemo) {
+            const memoLine = document.createElement('div');
+            memoLine.className = 'calendar-mark-memo';
+            memoLine.textContent = markMemo.length > 24 ? markMemo.slice(0, 24) + '…' : markMemo;
+            memoLine.title = markMemo;
+            memoLine.setAttribute('aria-hidden', 'true');
+            dayNumCol.appendChild(memoLine);
+        }
+        dayHeader.appendChild(dayNumCol);
         
         // 날짜별 스케줄 보기 아이콘 (예약이 있는 날짜에만 표시)
         if (dayBookings.length > 0) {
@@ -1970,9 +1983,10 @@ async function renderCalendar() {
                 const startTime = new Date(booking.startTime);
                 const endTime = new Date(booking.endTime);
                 const timeStr = `${startTime.getHours().toString().padStart(2, '0')}:${startTime.getMinutes().toString().padStart(2, '0')} - ${endTime.getHours().toString().padStart(2, '0')}:${endTime.getMinutes().toString().padStart(2, '0')}`;
+                const isMemberWeb = booking.bookingSource === 'MEMBER_WEB';
                 
-                // 이름 추출 (XSS 방지 이스케이프)
-                const memberName = App.escapeHtml(booking.member ? booking.member.name : (booking.nonMemberName || '비회원'));
+                const memberNameRaw = booking.member ? booking.member.name : (booking.nonMemberName || '비회원');
+                const memberNameHtml = App.escapeHtml(memberNameRaw);
                 
                 // 코치 정보 추출 (예약에 직접 할당된 코치 우선, 없으면 회원의 코치)
                 const coach = booking.coach || (booking.member && booking.member.coach ? booking.member.coach : null);
@@ -2005,15 +2019,18 @@ async function renderCalendar() {
                     statusIconStyle = 'display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; background-color: #3498DB; border-radius: 50%; color: white; font-size: 11px; font-weight: 900; margin-right: 5px; vertical-align: middle; flex-shrink: 0;';
                 }
                 
-                // 이벤트 내용 설정 (한 줄로 표시: 아이콘 + 시간 / 이름)
+                // 이벤트 내용: 예전과 동일하게 innerHTML(상태 원·레이아웃 그대로). 회원예약만 M 배지 HTML 추가
+                const mBadgeHtml = isMemberWeb
+                    ? '<span class="mb-cal-mine-badge" aria-label="회원 예약">M</span>'
+                    : '';
                 if (statusIcon || statusIconStyle) {
                     if (showAsCompleted) {
-                        event.innerHTML = `<span style="${statusIconStyle}"></span>${timeStr} / ${memberName}`;
+                        event.innerHTML = `<span style="${statusIconStyle}"></span>${mBadgeHtml}${timeStr} / ${memberNameHtml}`;
                     } else {
-                        event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${timeStr} / ${memberName}`;
+                        event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${mBadgeHtml}${timeStr} / ${memberNameHtml}`;
                     }
                 } else {
-                    event.innerHTML = `${timeStr} / ${memberName}`;
+                    event.innerHTML = `${mBadgeHtml}${timeStr} / ${memberNameHtml}`;
                 }
                 
                 // 드래그 앤 드롭 기능 추가
@@ -3523,7 +3540,7 @@ async function loadBookingData(id) {
                             option.value = String(mp.id);
                             option.textContent = (mp.product && mp.product.name) ? mp.product.name : `이용권 #${mp.id}`;
                             if (mp.product && mp.product.type) option.dataset.productType = mp.product.type;
-                            option.dataset.remainingCount = (mp.remainingCount != null) ? mp.remainingCount : '';
+                            option.dataset.remainingCount = String(App.resolveDisplayRemainingCount(mp, { whenAllUnknown: 'zero' }));
                             if (mp.coach && mp.coach.id) option.dataset.coachId = String(mp.coach.id);
                             select.appendChild(option);
                             select.value = String(mp.id);
@@ -3531,7 +3548,7 @@ async function loadBookingData(id) {
                             const productInfoText = document.getElementById('product-info-text');
                             if (productInfo && productInfoText && mp.product) {
                                 if (mp.product.type === 'COUNT_PASS') {
-                                    const remaining = mp.remainingCount ?? 0;
+                                    const remaining = App.resolveDisplayRemainingCount(mp, { whenAllUnknown: 'zero' });
                                     productInfoText.textContent = `횟수권 사용: 잔여 ${remaining}회`;
                                     productInfo.style.display = 'block';
                                 } else {

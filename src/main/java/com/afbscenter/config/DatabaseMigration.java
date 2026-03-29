@@ -189,6 +189,34 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             } catch (Exception e) {
                 logger.warn("체험 예약 비회원 전환 중 오류 (무시): {}", e.getMessage());
             }
+
+            // 이용권 코치 NULL 백필: 구매 시 이용권별 코치가 기획 상 필수이므로, 레거시 NULL은 회원·상품 순으로 보정
+            try {
+                int fromMember = jdbcTemplate.update(
+                        "UPDATE MEMBER_PRODUCTS SET COACH_ID = "
+                                + "(SELECT M.COACH_ID FROM MEMBERS M WHERE M.ID = MEMBER_PRODUCTS.MEMBER_ID) "
+                                + "WHERE COACH_ID IS NULL "
+                                + "AND EXISTS (SELECT 1 FROM MEMBERS M2 WHERE M2.ID = MEMBER_PRODUCTS.MEMBER_ID AND M2.COACH_ID IS NOT NULL)");
+                if (fromMember > 0) {
+                    logger.info("이용권 코치 백필(회원 담당 코치): {}건", fromMember);
+                }
+                int fromProduct = jdbcTemplate.update(
+                        "UPDATE MEMBER_PRODUCTS SET COACH_ID = "
+                                + "(SELECT P.COACH_ID FROM PRODUCTS P WHERE P.ID = MEMBER_PRODUCTS.PRODUCT_ID) "
+                                + "WHERE COACH_ID IS NULL "
+                                + "AND EXISTS (SELECT 1 FROM PRODUCTS P2 WHERE P2.ID = MEMBER_PRODUCTS.PRODUCT_ID AND P2.COACH_ID IS NOT NULL)");
+                if (fromProduct > 0) {
+                    logger.info("이용권 코치 백필(상품 기본 코치): {}건", fromProduct);
+                }
+            } catch (Exception e) {
+                logger.warn("이용권 코치 백필 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                migratePaymentsMemberProductIdColumn();
+            } catch (Exception e) {
+                logger.warn("payments.member_product_id 마이그레이션 실행 중 오류 (무시): {}", e.getMessage());
+            }
             
             // 초기 관리자 계정 생성
             try {
@@ -269,7 +297,8 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                         "SET mp.package_items_remaining = NULL " +
                         "WHERE mp.package_items_remaining IS NOT NULL " +
                         "  AND TRIM(mp.package_items_remaining) <> '' " +
-                        "  AND (p.type IS NULL OR p.type <> 'TEAM_PACKAGE')"
+                        "  AND (p.type IS NULL OR p.type <> 'TEAM_PACKAGE') " +
+                        "  AND (mp.deleted_at IS NULL)"
                     );
                 } catch (Exception e) {
                     logger.debug("package_items_remaining 정리 JOIN UPDATE 실패(무시): {}", e.getMessage());
@@ -290,11 +319,27 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             }
 
             try {
+                logger.info("애플리케이션 시작 시 Users 테이블 employee_code 컬럼 마이그레이션 실행");
+                migrateUsersTableEmployeeCodeColumn();
+                logger.info("Users 테이블 employee_code 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("Users 테이블 employee_code 컬럼 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
                 logger.info("애플리케이션 시작 시 회원 히스토리 추적용 processed_by 컬럼 마이그레이션 실행");
                 migrateProcessedByColumns();
                 logger.info("processed_by 컬럼 마이그레이션 완료");
             } catch (Exception e) {
                 logger.warn("processed_by 컬럼 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 예약 출처(booking_source) 컬럼 마이그레이션 실행");
+                migrateBookingSourceColumn();
+                logger.info("booking_source 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("booking_source 컬럼 마이그레이션 중 오류 (무시): {}", e.getMessage());
             }
 
             try {
@@ -311,6 +356,78 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                 logger.info("수치별 코치 메모 컬럼 마이그레이션 완료");
             } catch (Exception e) {
                 logger.warn("수치별 코치 메모 컬럼 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 members 데스크 쪽지 스레드 잠금 PIN 컬럼 마이그레이션 실행");
+                migrateMembersDeskThreadLockColumn();
+                logger.info("members desk_thread_lock_pin_hash 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("members desk_thread_lock_pin_hash 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 members.desk_thread_cleared_at 컬럼 마이그레이션 실행");
+                migrateMembersDeskThreadClearedAtColumn();
+                logger.info("members desk_thread_cleared_at 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("members desk_thread_cleared_at 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 settings 회비 입금 전용계좌 컬럼 마이그레이션 실행");
+                migrateSettingsMembershipDuesColumns();
+                logger.info("settings 회비 입금 전용계좌 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("settings 회비 입금 전용계좌 컬럼 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 settings 회원 쪽지함 잠금 PIN 컬럼 마이그레이션 실행");
+                migrateSettingsDeskInboxLockColumn();
+                logger.info("settings 회원 쪽지함 잠금 PIN 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("settings desk_inbox_lock_pin_hash 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 settings.setting_key 컬럼 마이그레이션 실행");
+                migrateSettingsSettingKeyColumn();
+                logger.info("settings.setting_key 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("settings.setting_key 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 announcements.visible_to_members 컬럼 마이그레이션 실행");
+                migrateAnnouncementsVisibleToMembersColumn();
+                logger.info("announcements.visible_to_members 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("announcements.visible_to_members 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 announcements.hide_from_staff_feed 컬럼 마이그레이션 실행");
+                migrateAnnouncementsHideFromStaffFeedColumn();
+                logger.info("announcements.hide_from_staff_feed 컬럼 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("announcements.hide_from_staff_feed 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 member_desk_messages 테이블 마이그레이션 실행");
+                migrateMemberDeskMessagesTable();
+                logger.info("member_desk_messages 테이블 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("member_desk_messages 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                logger.info("애플리케이션 시작 시 calendar_day_marks 테이블 마이그레이션 실행");
+                migrateCalendarDayMarksTable();
+                logger.info("calendar_day_marks 테이블 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("calendar_day_marks 마이그레이션 중 오류 (무시): {}", e.getMessage());
             }
 
             try {
@@ -446,6 +563,33 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             }
         } catch (Exception e) {
             logger.warn("member_products ended_at 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+
+        // member_products 소프트 삭제 컬럼 (결제·히스토리 보존)
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBER_PRODUCTS'"
+            );
+            if (!tables.isEmpty()) {
+                List<Map<String, Object>> colDeletedAt = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE UPPER(TABLE_NAME) = 'MEMBER_PRODUCTS' AND UPPER(COLUMN_NAME) = 'DELETED_AT'"
+                );
+                if (colDeletedAt.isEmpty()) {
+                    jdbcTemplate.execute("ALTER TABLE member_products ADD COLUMN deleted_at TIMESTAMP");
+                    logger.info("member_products 테이블에 deleted_at 컬럼 추가 완료");
+                }
+                List<Map<String, Object>> colDeletedBy = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE UPPER(TABLE_NAME) = 'MEMBER_PRODUCTS' AND UPPER(COLUMN_NAME) = 'DELETED_BY'"
+                );
+                if (colDeletedBy.isEmpty()) {
+                    jdbcTemplate.execute("ALTER TABLE member_products ADD COLUMN deleted_by VARCHAR(100)");
+                    logger.info("member_products 테이블에 deleted_by 컬럼 추가 완료");
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("member_products deleted_at/deleted_by 컬럼 마이그레이션 중 오류: {}", e.getMessage());
         }
 
         // members 테이블에 수비 순발력 컬럼 추가
@@ -864,6 +1008,7 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                             Payment payment = new Payment();
                             payment.setMember(member);
                             payment.setProduct(product);
+                            payment.setMemberProduct(memberProduct);
                             payment.setAmount(product.getPrice());
                             payment.setPaymentMethod(com.afbscenter.constants.PaymentDefaults.getDefaultPaymentMethod());
                             payment.setStatus(com.afbscenter.constants.PaymentDefaults.getDefaultPaymentStatus());
@@ -1047,6 +1192,83 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
     }
 
     /**
+     * Users 테이블에 employee_code 컬럼 추가 및 기존 사용자 코드 백필
+     */
+    private void migrateUsersTableEmployeeCodeColumn() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'USERS'"
+            );
+            if (tables.isEmpty()) {
+                logger.debug("Users 테이블이 존재하지 않습니다 - Hibernate가 자동으로 생성합니다.");
+                return;
+            }
+
+            boolean columnExists;
+            try {
+                List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                                "WHERE UPPER(TABLE_NAME) = 'USERS' AND UPPER(COLUMN_NAME) = 'EMPLOYEE_CODE'"
+                );
+                columnExists = !columns.isEmpty();
+            } catch (Exception e) {
+                logger.debug("employee_code 컬럼 존재 여부 확인 중 오류(무시): {}", e.getMessage());
+                columnExists = false;
+            }
+
+            if (!columnExists) {
+                try {
+                    jdbcTemplate.execute("ALTER TABLE users ADD COLUMN employee_code VARCHAR(30)");
+                    logger.info("Users 테이블에 employee_code 컬럼 추가 완료");
+                } catch (Exception e) {
+                    if (e.getMessage() != null && (e.getMessage().contains("Duplicate column")
+                            || e.getMessage().contains("already exists"))) {
+                        logger.info("Users 테이블에 employee_code 컬럼이 이미 존재합니다. (중복 컬럼 오류 무시)");
+                    } else {
+                        logger.warn("Users 테이블 employee_code 컬럼 추가 실패: {}", e.getMessage());
+                    }
+                }
+            }
+
+            // 기존 사용자 코드 백필
+            List<com.afbscenter.model.User> users = userRepository.findAll();
+            int updated = 0;
+            for (com.afbscenter.model.User user : users) {
+                if (user.getEmployeeCode() != null && !user.getEmployeeCode().trim().isEmpty()) continue;
+                if (user.getId() == null) continue;
+
+                String code = String.format("USR-%06d", user.getId());
+                if (userRepository.existsByEmployeeCode(code)) {
+                    int suffix = 1;
+                    while (true) {
+                        String fallback = code + "-" + suffix;
+                        if (!userRepository.existsByEmployeeCode(fallback)) {
+                            code = fallback;
+                            break;
+                        }
+                        suffix++;
+                    }
+                }
+                user.setEmployeeCode(code);
+                userRepository.save(user);
+                updated++;
+            }
+            if (updated > 0) {
+                logger.info("Users employee_code 백필 완료: {}건", updated);
+            }
+
+            // 유니크 인덱스(없으면 생성)
+            try {
+                jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_employee_code ON users(employee_code)");
+            } catch (Exception e) {
+                logger.debug("employee_code 유니크 인덱스 생성 스킵: {}", e.getMessage());
+            }
+        } catch (Exception e) {
+            logger.warn("Users 테이블 employee_code 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /**
      * 회원 히스토리 추적용 processed_by 컬럼 추가 (members, payments, bookings, attendances, member_product_history)
      */
     private void migrateProcessedByColumns() {
@@ -1083,6 +1305,58 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
         }
     }
 
+    /** 예약 출처(운영 vs 회원 웹) 컬럼 추가 */
+    private void migrateBookingSourceColumn() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'BOOKINGS'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            List<Map<String, Object>> cols = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'BOOKINGS' AND UPPER(COLUMN_NAME) = 'BOOKING_SOURCE'");
+            if (cols.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE bookings ADD COLUMN booking_source VARCHAR(32) DEFAULT 'ADMIN'");
+                logger.info("bookings 테이블에 booking_source 컬럼 추가 완료");
+            }
+            jdbcTemplate.update("UPDATE bookings SET booking_source = 'ADMIN' WHERE booking_source IS NULL");
+        } catch (Exception e) {
+            logger.warn("migrateBookingSourceColumn: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 결제에 이용권 FK 추가 + CHARGE 이력으로 백필.
+     * 소프트 삭제된 이용권과 연결된 결제는 순매출 집계에서 제외.
+     */
+    private void migratePaymentsMemberProductIdColumn() {
+        try {
+            List<Map<String, Object>> existing = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'PAYMENTS' AND UPPER(COLUMN_NAME) = 'MEMBER_PRODUCT_ID'");
+            if (existing.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE payments ADD COLUMN member_product_id BIGINT");
+                logger.info("payments 테이블에 member_product_id 컬럼 추가 완료");
+                try {
+                    jdbcTemplate.execute("ALTER TABLE payments ADD CONSTRAINT fk_payments_member_product FOREIGN KEY (member_product_id) REFERENCES member_products(id) ON DELETE SET NULL");
+                } catch (Exception fkEx) {
+                    logger.debug("payments FK 추가 생략 또는 실패 (무시): {}", fkEx.getMessage());
+                }
+            }
+            int backfill = jdbcTemplate.update(
+                    "UPDATE payments p SET member_product_id = (" +
+                            "SELECT h.member_product_id FROM member_product_history h " +
+                            "WHERE h.payment_id = p.id AND h.type = 'CHARGE' LIMIT 1" +
+                            ") WHERE p.member_product_id IS NULL AND EXISTS (" +
+                            "SELECT 1 FROM member_product_history h2 WHERE h2.payment_id = p.id AND h2.type = 'CHARGE'" +
+                            ")");
+            if (backfill > 0) {
+                logger.info("payments.member_product_id 백필: {}건", backfill);
+            }
+        } catch (Exception e) {
+            logger.warn("migratePaymentsMemberProductIdColumn: {}", e.getMessage());
+        }
+    }
+
     /** 분야별 코치 메모 컬럼 추가 (members) */
     private void migrateCoachMemoByFieldColumns() {
         String[] columns = {"coach_memo_pitcher", "coach_memo_batter", "coach_memo_defense", "coach_memo_catcher"};
@@ -1105,6 +1379,156 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
         }
     }
 
+    /** 예약 달력 공휴일·메모·빨간날 */
+    private void migrateCalendarDayMarksTable() {
+        try {
+            List<Map<String, Object>> t = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'CALENDAR_DAY_MARKS'");
+            if (!t.isEmpty()) {
+                return;
+            }
+            jdbcTemplate.execute(
+                    "CREATE TABLE calendar_day_marks ("
+                            + "id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+                            + "mark_date DATE NOT NULL, "
+                            + "memo VARCHAR(2000), "
+                            + "red_day BOOLEAN NOT NULL DEFAULT TRUE, "
+                            + "updated_at TIMESTAMP, "
+                            + "CONSTRAINT uk_calendar_day_marks_date UNIQUE (mark_date))");
+            logger.info("calendar_day_marks 테이블 생성 완료");
+        } catch (Exception e) {
+            logger.warn("calendar_day_marks 테이블 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** 회원 ↔ 데스크 쪽지 스레드 */
+    private void migrateMemberDeskMessagesTable() {
+        try {
+            List<Map<String, Object>> t = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBER_DESK_MESSAGES'");
+            if (!t.isEmpty()) {
+                return;
+            }
+            jdbcTemplate.execute(
+                    "CREATE TABLE member_desk_messages ("
+                            + "id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+                            + "member_id BIGINT NOT NULL, "
+                            + "from_member BOOLEAN NOT NULL, "
+                            + "content VARCHAR(4000) NOT NULL, "
+                            + "created_at TIMESTAMP NOT NULL, "
+                            + "read_by_admin BOOLEAN NOT NULL DEFAULT FALSE, "
+                            + "read_by_member BOOLEAN NOT NULL DEFAULT FALSE, "
+                            + "CONSTRAINT fk_mdm_member FOREIGN KEY (member_id) REFERENCES members(id))");
+            logger.info("member_desk_messages 테이블 생성 완료");
+        } catch (Exception e) {
+            logger.warn("member_desk_messages 테이블 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** announcements: 회원 예약 페이지 공개 여부 */
+    private void migrateAnnouncementsVisibleToMembersColumn() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'ANNOUNCEMENTS'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            List<Map<String, Object>> existing = jdbcTemplate.queryForList(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'ANNOUNCEMENTS' AND UPPER(COLUMN_NAME) = 'VISIBLE_TO_MEMBERS'");
+            if (existing.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE announcements ADD COLUMN visible_to_members BOOLEAN DEFAULT FALSE NOT NULL");
+                logger.info("announcements 테이블에 visible_to_members 컬럼 추가 완료");
+            }
+        } catch (Exception e) {
+            logger.warn("announcements visible_to_members 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** announcements: 회원 공개 공지를 대시보드·직원 종 알림에서 숨김 */
+    private void migrateAnnouncementsHideFromStaffFeedColumn() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'ANNOUNCEMENTS'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            List<Map<String, Object>> existing = jdbcTemplate.queryForList(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'ANNOUNCEMENTS' AND UPPER(COLUMN_NAME) = 'HIDE_FROM_STAFF_FEED'");
+            if (existing.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE announcements ADD COLUMN hide_from_staff_feed BOOLEAN DEFAULT FALSE NOT NULL");
+                logger.info("announcements 테이블에 hide_from_staff_feed 컬럼 추가 완료");
+            }
+        } catch (Exception e) {
+            logger.warn("announcements hide_from_staff_feed 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** settings: 회비 입금 전용계좌 안내 및 종 알림 표시 여부 */
+    private void migrateSettingsMembershipDuesColumns() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'SETTINGS'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            List<Map<String, Object>> col1 = jdbcTemplate.queryForList(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'SETTINGS' AND UPPER(COLUMN_NAME) = 'MEMBERSHIP_DUES_ACCOUNT_NOTICE'");
+            if (col1.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE settings ADD COLUMN membership_dues_account_notice VARCHAR(2000)");
+                logger.info("settings 테이블에 membership_dues_account_notice 컬럼 추가 완료");
+            }
+            List<Map<String, Object>> col2 = jdbcTemplate.queryForList(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'SETTINGS' AND UPPER(COLUMN_NAME) = 'SHOW_MEMBERSHIP_DUES_IN_BELL'");
+            if (col2.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE settings ADD COLUMN show_membership_dues_in_bell BOOLEAN DEFAULT TRUE");
+                logger.info("settings 테이블에 show_membership_dues_in_bell 컬럼 추가 완료");
+            }
+        } catch (Exception e) {
+            logger.warn("settings 회비 입금 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    private void migrateSettingsDeskInboxLockColumn() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'SETTINGS'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            List<Map<String, Object>> col = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'SETTINGS' "
+                            + "AND UPPER(COLUMN_NAME) = 'DESK_INBOX_LOCK_PIN_HASH'");
+            if (col.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE settings ADD COLUMN desk_inbox_lock_pin_hash VARCHAR(120)");
+                logger.info("settings 테이블에 desk_inbox_lock_pin_hash 컬럼 추가 완료");
+            }
+        } catch (Exception e) {
+            logger.warn("settings desk_inbox_lock_pin_hash 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** settings: 레거시 NOT NULL setting_key — 누락 시 기본값 채움 및 컬럼 추가 */
+    private void migrateSettingsSettingKeyColumn() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'SETTINGS'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            List<Map<String, Object>> col = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'SETTINGS' "
+                            + "AND UPPER(COLUMN_NAME) = 'SETTING_KEY'");
+            if (col.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE settings ADD COLUMN setting_key VARCHAR(64) DEFAULT 'main' NOT NULL");
+                logger.info("settings 테이블에 setting_key 컬럼 추가 완료");
+            } else {
+                jdbcTemplate.update("UPDATE settings SET setting_key = 'main' WHERE setting_key IS NULL");
+            }
+        } catch (Exception e) {
+            logger.warn("settings setting_key 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
     /** 수치별 코치 메모 JSON 컬럼 추가 (members.coach_memo_stats) */
     private void migrateCoachMemoStatsColumn() {
         try {
@@ -1116,6 +1540,36 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             }
         } catch (Exception e) {
             logger.warn("coach_memo_stats 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** 회원별 데스크 쪽지 스레드 잠금(관리자 화면) — BCrypt 해시 */
+    private void migrateMembersDeskThreadLockColumn() {
+        try {
+            List<Map<String, Object>> existing = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'MEMBERS' "
+                            + "AND UPPER(COLUMN_NAME) = 'DESK_THREAD_LOCK_PIN_HASH'");
+            if (existing.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE members ADD COLUMN desk_thread_lock_pin_hash VARCHAR(120)");
+                logger.info("members 테이블에 desk_thread_lock_pin_hash 컬럼 추가 완료");
+            }
+        } catch (Exception e) {
+            logger.warn("desk_thread_lock_pin_hash 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** 회원 «쪽지 초기화» 시각 — 이전 쪽지는 회원 화면만 숨김, DB·관리자 조회는 유지 */
+    private void migrateMembersDeskThreadClearedAtColumn() {
+        try {
+            List<Map<String, Object>> existing = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'MEMBERS' "
+                            + "AND UPPER(COLUMN_NAME) = 'DESK_THREAD_CLEARED_AT'");
+            if (existing.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE members ADD COLUMN desk_thread_cleared_at TIMESTAMP");
+                logger.info("members 테이블에 desk_thread_cleared_at 컬럼 추가 완료");
+            }
+        } catch (Exception e) {
+            logger.warn("desk_thread_cleared_at 컬럼 마이그레이션 중 오류: {}", e.getMessage());
         }
     }
 
@@ -1273,7 +1727,18 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                         userRepository.save(user);
                         logger.info("기존 관리자 계정을 승인 상태로 업데이트했습니다.");
                     }
-                    logger.info("기존 관리자 계정 정보: username={}, role={}, active={}, approved={}", 
+                    // 설정값(admin.init.password)과 DB 해시가 다르면(비밀번호 변경 시) 시작 시 맞춤
+                    try {
+                        if (user.getPassword() != null
+                                && !passwordEncoder.matches(adminInitPassword, user.getPassword())) {
+                            user.setPassword(passwordEncoder.encode(adminInitPassword));
+                            userRepository.save(user);
+                            logger.info("관리자(admin) 비밀번호를 admin.init.password 설정값에 맞게 갱신했습니다.");
+                        }
+                    } catch (Exception ex) {
+                        logger.warn("관리자 비밀번호 동기화 스킵: {}", ex.getMessage());
+                    }
+                    logger.info("기존 관리자 계정 정보: username={}, role={}, active={}, approved={}",
                         user.getUsername(), user.getRole(), user.getActive(), user.getApproved());
                 });
             }

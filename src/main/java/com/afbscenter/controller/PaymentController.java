@@ -8,6 +8,11 @@ import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.ProductRepository;
+import com.afbscenter.constants.AccountingPolicy;
+import com.afbscenter.model.MemberProduct;
+import com.afbscenter.repository.MemberProductRepository;
+import com.afbscenter.util.PaymentCoachResolver;
+import com.afbscenter.util.PaymentPeriodQueryHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -24,6 +29,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RestController
@@ -37,23 +43,33 @@ public class PaymentController {
     private final BookingRepository bookingRepository;
     private final ProductRepository productRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final PaymentCoachResolver paymentCoachResolver;
+    private final PaymentPeriodQueryHelper paymentPeriodQueryHelper;
+    private final MemberProductRepository memberProductRepository;
 
     public PaymentController(PaymentRepository paymentRepository,
                             MemberRepository memberRepository,
                             BookingRepository bookingRepository,
                             ProductRepository productRepository,
-                            JdbcTemplate jdbcTemplate) {
+                            JdbcTemplate jdbcTemplate,
+                            PaymentCoachResolver paymentCoachResolver,
+                            PaymentPeriodQueryHelper paymentPeriodQueryHelper,
+                            MemberProductRepository memberProductRepository) {
         this.paymentRepository = paymentRepository;
         this.memberRepository = memberRepository;
         this.bookingRepository = bookingRepository;
         this.productRepository = productRepository;
         this.jdbcTemplate = jdbcTemplate;
+        this.paymentCoachResolver = paymentCoachResolver;
+        this.paymentPeriodQueryHelper = paymentPeriodQueryHelper;
+        this.memberProductRepository = memberProductRepository;
     }
 
     @GetMapping
     @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public ResponseEntity<List<Map<String, Object>>> getAllPayments(
             @RequestParam(required = false) Integer page,
+            @RequestParam(required = false, defaultValue = "month") String period,
             @RequestParam(required = false) String paymentMethod,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String category,
@@ -63,14 +79,11 @@ public class PaymentController {
             @RequestParam(required = false) String sortBy,
             @RequestParam(required = false) String sortOrder) {
         try {
-            // 코치 정보를 포함하여 조회 (lazy loading 방지)
-            List<Payment> payments = paymentRepository.findAllWithCoach();
-            if (payments == null) {
-                payments = new java.util.ArrayList<>();
-            }
+            // 기간: month(이번 달 기본), all(전체), custom(시작·종료일)
+            List<Payment> payments = new java.util.ArrayList<>(paymentPeriodQueryHelper.loadPayments(period, startDate, endDate));
             // 삭제된 회원의 결제는 목록/매출에 노출하지 않음 (회원 삭제 시 결제는 DB에서 삭제되지만, 회원이 null인 건 제외)
             payments = payments.stream().filter(p -> p.getMember() != null).collect(Collectors.toList());
-            logger.info("결제 목록 조회: 전체 {}건 (회원 존재 건만)", payments.size());
+            logger.info("결제 목록 조회: period={}, {}건 (회원 존재 건만)", period, payments.size());
             
             // 필터링
             if (paymentMethod != null && !paymentMethod.isEmpty()) {
@@ -104,20 +117,6 @@ public class PaymentController {
                 } catch (IllegalArgumentException e) {
                     // 잘못된 enum 값은 무시
                 }
-            }
-            
-            if (startDate != null && endDate != null) {
-                LocalDate start = LocalDate.parse(startDate);
-                LocalDate end = LocalDate.parse(endDate);
-                LocalDateTime startDateTime = start.atStartOfDay();
-                LocalDateTime endDateTime = end.atTime(LocalTime.MAX);
-                
-                payments = payments.stream()
-                        .filter(p -> {
-                            LocalDateTime paidAt = p.getPaidAt();
-                            return paidAt != null && !paidAt.isBefore(startDateTime) && !paidAt.isAfter(endDateTime);
-                        })
-                        .collect(Collectors.toList());
             }
             
             // 검색 기능 (회원명, 결제번호, 상품명)
@@ -186,6 +185,9 @@ public class PaymentController {
                     return ascending ? result : -result;
                 });
             }
+
+            java.util.Map<Long, com.afbscenter.model.Coach> coachByPaymentId =
+                    paymentCoachResolver.resolveCoachesForPayments(payments);
             
             // JSON 직렬화를 위해 Map으로 변환 (순환 참조 방지)
             List<Map<String, Object>> result = payments.stream().map(payment -> {
@@ -235,15 +237,10 @@ public class PaymentController {
                     map.put("booking", null);
                 }
                 
-                // Coach 정보 (예약의 코치 우선, 없으면 회원의 담당 코치)
+                // Coach 정보 (예약 → 회원 담당 → 이용권·상품 코치, {@link PaymentCoachResolver})
                 try {
-                    com.afbscenter.model.Coach coach = null;
-                    if (payment.getBooking() != null && payment.getBooking().getCoach() != null) {
-                        coach = payment.getBooking().getCoach();
-                    } else if (payment.getMember() != null && payment.getMember().getCoach() != null) {
-                        coach = payment.getMember().getCoach();
-                    }
-                    
+                    com.afbscenter.model.Coach coach = payment.getId() != null
+                            ? coachByPaymentId.get(payment.getId()) : null;
                     if (coach != null) {
                         Map<String, Object> coachMap = new HashMap<>();
                         coachMap.put("id", coach.getId());
@@ -264,6 +261,8 @@ public class PaymentController {
                         productMap.put("id", payment.getProduct().getId());
                         productMap.put("name", payment.getProduct().getName());
                         productMap.put("price", payment.getProduct().getPrice());
+                        productMap.put("category", payment.getProduct().getCategory() != null
+                                ? payment.getProduct().getCategory().name() : null);
                         map.put("product", productMap);
                     } catch (Exception e) {
                         logger.warn("Product 로드 실패: Payment ID={}", payment.getId(), e);
@@ -272,6 +271,20 @@ public class PaymentController {
                 } else {
                     map.put("product", null);
                 }
+
+                if (payment.getMemberProduct() != null) {
+                    try {
+                        Map<String, Object> mpMap = new HashMap<>();
+                        mpMap.put("id", payment.getMemberProduct().getId());
+                        mpMap.put("deletedAt", payment.getMemberProduct().getDeletedAt());
+                        map.put("memberProduct", mpMap);
+                    } catch (Exception e) {
+                        map.put("memberProduct", null);
+                    }
+                } else {
+                    map.put("memberProduct", null);
+                }
+                map.put("revenueExcluded", AccountingPolicy.excludedFromRevenueSummary(payment));
                 
                 return map;
             }).collect(Collectors.toList());
@@ -288,12 +301,8 @@ public class PaymentController {
     @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getPaymentById(@PathVariable Long id) {
         try {
-            // findAllWithCoach로 조회하여 lazy loading 방지
-            List<Payment> allPayments = paymentRepository.findAllWithCoach();
-            Payment payment = allPayments.stream()
-                    .filter(p -> p.getId().equals(id))
-                    .findFirst()
-                    .orElse(null);
+            Optional<Payment> opt = paymentRepository.findByIdWithCoach(id);
+            Payment payment = opt.orElse(null);
             
             if (payment == null) {
                 return ResponseEntity.notFound().build();
@@ -346,15 +355,9 @@ public class PaymentController {
                 map.put("booking", null);
             }
             
-            // Coach 정보 (예약의 코치 우선, 없으면 회원의 담당 코치)
+            // Coach 정보 (예약 → 회원 담당 → 이용권·상품 코치)
             try {
-                com.afbscenter.model.Coach coach = null;
-                if (payment.getBooking() != null && payment.getBooking().getCoach() != null) {
-                    coach = payment.getBooking().getCoach();
-                } else if (payment.getMember() != null && payment.getMember().getCoach() != null) {
-                    coach = payment.getMember().getCoach();
-                }
-                
+                com.afbscenter.model.Coach coach = paymentCoachResolver.resolve(payment);
                 if (coach != null) {
                     Map<String, Object> coachMap = new HashMap<>();
                     coachMap.put("id", coach.getId());
@@ -375,6 +378,8 @@ public class PaymentController {
                     productMap.put("id", payment.getProduct().getId());
                     productMap.put("name", payment.getProduct().getName());
                     productMap.put("price", payment.getProduct().getPrice());
+                    productMap.put("category", payment.getProduct().getCategory() != null
+                            ? payment.getProduct().getCategory().name() : null);
                     map.put("product", productMap);
                 } catch (Exception e) {
                     logger.warn("Product 로드 실패: Payment ID={}", payment.getId(), e);
@@ -383,6 +388,20 @@ public class PaymentController {
             } else {
                 map.put("product", null);
             }
+
+            if (payment.getMemberProduct() != null) {
+                try {
+                    Map<String, Object> mpMap = new HashMap<>();
+                    mpMap.put("id", payment.getMemberProduct().getId());
+                    mpMap.put("deletedAt", payment.getMemberProduct().getDeletedAt());
+                    map.put("memberProduct", mpMap);
+                } catch (Exception e) {
+                    map.put("memberProduct", null);
+                }
+            } else {
+                map.put("memberProduct", null);
+            }
+            map.put("revenueExcluded", AccountingPolicy.excludedFromRevenueSummary(payment));
             
             return ResponseEntity.ok(map);
         } catch (Exception e) {
@@ -429,6 +448,13 @@ public class PaymentController {
                 payment.setProduct(product);
             } else {
                 payment.setProduct(null);
+            }
+
+            if (payment.getMemberProduct() != null && payment.getMemberProduct().getId() != null) {
+                MemberProduct mp = memberProductRepository.findById(payment.getMemberProduct().getId()).orElse(null);
+                payment.setMemberProduct(mp);
+            } else {
+                payment.setMemberProduct(null);
             }
             
             // 상태 기본값 설정

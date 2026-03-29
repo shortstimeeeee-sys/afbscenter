@@ -61,6 +61,14 @@ public class MemberProduct {
     @Column(name = "ended_at")
     private LocalDateTime endedAt;
 
+    /** 소프트 삭제 시각. null이면 화면·업무에서 사용 중인 이용권 */
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    /** 삭제 처리자(로그인 ID 등). 감사 추적용 */
+    @Column(name = "deleted_by", length = 100)
+    private String deletedBy;
+
     public enum Status {
         ACTIVE,     // 사용 가능
         EXPIRED,    // 만료

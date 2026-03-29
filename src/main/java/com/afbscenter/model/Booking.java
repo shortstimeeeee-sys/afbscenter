@@ -117,6 +117,12 @@ public class Booking {
     @Column(name = "processed_by", length = 50)
     private String processedBy; // 예약 처리한 사용자 아이디 (히스토리 추적용)
 
+    /** 운영(데스크) 등록 vs 회원 공개 예약 페이지 등록 구분 */
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "booking_source", nullable = false, length = 32)
+    private BookingSource bookingSource = BookingSource.ADMIN;
+
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private java.util.List<Payment> payments = new java.util.ArrayList<>();
@@ -154,5 +160,10 @@ public class Booking {
         SAHA,           // 사하점
         YEONSAN,        // 연산점
         RENTAL          // 대관 (독립 운영)
+    }
+
+    public enum BookingSource {
+        ADMIN,          // 운영·데스크 등
+        MEMBER_WEB      // 회원 공개 예약 페이지
     }
 }

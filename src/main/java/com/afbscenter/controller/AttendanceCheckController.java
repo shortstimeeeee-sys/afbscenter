@@ -159,7 +159,7 @@ public class AttendanceCheckController {
                     logger.warn("MemberProduct의 Product 로드 실패: {}", e.getMessage());
                     if (specifiedMemberProduct.getId() != null) {
                         try {
-                            MemberProduct loaded = memberProductRepository.findById(specifiedMemberProduct.getId()).orElse(null);
+                            MemberProduct loaded = memberProductRepository.findByIdAndDeletedAtIsNull(specifiedMemberProduct.getId()).orElse(null);
                             if (loaded != null && loaded.getProduct() != null) {
                                 product = loaded.getProduct();
                             }
@@ -410,8 +410,8 @@ public class AttendanceCheckController {
             Long mpId = memberProduct.getId();
             if (mpId != null) {
                 for (String sql : new String[] {
-                    "SELECT remaining_count FROM member_products WHERE id = ?",
-                    "SELECT REMAINING_COUNT FROM MEMBER_PRODUCTS WHERE ID = ?"
+                    "SELECT remaining_count FROM member_products WHERE id = ? AND deleted_at IS NULL",
+                    "SELECT REMAINING_COUNT FROM MEMBER_PRODUCTS WHERE ID = ? AND DELETED_AT IS NULL"
                 }) {
                     try {
                         Integer fromDb = jdbcTemplate.queryForObject(sql, Integer.class, mpId);
@@ -711,7 +711,7 @@ public class AttendanceCheckController {
                 if (lazyMemberProduct != null && lazyMemberProduct.getId() != null) {
                     bookingMemberProduct = memberProductRepository.findByIdWithMember(lazyMemberProduct.getId()).orElse(null);
                     if (bookingMemberProduct == null) {
-                        bookingMemberProduct = memberProductRepository.findById(lazyMemberProduct.getId()).orElse(null);
+                        bookingMemberProduct = memberProductRepository.findByIdAndDeletedAtIsNull(lazyMemberProduct.getId()).orElse(null);
                     }
                 }
             } catch (org.hibernate.LazyInitializationException e) {
@@ -728,7 +728,7 @@ public class AttendanceCheckController {
                         Long mpId = results.get(0);
                         bookingMemberProduct = memberProductRepository.findByIdWithMember(mpId).orElse(null);
                         if (bookingMemberProduct == null) {
-                            bookingMemberProduct = memberProductRepository.findById(mpId).orElse(null);
+                            bookingMemberProduct = memberProductRepository.findByIdAndDeletedAtIsNull(mpId).orElse(null);
                         }
                     }
                 } catch (Exception e2) {
@@ -805,7 +805,7 @@ public class AttendanceCheckController {
                             com.afbscenter.model.MemberProduct memberProductToUse = bookingMemberProduct;
                             // 대관 체크인 시 이용권을 DB에서 재조회해 최신 packageItemsRemaining/remainingCount 기준으로 차감·저장
                             if (isRental && memberProductToUse != null && memberProductToUse.getId() != null) {
-                                memberProductToUse = memberProductRepository.findById(memberProductToUse.getId()).orElse(memberProductToUse);
+                                memberProductToUse = memberProductRepository.findByIdAndDeletedAtIsNull(memberProductToUse.getId()).orElse(memberProductToUse);
                             }
 
                             if (isRental) {
@@ -846,7 +846,7 @@ public class AttendanceCheckController {
                             } else {
                                 // 레슨: 예약 시 선택된 이용권(booking.memberProduct)으로만 차감. 선택된 게 없을 때만 후보 자동 선택
                                 if (memberProductToUse != null && memberProductToUse.getId() != null) {
-                                    memberProductToUse = memberProductRepository.findById(memberProductToUse.getId()).orElse(memberProductToUse);
+                                    memberProductToUse = memberProductRepository.findByIdAndDeletedAtIsNull(memberProductToUse.getId()).orElse(memberProductToUse);
                                     try { entityManager.refresh(memberProductToUse); } catch (Exception e) { logger.debug("이용권 refresh 스킵: {}", e.getMessage()); }
                                 }
                                 if (memberProductToUse == null) {

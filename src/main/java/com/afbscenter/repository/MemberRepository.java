@@ -44,4 +44,6 @@ public interface MemberRepository extends JpaRepository<Member, Long> {
     long countByGrade(Member.MemberGrade grade);
 
     List<Member> findByGrade(Member.MemberGrade grade);
+
+    List<Member> findByGradeAndStatus(Member.MemberGrade grade, Member.MemberStatus status);
 }

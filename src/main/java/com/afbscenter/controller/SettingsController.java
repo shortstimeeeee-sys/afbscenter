@@ -22,7 +22,7 @@ public class SettingsController {
     private static final Logger logger = LoggerFactory.getLogger(SettingsController.class);
 
     private final SettingsRepository settingsRepository;
-    
+
     // Settings 기본값 (application.properties에서 주입)
     @Value("${settings.default.center-name:AFBS 야구센터}")
     private String defaultCenterName;
@@ -116,6 +116,8 @@ public class SettingsController {
             response.put("emailEnabled", settings.getEmailEnabled() != null ? settings.getEmailEnabled() : defaultEmailEnabled);
             response.put("reminderHours", settings.getReminderHours() != null ? settings.getReminderHours() : defaultReminderHours);
             response.put("notes", settings.getNotes() != null ? settings.getNotes() : "");
+            response.put("membershipDuesAccountNotice", settings.getMembershipDuesAccountNotice() != null ? settings.getMembershipDuesAccountNotice() : "");
+            response.put("showMembershipDuesInBell", settings.getShowMembershipDuesInBell() != null ? settings.getShowMembershipDuesInBell() : true);
             response.put("updatedAt", settings.getUpdatedAt());
             
             return ResponseEntity.ok(response);
@@ -146,6 +148,8 @@ public class SettingsController {
             defaultResponse.put("emailEnabled", defaultEmailEnabled);
             defaultResponse.put("reminderHours", defaultReminderHours);
             defaultResponse.put("notes", "");
+            defaultResponse.put("membershipDuesAccountNotice", "");
+            defaultResponse.put("showMembershipDuesInBell", true);
             defaultResponse.put("updatedAt", null);
             
             return ResponseEntity.ok(defaultResponse);
@@ -161,6 +165,7 @@ public class SettingsController {
             Settings settings;
             if (settingsList.isEmpty()) {
                 settings = new Settings();
+                settings.setSettingKey("main");
             } else {
                 settings = settingsList.get(0);
             }
@@ -247,7 +252,18 @@ public class SettingsController {
             if (settingsData.get("notes") != null) {
                 settings.setNotes(settingsData.get("notes").toString());
             }
-            
+            if (settingsData.containsKey("membershipDuesAccountNotice")) {
+                Object v = settingsData.get("membershipDuesAccountNotice");
+                settings.setMembershipDuesAccountNotice(v == null || v.toString().trim().isEmpty() ? null : v.toString());
+            }
+            if (settingsData.containsKey("showMembershipDuesInBell")) {
+                Object v = settingsData.get("showMembershipDuesInBell");
+                if (v == null) {
+                    settings.setShowMembershipDuesInBell(null);
+                } else {
+                    settings.setShowMembershipDuesInBell(Boolean.parseBoolean(v.toString()));
+                }
+            }
             settings.setUpdatedAt(LocalDateTime.now());
             
             Settings saved = settingsRepository.save(settings);
@@ -274,6 +290,7 @@ public class SettingsController {
     private Settings createAndSaveDefaultSettings() {
         try {
             Settings settings = new Settings();
+            settings.setSettingKey("main");
             settings.setCenterNameSaha("");
             settings.setCenterNameYeonsan("");
             settings.setPhoneNumberSaha("");
@@ -331,6 +348,7 @@ public class SettingsController {
         settings.setEmailEnabled(defaultEmailEnabled);
         settings.setReminderHours(defaultReminderHours);
         settings.setNotes("");
+        settings.setShowMembershipDuesInBell(true);
         settings.setUpdatedAt(LocalDateTime.now());
         return settings;
     }

@@ -1,7 +1,10 @@
 package com.afbscenter.controller;
 
+import com.afbscenter.constants.AccountingPolicy;
 import com.afbscenter.model.Booking;
 import com.afbscenter.model.Payment;
+import com.afbscenter.util.PaymentCoachResolver;
+import com.afbscenter.util.PaymentPeriodQueryHelper;
 import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.PaymentRepository;
 import org.slf4j.Logger;
@@ -34,10 +37,16 @@ public class PaymentStatsController {
 
     private final PaymentRepository paymentRepository;
     private final BookingRepository bookingRepository;
+    private final PaymentCoachResolver paymentCoachResolver;
+    private final PaymentPeriodQueryHelper paymentPeriodQueryHelper;
 
-    public PaymentStatsController(PaymentRepository paymentRepository, BookingRepository bookingRepository) {
+    public PaymentStatsController(PaymentRepository paymentRepository, BookingRepository bookingRepository,
+                                  PaymentCoachResolver paymentCoachResolver,
+                                  PaymentPeriodQueryHelper paymentPeriodQueryHelper) {
         this.paymentRepository = paymentRepository;
         this.bookingRepository = bookingRepository;
+        this.paymentCoachResolver = paymentCoachResolver;
+        this.paymentPeriodQueryHelper = paymentPeriodQueryHelper;
     }
 
     @GetMapping("/summary")
@@ -94,13 +103,9 @@ public class PaymentStatsController {
                 logger.warn("미수금 계산 중 오류 발생", e);
             }
 
-            Integer refundPending = 0;
+            int refundPending = 0;
             try {
-                List<Payment> allPayments = paymentRepository.findAll();
-                refundPending = (int) allPayments.stream()
-                        .filter(p -> p.getRefundAmount() != null && p.getRefundAmount() > 0 &&
-                                p.getStatus() != Payment.PaymentStatus.REFUNDED)
-                        .count();
+                refundPending = (int) paymentRepository.countRefundPending();
             } catch (Exception e) {
                 logger.warn("환불 대기 계산 중 오류 발생", e);
             }
@@ -128,6 +133,9 @@ public class PaymentStatsController {
             summary.put("monthChangeRate", Math.round(monthChangeRate * 10.0) / 10.0);
             summary.put("unpaid", unpaid);
             summary.put("refundPending", refundPending);
+            summary.put("revenueNetOfRefunds", true);
+            summary.put("revenueStatusFilter", "COMPLETED_OR_NULL");
+            summary.put("revenueBasisNote", AccountingPolicy.revenueSummaryBasisDescription());
 
             logger.debug("결제 요약 조회 완료: 오늘={}, 이번달={}, 전일={}, 전월={}, 오늘증감률={}%, 이번달증감률={}%, 미수금={}, 환불대기={}",
                     todayRevenue, monthRevenue, yesterdayRevenue, lastMonthRevenue, todayChangeRate, monthChangeRate, unpaid, refundPending);
@@ -142,46 +150,36 @@ public class PaymentStatsController {
     @GetMapping("/statistics/method")
     @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getPaymentMethodStatistics(
+            @RequestParam(required = false, defaultValue = "month") String period,
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate) {
         try {
-            List<Payment> payments = paymentRepository.findAllWithCoach();
-            if (payments == null) {
-                payments = new ArrayList<>();
-            }
-
-            if (startDate != null && endDate != null) {
-                LocalDate start = LocalDate.parse(startDate);
-                LocalDate end = LocalDate.parse(endDate);
-                LocalDateTime startDateTime = start.atStartOfDay();
-                LocalDateTime endDateTime = end.atTime(LocalTime.MAX);
-
-                payments = payments.stream()
-                        .filter(p -> {
-                            LocalDateTime paidAt = p.getPaidAt();
-                            return paidAt != null && !paidAt.isBefore(startDateTime) && !paidAt.isAfter(endDateTime);
-                        })
-                        .collect(Collectors.toList());
-            }
+            List<Payment> payments = new ArrayList<>(paymentPeriodQueryHelper.loadPayments(period, startDate, endDate));
 
             Map<String, Integer> methodCount = new HashMap<>();
             Map<String, Integer> methodAmount = new HashMap<>();
-            int totalCount = payments.size();
             int totalAmount = 0;
 
-            for (Payment payment : payments) {
-                if (payment.getPaymentMethod() != null && payment.getAmount() != null) {
-                    String method = payment.getPaymentMethod().name();
-                    methodCount.put(method, methodCount.getOrDefault(method, 0) + 1);
-                    methodAmount.put(method, methodAmount.getOrDefault(method, 0) + payment.getAmount());
-                    totalAmount += payment.getAmount();
+            int includedCount = 0;
+            for (Payment pay : payments) {
+                if (AccountingPolicy.excludedFromRevenueSummary(pay)) {
+                    continue;
+                }
+                if (pay.getPaymentMethod() != null && pay.getAmount() != null) {
+                    String methodKey = pay.getPaymentMethod().name();
+                    int net = AccountingPolicy.netAmount(pay);
+                    methodCount.put(methodKey, methodCount.getOrDefault(methodKey, 0) + 1);
+                    methodAmount.put(methodKey, methodAmount.getOrDefault(methodKey, 0) + net);
+                    totalAmount += net;
+                    includedCount++;
                 }
             }
 
             Map<String, Object> statistics = new HashMap<>();
             statistics.put("methodCount", methodCount);
             statistics.put("methodAmount", methodAmount);
-            statistics.put("totalCount", totalCount);
+            statistics.put("methodAmountNetOfRefunds", true);
+            statistics.put("totalCount", includedCount);
             statistics.put("totalAmount", totalAmount);
 
             return ResponseEntity.ok(statistics);
@@ -247,16 +245,18 @@ public class PaymentStatsController {
     @GetMapping("/export/excel")
     @Transactional(readOnly = true)
     public ResponseEntity<org.springframework.core.io.Resource> exportToExcel(
+            @RequestParam(required = false, defaultValue = "month") String period,
             @RequestParam(required = false) String paymentMethod,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate) {
         try {
-            List<Payment> payments = paymentRepository.findAllWithCoach();
-            if (payments == null) {
-                payments = new ArrayList<>();
-            }
+            List<Payment> payments = new ArrayList<>(paymentPeriodQueryHelper.loadPayments(period, startDate, endDate));
+            payments = payments.stream()
+                    .filter(p -> p.getMember() != null)
+                    .filter(p -> !AccountingPolicy.excludedFromRevenueSummary(p))
+                    .collect(Collectors.toList());
 
             if (paymentMethod != null && !paymentMethod.isEmpty()) {
                 try {
@@ -285,25 +285,14 @@ public class PaymentStatsController {
                 } catch (IllegalArgumentException e) {}
             }
 
-            if (startDate != null && endDate != null) {
-                LocalDate start = LocalDate.parse(startDate);
-                LocalDate end = LocalDate.parse(endDate);
-                LocalDateTime startDateTime = start.atStartOfDay();
-                LocalDateTime endDateTime = end.atTime(LocalTime.MAX);
-
-                payments = payments.stream()
-                        .filter(p -> {
-                            LocalDateTime paidAt = p.getPaidAt();
-                            return paidAt != null && !paidAt.isBefore(startDateTime) && !paidAt.isAfter(endDateTime);
-                        })
-                        .collect(Collectors.toList());
-            }
+            java.util.Map<Long, com.afbscenter.model.Coach> coachByPaymentId =
+                    paymentCoachResolver.resolveCoachesForPayments(payments);
 
             org.apache.poi.ss.usermodel.Workbook workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook();
             org.apache.poi.ss.usermodel.Sheet sheet = workbook.createSheet("결제 내역");
 
             org.apache.poi.ss.usermodel.Row headerRow = sheet.createRow(0);
-            String[] headers = {"결제번호", "날짜/시간", "회원", "코치", "분류", "결제수단", "금액", "상태", "환불금액", "메모"};
+            String[] headers = {"결제번호", "날짜/시간", "회원", "코치", "분류", "결제수단", "결제금액", "상태", "환불금액", "순매출", "메모"};
             for (int i = 0; i < headers.length; i++) {
                 org.apache.poi.ss.usermodel.Cell cell = headerRow.createCell(i);
                 cell.setCellValue(headers[i]);
@@ -317,17 +306,18 @@ public class PaymentStatsController {
                 row.createCell(1).setCellValue(payment.getPaidAt() != null ? payment.getPaidAt().toString() : "");
                 row.createCell(2).setCellValue(payment.getMember() != null && payment.getMember().getName() != null
                         ? payment.getMember().getName() : "");
-                row.createCell(3).setCellValue(
-                        (payment.getBooking() != null && payment.getBooking().getCoach() != null)
-                                ? payment.getBooking().getCoach().getName()
-                                : (payment.getMember() != null && payment.getMember().getCoach() != null
-                                ? payment.getMember().getCoach().getName() : ""));
+                com.afbscenter.model.Coach coachForExport = payment.getId() != null
+                        ? coachByPaymentId.get(payment.getId()) : null;
+                row.createCell(3).setCellValue(coachForExport != null && coachForExport.getName() != null
+                        ? coachForExport.getName() : "");
                 row.createCell(4).setCellValue(payment.getCategory() != null ? payment.getCategory().name() : "");
                 row.createCell(5).setCellValue(payment.getPaymentMethod() != null ? payment.getPaymentMethod().name() : "");
                 row.createCell(6).setCellValue(payment.getAmount() != null ? payment.getAmount() : 0);
                 row.createCell(7).setCellValue(payment.getStatus() != null ? payment.getStatus().name() : "");
-                row.createCell(8).setCellValue(payment.getRefundAmount() != null ? payment.getRefundAmount() : 0);
-                row.createCell(9).setCellValue(payment.getMemo() != null ? payment.getMemo() : "");
+                int refund = payment.getRefundAmount() != null ? payment.getRefundAmount() : 0;
+                row.createCell(8).setCellValue(refund);
+                row.createCell(9).setCellValue(AccountingPolicy.netAmount(payment));
+                row.createCell(10).setCellValue(payment.getMemo() != null ? payment.getMemo() : "");
             }
 
             for (int i = 0; i < headers.length; i++) {

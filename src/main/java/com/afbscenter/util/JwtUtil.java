@@ -22,6 +22,10 @@ public class JwtUtil {
     @Value("${jwt.expiration:86400000}") // 24시간 (밀리초)
     private Long expiration;
 
+    /** 회원 쪽지함(관리자) 잠금 해제 전용 JWT, 기본 8시간 */
+    @Value("${jwt.desk-inbox-unlock-expiration:28800000}")
+    private Long deskInboxUnlockExpirationMs;
+
     private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
@@ -77,5 +81,77 @@ public class JwtUtil {
     public Boolean validateToken(String token, String username) {
         final String extractedUsername = extractUsername(token);
         return (extractedUsername.equals(username) && !isTokenExpired(token));
+    }
+
+    /** 쪽지함 잠금 해제 후 전용(클레임 deskInboxUnlock=true) */
+    public String generateDeskInboxUnlockToken(String username) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("deskInboxUnlock", Boolean.TRUE);
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + deskInboxUnlockExpirationMs);
+        return Jwts.builder()
+                .claims(claims)
+                .subject(username)
+                .issuedAt(now)
+                .expiration(expiryDate)
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    public boolean isDeskInboxUnlockTokenValid(String token, String username) {
+        if (token == null || token.isBlank() || username == null) {
+            return false;
+        }
+        try {
+            Claims claims = extractAllClaims(token);
+            if (!Boolean.TRUE.equals(claims.get("deskInboxUnlock", Boolean.class))) {
+                return false;
+            }
+            if (!username.equals(claims.getSubject())) {
+                return false;
+            }
+            return !claims.getExpiration().before(new Date());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 회원별 쪽지 스레드 잠금 해제 전용 JWT(클레임 deskThreadMemberId) */
+    public String generateDeskThreadUnlockToken(String username, long memberId) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("deskThreadUnlock", Boolean.TRUE);
+        claims.put("deskThreadMemberId", memberId);
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + deskInboxUnlockExpirationMs);
+        return Jwts.builder()
+                .claims(claims)
+                .subject(username)
+                .issuedAt(now)
+                .expiration(expiryDate)
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    public boolean isDeskThreadUnlockTokenValid(String token, String username, long memberId) {
+        if (token == null || token.isBlank() || username == null) {
+            return false;
+        }
+        try {
+            Claims claims = extractAllClaims(token);
+            if (!Boolean.TRUE.equals(claims.get("deskThreadUnlock", Boolean.class))) {
+                return false;
+            }
+            if (!username.equals(claims.getSubject())) {
+                return false;
+            }
+            Object midObj = claims.get("deskThreadMemberId");
+            long claimMid = midObj instanceof Number ? ((Number) midObj).longValue() : Long.parseLong(midObj.toString());
+            if (claimMid != memberId) {
+                return false;
+            }
+            return !claims.getExpiration().before(new Date());
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

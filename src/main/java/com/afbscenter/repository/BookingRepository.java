@@ -56,6 +56,21 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     
     @Query("SELECT b FROM Booking b WHERE b.member.id = :memberId AND b.purpose = 'LESSON' AND b.status = 'CONFIRMED' ORDER BY b.startTime DESC")
     List<Booking> findLatestLessonByMemberId(@Param("memberId") Long memberId);
+
+    /** 같은 회원의 시간 겹침 예약 수 (취소 건 제외) */
+    @Query("SELECT COUNT(b) FROM Booking b WHERE b.member.id = :memberId AND b.status <> :excludedStatus AND b.startTime < :endTime AND b.endTime > :startTime")
+    long countMemberTimeOverlaps(@Param("memberId") Long memberId,
+                                 @Param("startTime") LocalDateTime startTime,
+                                 @Param("endTime") LocalDateTime endTime,
+                                 @Param("excludedStatus") Booking.BookingStatus excludedStatus);
+
+    /** 수정 시 자기 자신(id) 제외한 시간 겹침 예약 수 (취소 건 제외) */
+    @Query("SELECT COUNT(b) FROM Booking b WHERE b.member.id = :memberId AND b.id <> :excludeBookingId AND b.status <> :excludedStatus AND b.startTime < :endTime AND b.endTime > :startTime")
+    long countMemberTimeOverlapsExcludingBooking(@Param("memberId") Long memberId,
+                                                 @Param("startTime") LocalDateTime startTime,
+                                                 @Param("endTime") LocalDateTime endTime,
+                                                 @Param("excludeBookingId") Long excludeBookingId,
+                                                 @Param("excludedStatus") Booking.BookingStatus excludedStatus);
     
     // 특정 상품을 사용한 확정된 예약 수 조회 (출석 기록이 있는 예약만 카운트, 체크인 시에만 차감되므로)
     // 주의: 예약 확정 시에는 차감하지 않으므로, 확정된 예약은 카운트하지 않음
@@ -112,4 +127,45 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 
     /** 같은 이용권 중 시각순 첫 예약 1건 (회차 표시: 첫 예약이 완료면 firstSession 보정용) */
     Optional<Booking> findFirstByMemberProduct_IdOrderByStartTimeAscIdAsc(Long memberProductId);
+
+    /** 시설·시간 겹침 (취소 제외) — 동반·충돌 검사 */
+    @Query("SELECT b FROM Booking b WHERE b.facility.id = :facilityId AND b.status <> :excludedStatus AND b.startTime < :end AND b.endTime > :start")
+    List<Booking> findOverlappingAtFacility(@Param("facilityId") Long facilityId,
+                                            @Param("start") LocalDateTime start,
+                                            @Param("end") LocalDateTime end,
+                                            @Param("excludedStatus") Booking.BookingStatus excludedStatus);
+
+    @Query("SELECT b FROM Booking b WHERE b.facility.id = :facilityId AND b.id <> :excludeId AND b.status <> :excludedStatus AND b.startTime < :end AND b.endTime > :start")
+    List<Booking> findOverlappingAtFacilityExcluding(@Param("facilityId") Long facilityId,
+                                                     @Param("start") LocalDateTime start,
+                                                     @Param("end") LocalDateTime end,
+                                                     @Param("excludeId") Long excludeId,
+                                                     @Param("excludedStatus") Booking.BookingStatus excludedStatus);
+
+    /** 동반 수업 종료 직후 :30 시작 슬롯 허용 검증용 — 해당 시각에 끝나는 예약이 있는지 */
+    @Query("SELECT CASE WHEN COUNT(b) > 0 THEN true ELSE false END FROM Booking b WHERE b.facility.id = :facilityId AND b.status <> :excludedStatus AND b.endTime = :endInstant")
+    boolean existsNonCancelledBookingEndingAt(@Param("facilityId") Long facilityId,
+                                              @Param("endInstant") LocalDateTime endInstant,
+                                              @Param("excludedStatus") Booking.BookingStatus excludedStatus);
+
+    /** 시설·해당 일(자정~익일 자정) 겹침 예약 — 슬롯 UI에서 타인 동반 종료(:30) 반영용 */
+    @Query("SELECT b FROM Booking b WHERE b.facility.id = :facilityId AND b.status <> :excludedStatus AND b.startTime < :dayEnd AND b.endTime > :dayStart")
+    List<Booking> findByFacilityOverlappingDay(@Param("facilityId") Long facilityId,
+                                               @Param("dayStart") LocalDateTime dayStart,
+                                               @Param("dayEnd") LocalDateTime dayEnd,
+                                               @Param("excludedStatus") Booking.BookingStatus excludedStatus);
+
+    /** 동일 회원·동일 시작·종료 시각의 비취소 예약 존재 여부(완전 중복 방지, 회원 ID 기준) */
+    @Query("SELECT CASE WHEN COUNT(b) > 0 THEN true ELSE false END FROM Booking b WHERE b.member.id = :memberId AND b.startTime = :start AND b.endTime = :end AND b.status <> :cancelled")
+    boolean existsExactDuplicateBookingForMember(@Param("memberId") Long memberId,
+                                                 @Param("start") LocalDateTime start,
+                                                 @Param("end") LocalDateTime end,
+                                                 @Param("cancelled") Booking.BookingStatus cancelled);
+
+    @Query("SELECT CASE WHEN COUNT(b) > 0 THEN true ELSE false END FROM Booking b WHERE b.member.id = :memberId AND b.startTime = :start AND b.endTime = :end AND b.status <> :cancelled AND b.id <> :excludeId")
+    boolean existsExactDuplicateBookingForMemberExcluding(@Param("memberId") Long memberId,
+                                                          @Param("start") LocalDateTime start,
+                                                          @Param("end") LocalDateTime end,
+                                                          @Param("excludeId") Long excludeId,
+                                                          @Param("cancelled") Booking.BookingStatus cancelled);
 }

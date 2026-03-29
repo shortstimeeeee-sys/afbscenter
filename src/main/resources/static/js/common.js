@@ -23,6 +23,9 @@ App.warn = function() { if (App.debug) console.warn.apply(console, arguments); }
 // 에러는 항상 콘솔에 출력 (디버깅·운영 공통)
 App.err = function() { console.error.apply(console, arguments); };
 
+/** 회원 예약 페이지: true이면 /api/public/member-announcements + 로컬 읽음 상태로 종 알림 */
+App.usePublicMemberAnnouncements = false;
+
 /** XSS 방지: HTML에 넣을 사용자/API 입력 문자열 이스케이프. innerHTML 템플릿에서 변수에 사용 */
 App.escapeHtml = function(str) {
     if (str == null) return '';
@@ -33,6 +36,81 @@ App.escapeHtml = function(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+};
+
+/** 로컬 날짜 yyyy-MM-dd */
+App.formatLocalYmd = function(d) {
+    if (!d || !(d instanceof Date) || isNaN(d.getTime())) return '';
+    return (
+        d.getFullYear() +
+        '-' +
+        String(d.getMonth() + 1).padStart(2, '0') +
+        '-' +
+        String(d.getDate()).padStart(2, '0')
+    );
+};
+
+/**
+ * 예약 달력 공휴일·메모(설정에서 관리) — markDate → { memo, redDay }
+ */
+App.loadCalendarMarksMap = async function(startYmd, endYmd) {
+    var map = {};
+    if (!startYmd || !endYmd) return map;
+    try {
+        var base = App.apiBase || '/api';
+        var qs =
+            'startDate=' +
+            encodeURIComponent(startYmd) +
+            '&endDate=' +
+            encodeURIComponent(endYmd);
+        var res = await fetch(base + '/public/calendar-day-marks?' + qs, {
+            headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        if (!res.ok) return map;
+        var arr = await res.json();
+        (arr || []).forEach(function (m) {
+            if (m && m.markDate) {
+                map[m.markDate] = {
+                    memo: m.memo != null ? String(m.memo) : '',
+                    redDay: m.redDay !== false
+                };
+            }
+        });
+    } catch (e) {
+        App.err('달력 표시(공휴일·메모) 로드 실패:', e);
+    }
+    return map;
+};
+
+/**
+ * 이용권 잔여 "표시용" 숫자 — 회원목록·상세·대시보드·예약 등 동일 규칙.
+ * - USED_UP → 0
+ * - remainingCount가 null/undefined가 아니면 그대로(0 포함)
+ * - 없으면 product.usageCount → mp.totalCount 순
+ * @param {object} mp - { remainingCount, totalCount, status, product?: { usageCount } }
+ * @param {object} [opt]
+ * @param {'null'|'zero'|'ten'} [opt.whenAllUnknown='null'] - 위 값이 모두 없을 때
+ */
+App.resolveDisplayRemainingCount = function(mp, opt) {
+    opt = opt || {};
+    const whenAll = opt.whenAllUnknown != null ? opt.whenAllUnknown : 'null';
+    if (!mp || typeof mp !== 'object') {
+        if (whenAll === 'ten') return 10;
+        if (whenAll === 'zero') return 0;
+        return null;
+    }
+    const st = mp.status || 'ACTIVE';
+    if (st === 'USED_UP') return 0;
+    const rc = mp.remainingCount;
+    if (rc !== null && rc !== undefined) return Number(rc);
+    const product = mp.product || {};
+    const uc = product.usageCount;
+    if (uc !== null && uc !== undefined) return Number(uc);
+    const tc = mp.totalCount;
+    if (tc !== null && tc !== undefined) return Number(tc);
+    if (whenAll === 'ten') return 10;
+    if (whenAll === 'zero') return 0;
+    return null;
 };
 
 // 인증 토큰 관리
@@ -65,9 +143,13 @@ App.isAuthenticated = function() {
     return !!this.getAuthToken();
 };
 
-// 로그인 페이지 여부 (경로에 'login' 포함 시 true, 콘솔 로그/경고 억제용)
+// 로그인·회원 공개 예약 등 인증 리다이렉트/경고에서 제외할 페이지
 function isLoginPagePath() {
-    return ((window.location.pathname || '').toLowerCase().indexOf('login') !== -1);
+    var p = (window.location.pathname || '').toLowerCase();
+    if (p.indexOf('login') !== -1) return true;
+    if (p === '/member-booking.html' || p.endsWith('/member-booking.html')) return true;
+    if (p === '/rankings.html' || p.endsWith('/rankings.html')) return true;
+    return false;
 }
 
 // 페이지 로드 시 인증 정보 복원
@@ -304,11 +386,23 @@ App.filterMenuByRole = async function() {
 };
 
 // API 호출 헬퍼
+// options.deskInboxUnlock === true 이면 sessionStorage의 deskInboxUnlockToken을 X-Desk-Inbox-Unlock 헤더로 전송
+// options.deskThreadUnlockMemberId === 회원 id 이면 deskThreadUnlock_{id} 토큰을 X-Desk-Thread-Unlock 로 전송
+function applyDeskThreadUnlockHeader(headers, options) {
+    if (!options || options.deskThreadUnlockMemberId == null) return;
+    var mid = options.deskThreadUnlockMemberId;
+    var t = sessionStorage.getItem('deskThreadUnlock_' + mid);
+    if (t) headers['X-Desk-Thread-Unlock'] = t;
+}
 App.api = {
-    get: async function(url) {
+    get: async function(url, options) {
         try {
             const headers = App.getAuthHeaders();
-            
+            if (options && options.deskInboxUnlock) {
+                var deskTok = sessionStorage.getItem('deskInboxUnlockToken');
+                if (deskTok) headers['X-Desk-Inbox-Unlock'] = deskTok;
+            }
+            applyDeskThreadUnlockHeader(headers, options);
             const response = await fetch(`${App.apiBase}${url}`, {
                 headers: headers
             });
@@ -337,11 +431,15 @@ App.api = {
         }
     },
     
-    post: async function(url, data) {
+    post: async function(url, data, options) {
         try {
             const headers = App.getAuthHeaders();
             headers['Content-Type'] = 'application/json';
-            
+            if (options && options.deskInboxUnlock) {
+                var deskTokP = sessionStorage.getItem('deskInboxUnlockToken');
+                if (deskTokP) headers['X-Desk-Inbox-Unlock'] = deskTokP;
+            }
+            applyDeskThreadUnlockHeader(headers, options);
             const response = await fetch(`${App.apiBase}${url}`, {
                 method: 'POST',
                 headers: headers,
@@ -379,11 +477,11 @@ App.api = {
         }
     },
     
-    put: async function(url, data) {
+    put: async function(url, data, options) {
         try {
             const headers = App.getAuthHeaders();
             headers['Content-Type'] = 'application/json';
-            
+            applyDeskThreadUnlockHeader(headers, options);
             const response = await fetch(`${App.apiBase}${url}`, {
                 method: 'PUT',
                 headers: headers,
@@ -453,11 +551,17 @@ App.api = {
         }
     },
     
-    delete: async function(url) {
+    delete: async function(url, options) {
         try {
+            const delHeaders = App.getAuthHeaders();
+            if (options && options.deskInboxUnlock) {
+                var deskTokD = sessionStorage.getItem('deskInboxUnlockToken');
+                if (deskTokD) delHeaders['X-Desk-Inbox-Unlock'] = deskTokD;
+            }
+            applyDeskThreadUnlockHeader(delHeaders, options);
             const response = await fetch(`${App.apiBase}${url}`, {
                 method: 'DELETE',
-                headers: App.getAuthHeaders()
+                headers: delHeaders
             });
             
             if (response.status === 401) {
@@ -747,6 +851,35 @@ App.formatCurrency = function(amount) {
     }).format(amount);
 };
 
+/** 회원 예약 등: 이용권 드롭다운 옵션 한 줄 라벨 (상품명·가격·잔여·코치·만료) */
+App.formatMemberProductOptionLabel = function(mp) {
+    if (!mp) return '';
+    const product = mp.product || {};
+    let text = product.name || '상품';
+    if (product.price != null && product.price !== '') {
+        text += ' · ' + App.formatCurrency(product.price);
+    }
+    const type = product.type;
+    if (type === 'COUNT_PASS') {
+        const remaining = App.resolveDisplayRemainingCount
+            ? App.resolveDisplayRemainingCount(mp, { whenAllUnknown: 'ten' })
+            : (mp.remainingCount != null ? mp.remainingCount : '?');
+        text += ' · 잔여 ' + remaining + '회';
+    } else if (type === 'MONTHLY_PASS') {
+        text += ' · 월정액';
+    } else if (type === 'TIME_PASS') {
+        text += ' · 기간권';
+    }
+    const coachName = (mp.coach && mp.coach.name) || (product.coach && product.coach.name);
+    if (coachName) {
+        text += ' · 코치 ' + coachName;
+    }
+    if (mp.expiryDate) {
+        text += ' · 만료 ' + App.formatDate(mp.expiryDate);
+    }
+    return text;
+};
+
 // 페이지네이션
 App.Pagination = {
     render: function(containerId, currentPage, totalPages, onPageChange) {
@@ -892,8 +1025,12 @@ App.CoachColors = {
         const availablePalette = this.default.filter(c => !fixedValues.includes(c));
         const palette = availablePalette.length > 0 ? availablePalette : this.default;
         let seed = 0;
-        if (typeof coach.id === 'number' && !isNaN(coach.id)) {
-            seed = Math.abs(coach.id);
+        let idForSeed = coach.id;
+        if (typeof idForSeed === 'string' && idForSeed.trim() !== '' && !isNaN(Number(idForSeed))) {
+            idForSeed = Number(idForSeed);
+        }
+        if (typeof idForSeed === 'number' && !isNaN(idForSeed)) {
+            seed = Math.abs(Math.floor(idForSeed));
         } else if (coachName) {
             for (let i = 0; i < coachName.length; i++) {
                 seed = ((seed << 5) - seed) + coachName.charCodeAt(i);
@@ -1179,10 +1316,21 @@ document.addEventListener('DOMContentLoaded', function() {
 // 알림 시스템
 // ========================================
 
+App.getNotificationButton = function() {
+    var btn = document.getElementById('notification-btn');
+    if (btn) return btn;
+    btn = document.querySelector('.topbar-right .notification-btn');
+    if (btn && !btn.id) btn.id = 'notification-btn';
+    return btn;
+};
+
 // 알림 드롭다운 초기화
 App.initNotifications = function() {
-    const notificationBtn = document.getElementById('notification-btn');
+    const notificationBtn = App.getNotificationButton();
     if (!notificationBtn) return;
+    if (document.getElementById('notification-dropdown')) {
+        return;
+    }
     
     // 알림 드롭다운 생성
     const dropdown = document.createElement('div');
@@ -1208,9 +1356,12 @@ App.initNotifications = function() {
             App.loadNotifications();
         }
     });
-    
-    // 외부 클릭 시 닫기
-    document.addEventListener('click', () => {
+
+    // 드롭다운·종 버튼 바깥 클릭 시에만 닫기 (같은 클릭에서 바로 닫히는 현상 방지)
+    document.addEventListener('click', function (e) {
+        if (!dropdown.classList.contains('active')) return;
+        var t = e.target;
+        if (notificationBtn.contains(t) || dropdown.contains(t)) return;
         dropdown.classList.remove('active');
     });
     
@@ -1221,24 +1372,146 @@ App.initNotifications = function() {
 // 알림 개수 업데이트
 App.updateNotificationBadge = async function() {
     try {
+        const notificationBtn = App.getNotificationButton();
+        const badgeEl = document.getElementById('notification-badge');
+
+        if (App.usePublicMemberAnnouncements) {
+            const mn =
+                typeof App.getPublicMemberAnnouncementMemberNumber === 'function'
+                    ? App.getPublicMemberAnnouncementMemberNumber()
+                    : null;
+            if (!mn) {
+                if (badgeEl) {
+                    badgeEl.remove();
+                }
+                return;
+            }
+            const res = await fetch((App.apiBase || '/api') + '/public/member-announcements');
+            if (!res.ok) {
+                throw new Error('public announcements');
+            }
+            const announcements = await res.json();
+            const seenKey = 'mb_ann_seenMax_' + mn;
+            let seenMax = localStorage.getItem(seenKey) || '';
+            let unreadCount = 0;
+            (announcements || []).forEach((a) => {
+                if (!a || !a.isActive) {
+                    return;
+                }
+                const t = a.updatedAt || a.createdAt;
+                if (!t) {
+                    unreadCount++;
+                    return;
+                }
+                if (!seenMax || new Date(t) > new Date(seenMax)) {
+                    unreadCount++;
+                }
+            });
+
+            let deskUnreadMb = 0;
+            try {
+                const ur = await fetch(
+                    (App.apiBase || '/api') +
+                        '/public/member-desk-messages/unread-count?memberNumber=' +
+                        encodeURIComponent(mn)
+                );
+                if (ur.ok) {
+                    const ud = await ur.json();
+                    deskUnreadMb = Number(ud.count) || 0;
+                }
+            } catch (e) {
+                App.err('회원 데스크 미읽음 카운트 생략:', e);
+            }
+
+            var prevMbDesk = sessionStorage.getItem('mb_desk_unread_last');
+            if (
+                prevMbDesk !== null &&
+                deskUnreadMb > Number(prevMbDesk) &&
+                typeof App.showNotification === 'function'
+            ) {
+                App.showNotification('데스크에서 쪽지가 도착했습니다.', 'info');
+            }
+            sessionStorage.setItem('mb_desk_unread_last', String(deskUnreadMb));
+
+            const totalBell = unreadCount + deskUnreadMb;
+            if (totalBell > 0) {
+                const label = totalBell > 9 ? '9+' : String(totalBell);
+                if (!badgeEl && notificationBtn) {
+                    const newBadge = document.createElement('span');
+                    newBadge.id = 'notification-badge';
+                    newBadge.className = 'notification-badge';
+                    newBadge.textContent = label;
+                    notificationBtn.appendChild(newBadge);
+                } else if (badgeEl) {
+                    badgeEl.textContent = label;
+                }
+            } else if (badgeEl) {
+                badgeEl.remove();
+            }
+            return;
+        }
+
         const announcements = await App.api.get('/announcements');
-        const unreadCount = announcements.filter(a => a.isActive).length;
-        
-        const badge = document.getElementById('notification-badge');
-        const notificationBtn = document.getElementById('notification-btn');
-        
+        const annCount = announcements.filter(
+            (a) => a.isActive && a.hideFromStaffFeed !== true
+        ).length;
+
+        let deskCount = 0;
+        try {
+            const desk = await App.api.get('/member-desk-messages/badge-count');
+            if (desk && desk.totalUnreadFromMembers != null) {
+                deskCount = Number(desk.totalUnreadFromMembers) || 0;
+            }
+        } catch (deskErr) {
+            App.err('회원 쪽지 배지 카운트 생략:', deskErr);
+        }
+
+        var prevDesk = sessionStorage.getItem('desk_unread_last');
+        if (
+            prevDesk !== null &&
+            deskCount > Number(prevDesk) &&
+            typeof App.showNotification === 'function'
+        ) {
+            App.showNotification('새 회원 쪽지가 있습니다.', 'info');
+        }
+        sessionStorage.setItem('desk_unread_last', String(deskCount));
+
+        let smsNew = 0;
+        try {
+            const afterSms = parseInt(localStorage.getItem('staff_sms_last_seen_message_id') || '0', 10);
+            const st = await App.api.get('/messages/stats/bell?afterId=' + afterSms);
+            if (st && st.newCount != null) {
+                smsNew = Number(st.newCount) || 0;
+            }
+        } catch (smsErr) {
+            App.err('SMS 발송 종 알림 생략:', smsErr);
+        }
+
+        var prevSms = sessionStorage.getItem('sms_bell_last_count');
+        if (
+            prevSms !== null &&
+            smsNew > Number(prevSms) &&
+            typeof App.showNotification === 'function'
+        ) {
+            App.showNotification('새 메시지 발송 기록이 있습니다.', 'info');
+        }
+        sessionStorage.setItem('sms_bell_last_count', String(smsNew));
+
+        const unreadCount = annCount + deskCount + smsNew;
+
         if (unreadCount > 0) {
-            if (!badge) {
+            const label = unreadCount > 9 ? '9+' : String(unreadCount);
+            if (!badgeEl && notificationBtn) {
                 const newBadge = document.createElement('span');
                 newBadge.id = 'notification-badge';
                 newBadge.className = 'notification-badge';
-                newBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+                newBadge.textContent = label;
                 notificationBtn.appendChild(newBadge);
-            } else {
-                badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+            } else if (badgeEl) {
+                badgeEl.textContent = label;
             }
-        } else if (badge) {
-            badge.remove();
+        } else if (badgeEl) {
+            badgeEl.remove();
         }
     } catch (error) {
         App.err('알림 개수 업데이트 실패:', error);
@@ -1251,26 +1524,173 @@ App.loadNotifications = async function() {
     if (!listElement) return;
     
     try {
-        const announcements = await App.api.get('/announcements');
+        let announcements;
+        if (App.usePublicMemberAnnouncements) {
+            const mn =
+                typeof App.getPublicMemberAnnouncementMemberNumber === 'function'
+                    ? App.getPublicMemberAnnouncementMemberNumber()
+                    : null;
+            if (!mn) {
+                listElement.innerHTML =
+                    '<div class="notification-empty">회원번호 확인 후 이용할 수 있습니다</div>';
+                return;
+            }
+            const res = await fetch((App.apiBase || '/api') + '/public/member-announcements');
+            if (!res.ok) {
+                throw new Error('public announcements');
+            }
+            announcements = await res.json();
+        } else {
+            announcements = await App.api.get('/announcements');
+        }
+
         const activeAnnouncements = announcements
-            .filter(a => a.isActive)
+            .filter((a) => a.isActive && a.hideFromStaffFeed !== true)
             .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
             .slice(0, 5);
-        
-        if (activeAnnouncements.length === 0) {
+
+        if (App.usePublicMemberAnnouncements) {
+            const mnPub =
+                typeof App.getPublicMemberAnnouncementMemberNumber === 'function'
+                    ? App.getPublicMemberAnnouncementMemberNumber()
+                    : null;
+            let publicDeskHtml = '';
+            if (mnPub) {
+                try {
+                    const pr = await fetch(
+                        (App.apiBase || '/api') +
+                            '/public/member-desk-messages/unread-preview?memberNumber=' +
+                            encodeURIComponent(mnPub)
+                    );
+                    if (pr.ok) {
+                        const pd = await pr.json();
+                        (pd.items || []).forEach(function (it) {
+                            publicDeskHtml +=
+                                '<div class="notification-item" onclick="if(typeof window.mbScrollToDeskFromBell===\'function\')window.mbScrollToDeskFromBell();">' +
+                                '<div class="notification-icon">💬</div>' +
+                                '<div class="notification-content">' +
+                                '<div class="notification-title">데스크 쪽지</div>' +
+                                '<div class="notification-time">' +
+                                App.formatDateTime(it.createdAt) +
+                                '</div>' +
+                                '<div style="font-size:13px;opacity:0.92;margin-top:6px;line-height:1.45;white-space:pre-wrap;word-break:break-word;">' +
+                                App.escapeHtml(it.contentPreview || '') +
+                                '</div>' +
+                                '</div></div>';
+                        });
+                    }
+                } catch (e) {
+                    App.err('데스크 쪽지 미리보기 생략:', e);
+                }
+            }
+            if (!publicDeskHtml && activeAnnouncements.length === 0) {
+                listElement.innerHTML = '<div class="notification-empty">새 알림이 없습니다</div>';
+                return;
+            }
+            listElement.innerHTML =
+                publicDeskHtml +
+                activeAnnouncements
+                    .map((announcement) => {
+                        var icon = announcement.source === 'SETTINGS_MEMBERSHIP_DUES' ? '🏦' : '📢';
+                        return (
+                            '<div class="notification-item" onclick="App.viewAnnouncement(' +
+                            announcement.id +
+                            ')">' +
+                            '<div class="notification-icon">' +
+                            icon +
+                            '</div>' +
+                            '<div class="notification-content">' +
+                            '<div class="notification-title">' +
+                            App.escapeHtml(announcement.title || '') +
+                            '</div>' +
+                            '<div class="notification-time">' +
+                            App.formatDateTime(announcement.createdAt) +
+                            '</div>' +
+                            '</div></div>'
+                        );
+                    })
+                    .join('');
+            return;
+        }
+
+        // 회원 예약(비로그인 JWT)에서는 직원 전용 API 호출 시 401 → 로그인 이동 방지
+        let deskUnread = 0;
+        let smsNew = 0;
+        if (!App.usePublicMemberAnnouncements) {
+            try {
+                const bc = await App.api.get('/member-desk-messages/badge-count');
+                if (bc && bc.totalUnreadFromMembers != null) {
+                    deskUnread = Number(bc.totalUnreadFromMembers) || 0;
+                }
+            } catch (e) {
+                App.err('쪽지 배지 조회 생략:', e);
+            }
+            try {
+                const afterSms = parseInt(localStorage.getItem('staff_sms_last_seen_message_id') || '0', 10);
+                const st = await App.api.get('/messages/stats/bell?afterId=' + afterSms);
+                if (st && st.newCount != null) {
+                    smsNew = Number(st.newCount) || 0;
+                }
+            } catch (e2) {
+                App.err('SMS 종 목록 생략:', e2);
+            }
+        }
+
+        var deskBlock = '';
+        if (!App.usePublicMemberAnnouncements && deskUnread > 0) {
+            deskBlock =
+                '<div class="notification-item" onclick="window.location.href=\'/announcements.html#desk-inbox-card\'">' +
+                '<div class="notification-icon">💬</div>' +
+                '<div class="notification-content">' +
+                '<div class="notification-title">회원 쪽지 미읽음 ' +
+                deskUnread +
+                '건</div>' +
+                '<div class="notification-time">공지/메시지 → 회원 쪽지함에서 확인</div>' +
+                '</div></div>';
+        }
+
+        var smsBlock = '';
+        if (!App.usePublicMemberAnnouncements && smsNew > 0) {
+            smsBlock =
+                '<div class="notification-item" onclick="window.location.href=\'/announcements.html#mb-messages-card\'">' +
+                '<div class="notification-icon">📨</div>' +
+                '<div class="notification-content">' +
+                '<div class="notification-title">메시지 발송 신규 ' +
+                smsNew +
+                '건</div>' +
+                '<div class="notification-time">공지/메시지 → 메시지 발송에서 확인</div>' +
+                '</div></div>';
+        }
+
+        if (deskUnread === 0 && smsNew === 0 && activeAnnouncements.length === 0) {
             listElement.innerHTML = '<div class="notification-empty">새 알림이 없습니다</div>';
             return;
         }
-        
-        listElement.innerHTML = activeAnnouncements.map(announcement => `
-            <div class="notification-item" onclick="App.viewAnnouncement(${announcement.id})">
-                <div class="notification-icon">📢</div>
-                <div class="notification-content">
-                    <div class="notification-title">${App.escapeHtml(announcement.title || '')}</div>
-                    <div class="notification-time">${App.formatDateTime(announcement.createdAt)}</div>
-                </div>
-            </div>
-        `).join('');
+
+        listElement.innerHTML =
+            deskBlock +
+            smsBlock +
+            activeAnnouncements
+                .map((announcement) => {
+                    var icon = announcement.source === 'SETTINGS_MEMBERSHIP_DUES' ? '🏦' : '📢';
+                    return (
+                        '<div class="notification-item" onclick="App.viewAnnouncement(' +
+                        announcement.id +
+                        ')">' +
+                        '<div class="notification-icon">' +
+                        icon +
+                        '</div>' +
+                        '<div class="notification-content">' +
+                        '<div class="notification-title">' +
+                        App.escapeHtml(announcement.title || '') +
+                        '</div>' +
+                        '<div class="notification-time">' +
+                        App.formatDateTime(announcement.createdAt) +
+                        '</div>' +
+                        '</div></div>'
+                    );
+                })
+                .join('');
     } catch (error) {
         App.err('알림 로드 실패:', error);
         listElement.innerHTML = '<div class="notification-empty">알림을 불러올 수 없습니다</div>';
@@ -1279,16 +1699,115 @@ App.loadNotifications = async function() {
 
 // 공지사항 보기
 App.viewAnnouncement = function(id) {
+    if (typeof App.resolveAnnouncementView === 'function' && App.resolveAnnouncementView(id)) {
+        return;
+    }
+    var n = Number(id);
+    if (n === -1) {
+        var p =
+            App.usePublicMemberAnnouncements && App.getPublicMemberAnnouncementMemberNumber
+                ? fetch((App.apiBase || '/api') + '/public/member-announcements/-1').then((r) => {
+                      if (!r.ok) {
+                          throw new Error();
+                      }
+                      return r.json();
+                  })
+                : App.api.get('/announcements/-1');
+        p.then(function(announcement) {
+                App.showMembershipDuesAnnouncementModal(announcement);
+            })
+            .catch(function() {
+                App.showNotification('알림 내용을 불러올 수 없습니다.', 'danger');
+            });
+        return;
+    }
     window.location.href = '/announcements.html#' + id;
 };
 
-// 모두 읽음 처리
-App.markAllNotificationsRead = function() {
-    const badge = document.getElementById('notification-badge');
-    if (badge) {
-        badge.remove();
+/** 회비 입금 전용계좌(설정 연동) 상세 모달 */
+App.showMembershipDuesAnnouncementModal = function(announcement) {
+    var title = (announcement && announcement.title) ? announcement.title : '회비 입금 전용계좌';
+    var body = (announcement && announcement.content) ? announcement.content : '';
+    var modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.innerHTML = '<div class="modal" style="max-width: 520px; width: 92vw;">' +
+        '<div class="modal-header">' +
+        '<h2 class="modal-title">' + App.escapeHtml(title) + '</h2>' +
+        '<button type="button" class="modal-close" aria-label="닫기">&times;</button>' +
+        '</div>' +
+        '<div class="modal-body">' +
+        '<div style="white-space: pre-wrap; line-height: 1.6; color: var(--text-primary);">' + App.escapeHtml(body) + '</div>' +
+        '</div>' +
+        '<div class="modal-footer">' +
+        '<button type="button" class="btn btn-secondary modal-close-btn">닫기</button>' +
+        '</div></div>';
+    document.body.appendChild(modal);
+    function close() {
+        if (modal.parentNode) {
+            modal.parentNode.removeChild(modal);
+        }
     }
-    App.showNotification('모든 알림을 읽음 처리했습니다', 'success');
+    modal.querySelector('.modal-close').addEventListener('click', close);
+    modal.querySelector('.modal-close-btn').addEventListener('click', close);
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            close();
+        }
+    });
+};
+
+// 모두 읽음 처리
+App.markAllNotificationsRead = async function() {
+    if (App.usePublicMemberAnnouncements) {
+        const mn =
+            typeof App.getPublicMemberAnnouncementMemberNumber === 'function'
+                ? App.getPublicMemberAnnouncementMemberNumber()
+                : null;
+        if (mn) {
+            const seenKey = 'mb_ann_seenMax_' + mn;
+            fetch((App.apiBase || '/api') + '/public/member-announcements')
+                .then((r) => (r.ok ? r.json() : []))
+                .then(function (list) {
+                    let max = '';
+                    (list || []).forEach(function (a) {
+                        const t = a.updatedAt || a.createdAt;
+                        if (t && (!max || new Date(t) > new Date(max))) {
+                            max = t;
+                        }
+                    });
+                    if (max) {
+                        localStorage.setItem(seenKey, max);
+                    }
+                })
+                .catch(function () {});
+        }
+        const badge = document.getElementById('notification-badge');
+        if (badge) {
+            badge.remove();
+        }
+        App.showNotification('모든 알림을 읽음 처리했습니다', 'success');
+        return;
+    }
+    try {
+        await App.api.post('/member-desk-messages/mark-all-read', {});
+    } catch (e) {
+        App.err('회원 쪽지 일괄 읽음 실패:', e);
+    }
+    sessionStorage.setItem('desk_unread_last', '0');
+    try {
+        const st = await App.api.get('/messages/stats/bell?afterId=0');
+        if (st && st.maxId != null) {
+            localStorage.setItem('staff_sms_last_seen_message_id', String(st.maxId));
+        }
+    } catch (e) {
+        App.err('SMS 발송 읽음 처리 생략:', e);
+    }
+    sessionStorage.setItem('sms_bell_last_count', '0');
+    await App.updateNotificationBadge();
+    App.showNotification('알림을 갱신했습니다. (회원 쪽지·메시지 발송 반영)', 'success');
 };
 
 // ========================================
@@ -1319,6 +1838,8 @@ App.initDarkMode = function() {
     // MutationObserver로 topbar-right가 나타날 때 버튼 추가
     if (!App.themeObserver) {
         App.themeObserver = new MutationObserver((mutations) => {
+            var p = window.location.pathname || '';
+            if (p.indexOf('member-booking') !== -1) return;
             const topbarRight = document.querySelector('.topbar-right');
             if (topbarRight && !document.getElementById('theme-toggle-btn')) {
                 App.addDarkModeToggle();
@@ -1352,7 +1873,12 @@ App.addDarkModeToggle = function() {
     if (window.location.pathname === '/login.html' || window.location.pathname === '/login') {
         return;
     }
-    
+    // 회원 예약 공개 페이지: 상단 테마(모드) 전환 버튼 없음
+    var path = window.location.pathname || '';
+    if (path.indexOf('member-booking') !== -1) {
+        return;
+    }
+
     const topbarRight = document.querySelector('.topbar-right');
     if (!topbarRight) {
         // topbar-right가 아직 없으면 잠시 후 다시 시도 (최대 10번)
@@ -2043,14 +2569,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // 페이지 로드 시 초기화
 document.addEventListener('DOMContentLoaded', () => {
-    // 로그인 페이지는 제외
-    if (window.location.pathname !== '/login.html' && window.location.pathname !== '/login') {
+    var pathOnly = window.location.pathname || '';
+    // 로그인·회원 공개 예약 — 생략 / 랭킹은 비로그인일 때만 생략 (로그인 직원은 검색·알림 유지)
+    var isMbPath = pathOnly === '/member-booking.html' || pathOnly.endsWith('/member-booking.html');
+    var isRankPath = pathOnly === '/rankings.html' || pathOnly.endsWith('/rankings.html');
+    var hasToken = !!(typeof App.getAuthToken === 'function' && App.getAuthToken());
+    var skipHeavyInit =
+        pathOnly === '/login.html' ||
+        pathOnly === '/login' ||
+        isMbPath ||
+        (isRankPath && !hasToken);
+    if (!skipHeavyInit) {
         App.initDarkMode();
         App.initNotifications();
         App.initSearch();
         initMobileSidebar();
-        // 5분마다 알림 개수 업데이트
-        setInterval(() => App.updateNotificationBadge(), 5 * 60 * 1000);
+        // 1분마다 알림 개수(공지 + 회원 쪽지 미읽음) 갱신
+        setInterval(() => App.updateNotificationBadge(), 60 * 1000);
         
         // topbar-right: 테마·알림·사용자 아이콘+글씨 (모든 페이지 동일 적용)
         setTimeout(() => {
@@ -2068,6 +2603,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const tr = document.querySelector('.topbar-right');
             if (tr) App.wrapNotificationWithLabel(tr);
         }, 800);
+    } else if (pathOnly === '/member-booking.html' || pathOnly.endsWith('/member-booking.html')) {
+        App.initDarkMode();
+        initMobileSidebar();
     }
 });
 
@@ -2634,10 +3172,12 @@ App.updateUserDisplay = function() {
     }
 };
 
-// 페이지 로드 시 인증 체크 (로그인 페이지 제외)
+// 페이지 로드 시 인증 체크 (로그인·회원 공개 예약 페이지 제외)
 document.addEventListener('DOMContentLoaded', function() {
-    // 로그인 페이지는 제외
-    if (window.location.pathname === '/login.html' || window.location.pathname === '/login') {
+    var path = window.location.pathname || '';
+    var isRankingsPage = path === '/rankings.html' || path.endsWith('/rankings.html');
+    // 로그인 / 회원번호 공개 예약 — JWT 없이 접근 가능해야 함 (리다이렉트 금지)
+    if (path === '/login.html' || path === '/login' || path === '/member-booking.html' || path.endsWith('/member-booking.html')) {
         App.restoreAuth();
         return;
     }
@@ -2648,8 +3188,16 @@ document.addEventListener('DOMContentLoaded', function() {
     // 사용자명 표시 업데이트
     App.updateUserDisplay();
 
-    // 인증되지 않은 경우 로그인 페이지로 리다이렉트
+    // 인증되지 않은 경우 — 훈련 랭킹은 비로그인 열람 가능 (회원 예약 사이드 메뉴)
     if (!App.isAuthenticated()) {
+        if (isRankingsPage) {
+            App.initDarkMode();
+            setTimeout(function() {
+                App.addDarkModeToggle();
+            }, 100);
+            initMobileSidebar();
+            return;
+        }
         window.location.href = '/login.html';
         return;
     }
@@ -2782,23 +3330,23 @@ async function showUserMenuModal() {
     
     const modalHtml = `
         <div id="user-menu-modal" class="modal-overlay active" style="display: flex;">
-            <div class="modal" style="max-width: 350px;">
+            <div class="modal modal-compact">
                 <div class="modal-header">
                     <h2 class="modal-title">사용자 정보</h2>
                     <button class="modal-close" onclick="closeUserMenuModal()">×</button>
                 </div>
                 <div class="modal-body">
-                    <div style="text-align: center; padding: 20px 0;">
-                        <div style="font-size: 48px; margin-bottom: 16px;">👤</div>
-                        <div style="font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px;">
+                    <div class="user-menu-modal-body-inner">
+                        <div style="font-size: 52px; margin-bottom: 18px;">👤</div>
+                        <div style="font-size: 20px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px;">
                             ${userName}
                         </div>
                         ${coachText ? `
-                        <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                        <div style="font-size: 15px; color: var(--text-secondary); margin-bottom: 18px;">
                             ${coachText}
                         </div>
                         ` : ''}
-                        <div style="font-size: 12px; color: var(--text-muted);">
+                        <div style="font-size: 13px; color: var(--text-muted);">
                             ${App.currentUser.role === 'ADMIN' ? '관리자' : 
                               App.currentUser.role === 'MANAGER' ? '매니저' : 
                               App.currentUser.role === 'COACH' ? '코치' : 
@@ -2806,7 +3354,7 @@ async function showUserMenuModal() {
                         </div>
                     </div>
                 </div>
-                <div class="modal-footer" style="justify-content: center; gap: 12px;">
+                <div class="modal-footer user-menu-modal-footer">
                     <button class="btn btn-secondary" onclick="closeUserMenuModal()">닫기</button>
                     <button class="btn btn-danger" onclick="logoutUser()">로그아웃</button>
                 </div>
@@ -2845,4 +3393,9 @@ function logoutUser() {
     if (confirm('로그아웃 하시겠습니까?')) {
         App.clearAuth();
     }
+}
+
+/** const App 는 window 프로퍼티가 아니므로, 다른 스크립트의 window.App 검사가 실패하지 않도록 연결 */
+if (typeof window !== 'undefined' && typeof App !== 'undefined') {
+    window.App = App;
 }

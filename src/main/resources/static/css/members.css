@@ -68,6 +68,7 @@ body.members-page .topbar { margin-top: 0; }
     font-size: 16px !important;
     font-weight: 700;
 }
+/* 총 회원 수 색상은 common.css .stats-total-item (라벨·숫자 동일 골드)에 일원화 */
 .members-stats-body .stats-total-item .members-stats-item-label {
     font-size: 14px;
     font-weight: 600;
@@ -102,6 +103,7 @@ body.members-page .topbar { margin-top: 0; }
     border-left: 4px solid #2ECC71;
     background: rgba(46, 204, 113, 0.08);
 }
+.members-stats-item--active .members-stats-item-label,
 .members-stats-item--active .members-stats-item-value {
     color: #2ECC71;
 }
@@ -110,6 +112,7 @@ body.members-page .topbar { margin-top: 0; }
     border-left: 4px solid #8b7b9e;
     background: rgba(139, 123, 158, 0.12);
 }
+.members-stats-item--inactive .members-stats-item-label,
 .members-stats-item--inactive .members-stats-item-value {
     color: #8b7b9e;
 }

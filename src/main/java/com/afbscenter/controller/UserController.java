@@ -89,6 +89,14 @@ public class UserController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    // 직원코드로 조회
+    @GetMapping("/by-code/{employeeCode}")
+    public ResponseEntity<User> getUserByEmployeeCode(@PathVariable String employeeCode) {
+        return userService.getUserByEmployeeCode(employeeCode)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     // 사용자 생성
     @PostMapping
     public ResponseEntity<Map<String, Object>> createUser(@RequestBody User user) {

@@ -128,6 +128,59 @@
                         </div>
                     </form>
                 </div>
+
+                <div class="card" id="calendar-day-marks-card" style="display: none;">
+                    <div class="card-header">
+                        <h2 class="card-title">예약 달력 — 공휴일·메모·빨간날</h2>
+                    </div>
+                    <div style="padding: 0 16px 16px 16px;">
+                        <p style="font-size: 14px; color: var(--text-secondary); margin: 0 0 12px 0; line-height: 1.5;">
+                            전 지점 예약 달력에 동일하게 반영됩니다. 날짜별 메모는 달력에서 툴팁으로 보이고,
+                            <strong>빨간날</strong>을 켜면 해당 날짜 숫자가 빨간색으로 표시됩니다.
+                        </p>
+                        <div class="form-group" style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 16px;">
+                            <div style="min-width: 160px;">
+                                <label class="form-label" for="calendar-marks-month">조회 월</label>
+                                <input type="month" class="form-control" id="calendar-marks-month" />
+                            </div>
+                            <button type="button" class="btn btn-secondary" id="btn-calendar-marks-refresh" onclick="refreshCalendarMarksList()">목록 새로고침</button>
+                        </div>
+                        <div style="border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; margin-bottom: 20px;">
+                            <table class="table" style="margin: 0;">
+                                <thead>
+                                    <tr>
+                                        <th>날짜</th>
+                                        <th>빨간날</th>
+                                        <th>메모</th>
+                                        <th style="width: 88px;">편집</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="calendar-marks-list-body">
+                                    <tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 12px;">불러오는 중…</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <h3 style="font-size: 15px; margin: 0 0 12px 0;">날짜 등록·수정</h3>
+                        <div class="form-group">
+                            <label class="form-label" for="calendar-mark-date">날짜</label>
+                            <input type="date" class="form-control" id="calendar-mark-date" style="max-width: 220px;" />
+                            <p class="form-text" style="margin-top: 6px; font-size: 13px; color: var(--text-muted);">예약 달력에 보이는 연도와 같이 선택하세요. (예: 2026년 5월을 보려면 2026-05-05)</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="calendar-mark-memo">메모 (달력 툴팁)</label>
+                            <textarea class="form-control" id="calendar-mark-memo" rows="3" placeholder="예: 설날 연휴, 센터 휴무 등" maxlength="2000"></textarea>
+                        </div>
+                        <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="calendar-mark-red" checked />
+                            <label for="calendar-mark-red" style="margin: 0; cursor: pointer;">날짜 숫자를 빨간색으로 표시 (빨간날)</label>
+                        </div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                            <button type="button" class="btn btn-primary" id="btn-calendar-mark-save" onclick="saveCalendarDayMark()">저장</button>
+                            <button type="button" class="btn btn-secondary" onclick="clearCalendarMarkForm()">입력 비우기</button>
+                            <button type="button" class="btn btn-danger" onclick="deleteCalendarDayMark()">이 날짜 표시 삭제</button>
+                        </div>
+                    </div>
+                </div>
                 
                 <div class="card">
                     <div class="card-header">

@@ -21,4 +21,10 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 
     // 상태별 메시지 조회
     List<Message> findByStatus(Message.MessageStatus status);
+
+    /** id가 더 큰 레코드 수 (종 알림: 마지막으로 본 id 이후 신규 발송 건) */
+    long countByIdGreaterThan(Long id);
+
+    @Query("SELECT COALESCE(MAX(m.id), 0) FROM Message m")
+    long findMaxId();
 }

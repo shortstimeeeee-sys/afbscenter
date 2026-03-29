@@ -40,6 +40,29 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
     }
 
+    private String buildEmployeeCodeFromUserId(Long userId) {
+        return String.format("USR-%06d", userId);
+    }
+
+    private void ensureEmployeeCode(User user) {
+        if (user == null) return;
+        if (user.getEmployeeCode() != null && !user.getEmployeeCode().trim().isEmpty()) return;
+        if (user.getId() == null) return;
+        String candidate = buildEmployeeCodeFromUserId(user.getId());
+        if (userRepository.existsByEmployeeCode(candidate)) {
+            int suffix = 1;
+            while (true) {
+                String fallback = candidate + "-" + suffix;
+                if (!userRepository.existsByEmployeeCode(fallback)) {
+                    candidate = fallback;
+                    break;
+                }
+                suffix++;
+            }
+        }
+        user.setEmployeeCode(candidate);
+    }
+
     /**
      * 로그인 처리. 성공 시 접속 로그 저장.
      * @param ipAddress 클라이언트 IP (null 가능)
@@ -74,6 +97,7 @@ public class AuthService {
         }
 
         User user = userOpt.get();
+        ensureEmployeeCode(user);
         
         // 승인되지 않은 사용자는 로그인 불가
         if (!user.getApproved()) {
@@ -116,6 +140,7 @@ public class AuthService {
         response.put("role", user.getRole().name());
         response.put("name", user.getName());
         response.put("id", user.getId());
+        response.put("employeeCode", user.getEmployeeCode());
 
         return response;
     }
@@ -193,6 +218,8 @@ public class AuthService {
         logger.debug("사용자 생성 전 - approved: {}, active: {}", newUser.getApproved(), newUser.getActive());
         
         User savedUser = userRepository.save(newUser);
+        ensureEmployeeCode(savedUser);
+        savedUser = userRepository.save(savedUser);
         
         logger.info("사용자 저장 완료 - ID: {}, 사용자명: {}, 이름: {}, 권한: {}, active: {}, approved: {}", 
             savedUser.getId(), savedUser.getUsername(), savedUser.getName(), 
@@ -211,6 +238,7 @@ public class AuthService {
         response.put("name", savedUser.getName());
         response.put("role", savedUser.getRole().name());
         response.put("approved", savedUser.getApproved());
+        response.put("employeeCode", savedUser.getEmployeeCode());
         return response;
     }
 
@@ -232,6 +260,7 @@ public class AuthService {
             admin.setActive(true);
             admin.setRole(User.Role.ADMIN);
             admin.setApproved(true); // 관리자는 자동 승인
+            ensureEmployeeCode(admin);
             userRepository.save(admin);
             
             // 비밀번호 검증 테스트
@@ -243,6 +272,7 @@ public class AuthService {
             response.put("username", admin.getUsername());
             response.put("role", admin.getRole().name());
             response.put("active", admin.getActive());
+            response.put("employeeCode", admin.getEmployeeCode());
             response.put("passwordReset", true);
             return response;
         }
@@ -256,6 +286,8 @@ public class AuthService {
         admin.setName("관리자");
         admin.setActive(true);
         admin.setApproved(true); // 관리자는 자동 승인
+        admin = userRepository.save(admin);
+        ensureEmployeeCode(admin);
         userRepository.save(admin);
         
         // 비밀번호 검증 테스트
@@ -266,6 +298,7 @@ public class AuthService {
         response.put("exists", false);
         response.put("username", "admin");
         response.put("role", "ADMIN");
+        response.put("employeeCode", admin.getEmployeeCode());
         response.put("passwordReset", false);
         return response;
     }

@@ -124,17 +124,20 @@ public class MemberDetailController {
                 return ResponseEntity.badRequest().build();
             }
             
-            // 코치 ID (선택사항 - 회원 등록 시 선택한 코치)
+            // 코치 ID (신규 이용권 행 생성 시 필수 — 아래에서 검증)
             Long coachId = null;
             if (request.get("coachId") != null) {
                 Object coachIdObj = request.get("coachId");
                 if (coachIdObj instanceof Number) {
                     coachId = ((Number) coachIdObj).longValue();
                 } else if (coachIdObj instanceof String) {
-                    try {
-                        coachId = Long.parseLong((String) coachIdObj);
-                    } catch (NumberFormatException e) {
-                        logger.warn("코치 ID 형식이 올바르지 않습니다: {}", coachIdObj);
+                    String s = ((String) coachIdObj).trim();
+                    if (!s.isEmpty() && !"null".equalsIgnoreCase(s)) {
+                        try {
+                            coachId = Long.parseLong(s);
+                        } catch (NumberFormatException e) {
+                            logger.warn("코치 ID 형식이 올바르지 않습니다: {}", coachIdObj);
+                        }
                     }
                 }
             }
@@ -223,6 +226,21 @@ public class MemberDetailController {
             // 동일 회원·동일 상품이 이미 있어도 새 이용권 행으로 생성 허용 (이용권 추가 시 횟수 합산 방지)
             // 단, 연장 목적이고 소진된 기존 행이 있으면 위에서 기존 행 반환함
             logger.debug("MemberProduct 생성 시작: 회원 ID={}, 상품 ID={}", memberId, productIdLong);
+
+            // 신규 이용권 등록: 담당 코치 필수 (프론트 members.js와 동일)
+            if (coachId == null || coachId <= 0) {
+                Map<String, Object> err = new HashMap<>();
+                err.put("error", "담당 코치를 선택해 주세요.");
+                logger.warn("이용권 할당 거부: 코치 미지정. 회원 ID={}, 상품 ID={}", memberId, productIdLong);
+                return ResponseEntity.badRequest().body(err);
+            }
+            Coach resolvedCoach = coachRepository.findById(coachId).orElse(null);
+            if (resolvedCoach == null) {
+                Map<String, Object> err = new HashMap<>();
+                err.put("error", "존재하지 않는 코치입니다.");
+                logger.warn("이용권 할당 거부: 코치 없음. coachId={}, 회원 ID={}, 상품 ID={}", coachId, memberId, productIdLong);
+                return ResponseEntity.badRequest().body(err);
+            }
             
             MemberProduct memberProduct = new MemberProduct();
             memberProduct.setMember(member);
@@ -244,22 +262,9 @@ public class MemberDetailController {
                     memberId, productIdLong, e.getMessage());
             }
             
-            // 코치 설정: 요청에서 지정한 경우에만 설정 (이용권 1개당 1코치 지정, 상품 기본 코치 자동 채우지 않음)
-            if (coachId != null) {
-                try {
-                    Coach selectedCoach = coachRepository.findById(coachId).orElse(null);
-                    if (selectedCoach != null) {
-                        memberProduct.setCoach(selectedCoach);
-                        logger.info("상품 할당 시 선택된 코치 설정: 회원 ID={}, 상품 ID={}, 코치 ID={}", 
-                            memberId, productIdLong, coachId);
-                    } else {
-                        logger.warn("선택된 코치를 찾을 수 없습니다. 코치 ID={}", coachId);
-                    }
-                } catch (Exception e) {
-                    logger.warn("코치 조회 실패: 코치 ID={}, 오류: {}", coachId, e.getMessage());
-                }
-            }
-            // 코치 미지정 시 null 유지 (상품 기본 코치로 채우지 않음 → 훈련 통계 미배정 건수와 일치)
+            memberProduct.setCoach(resolvedCoach);
+            logger.info("상품 할당 시 코치 설정: 회원 ID={}, 상품 ID={}, 코치 ID={}",
+                    memberId, productIdLong, coachId);
             
             // 유효기간 설정 (구매일로부터 validDays일 후)
             if (product.getValidDays() != null && product.getValidDays() > 0) {
@@ -429,10 +434,10 @@ public class MemberDetailController {
             // 이렇게 하면 MemberProduct 저장이 롤백되지 않음
             // 람다에서 사용하기 위해 final 변수 생성
             final Member finalMember = member;
+            final MemberProduct finalSaved = saved;
             
             try {
                 // 상품 할당 시 이용권에 지정된 코치가 있으면 회원 담당 코치로 반영 (자동 채우기 없음)
-                final MemberProduct finalSaved = saved;
                 transactionTemplate.execute(status -> {
                     try {
                         assignCoachToMemberIfNeededInTransaction(finalMember, finalProduct, finalSaved, memberId, finalProductIdForLambda);
@@ -457,7 +462,7 @@ public class MemberDetailController {
                     final String processedBy = httpRequest != null ? (String) httpRequest.getAttribute("username") : null;
                     transactionTemplate.execute(status -> {
                         try {
-                            createPaymentIfNeededInTransaction(finalMember, finalProduct, memberId, finalProductIdForLambda, finalProductIdForLambda, processedBy);
+                            createPaymentIfNeededInTransaction(finalMember, finalProduct, memberId, finalProductIdForLambda, finalProductIdForLambda, processedBy, finalSaved);
                             logger.info("결제 생성 트랜잭션 완료: Member ID={}, Product ID={}", 
                                 memberId, finalProductIdForLambda);
                             return null;
@@ -563,7 +568,8 @@ public class MemberDetailController {
     }
     
     // 결제 생성을 별도 트랜잭션으로 실행 (TransactionTemplate에서 호출)
-    private void createPaymentIfNeededInTransaction(Member member, Product product, Long memberId, Long finalProductId, Long productIdLong, String processedBy) {
+    private void createPaymentIfNeededInTransaction(Member member, Product product, Long memberId, Long finalProductId, Long productIdLong, String processedBy,
+                                                    MemberProduct linkedMemberProduct) {
         try {
             logger.info("결제 생성 시작: Member ID={}, Product ID={}", memberId, productIdLong);
             
@@ -601,6 +607,9 @@ public class MemberDetailController {
                 Payment payment = new Payment();
                 payment.setMember(currentMember);
                 payment.setProduct(currentProduct);
+                if (linkedMemberProduct != null) {
+                    payment.setMemberProduct(linkedMemberProduct);
+                }
                 payment.setAmount(currentProduct.getPrice());
                 payment.setPaymentMethod(com.afbscenter.constants.PaymentDefaults.getDefaultPaymentMethod());
                 payment.setStatus(com.afbscenter.constants.PaymentDefaults.getDefaultPaymentStatus());
@@ -709,7 +718,7 @@ public class MemberDetailController {
         }
     }
     
-    // 회원의 모든 상품 할당 제거 (해당 상품에 대한 결제도 함께 제거)
+    // 회원의 모든 상품 할당 제거 (소프트 삭제: 결제·히스토리 유지)
     @DeleteMapping("/{memberId}/products")
     @Transactional
     public ResponseEntity<Void> removeAllProductsFromMember(@PathVariable Long memberId) {
@@ -730,8 +739,10 @@ public class MemberDetailController {
                 return ResponseEntity.noContent().build();
             }
             
-            // 각 MemberProduct를 삭제하기 전에: Booking 참조 해제 → MemberProductHistory 삭제 → Payment 삭제 (FK 순서 준수)
             for (MemberProduct memberProduct : memberProducts) {
+                if (memberProduct.getDeletedAt() != null) {
+                    continue;
+                }
                 // 이 MemberProduct를 참조하는 모든 Booking 찾기 (상태 무관)
                 List<Booking> bookings = bookingRepository.findAllBookingsByMemberProductId(memberProduct.getId());
                 
@@ -741,36 +752,10 @@ public class MemberDetailController {
                     bookingRepository.save(booking);
                 }
                 
-                // MemberProduct를 참조하는 MemberProductHistory 먼저 삭제 (Payment/Attendance 참조 시 FK 오류 방지)
-                List<com.afbscenter.model.MemberProductHistory> histories =
-                    memberProductHistoryRepository.findByMemberProductIdOrderByTransactionDateDesc(memberProduct.getId());
-                if (!histories.isEmpty()) {
-                    memberProductHistoryRepository.deleteAll(histories);
-                    logger.debug("회원 상품 할당 제거 시 히스토리 삭제: MemberProduct ID={}, 삭제된 히스토리 수={}",
-                        memberProduct.getId(), histories.size());
-                }
-                
-                // 해당 상품에 대한 PRODUCT_SALE 결제 제거 (상품 할당과 함께 제거)
-                // Product는 이미 JOIN FETCH로 로드되어 있음
-                if (memberProduct.getProduct() != null && memberProduct.getProduct().getId() != null) {
-                    Long productId = memberProduct.getProduct().getId();
-                    List<Payment> productPayments = paymentRepository.findActiveProductPaymentsByMemberAndProduct(
-                        memberId, productId);
-                    
-                    for (Payment payment : productPayments) {
-                        if (payment != null) {
-                            paymentRepository.delete(payment);
-                            logger.debug("상품 할당 제거 시 결제도 함께 제거: Payment ID={}, Member ID={}, Product ID={}", 
-                                payment.getId(), memberId, productId);
-                        }
-                    }
-                }
+                memberService.softDeleteMemberProduct(memberProduct, null);
             }
             
-            // 모든 참조를 제거한 후 MemberProduct 삭제
-            memberProductRepository.deleteAll(memberProducts);
-            
-            logger.debug("회원 상품 할당 제거 완료: Member ID={}, 삭제된 상품 수={}", memberId, memberProducts.size());
+            logger.debug("회원 상품 할당 소프트 삭제 완료: Member ID={}, 대상 수={}", memberId, memberProducts.size());
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
             logger.error("회원 상품 할당 제거 중 오류 발생. 회원 ID: {}", memberId, e);

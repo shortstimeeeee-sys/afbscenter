@@ -503,10 +503,11 @@ async function saveUnassignedMemberCoaches() {
             const memberProductId = select.dataset.memberProductId;
             const coachId = select.value;
             
-            if (memberProductId) {
+            // 서버: 이용권 코치 해제 불가 — 빈 선택은 요청에서 제외(배정만 전송)
+            if (memberProductId && coachId) {
                 updates.push({
                     memberProductId: memberProductId,
-                    coachId: coachId || null
+                    coachId: coachId
                 });
             }
         }

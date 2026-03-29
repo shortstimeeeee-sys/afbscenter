@@ -88,6 +88,7 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
 
 /* 예약 통계 (같은 행 오른쪽) - 대관 페이지와 동일 디자인 */
 #bookings-stats-container.bookings-stats-inner,
+#mb-bookings-stats-container.bookings-stats-inner,
 .bookings-stats-inner {
     margin: 0;
 }
@@ -285,6 +286,25 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
     color: var(--text-primary);
 }
 
+/* 관리자 설정(공휴일·메모) — 일·토 기본색보다 우선해 날짜 숫자를 빨간색으로 */
+.calendar-day .calendar-day-number.calendar-day-number--holiday-red {
+    color: #c62828 !important;
+    font-weight: 700;
+}
+
+/* 설정에서 등록한 달력 메모 — 날짜 숫자 아래 한 줄 */
+.calendar-mark-memo {
+    font-size: 10px;
+    line-height: 1.25;
+    color: var(--text-secondary);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 2px;
+    pointer-events: none;
+}
+
 .calendar-day-header-wrapper {
     display: flex;
     justify-content: space-between;
@@ -311,6 +331,29 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
     font-weight: 500;
     line-height: 1.4;
     user-select: none;
+}
+
+/* 회원 앱 예약(MEMBER_WEB) M 배지 — 운영 캘린더 기본(작게). 크게 보이게는 회원 예약 페이지에서만 덮어씀 */
+.calendar-event .mb-cal-mine-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5em;
+    height: 1.5em;
+    min-width: 1.5em;
+    min-height: 1.5em;
+    box-sizing: border-box;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: #ffffff !important;
+    color: #1d4ed8 !important;
+    font-weight: 800;
+    font-size: 0.88em;
+    line-height: 1;
+    vertical-align: middle;
+    flex-shrink: 0;
+    border: 1px solid rgba(29, 78, 216, 0.45);
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
 /* 완료된 예약 아이콘 내부 원 정렬 */

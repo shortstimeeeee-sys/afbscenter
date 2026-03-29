@@ -203,9 +203,15 @@ public class DashboardController {
             LocalDateTime endOfMonth = lastDayOfMonth.atTime(LocalTime.MAX);
             
             Integer monthlyRevenue = 0;
+            long monthlyRevenuePaymentCount = 0L;
             try {
                 monthlyRevenue = paymentRepository.sumAmountByDateRange(startOfMonth, endOfMonth);
                 if (monthlyRevenue == null) monthlyRevenue = 0;
+                try {
+                    monthlyRevenuePaymentCount = paymentRepository.countForRevenueInDateRange(startOfMonth, endOfMonth);
+                } catch (Exception e) {
+                    logger.debug("월 매출 결제 건수 조회 실패: {}", e.getMessage());
+                }
                 
                 // Payment 데이터가 없으면 MemberProduct 기반으로 계산
                 if (monthlyRevenue == 0) {
@@ -226,6 +232,9 @@ public class DashboardController {
                         
                         if (memberProductRevenue > 0) {
                             monthlyRevenue = memberProductRevenue;
+                            monthlyRevenuePaymentCount = memberProducts.stream()
+                                    .filter(mp -> mp.getDeletedAt() == null)
+                                    .count();
                             logger.debug("Payment 데이터가 없어 MemberProduct 기반으로 월 매출 계산: {}", monthlyRevenue);
                         }
                     } catch (Exception e) {
@@ -272,6 +281,7 @@ public class DashboardController {
             kpi.put("revenue", todayRevenue);           // 오늘 매출
             kpi.put("yesterdayRevenue", yesterdayRevenue); // 어제 매출 (어제 대비 계산용)
             kpi.put("monthlyRevenue", monthlyRevenue);   // 월 매출
+            kpi.put("monthlyRevenuePaymentCount", monthlyRevenuePaymentCount); // 순매출 집계에 포함된 결제 건수(이용권 삭제 제외 등, 카드·모달과 동일 기준)
             kpi.put("visits", todayVisits);             // 방문 수 (숨김 처리)
             
             // 평균 회원당 매출 계산 (월 매출 ÷ 총 회원 수)

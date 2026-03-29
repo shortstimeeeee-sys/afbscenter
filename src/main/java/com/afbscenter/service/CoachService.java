@@ -112,7 +112,8 @@ public class CoachService {
             try {
                 List<Long> memberProductCoachIds = jdbcTemplate.queryForList(
                     "SELECT DISTINCT mp.member_id FROM member_products mp " +
-                    "WHERE mp.coach_id = ? AND mp.status = 'ACTIVE' AND mp.member_id IS NOT NULL",
+                    "WHERE mp.coach_id = ? AND mp.status = 'ACTIVE' AND mp.member_id IS NOT NULL " +
+                    "AND mp.deleted_at IS NULL",
                     Long.class,
                     coachId
                 );
@@ -149,7 +150,8 @@ public class CoachService {
             try {
                 List<Long> memberProductCoachIds = jdbcTemplate.queryForList(
                     "SELECT DISTINCT mp.member_id FROM member_products mp " +
-                    "WHERE mp.coach_id = ? AND mp.status = 'ACTIVE' AND mp.member_id IS NOT NULL",
+                    "WHERE mp.coach_id = ? AND mp.status = 'ACTIVE' AND mp.member_id IS NOT NULL " +
+                    "AND mp.deleted_at IS NULL",
                     Long.class,
                     coachId
                 );

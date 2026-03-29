@@ -27,6 +27,10 @@ public class User {
     @Column(nullable = false, unique = true, length = 50)
     private String username;
 
+    @Size(max = 30, message = "직원코드는 30자 이하여야 합니다")
+    @Column(name = "employee_code", unique = true, length = 30)
+    private String employeeCode; // 직원 고유 코드 (예: USR-000123)
+
     @NotBlank(message = "비밀번호는 필수입니다")
     @Size(min = 4, message = "비밀번호는 최소 4자 이상이어야 합니다")
     @JsonIgnore

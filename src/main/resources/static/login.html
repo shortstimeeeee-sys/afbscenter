@@ -175,16 +175,17 @@
             color: var(--af-gold);
             text-decoration: underline;
         }
-        #init-admin-btn {
-            background: rgba(107, 114, 128, 0.8);
-            font-size: 12px;
-            padding: 10px;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+        #member-booking-btn {
+            display: block;
+            text-align: center;
+            text-decoration: none;
+            box-sizing: border-box;
+            background: linear-gradient(135deg, var(--af-green) 0%, var(--af-green-light) 100%);
+            border: 2px solid var(--af-gold);
         }
-        #init-admin-btn:hover {
-            background: rgba(75, 85, 99, 0.9);
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        #member-booking-btn:hover {
+            filter: brightness(1.05);
+            box-shadow: 0 6px 16px rgba(212, 175, 55, 0.35);
         }
         /* 회원 가입 모달 오버레이에 엠블럼 배경 이미지 적용 */
         #registerModal.modal-overlay {
@@ -325,11 +326,10 @@
                 </a>
             </div>
             
-            <!-- 관리자 계정 초기화 버튼 (비밀번호 보호) -->
             <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(212, 175, 55, 0.3);">
-                <button type="button" class="btn-login" id="init-admin-btn">
-                    관리자 계정 초기화
-                </button>
+                <a href="/member-booking.html" class="btn-login" id="member-booking-btn">
+                    회원 예약 · 이용권으로 예약하기
+                </a>
             </div>
         </div>
     </div>
@@ -382,34 +382,6 @@
         </div>
     </div>
     
-    <!-- 관리자 계정 초기화 비밀번호 확인 모달 -->
-    <div id="adminInitModal" class="modal-overlay">
-        <div class="modal" style="max-width: 400px;">
-            <div class="modal-header">
-                <h2 class="modal-title">관리자 계정 초기화</h2>
-                <button class="modal-close" onclick="closeAdminInitModal()">×</button>
-            </div>
-            <div class="modal-body">
-                <p style="margin-bottom: 16px; color: var(--text-secondary); font-size: 13px;">
-                    관리자 계정 초기화를 위해 비밀번호를 입력해주세요.
-                </p>
-                <form id="admin-init-form" onsubmit="event.preventDefault(); confirmAdminInit();">
-                    <div class="form-group">
-                        <label class="form-label">비밀번호 *</label>
-                        <input type="password" id="admin-init-password" class="form-control" placeholder="비밀번호를 입력하세요" required autofocus>
-                        <small class="form-hint" style="display: block; margin-top: 4px; font-size: 12px; color: var(--text-muted);">
-                            관리자 계정 초기화를 위한 비밀번호를 입력하세요.
-                        </small>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeAdminInitModal()">취소</button>
-                <button class="btn btn-primary" onclick="confirmAdminInit()">확인</button>
-            </div>
-        </div>
-    </div>
-
     <script src="/js/common.js"></script>
     <script>
         // 테마 관리
@@ -538,15 +510,6 @@
                 });
             }
 
-            // 관리자 계정 초기화 버튼 - 비밀번호 모달 열기
-            const initAdminBtn = document.getElementById('init-admin-btn');
-            if (initAdminBtn) {
-                initAdminBtn.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openAdminInitModal();
-                });
-            }
         });
         
         // 에러 메시지 표시 함수 (전역)
@@ -658,99 +621,6 @@
             }
         }
         
-        // 관리자 계정 초기화 모달 열기
-        function openAdminInitModal() {
-            console.log('관리자 계정 초기화 모달 열기 시도');
-            const form = document.getElementById('admin-init-form');
-            if (form) {
-                form.reset();
-            }
-            
-            const modal = document.getElementById('adminInitModal');
-            if (modal) {
-                App.Modal.open('adminInitModal');
-                console.log('모달 열기 완료');
-                
-                // 모달이 열리면 비밀번호 입력 필드에 포커스
-                setTimeout(() => {
-                    const passwordInput = document.getElementById('admin-init-password');
-                    if (passwordInput) {
-                        passwordInput.focus();
-                        // Enter 키로 제출 (한 번만 등록)
-                        const enterHandler = function(e) {
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                confirmAdminInit();
-                                passwordInput.removeEventListener('keypress', enterHandler);
-                            }
-                        };
-                        passwordInput.addEventListener('keypress', enterHandler);
-                    }
-                }, 100);
-            } else {
-                console.error('모달 요소를 찾을 수 없습니다: adminInitModal');
-            }
-        }
-        
-        // 관리자 계정 초기화 모달 닫기
-        function closeAdminInitModal() {
-            App.Modal.close('adminInitModal');
-            document.getElementById('admin-init-form').reset();
-        }
-        
-        // 관리자 계정 초기화 확인 (비밀번호 입력 후)
-        async function confirmAdminInit() {
-            const form = document.getElementById('admin-init-form');
-            if (!form.checkValidity()) {
-                form.reportValidity();
-                return;
-            }
-            
-            const password = document.getElementById('admin-init-password').value;
-            if (!password) {
-                showError('비밀번호를 입력해주세요.');
-                return;
-            }
-            
-            const initAdminBtn = document.getElementById('init-admin-btn');
-            const errorMessage = document.getElementById('error-message');
-            initAdminBtn.disabled = true;
-            initAdminBtn.textContent = '처리 중...';
-            
-            try {
-                // 서버에 비밀번호와 함께 요청 전송
-                const response = await App.api.post('/auth/init-admin', {
-                    password: password
-                });
-                console.log('관리자 계정 초기화 결과:', response);
-                
-                closeAdminInitModal();
-                
-                // 에러 메시지 스타일을 성공 메시지로 변경
-                if (errorMessage) {
-                    errorMessage.style.background = 'rgba(34, 197, 94, 0.1)';
-                    errorMessage.style.color = '#22c55e';
-                }
-                
-                if (response.passwordReset) {
-                    showError('관리자 계정 비밀번호가 재설정되었습니다. (username: admin, password: admin123)');
-                } else if (response.exists) {
-                    showError('관리자 계정이 이미 존재합니다. (username: admin, password: admin123)');
-                } else {
-                    showError('관리자 계정이 생성되었습니다. (username: admin, password: admin123)');
-                }
-            } catch (error) {
-                console.error('관리자 계정 초기화 실패:', error);
-                let errorMsg = '관리자 계정 초기화에 실패했습니다.';
-                if (error.response && error.response.data && error.response.data.error) {
-                    errorMsg = error.response.data.error;
-                }
-                showError(errorMsg);
-            } finally {
-                initAdminBtn.disabled = false;
-                initAdminBtn.textContent = '관리자 계정 초기화';
-            }
-        }
     </script>
 </body>
 </html>

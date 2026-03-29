@@ -29,14 +29,19 @@ let accumulatedMembersList = [];
 let currentEditingMember = null; // 현재 수정 중인 회원 정보 (코치 선택용)
 
 document.addEventListener('DOMContentLoaded', function() {
-    // 회원 기본 통계는 목록과 별도로 먼저 로드 (목록 오류와 무관하게 표시)
-    if (document.getElementById('members-stats-container')) {
-        loadMemberStats();
+    // 초기 로드: 통계 / 목록 / 상품을 동시에 요청 (순차 대기 제거). 목록 완료 시 통계 재호출은 생략(refreshStats: false).
+    const statsEl = document.getElementById('members-stats-container');
+    const tableEl = document.getElementById('members-table-body');
+    const initialLoads = [];
+    if (statsEl) initialLoads.push(loadMemberStats());
+    if (tableEl) {
+        initialLoads.push(loadMembers(false, { refreshStats: false }));
+        initialLoads.push(loadProductsForSelect());
     }
-    // members.html 페이지에서만 실행
-    if (document.getElementById('members-table-body')) {
-        loadMembers();
-        loadProductsForSelect(); // 상품 목록 로드
+    if (initialLoads.length) {
+        Promise.all(initialLoads).catch(function(e) {
+            App.err('회원 페이지 초기 로드 중 오류:', e);
+        });
     }
     
     // 관리자만 삭제 버튼 표시
@@ -254,7 +259,12 @@ function getProductTypeText(type) {
 
 // 회원 통계(로드·카드·모달)는 members-stats.js 에서 처리
 
-async function loadMembers(append) {
+/**
+ * @param {boolean} append 더보기 시 true
+ * @param {{ refreshStats?: boolean }} [options] refreshStats 기본 true. 초기 진입 시 false로 통계 중복 호출 방지
+ */
+async function loadMembers(append, options) {
+    const refreshStats = options && options.refreshStats === false ? false : true;
     try {
         const tbody = document.getElementById('members-table-body');
         if (!tbody) {
@@ -320,7 +330,7 @@ async function loadMembers(append) {
         members = accumulatedMembersList;
         App.log('회원 목록 로드 성공:', members.length, '명');
         renderMembersTable(members, !!memberPaginationInfo);
-        loadMemberStats();
+        if (refreshStats) loadMemberStats();
     } catch (error) {
         App.err('회원 목록 로드 실패:', error);
         const tbody = document.getElementById('members-table-body');
@@ -472,28 +482,7 @@ function renderMemberProductsRemaining(member) {
             const productLines = countPassProducts.map(mp => {
                 const productName = mp.product.name || '상품';
                 
-                // remainingCount 계산 (상태가 USED_UP이면 0으로 표시)
-                let remaining = mp.remainingCount;
-                const mpStatus = mp.status || 'ACTIVE';
-                
-                // 상태가 USED_UP이면 잔여 횟수는 0
-                if (mpStatus === 'USED_UP') {
-                    remaining = 0;
-                }
-                // remainingCount가 null이나 undefined일 때만 대체값 사용 (0은 유효한 값)
-                else if (remaining === null || remaining === undefined) {
-                    // 상품의 실제 usageCount를 우선 사용 (데이터 일관성 보장)
-                    remaining = mp.product?.usageCount;
-                    // product.usageCount가 없으면 totalCount 사용
-                    if (remaining === null || remaining === undefined) {
-                        remaining = mp.totalCount;
-                    }
-                    // 그것도 없으면 기본값 10 사용
-                    if (remaining === null || remaining === undefined) {
-                        remaining = 10;
-                    }
-                }
-                // remainingCount가 0이면 0으로 유지 (대체값 사용하지 않음)
+                let remaining = App.resolveDisplayRemainingCount(mp, { whenAllUnknown: 'ten' });
                 
                 const color = getRemainingCountColor(remaining);
                 const weight = remaining <= 3 ? '700' : '600';
@@ -536,23 +525,12 @@ function getSortedActiveProductsForMember(member) {
     return list;
 }
 
-/** 상품 하나에 대한 담당 코치명 반환 (renderMemberProducts와 동일한 우선순위) */
+/** 상품 하나에 대한 담당 코치명 (이용권·상품 기준만; 회원 기본 코치 문자열로 덮어쓰지 않음 — API와 동일) */
 function getCoachNameForMemberProduct(mp, member) {
     const product = mp && mp.product ? mp.product : {};
-    const productNameLower = (product.name || '').toLowerCase();
-    const productCategory = (product.category || '').toUpperCase();
     let name = mp.coachName || (mp.coach && (mp.coach.name || mp.coach)) || (product.coach && (product.coach.name || product.coach));
     if (name) return String(name).trim();
-    if (!member.coachNames) return null;
-    const coachNamesList = member.coachNames.split('\n').filter(n => n.trim());
-    if (coachNamesList.length === 0) return null;
-    if (productCategory === 'BASEBALL' || productNameLower.includes('야구') || productNameLower.includes('baseball'))
-        return coachNamesList.find(n => n.includes('서정민') || n.includes('김우경') || n.includes('이원준')) || coachNamesList[0];
-    if (productCategory === 'PILATES' || productNameLower.includes('필라테스') || productNameLower.includes('pilates'))
-        return coachNamesList.find(n => n.includes('김소연') || n.includes('이서현') || n.includes('이소연')) || coachNamesList[0];
-    if (productCategory === 'TRAINING' || productNameLower.includes('트레이닝') || productNameLower.includes('training'))
-        return coachNamesList.find(n => n.includes('박준현')) || coachNamesList[0];
-    return coachNamesList[0];
+    return null;
 }
 
 /** 담당 코치를 상품/이용권과 같은 순서로 표시 (1번 상품 → 1번 코치 라인) */
@@ -792,17 +770,11 @@ function checkMemberExpiring(member) {
                 continue;
             }
             
-            // 횟수권: 남은 횟수 3회 이하
+            // 횟수권: 남은 횟수 3회 이하 (표시 규칙과 동일: resolveDisplayRemainingCount)
             if (productType === 'COUNT_PASS') {
-                let remainingCount = mp.remainingCount;
-                // remainingCount가 null/undefined인 경우 totalCount 사용
-                if (remainingCount === null || remainingCount === undefined) {
-                    remainingCount = mp.totalCount;
-                }
-                // remainingCount가 여전히 null이면 계산 불가능하므로 건너뜀
-                if (remainingCount !== null && remainingCount !== undefined && 
+                const remainingCount = App.resolveDisplayRemainingCount(mp, { whenAllUnknown: 'null' });
+                if (remainingCount !== null && remainingCount !== undefined &&
                     remainingCount <= 2 && remainingCount > 0) {
-                    // 만료 임박 (횟수권)
                     return true;
                 }
             }
@@ -2425,8 +2397,23 @@ async function loadMemberProductsForDetail(memberId) {
     }
 }
 
+/** 회원 예약(비로그인·회원번호 확인) 상세 모달: 이용권 관리 버튼 비표시 */
+function isPublicMemberBookingReadOnly() {
+    try {
+        const c = typeof window !== 'undefined' ? window.mbPublicBookingContext : null;
+        return !!(c && c.memberId != null && c.memberNumber);
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * @param {Array} products /member-products 응답 (coachName·coach·product.coach — 서버 규칙과 동일)
+ * @param {number|string|null} memberId
+ */
 function renderProductsList(products, memberId) {
-    const purchaseBtn = (memberId != null && memberId !== '') ? `
+    const hideProductActions = isPublicMemberBookingReadOnly();
+    const purchaseBtn = !hideProductActions && (memberId != null && memberId !== '') ? `
         <div style="margin-bottom: 14px;">
             <button type="button" class="btn btn-primary" onclick="openExtendProductModal(${memberId})" title="새 이용권 구매 또는 기존 이용권 연장">
                 이용권 구매/연장
@@ -2436,7 +2423,7 @@ function renderProductsList(products, memberId) {
     if (!products || products.length === 0) {
         return purchaseBtn + '<p style="color: var(--text-muted);">이용권이 없습니다.</p>';
     }
-    const extendBtn = (memberId != null && memberId !== '') ? `
+    const extendBtn = !hideProductActions && (memberId != null && memberId !== '') ? `
                             <button class="btn btn-sm btn-primary" onclick="openExtendProductModal(${memberId})" title="이용권 연장" style="margin-right: 4px;">
                                 연장
                             </button>
@@ -2448,26 +2435,7 @@ function renderProductsList(products, memberId) {
                 const productName = product.name || '알 수 없음';
                 const status = p.status || 'UNKNOWN';
                 
-                // remainingCount 계산 (상태가 USED_UP이면 0으로 표시)
-                let remaining = p.remainingCount;
-                
-                // 상태가 USED_UP이면 잔여 횟수는 0
-                if (status === 'USED_UP') {
-                    remaining = 0;
-                }
-                // remainingCount가 null이나 undefined일 때만 대체값 사용 (0은 유효한 값)
-                else if (remaining === null || remaining === undefined) {
-                    // 상품의 실제 usageCount를 우선 사용 (데이터 일관성 보장)
-                    remaining = product.usageCount;
-                    if (remaining === null || remaining === undefined) {
-                        remaining = p.totalCount;
-                    }
-                    if (remaining === null || remaining === undefined) {
-                        remaining = 0;
-                    }
-                }
-                // remainingCount가 0이면 0으로 유지 (대체값 사용하지 않음)
-                remaining = remaining !== null && remaining !== undefined ? remaining : 0;
+                let remaining = App.resolveDisplayRemainingCount(p, { whenAllUnknown: 'zero' });
                 
                 // totalCount 계산 (totalCount가 null이면 product.usageCount 사용)
                 let total = p.totalCount;
@@ -2483,7 +2451,7 @@ function renderProductsList(products, memberId) {
                 const isMonthlyPass = product.type === 'MONTHLY_PASS';
                 const startDate = p.purchaseDate ? App.formatDate(p.purchaseDate.split('T')[0]) : '-';
                 
-                // 종료된 이용권도 당시 배정된 코치 유지 표시
+                // 종료된 이용권도 당시 배정된 코치 유지 표시 (이용권→상품 기본만; 서버 MemberProductCoachResolver와 동일)
                 const rawCoachName = p.coachName || (p.coach && p.coach.name) || (product.coach && product.coach.name) || '미지정';
                 const coachDisplay = renderCoachNamesWithColorsFromText(rawCoachName);
                 
@@ -2605,19 +2573,19 @@ function renderProductsList(products, memberId) {
                     <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                         ${extendBtn}
                         <span class="badge badge-${status === 'ACTIVE' ? 'success' : status === 'EXPIRED' ? 'warning' : 'secondary'}">${statusDisplay}</span>
-                        ${isCountPass ? `
+                        ${!hideProductActions && isCountPass ? `
                             <button class="btn btn-sm btn-secondary" onclick="openAdjustCountModal(${productId}, ${remaining}, ${total})" title="횟수 조정">
                                 조정
                             </button>
                         ` : ''}
-                        ${isMonthlyPass ? `
+                        ${!hideProductActions && isMonthlyPass ? `
                             <button class="btn btn-sm btn-secondary" onclick="openEditPeriodPassModal(${productId}, '${p.purchaseDate?.split('T')[0] || ''}', '${p.expiryDate || ''}')" title="기간 수정">
                                 기간 수정
                             </button>
                         ` : ''}
-                        <button class="btn btn-sm btn-danger" onclick="deleteMemberProduct(${productId}, '${productName}')" title="이용권 삭제">
+                        ${!hideProductActions ? `<button class="btn btn-sm btn-danger" onclick="deleteMemberProduct(${productId}, '${productName}')" title="이용권 삭제">
                             삭제
-                        </button>
+                        </button>` : ''}
                     </div>
                 </div>
             `;
@@ -2687,6 +2655,17 @@ async function openAdjustCountModal(productId, currentRemaining, currentTotal) {
     App.Modal.open('adjust-count-modal');
 }
 
+// 이용권 횟수·연장 입력: 숫자만 허용할 때 사용 (소수·문자 섞임 방지)
+const NUMERIC_ONLY_MSG = '숫자만 입력해 주세요.';
+function isStrictUnsignedIntString(s) {
+    const t = String(s).trim();
+    return t !== '' && /^\d+$/.test(t);
+}
+function isStrictSignedIntString(s) {
+    const t = String(s).trim();
+    return t !== '' && /^-?\d+$/.test(t) && t !== '-';
+}
+
 // 횟수 조정 처리
 async function processAdjustCount() {
     const productId = document.getElementById('adjust-product-id').value;
@@ -2719,9 +2698,13 @@ async function processAdjustCount() {
             if (!amountInput || amountInput === '') {
                 effectiveCount = currentCount;
             } else {
-                const parsed = parseInt(amountInput);
-                if (isNaN(parsed) || parsed < 0) {
-                    App.showNotification('직접 설정 모드에서는 0 이상의 유효한 숫자를 입력해주세요.', 'warning');
+                if (!isStrictUnsignedIntString(amountInput)) {
+                    App.showNotification(NUMERIC_ONLY_MSG, 'warning');
+                    return;
+                }
+                const parsed = parseInt(amountInput, 10);
+                if (parsed < 0) {
+                    App.showNotification('직접 설정 모드에서는 0 이상의 숫자를 입력해 주세요.', 'warning');
                     return;
                 }
                 effectiveCount = parsed;
@@ -2730,8 +2713,12 @@ async function processAdjustCount() {
             // 총 횟수 유효성 검사 (입력했다면)
             let totalPayload = null;
             if (totalInput && totalInput.trim() !== '') {
-                const totalVal = parseInt(totalInput);
-                if (isNaN(totalVal) || totalVal <= 0) {
+                if (!isStrictUnsignedIntString(totalInput)) {
+                    App.showNotification(NUMERIC_ONLY_MSG, 'warning');
+                    return;
+                }
+                const totalVal = parseInt(totalInput.trim(), 10);
+                if (totalVal <= 0) {
                     App.showNotification('총 횟수는 1 이상의 숫자여야 합니다.', 'warning');
                     return;
                 }
@@ -2744,11 +2731,24 @@ async function processAdjustCount() {
             });
         } else {
             // 상대 조정 모드: +/- 방식
+            if (!amountInput || amountInput === '') {
+                App.showNotification('조정할 횟수를 입력해주세요. (양수: 추가, 음수: 차감)', 'warning');
+                return;
+            }
+            if (!isStrictSignedIntString(amountInput)) {
+                App.showNotification(NUMERIC_ONLY_MSG, 'warning');
+                return;
+            }
+            const inputValue = parseInt(amountInput.trim(), 10);
+            if (Number.isNaN(inputValue)) {
+                App.showNotification(NUMERIC_ONLY_MSG, 'warning');
+                return;
+            }
             if (inputValue === 0) {
                 App.showNotification('0이 아닌 값을 입력해주세요. (양수: 추가, 음수: 차감)', 'warning');
                 return;
             }
-            
+
             result = await App.api.put(`/member-products/${productId}/adjust-count`, {
                 amount: inputValue
             });
@@ -2770,7 +2770,8 @@ async function processAdjustCount() {
         // 회원 목록도 새로고침 (잔여 횟수 업데이트)
         loadMembers();
     } catch (error) {
-        const msg = (error && error.response && error.response.data && error.response.data.error) || (error && error.message) || '횟수 조정에 실패했습니다.';
+        const serverErr = error && error.response && error.response.data && error.response.data.error;
+        const msg = serverErr || (error && error.message) || '횟수 조정에 실패했습니다.';
         App.showNotification(typeof msg === 'string' ? msg : '횟수 조정에 실패했습니다.', 'danger');
     }
 }
@@ -3238,6 +3239,7 @@ async function loadMemberTimeline(memberId) {
 }
 
 function renderMemberTimelineContent(events, memberId) {
+    const hideTimelineDelete = isPublicMemberBookingReadOnly();
     if (!events || events.length === 0) {
         return `
         <div class="card">
@@ -3290,12 +3292,13 @@ function renderMemberTimelineContent(events, memberId) {
         const processedByLine = (ev.processedBy && String(ev.processedBy).trim()) ? '<div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">처리: ' + (App.escapeHtml ? App.escapeHtml(ev.processedBy) : ev.processedBy) + '</div>' : '';
         const hasHistoryId = ev.historyId != null;
         var checkCellInner = '';
-        if (hasHistoryId) {
+        if (!hideTimelineDelete && hasHistoryId) {
             checkCellInner = '<span class="timeline-entry-check-wrap" style="display: none;"><label style="margin: 0; cursor: pointer;"><input type="checkbox" class="timeline-entry-checkbox" data-history-id="' + ev.historyId + '"></label></span>';
         }
+        const checkCol = hideTimelineDelete ? '' : '<div style="width: 28px; min-width: 28px; flex-shrink: 0;">' + checkCellInner + '</div>';
         return `
         <div class="timeline-row" style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border-color, #2D3441);">
-            <div style="width: 28px; min-width: 28px; flex-shrink: 0;">${checkCellInner}</div>
+            ${checkCol}
             <div style="width: 165px; min-width: 165px; flex-shrink: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.4;">${date}</div>
             <div style="width: 80px; min-width: 80px; flex-shrink: 0;"><span class="badge badge-${badgeClass}">${badgeText}</span></div>
             <div style="flex: 1; min-width: 0; font-size: 13px; line-height: 1.4; text-align: left;">
@@ -3305,9 +3308,12 @@ function renderMemberTimelineContent(events, memberId) {
             </div>
         </div>`;
     }).join('');
-    const deleteBtnHtml = memberId
+    const deleteBtnHtml = memberId && !hideTimelineDelete
         ? '<button type="button" id="timeline-delete-btn" class="btn btn-sm btn-danger" onclick="toggleTimelineSelectOrDelete(' + memberId + ')" style="margin-left: auto;">선택 삭제</button>'
         : '';
+    const timelineHelpHtml = hideTimelineDelete
+        ? '<p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">가입, 구매, 예약, 체크인, 이용권 변동을 날짜순으로 표시합니다.</p>'
+        : '<p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">가입, 구매, 예약, 체크인, 이용권 변동을 날짜순으로 표시합니다. <strong>선택 삭제</strong>를 누르면 이용권 항목에 체크박스가 나타나며, 체크한 뒤 다시 버튼을 누르면 삭제됩니다.</p>';
     return `
         <div class="card">
             <div class="card-header" style="display: flex; align-items: center; flex-wrap: wrap;">
@@ -3315,7 +3321,7 @@ function renderMemberTimelineContent(events, memberId) {
                 ${deleteBtnHtml}
             </div>
             <div class="card-body">
-                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">가입, 구매, 예약, 체크인, 이용권 변동을 날짜순으로 표시합니다. <strong>선택 삭제</strong>를 누르면 이용권 항목에 체크박스가 나타나며, 체크한 뒤 다시 버튼을 누르면 삭제됩니다.</p>
+                ${timelineHelpHtml}
                 <div class="member-timeline-list" style="max-height: 60vh; overflow-y: auto;">
                     ${rows}
                 </div>
@@ -3326,6 +3332,7 @@ function renderMemberTimelineContent(events, memberId) {
 
 /** 선택 삭제: 첫 번째 클릭 = 체크박스 표시, 두 번째 클릭 = 선택 항목 삭제 */
 async function toggleTimelineSelectOrDelete(memberId) {
+    if (isPublicMemberBookingReadOnly()) return;
     const list = document.querySelector('#detail-tab-content .member-timeline-list');
     const btn = document.getElementById('timeline-delete-btn');
     if (!list) return;
@@ -3540,6 +3547,7 @@ function getCoachMemoStatsObject(member) {
 
 function setupMemberStatsMemos(container, member) {
     if (!container || !member || !member.id) return;
+    if (isPublicMemberBookingReadOnly()) return;
     var icons = container.querySelectorAll('.member-field-memo-icon');
     icons.forEach(function(icon) {
         var field = icon.getAttribute('data-field') || '';
@@ -3565,6 +3573,7 @@ function setupMemberStatsMemos(container, member) {
 }
 
 function openGradeMemoModal(memberId, initialMemo, field, statIndex, statLabel) {
+    if (isPublicMemberBookingReadOnly()) return;
     var overlay = document.createElement('div');
     overlay.className = 'member-grade-memo-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
@@ -3935,7 +3944,9 @@ function renderMemberStats(member, context) {
     var gradeLabelEsc = (context && context.gradeLabel) ? (App.escapeHtml ? App.escapeHtml(context.gradeLabel) : context.gradeLabel) : '';
     var gradeHtml = gradeLabelEsc ? '<p class="member-stats-grade">소속 등급: <strong>' + gradeLabelEsc + '</strong></p>' : '';
     var fieldLabel = { pitcher: '투수', batter: '타자', defense: '수비', catcher: '포수' };
+    var memoReadOnly = isPublicMemberBookingReadOnly();
     var memoIconHtml = function(field, statIndex, statLabel) {
+        if (memoReadOnly) return '';
         var title = (fieldLabel[field] || field) + ' - ' + (statLabel || '') + ' 메모';
         return ' <button type="button" class="member-field-memo-icon" title="' + title + '" data-member-id="' + (member.id || '') + '" data-field="' + field + '" data-stat-index="' + (statIndex != null ? statIndex : '') + '" data-stat-label="' + (statLabel ? String(statLabel).replace(/"/g, '&quot;') : '') + '" style="margin-left:6px;padding:0 4px;background:transparent;border:none;cursor:pointer;font-size:14px;vertical-align:middle;opacity:0.85;">&#128221;</button>';
     };
@@ -4091,6 +4102,7 @@ function renderMemberStats(member, context) {
 
 function setupMemberMemoTabSave(container, member) {
     if (!container || !member || !member.id) return;
+    if (isPublicMemberBookingReadOnly()) return;
     var btn = container.querySelector('.member-memo-tab-save');
     if (!btn) return;
     btn.addEventListener('click', function() {
@@ -4128,6 +4140,7 @@ function setupMemberMemoTabSave(container, member) {
 
 function renderMemberMemo(member) {
     if (!member) return '<p>로딩 중...</p>';
+    var ro = isPublicMemberBookingReadOnly();
     var esc = function(s) { return (s != null ? String(s) : '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
     var coachMemoVal = esc(member.coachMemo);
     var stats = getCoachMemoStatsObject(member);
@@ -4150,10 +4163,18 @@ function renderMemberMemo(member) {
             var val = (Array.isArray(arr) && arr[i] != null) ? esc(String(arr[i])) : '';
             var label = labels[i] || '항목 ' + (i + 1);
             var rowClass = val ? 'member-memo-stat-row has-memo' : 'member-memo-stat-row';
-            sectionsHtml += '<div class="' + rowClass + '">' +
-                '<span class="member-memo-stat-label">' + label + '</span>' +
-                '<input type="text" class="form-control member-memo-stat-input" value="' + val + '" data-field="' + field + '" data-stat-index="' + i + '" placeholder="메모" maxlength="200" />' +
-                '</div>';
+            if (ro) {
+                var displayMemo = val || '—';
+                sectionsHtml += '<div class="' + rowClass + '">' +
+                    '<span class="member-memo-stat-label">' + label + '</span>' +
+                    '<div class="form-control member-memo-stat-readonly" style="background: var(--bg-tertiary); white-space: pre-wrap; min-height: 38px;">' + displayMemo + '</div>' +
+                    '</div>';
+            } else {
+                sectionsHtml += '<div class="' + rowClass + '">' +
+                    '<span class="member-memo-stat-label">' + label + '</span>' +
+                    '<input type="text" class="form-control member-memo-stat-input" value="' + val + '" data-field="' + field + '" data-stat-index="' + i + '" placeholder="메모" maxlength="200" />' +
+                    '</div>';
+            }
         }
         sectionsHtml += '</div></div>';
     });
@@ -4161,9 +4182,9 @@ function renderMemberMemo(member) {
         '<div class="member-memo-top">' +
         '<div class="form-group">' +
         '<label class="form-label">코치 메모 <small class="text-muted">(등급 사유 등, 개인능력치 탭과 연동)</small></label>' +
-        '<textarea class="form-control member-coach-memo-input" rows="4" placeholder="코치 메모를 입력하세요.">' + coachMemoVal + '</textarea>' +
+        '<textarea class="form-control member-coach-memo-input" rows="4" placeholder="코치 메모를 입력하세요."' + (ro ? ' readonly' : '') + '>' + coachMemoVal + '</textarea>' +
         '</div>' +
-        '<button type="button" class="btn btn-primary member-memo-tab-save">메모 저장</button>' +
+        (ro ? '' : '<button type="button" class="btn btn-primary member-memo-tab-save">메모 저장</button>') +
         '</div>' +
         '<div class="member-memo-bottom">' +
         '<label class="form-label member-memo-stat-heading">수치별 메모</label>' +
@@ -4177,7 +4198,25 @@ function exportCSV() {
 }
 
 // 상품/이용권 연장 모달 열기
-async function openExtendProductModal(memberId) {
+// options.memberProductId: 대시보드 만료 임박 등에서 해당 보유 이용권을 미리 선택
+// options.defaultExtendDays: 연장 횟수 입력란이 비어 있을 때 기본값(예: 상품 기준 횟수)
+async function openExtendProductModal(memberId, options) {
+    options = options || {};
+    const preselectMemberProductId =
+        options.memberProductId != null && options.memberProductId !== ''
+            ? Number(options.memberProductId)
+            : null;
+    const defaultExtendDays =
+        options.defaultExtendDays != null && options.defaultExtendDays !== ''
+            ? Number(options.defaultExtendDays)
+            : null;
+
+    if (!document.getElementById('extend-member-id')) {
+        App.warn('openExtendProductModal: extend-product-modal 이 이 페이지에 없습니다.');
+        App.showNotification('이 화면에서는 연장 창을 열 수 없습니다. 회원 관리 또는 대시보드에서 이용해 주세요.', 'warning');
+        return;
+    }
+
     document.getElementById('extend-member-id').value = memberId;
     document.getElementById('extend-product-select').innerHTML = '<option value="">로딩 중...</option>';
         document.getElementById('extend-current-expiry').textContent = '-';
@@ -4228,6 +4267,17 @@ async function openExtendProductModal(memberId) {
                 const remainingCount = mp.remainingCount !== undefined ? mp.remainingCount : '-';
                 const actualPurchasePrice = mp.actualPurchasePrice || mp.product?.price || 0;
                 const totalCount = mp.totalCount || mp.product?.usageCount || 10;
+                /** 연장 예상 금액: 단가 = 구매가 ÷ 이 값(상품 정의 횟수). 누적 totalCount로 나누면 연장마다 금액이 반토막처럼 보임 */
+                const catalogUsage =
+                    mp.product && mp.product.usageCount != null && Number(mp.product.usageCount) > 0
+                        ? Number(mp.product.usageCount)
+                        : null;
+                const bundleForUnitPrice =
+                    catalogUsage != null
+                        ? catalogUsage
+                        : totalCount > 0
+                          ? Number(totalCount)
+                          : 10;
                 
                 // 상품 타입에 따른 표시
                 let typeText = '';
@@ -4249,6 +4299,7 @@ async function openExtendProductModal(memberId) {
                 option.dataset.productType = productType;
                 option.dataset.actualPurchasePrice = actualPurchasePrice;
                 option.dataset.totalCount = totalCount;
+                option.dataset.bundleUsageCount = String(bundleForUnitPrice);
                 option.dataset.expiryDate = mp.expiryDate || '';
                 // 담당 코치 이름 (이용권 코치 > 상품 기본 코치 순)
                 const coachName = (mp.coach && mp.coach.name) || (mp.product && mp.product.coach && mp.product.coach.name) || '미지정';
@@ -4290,6 +4341,13 @@ async function openExtendProductModal(memberId) {
                     option.dataset.productType = productType;
                     option.dataset.actualPurchasePrice = productPrice;
                     option.dataset.totalCount = totalCount;
+                    const bundleNew =
+                        product.usageCount != null && Number(product.usageCount) > 0
+                            ? Number(product.usageCount)
+                            : totalCount > 0
+                              ? totalCount
+                              : 10;
+                    option.dataset.bundleUsageCount = String(bundleNew);
                     option.dataset.expiryDate = '';
                     allAvailableProducts.push({
                         type: 'product',
@@ -4316,11 +4374,13 @@ async function openExtendProductModal(memberId) {
             
             if (selectedValue && daysValue > 0) {
                 const selectedOption = freshSelect.options[freshSelect.selectedIndex];
-                const actualPurchasePrice = parseInt(selectedOption.dataset.actualPurchasePrice) || 0;
-                const totalCount = parseInt(selectedOption.dataset.totalCount) || 10;
+                const actualPurchasePrice = parseInt(selectedOption.dataset.actualPurchasePrice, 10) || 0;
+                const bundleCount = parseInt(selectedOption.dataset.bundleUsageCount, 10);
+                const divisor =
+                    bundleCount > 0 ? bundleCount : parseInt(selectedOption.dataset.totalCount, 10) || 10;
                 
-                if (totalCount > 0 && actualPurchasePrice > 0) {
-                    const unitPrice = Math.floor(actualPurchasePrice / totalCount);
+                if (divisor > 0 && actualPurchasePrice > 0) {
+                    const unitPrice = Math.floor(actualPurchasePrice / divisor);
                     const totalPrice = unitPrice * daysValue;
                     document.getElementById('extend-calculated-price').textContent = App.formatCurrency(totalPrice);
                 } else {
@@ -4400,7 +4460,25 @@ async function openExtendProductModal(memberId) {
                 daysInput.value = '';
             }
         });
-        
+
+        if (preselectMemberProductId != null && !isNaN(preselectMemberProductId)) {
+            const wanted = 'memberProduct_' + preselectMemberProductId;
+            for (let i = 0; i < freshSelect.options.length; i++) {
+                if (freshSelect.options[i].value === wanted) {
+                    freshSelect.selectedIndex = i;
+                    freshSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    break;
+                }
+            }
+        }
+        if (defaultExtendDays != null && !isNaN(defaultExtendDays) && defaultExtendDays > 0) {
+            const di = document.getElementById('extend-days');
+            if (di && String(di.value).trim() === '') {
+                di.value = String(defaultExtendDays);
+                updateExtendPrice();
+            }
+        }
+
         App.Modal.open('extend-product-modal');
     } catch (error) {
         App.err('상품/이용권 목록 로드 실패:', error);
@@ -4435,9 +4513,13 @@ async function processExtendProduct() {
         App.showNotification('연장 횟수를 입력해주세요.', 'warning');
         return;
     }
-    
-    const days = parseInt(daysInput);
-    if (isNaN(days) || days <= 0) {
+    const daysTrim = daysInput.trim();
+    if (!isStrictUnsignedIntString(daysTrim)) {
+        App.showNotification(NUMERIC_ONLY_MSG, 'warning');
+        return;
+    }
+    const days = parseInt(daysTrim, 10);
+    if (days <= 0) {
         App.showNotification('연장 횟수는 1 이상의 숫자여야 합니다.', 'warning');
         return;
     }
@@ -4457,9 +4539,23 @@ async function processExtendProduct() {
             const actualPurchasePrice = parseInt(selectedOption.dataset.actualPurchasePrice) || 0;
             const totalCount = parseInt(selectedOption.dataset.totalCount) || 10;
 
+            const memberForCoach = await App.api.get(`/members/${memberId}`);
+            let extendCoachId =
+                (memberForCoach && memberForCoach.coach && memberForCoach.coach.id) ? memberForCoach.coach.id : null;
+            if (!extendCoachId) {
+                const products = await App.api.get('/products');
+                const p = Array.isArray(products) ? products.find(pr => pr.id === productId) : null;
+                if (p && p.coach && p.coach.id) extendCoachId = p.coach.id;
+            }
+            if (!extendCoachId) {
+                App.showNotification('신규 이용권 추가에는 담당 코치가 필요합니다. 회원 카드에서 코치를 지정하거나, 상품에 담당 코치가 등록되어 있는지 확인해 주세요.', 'warning');
+                return;
+            }
+
             const result = await App.api.post(`/members/${memberId}/products`, {
                 productId: productId,
-                skipPayment: true  // 연장 모달에서 호출하므로 결제 생성을 건너뜀
+                skipPayment: true,  // 연장 모달에서 호출하므로 결제 생성을 건너뜀
+                coachId: extendCoachId
             });
 
             if (result && result.id) {
@@ -4473,6 +4569,15 @@ async function processExtendProduct() {
         }
         
         App.Modal.close('extend-product-modal');
+
+        try {
+            const expEl = document.getElementById('expiringMembersModal');
+            if (expEl && expEl.style.display === 'flex' && typeof window.openExpiringMembersModal === 'function') {
+                await window.openExpiringMembersModal();
+            }
+        } catch (refreshErr) {
+            App.warn('만료 임박 목록 새로고침 생략:', refreshErr);
+        }
         
         // 회원 목록 새로고침 (누적 결제 금액 업데이트)
         loadMembers();
@@ -4493,7 +4598,9 @@ async function processExtendProduct() {
         }
     } catch (error) {
         App.err('상품/이용권 연장 실패:', error);
-        App.showNotification('상품/이용권 연장에 실패했습니다.', 'danger');
+        const serverErr = error && error.response && error.response.data && error.response.data.error;
+        const msg = serverErr || '상품/이용권 연장에 실패했습니다.';
+        App.showNotification(typeof msg === 'string' ? msg : '상품/이용권 연장에 실패했습니다.', 'danger');
     }
 }
 

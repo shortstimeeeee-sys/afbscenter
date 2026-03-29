@@ -28,6 +28,30 @@ public class UserService {
         this.passwordEncoder = passwordEncoder;
     }
 
+    private String buildEmployeeCodeFromUserId(Long userId) {
+        return String.format("USR-%06d", userId);
+    }
+
+    private void ensureEmployeeCode(User user) {
+        if (user == null) return;
+        if (user.getEmployeeCode() != null && !user.getEmployeeCode().trim().isEmpty()) return;
+        if (user.getId() == null) return;
+
+        String candidate = buildEmployeeCodeFromUserId(user.getId());
+        if (userRepository.existsByEmployeeCode(candidate)) {
+            int suffix = 1;
+            while (true) {
+                String fallback = candidate + "-" + suffix;
+                if (!userRepository.existsByEmployeeCode(fallback)) {
+                    candidate = fallback;
+                    break;
+                }
+                suffix++;
+            }
+        }
+        user.setEmployeeCode(candidate);
+    }
+
     // 전체 사용자 조회
     @Transactional(readOnly = true)
     public List<User> getAllUsers() {
@@ -76,6 +100,12 @@ public class UserService {
         return userRepository.findByUsername(username);
     }
 
+    // 직원코드로 조회
+    @Transactional(readOnly = true)
+    public Optional<User> getUserByEmployeeCode(String employeeCode) {
+        return userRepository.findByEmployeeCode(employeeCode);
+    }
+
     // 사용자 생성
     public User createUser(User user) {
         // 사용자명 중복 체크
@@ -101,7 +131,9 @@ public class UserService {
         user.setCreatedAt(LocalDateTime.now());
         user.setUpdatedAt(LocalDateTime.now());
 
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        ensureEmployeeCode(saved);
+        return userRepository.save(saved);
     }
 
     // 사용자 수정
@@ -131,6 +163,7 @@ public class UserService {
         // 이름, 전화번호 업데이트
         user.setName(userData.getName());
         user.setPhoneNumber(userData.getPhoneNumber());
+        // employeeCode는 회원번호처럼 시스템 자동 부여 값으로 취급 (수정 API에서 변경 불가)
 
         // 활성 상태 업데이트
         if (userData.getActive() != null) {
@@ -144,7 +177,9 @@ public class UserService {
 
         user.setUpdatedAt(LocalDateTime.now());
 
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        ensureEmployeeCode(saved);
+        return userRepository.save(saved);
     }
 
     // 사용자 삭제 (소프트 삭제 - active를 false로)
@@ -195,7 +230,9 @@ public class UserService {
 
         user.setApproved(true);
         user.setUpdatedAt(LocalDateTime.now());
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        ensureEmployeeCode(saved);
+        return userRepository.save(saved);
     }
 
     // 사용자 승인 거부 (계정 비활성화)
