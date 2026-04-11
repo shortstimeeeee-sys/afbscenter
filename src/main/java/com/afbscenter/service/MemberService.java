@@ -5,6 +5,7 @@ import com.afbscenter.model.Coach;
 import com.afbscenter.model.Member;
 import com.afbscenter.model.Member.MemberGrade;
 import com.afbscenter.model.Member.MemberStatus;
+import com.afbscenter.model.Booking;
 import com.afbscenter.model.MemberProduct;
 import com.afbscenter.model.Product;
 import com.afbscenter.repository.AttendanceRepository;
@@ -43,6 +44,7 @@ public class MemberService {
     private final MemberProductRepository memberProductRepository;
     private final ProductRepository productRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final OperationalCoachViewService operationalCoachViewService;
 
     // 생성자 주입 (Spring 4.3+에서는 @Autowired 불필요)
     public MemberService(MemberRepository memberRepository, 
@@ -52,7 +54,8 @@ public class MemberService {
                         AttendanceRepository attendanceRepository,
                         MemberProductRepository memberProductRepository,
                         ProductRepository productRepository,
-                        JdbcTemplate jdbcTemplate) {
+                        JdbcTemplate jdbcTemplate,
+                        OperationalCoachViewService operationalCoachViewService) {
         this.memberRepository = memberRepository;
         this.coachRepository = coachRepository;
         this.paymentRepository = paymentRepository;
@@ -61,6 +64,7 @@ public class MemberService {
         this.memberProductRepository = memberProductRepository;
         this.productRepository = productRepository;
         this.jdbcTemplate = jdbcTemplate;
+        this.operationalCoachViewService = operationalCoachViewService;
     }
 
     /**
@@ -76,6 +80,25 @@ public class MemberService {
         memberProduct.setDeletedAt(LocalDateTime.now());
         memberProduct.setDeletedBy(deletedBy != null && !deletedBy.isBlank() ? deletedBy.trim() : null);
         memberProductRepository.save(memberProduct);
+    }
+
+    /**
+     * 예약에 걸린 이용권 참조를 해제한 뒤 소프트 삭제합니다. (수동 삭제·전액 환불 공통)
+     */
+    public void softDeleteMemberProductAndDetachBookings(MemberProduct memberProduct, String deletedBy) {
+        if (memberProduct == null || memberProduct.getId() == null) {
+            return;
+        }
+        if (memberProduct.getDeletedAt() != null) {
+            return;
+        }
+        Long id = memberProduct.getId();
+        List<Booking> bookings = bookingRepository.findAllBookingsByMemberProductId(id);
+        for (Booking b : bookings) {
+            b.setMemberProduct(null);
+            bookingRepository.save(b);
+        }
+        softDeleteMemberProduct(memberProduct, deletedBy);
     }
 
     // 회원 생성
@@ -361,7 +384,32 @@ public class MemberService {
      */
     @Transactional(readOnly = true)
     public List<MemberResponseDTO> getAllMembersWithFilters(String productCategory, String grade, String status, String branch, Boolean endedTicket) {
+        return getAllMembersWithFilters(productCategory, grade, status, branch, endedTicket, null);
+    }
+
+    /**
+     * @param restrictToCoachId 코치 로그인 시 본인 ID에 해당하는 회원만: 카드 담당·이용권 담당·상품 기본 담당 중 하나라도 일치
+     *        ({@link OperationalCoachViewService#findMemberIdsMatchingViewCoachIds}와 동일 규칙).
+     */
+    @Transactional(readOnly = true)
+    public List<MemberResponseDTO> getAllMembersWithFilters(String productCategory, String grade, String status, String branch, Boolean endedTicket,
+            Long restrictToCoachId) {
         List<Member> members = memberRepository.findAllOrderByName();
+
+        if (restrictToCoachId != null) {
+            Set<Long> allowedIds = operationalCoachViewService.findMemberIdsMatchingViewCoachIds(java.util.List.of(restrictToCoachId));
+            members = members.stream()
+                    .filter(m -> m.getId() != null && allowedIds.contains(m.getId()))
+                    .collect(Collectors.toList());
+            logger.info("회원 목록 코치 제한(카드·이용권·상품 담당): coachId={} → {}명", restrictToCoachId, members.size());
+        }
+
+        // 승인 대기 회원은 목록에서 제외 (상태 필터로 PENDING_APPROVAL 요청 시에만 표시)
+        if (status == null || status.trim().isEmpty()) {
+            members = members.stream()
+                    .filter(m -> m.getStatus() != MemberStatus.PENDING_APPROVAL)
+                    .collect(Collectors.toList());
+        }
 
         // 이용권 종료 기준 필터링 (목록 '종료' 배지와 동일 규칙)
         if (Boolean.TRUE.equals(endedTicket)) {
@@ -1104,6 +1152,21 @@ public class MemberService {
             // H2 MODE=MySQL이므로 테이블/컬럼 이름은 대소문자 구분 없음
             
             // 관련 엔티티 삭제 (외래키 제약 조건을 고려한 순서)
+            // member_approval_requests, member_desk_messages 는 members FK → 회원 삭제 전에 제거
+            
+            try {
+                jdbcTemplate.update("DELETE FROM member_approval_requests WHERE member_id = ?", id);
+                logger.info("MemberApprovalRequest 삭제 완료: Member ID={}", id);
+            } catch (Exception e) {
+                logger.warn("MemberApprovalRequest 삭제 실패 (무시): Member ID={}, 오류: {}", id, e.getMessage());
+            }
+            try {
+                jdbcTemplate.update("DELETE FROM member_desk_messages WHERE member_id = ?", id);
+                logger.info("MemberDeskMessage 삭제 완료: Member ID={}", id);
+            } catch (Exception e) {
+                logger.warn("MemberDeskMessage 삭제 실패 (무시): Member ID={}, 오류: {}", id, e.getMessage());
+            }
+            
             // member_product_history는 payment_id, attendance_id를 참조하므로 가장 먼저 삭제
             // Payment와 Attendance가 Booking을 참조하므로, Booking 삭제 전에 먼저 삭제해야 함
             

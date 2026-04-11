@@ -124,7 +124,9 @@ document.addEventListener('DOMContentLoaded', function() {
         statsCard.style.setProperty('border', '1px solid #4A5568', 'important');
         statsCard.style.borderRadius = '12px';
     }
-    initializeBookings();
+    (async function() {
+        await initializeBookings();
+    })();
     
     // 대관: 시작 시간 입력 시 종료 시간을 무조건 2시간 후로 설정
     const bookingStartTime = document.getElementById('booking-start-time');
@@ -212,6 +214,9 @@ async function loadFilterFacilities() {
 }
 
 async function initializeBookings() {
+    if (typeof App.refreshCoachBookingNameVisibilityCache === 'function') {
+        await App.refreshCoachBookingNameVisibilityCache();
+    }
     // 뷰 전환 이벤트
     document.querySelectorAll('[data-view]').forEach(btn => {
         btn.addEventListener('click', function() {
@@ -411,7 +416,12 @@ async function loadPendingRentalsForModal() {
             var start = startStr ? startStr.replace('T', ' ').slice(0, 16) : '-';
             var facilityName = (b.facility && b.facility.name) ? App.escapeHtml(b.facility.name) : '-';
             var branchName = (b.branch && branchNames[b.branch]) ? branchNames[b.branch] : (b.branch || '-');
-            var memberName = (b.memberName != null && b.memberName !== '') ? App.escapeHtml(b.memberName) : '-';
+            var memberRaw = (b.memberName != null && b.memberName !== '') ? String(b.memberName) : '-';
+            if (typeof App.shouldShowMemberNameOnBookingCalendar === 'function' && !App.shouldShowMemberNameOnBookingCalendar()) {
+                var hasMemNum = b.memberNumber != null && String(b.memberNumber).trim() !== '';
+                memberRaw = hasMemNum ? '-' : '비회원';
+            }
+            var memberName = memberRaw === '-' ? '-' : App.escapeHtml(memberRaw);
             var coachName = (b.coachName != null && b.coachName !== '') ? App.escapeHtml(b.coachName) : '-';
             return '<tr><td><input type="checkbox" class="rentals-pending-approval-cb" data-booking-id="' + b.id + '"></td><td>' + start + '</td><td>' + facilityName + '</td><td>' + branchName + '</td><td>' + memberName + '</td><td>' + coachName + '</td><td><button type="button" class="btn btn-success btn-sm" data-booking-id="' + b.id + '">승인</button></td></tr>';
         }).join('');
@@ -1109,8 +1119,10 @@ async function renderCalendar() {
                 const endTime = new Date(booking.endTime);
                 const timeStr = `${startTime.getHours().toString().padStart(2, '0')}:${startTime.getMinutes().toString().padStart(2, '0')} - ${endTime.getHours().toString().padStart(2, '0')}:${endTime.getMinutes().toString().padStart(2, '0')}`;
                 
-                // 이름 추출
-                const memberName = booking.member ? booking.member.name : (booking.nonMemberName || '비회원');
+                // 이름 추출 (코치·타 캘린더 시 마스킹)
+                const memberName = typeof App.formatBookingMemberDisplayName === 'function'
+                    ? App.formatBookingMemberDisplayName(booking)
+                    : (booking.member ? booking.member.name : (booking.nonMemberName || '비회원'));
                 
                 // 대관 횟수권 회차: 서버 sessionNumber 사용. 체크인 직후 서버가 1로 내려오는 경우(7→1) 잔여 기준으로 보정
                 let sessionLabel = '';
@@ -1132,7 +1144,8 @@ async function renderCalendar() {
                     }
                     if (n > 0) sessionLabel = ' (' + n + '회차)';
                 }
-                const displayName = memberName + sessionLabel;
+                // 코치·타 캘린더 마스킹 시 회원은 시간만(이름·회차 미표시), 비회원만 '비회원'(+회차 없음)
+                const displayName = memberName ? (memberName + sessionLabel) : '';
                 
                 // 지점 색상 적용 (시설의 지점 정보 사용)
                 let eventColor = '#5E6AD2'; // 기본 색상
@@ -1163,15 +1176,16 @@ async function renderCalendar() {
                     statusIconStyle = 'display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; background-color: #3498DB; border-radius: 50%; color: white; font-size: 11px; font-weight: 900; margin-right: 5px; vertical-align: middle; flex-shrink: 0;';
                 }
                 
-                // 이벤트 내용 설정 (한 줄로 표시: 아이콘 + 시간 / 이름 또는 이름 N회차)
+                // 이벤트 내용: 이름 없으면 시간만 (슬래시 없음)
+                const namePart = displayName ? ` / ${displayName}` : '';
                 if (statusIcon || statusIconStyle) {
                     if (status === 'COMPLETED') {
-                        event.innerHTML = `<span style="${statusIconStyle}"></span>${timeStr} / ${displayName}`;
+                        event.innerHTML = `<span style="${statusIconStyle}"></span>${timeStr}${namePart}`;
                     } else {
-                        event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${timeStr} / ${displayName}`;
+                        event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${timeStr}${namePart}`;
                     }
                 } else {
-                    event.innerHTML = `${timeStr} / ${displayName}`;
+                    event.innerHTML = `${timeStr}${namePart}`;
                 }
                 
                 // 드래그 앤 드롭 기능 추가
@@ -1401,15 +1415,16 @@ function renderDaySchedule(bookings) {
         // 시설 이름
         const facilityName = booking.facility?.name || booking.facilityName || '-';
         
-        // 회원 이름
-        let memberName = '비회원';
-        if (booking.member) {
-            memberName = booking.member.name || booking.memberName || '비회원';
-        } else if (booking.nonMemberName) {
-            memberName = booking.nonMemberName;
-        } else if (booking.nonMemberPhone) {
-            memberName = booking.nonMemberPhone;
-        }
+        // 회원 이름 (코치·타 캘린더 시 마스킹)
+        let memberName = typeof App.formatBookingMemberDisplayName === 'function'
+            ? App.formatBookingMemberDisplayName(booking)
+            : (function() {
+                if (booking.member) return booking.member.name || booking.memberName || '비회원';
+                if (booking.nonMemberName) return booking.nonMemberName;
+                if (booking.nonMemberPhone) return booking.nonMemberPhone;
+                return '비회원';
+            })();
+        if (memberName === '') memberName = '-';
         
         // 상태
         const status = booking.status || 'PENDING';
@@ -1421,7 +1436,7 @@ function renderDaySchedule(bookings) {
                 <td>${dateStr}</td>
                 <td>${timeStr}</td>
                 <td>${facilityName}</td>
-                <td>${memberName}</td>
+                <td>${App.escapeHtml(memberName)}</td>
                 <td>${booking.participants || 1}명</td>
                 <td><span class="badge badge-${statusBadge}">${statusText}</span></td>
                 <td>
@@ -1567,15 +1582,16 @@ function renderBookingsTable(bookings) {
         // 시설 이름
         const facilityName = booking.facility?.name || booking.facilityName || '-';
         
-        // 회원 이름
-        let memberName = '비회원';
-        if (booking.member) {
-            memberName = booking.member.name || booking.memberName || '비회원';
-        } else if (booking.nonMemberName) {
-            memberName = booking.nonMemberName;
-        } else if (booking.nonMemberPhone) {
-            memberName = booking.nonMemberPhone;
-        }
+        // 회원 이름 (코치·타 캘린더 시 마스킹)
+        let memberName = typeof App.formatBookingMemberDisplayName === 'function'
+            ? App.formatBookingMemberDisplayName(booking)
+            : (function() {
+                if (booking.member) return booking.member.name || booking.memberName || '비회원';
+                if (booking.nonMemberName) return booking.nonMemberName;
+                if (booking.nonMemberPhone) return booking.nonMemberPhone;
+                return '비회원';
+            })();
+        if (memberName === '') memberName = '-';
         
         // 상태
         const status = booking.status || 'PENDING';
@@ -1585,7 +1601,7 @@ function renderBookingsTable(bookings) {
             <td>${dateStr}</td>
             <td>${timeStr}</td>
             <td>${facilityName}</td>
-            <td>${memberName}</td>
+            <td>${App.escapeHtml(memberName)}</td>
             <td>${booking.participants || 1}명</td>
             <td>
                 <span class="badge badge-${getStatusBadge(status)}">${getStatusText(status)}</span>
@@ -2608,6 +2624,16 @@ function openBookingModalFromDate(dateStr) {
 }
 
 function openBookingModal(id = null) {
+    window.__bookingPrivacySnapshot = null;
+    const nmPrivacy = document.getElementById('booking-non-member-name');
+    const phPrivacy = document.getElementById('booking-phone');
+    const rnPrivacy = document.getElementById('booking-renter-name');
+    const rpPrivacy = document.getElementById('booking-renter-phone');
+    if (nmPrivacy) nmPrivacy.readOnly = false;
+    if (phPrivacy) phPrivacy.readOnly = false;
+    if (rnPrivacy) rnPrivacy.readOnly = false;
+    if (rpPrivacy) rpPrivacy.readOnly = false;
+
     const modal = document.getElementById('booking-modal');
     const title = document.getElementById('booking-modal-title');
     const deleteBtn = document.getElementById('booking-delete-btn');
@@ -2834,11 +2860,12 @@ async function loadBookingData(id) {
         document.getElementById('selected-member-number').value = booking.member?.memberNumber || '';
         
         if (booking.member) {
-            // 회원 정보 표시
-            document.getElementById('member-info-name').textContent = booking.member.name || '-';
-            document.getElementById('member-info-phone').textContent = booking.member.phoneNumber || '-';
-            document.getElementById('member-info-grade').textContent = getGradeText(booking.member.grade) || '-';
-            document.getElementById('member-info-school').textContent = booking.member.school || '-';
+            const showPriv = typeof App.shouldShowMemberNameOnBookingCalendar !== 'function' || App.shouldShowMemberNameOnBookingCalendar();
+            window.__bookingPrivacySnapshot = null;
+            document.getElementById('member-info-name').textContent = showPriv ? (booking.member.name || '-') : '-';
+            document.getElementById('member-info-phone').textContent = showPriv ? (booking.member.phoneNumber || '-') : '-';
+            document.getElementById('member-info-grade').textContent = showPriv ? (getGradeText(booking.member.grade) || '-') : '-';
+            document.getElementById('member-info-school').textContent = showPriv ? (booking.member.school || '-') : '-';
             
             document.getElementById('member-info-section').style.display = 'block';
             document.getElementById('non-member-section').style.display = 'none';
@@ -2858,9 +2885,31 @@ async function loadBookingData(id) {
                 coachSelect.value = booking.coach.id;
             }
         } else {
-            // 비회원 정보 표시
-            document.getElementById('booking-non-member-name').value = booking.nonMemberName || '';
-            document.getElementById('booking-phone').value = booking.nonMemberPhone || '';
+            const showPriv = typeof App.shouldShowMemberNameOnBookingCalendar !== 'function' || App.shouldShowMemberNameOnBookingCalendar();
+            if (!showPriv) {
+                window.__bookingPrivacySnapshot = {
+                    nonMemberName: booking.nonMemberName || '',
+                    nonMemberPhone: booking.nonMemberPhone || ''
+                };
+                document.getElementById('booking-non-member-name').value = '비회원';
+                document.getElementById('booking-phone').value = '-';
+                document.getElementById('booking-non-member-name').readOnly = true;
+                document.getElementById('booking-phone').readOnly = true;
+                const rnEl = document.getElementById('booking-renter-name');
+                const rpEl = document.getElementById('booking-renter-phone');
+                if (rnEl) { rnEl.value = '비회원'; rnEl.readOnly = true; }
+                if (rpEl) { rpEl.value = '-'; rpEl.readOnly = true; }
+            } else {
+                window.__bookingPrivacySnapshot = null;
+                document.getElementById('booking-non-member-name').value = booking.nonMemberName || '';
+                document.getElementById('booking-phone').value = booking.nonMemberPhone || '';
+                document.getElementById('booking-non-member-name').readOnly = false;
+                document.getElementById('booking-phone').readOnly = false;
+                const rnEl = document.getElementById('booking-renter-name');
+                const rpEl = document.getElementById('booking-renter-phone');
+                if (rnEl) { rnEl.readOnly = false; }
+                if (rpEl) { rpEl.readOnly = false; }
+            }
             
             document.getElementById('member-info-section').style.display = 'none';
             document.getElementById('non-member-section').style.display = 'block';
@@ -3017,10 +3066,16 @@ async function saveBooking() {
     const memberId = document.getElementById('selected-member-id').value; // 하위 호환성
     
     // 대관 페이지용: 예약자 정보 (우선순위: renterName > nonMemberName)
-    const renterName = document.getElementById('booking-renter-name')?.value?.trim() || '';
-    const renterPhone = document.getElementById('booking-renter-phone')?.value?.trim() || '';
-    const nonMemberName = renterName || document.getElementById('booking-non-member-name')?.value?.trim() || '';
-    const nonMemberPhone = renterPhone || document.getElementById('booking-phone')?.value?.trim() || '';
+    let renterName = document.getElementById('booking-renter-name')?.value?.trim() || '';
+    let renterPhone = document.getElementById('booking-renter-phone')?.value?.trim() || '';
+    let nonMemberName = renterName || document.getElementById('booking-non-member-name')?.value?.trim() || '';
+    let nonMemberPhone = renterPhone || document.getElementById('booking-phone')?.value?.trim() || '';
+    if (window.__bookingPrivacySnapshot && typeof App.shouldShowMemberNameOnBookingCalendar === 'function' && !App.shouldShowMemberNameOnBookingCalendar()) {
+        nonMemberName = window.__bookingPrivacySnapshot.nonMemberName || '';
+        nonMemberPhone = window.__bookingPrivacySnapshot.nonMemberPhone || '';
+        renterName = '';
+        renterPhone = '';
+    }
     const coachIdElement = document.getElementById('booking-coach');
     const coachId = coachIdElement ? coachIdElement.value : '';
     const participants = document.getElementById('booking-participants').value;
@@ -3673,11 +3728,14 @@ async function deleteSelectedBooking() {
     }
     
     const booking = selectedBooking.booking;
-    const memberName = booking.member ? booking.member.name : (booking.nonMemberName || '비회원');
+    let delName = typeof App.formatBookingMemberDisplayName === 'function'
+        ? App.formatBookingMemberDisplayName(booking)
+        : (booking.member ? booking.member.name : (booking.nonMemberName || '비회원'));
+    if (delName === '') delName = '-';
     const startTime = new Date(booking.startTime);
     const timeStr = `${startTime.getFullYear()}-${String(startTime.getMonth() + 1).padStart(2, '0')}-${String(startTime.getDate()).padStart(2, '0')} ${startTime.getHours()}:${String(startTime.getMinutes()).padStart(2, '0')}`;
     
-    if (!confirm(`예약을 삭제하시겠습니까?\n\n회원: ${memberName}\n시간: ${timeStr}`)) {
+    if (!confirm(`예약을 삭제하시겠습니까?\n\n회원: ${delName}\n시간: ${timeStr}`)) {
         return;
     }
     
@@ -3700,3 +3758,20 @@ async function deleteSelectedBooking() {
         App.showNotification('예약 삭제에 실패했습니다.', 'danger');
     }
 }
+
+document.addEventListener('afbs-operational-coach-filter-changed', async function() {
+    try {
+        if (typeof renderCalendar === 'function') {
+            await renderCalendar();
+        }
+    } catch (e) {
+        App.err('대관 캘린더 새로고침:', e);
+    }
+    try {
+        if (typeof loadBookingsList === 'function') {
+            loadBookingsList();
+        }
+    } catch (e2) {
+        App.err('대관 목록 새로고침:', e2);
+    }
+});

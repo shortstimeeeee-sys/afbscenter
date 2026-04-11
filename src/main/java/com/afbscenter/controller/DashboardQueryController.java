@@ -14,6 +14,8 @@ import com.afbscenter.repository.CoachRepository;
 import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.util.LessonCategoryUtil;
+import com.afbscenter.service.MemberEndedGraceService;
+import com.afbscenter.service.MemberProductDisplayService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -30,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
@@ -48,6 +51,8 @@ public class DashboardQueryController {
     private final CoachRepository coachRepository;
     private final AnnouncementRepository announcementRepository;
     private final SettingsRepository settingsRepository;
+    private final MemberProductDisplayService memberProductDisplayService;
+    private final MemberEndedGraceService memberEndedGraceService;
 
     public DashboardQueryController(BookingRepository bookingRepository,
                                     AttendanceRepository attendanceRepository,
@@ -55,7 +60,9 @@ public class DashboardQueryController {
                                     MemberProductRepository memberProductRepository,
                                     CoachRepository coachRepository,
                                     AnnouncementRepository announcementRepository,
-                                    SettingsRepository settingsRepository) {
+                                    SettingsRepository settingsRepository,
+                                    MemberProductDisplayService memberProductDisplayService,
+                                    MemberEndedGraceService memberEndedGraceService) {
         this.bookingRepository = bookingRepository;
         this.attendanceRepository = attendanceRepository;
         this.memberRepository = memberRepository;
@@ -63,6 +70,8 @@ public class DashboardQueryController {
         this.coachRepository = coachRepository;
         this.announcementRepository = announcementRepository;
         this.settingsRepository = settingsRepository;
+        this.memberProductDisplayService = memberProductDisplayService;
+        this.memberEndedGraceService = memberEndedGraceService;
     }
 
     @GetMapping("/expiring-members")
@@ -81,6 +90,9 @@ public class DashboardQueryController {
             List<Map<String, Object>> noProductMembersList = new ArrayList<>();
 
             for (com.afbscenter.model.Member member : allMembers) {
+                if (member.getStatus() == com.afbscenter.model.Member.MemberStatus.PENDING_APPROVAL) {
+                    continue;
+                }
                 try {
                     List<MemberProduct> activeProducts = memberProductRepository.findByMemberIdAndStatus(member.getId(), MemberProduct.Status.ACTIVE);
                     List<MemberProduct> expiredMemberProducts = memberProductRepository.findByMemberIdAndStatus(member.getId(), MemberProduct.Status.EXPIRED);
@@ -91,6 +103,14 @@ public class DashboardQueryController {
                     List<Map<String, Object>> expiringProducts = new ArrayList<>();
                     boolean isExpired = false;
                     List<Map<String, Object>> expiredProducts = new ArrayList<>();
+
+                    /**
+                     * 회원 상세 이용권 API({@code forMemberDetailUi})와 동일 dedupe 후 남는 이용권 ID
+                     * ({@link MemberProductDisplayService#visibleMemberProductIdsAfterDetailUiDedupe}).
+                     * 종료 탭에서는 {@link MemberProductDisplayService#isVisibleForDashboardEndedList}로 위 집합 + 연장 제외를 한 번에 적용한다.
+                     */
+                    Set<Long> visibleAfterDetailUiDedupe = memberProductDisplayService.visibleMemberProductIdsAfterDetailUiDedupe(
+                            member.getId(), allMemberProducts);
 
                     for (MemberProduct mp : activeProducts) {
                         try {
@@ -168,6 +188,8 @@ public class DashboardQueryController {
                             for (MemberProduct mp : usedUpMemberProducts) {
                                 try {
                                     if (mp.getProduct() == null) continue;
+                                    if (!memberProductDisplayService.isVisibleForDashboardEndedList(mp, visibleAfterDetailUiDedupe, allMemberProducts)) continue;
+                                    if (!memberEndedGraceService.memberProductPassesEndedListGraceFilter(member, mp)) continue;
                                     Map<String, Object> productInfo = new HashMap<>();
                                     String expiryReason = mp.getProduct().getType() == Product.ProductType.COUNT_PASS ? "횟수 소진" : "만료됨";
                                     if (mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS && mp.getExpiryDate() != null) {
@@ -186,11 +208,40 @@ public class DashboardQueryController {
                                 }
                             }
                         }
+                        for (MemberProduct mp : activeProducts) {
+                            try {
+                                if (!memberEndedGraceService.isActiveCountPassExhausted(member, mp)) {
+                                    continue;
+                                }
+                                if (mp.getProduct() == null) {
+                                    continue;
+                                }
+                                if (!memberProductDisplayService.isVisibleForDashboardEndedList(mp, visibleAfterDetailUiDedupe, allMemberProducts)) {
+                                    continue;
+                                }
+                                if (!memberEndedGraceService.memberProductPassesEndedListGraceFilter(member, mp)) {
+                                    continue;
+                                }
+                                isExpired = true;
+                                Map<String, Object> productInfo = new HashMap<>();
+                                String expiryReason = "횟수 소진";
+                                productInfo.put("id", mp.getId());
+                                productInfo.put("productName", mp.getProduct().getName());
+                                productInfo.put("productType", mp.getProduct().getType().toString());
+                                productInfo.put("expiryReason", expiryReason);
+                                productInfo.put("status", mp.getStatus() != null ? mp.getStatus().toString() : "");
+                                expiredProducts.add(productInfo);
+                            } catch (Exception e) {
+                                logger.warn("MemberProduct ACTIVE 소진 확인 실패: MemberProduct ID={}", mp.getId(), e.getMessage());
+                            }
+                        }
                         if (activeProducts == null || activeProducts.isEmpty()) {
                             if (!expiredMemberProducts.isEmpty()) {
                                 for (MemberProduct mp : expiredMemberProducts) {
                                     try {
                                         if (mp.getProduct() == null) continue;
+                                        if (!memberProductDisplayService.isVisibleForDashboardEndedList(mp, visibleAfterDetailUiDedupe, allMemberProducts)) continue;
+                                        if (!memberEndedGraceService.memberProductPassesEndedListGraceFilter(member, mp)) continue;
                                         Map<String, Object> productInfo = new HashMap<>();
                                         String expiryReason = mp.getProduct().getType() == Product.ProductType.COUNT_PASS ? "횟수 소진" : "만료됨";
                                         if (mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS && mp.getExpiryDate() != null) {
@@ -232,6 +283,11 @@ public class DashboardQueryController {
                                 expiredProducts.add(pi);
                             }
                         }
+                    }
+
+                    if (isExpired && !memberEndedGraceService.memberHasExpiredGraceBadge(member, allMemberProducts)) {
+                        isExpired = false;
+                        expiredProducts.clear();
                     }
 
                     if (isExpiring) {
@@ -375,7 +431,11 @@ public class DashboardQueryController {
             Map<String, Object> alert = new HashMap<>();
             alert.put("type", "warning");
             alert.put("title", "대기 예약 승인 필요");
-            alert.put("message", booking.getFacility().getName() + " - " + (booking.getMember() != null ? booking.getMember().getName() : booking.getNonMemberName()));
+            String facilityName = booking.getFacility() != null ? booking.getFacility().getName() : "-";
+            String who = booking.getMember() != null ? booking.getMember().getName()
+                    : (booking.getNonMemberName() != null ? booking.getNonMemberName() : "비회원");
+            alert.put("message", facilityName + " - " + who);
+            alert.put("bookingId", booking.getId());
             return alert;
         }).collect(Collectors.toList());
         return ResponseEntity.ok(alerts);

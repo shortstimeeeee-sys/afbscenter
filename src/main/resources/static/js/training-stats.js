@@ -223,7 +223,7 @@ async function loadGradeStats(startDate, endDate) {
                     else exitBelow++;
                 });
                 const exitRecordCount = group.exitVelocities.length;
-                exitDistribution = `${avgExit.toFixed(1)} mph<br><span style="font-size: 11px;"><span style="color: #16a34a; font-weight: 600;">↑${exitAbove}명</span> / <span style="color: #dc2626; font-weight: 600;">↓${exitBelow}명</span><br><span style="color: var(--text-muted);">(${exitRecordCount}/${memberCount}명 기록)</span></span>`;
+                exitDistribution = `${avgExit.toFixed(1)} km/h<br><span style="font-size: 11px;"><span style="color: #16a34a; font-weight: 600;">↑${exitAbove}명</span> / <span style="color: #dc2626; font-weight: 600;">↓${exitBelow}명</span><br><span style="color: var(--text-muted);">(${exitRecordCount}/${memberCount}명 기록)</span></span>`;
             }
             
             // 구속 분포
@@ -1016,7 +1016,7 @@ async function loadTopRecords() {
             ...r.member,
             recordValue: r.maxBallSpeed
         }));
-        renderTopRecordsFromLogs('top-exit-velocity', topBall, 'mph');
+        renderTopRecordsFromLogs('top-exit-velocity', topBall, 'km/h');
         
         // 구속 TOP 3 (동점자 포함)
         const topPitch = getTop3WithTies(

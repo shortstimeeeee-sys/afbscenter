@@ -105,6 +105,21 @@ public class AuthController {
         return request.getRemoteAddr();
     }
 
+    /**
+     * JWT 기준 현재 사용자 정보 + 운영 코치 뷰 여부(서버 진실값).
+     * localStorage의 operationalCoachView 가 오래되었을 때 동기화에 사용.
+     */
+    @GetMapping("/me")
+    public ResponseEntity<Map<String, Object>> me(HttpServletRequest request) {
+        String username = (String) request.getAttribute("username");
+        if (username == null || username.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        return authService.getSessionUserInfo(username)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).build());
+    }
+
     @PostMapping("/validate")
     public ResponseEntity<Map<String, Object>> validateToken(@RequestBody Map<String, String> request) {
         try {

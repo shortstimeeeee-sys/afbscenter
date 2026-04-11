@@ -12,6 +12,9 @@ import java.util.List;
 public interface MemberProductHistoryRepository extends JpaRepository<MemberProductHistory, Long> {
     
     List<MemberProductHistory> findByMemberIdOrderByTransactionDateDesc(Long memberId);
+
+    @Query("SELECT h FROM MemberProductHistory h JOIN FETCH h.memberProduct mp WHERE h.member.id = :memberId ORDER BY h.transactionDate ASC")
+    List<MemberProductHistory> findByMemberIdFetchMemberProductOrderByTransactionDateAsc(@Param("memberId") Long memberId);
     
     List<MemberProductHistory> findByMemberProductIdOrderByTransactionDateDesc(Long memberProductId);
     

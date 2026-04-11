@@ -352,68 +352,6 @@ function getPaymentStatusText(status) {
 }
 
 /** 이용권 상태 한글 */
-function getMemberProductStatusText(status) {
-    if (!status) return '-';
-    const map = {
-        'ACTIVE': '사용중',
-        'EXPIRED': '만료',
-        'USED_UP': '소진'
-    };
-    return map[status] || status;
-}
-
-/**
- * 결제 목록에서 회원 이름 클릭 시 호출. 회원 상세(이용권·코치) 조회 후 모달 표시.
- */
-async function openMemberInfoModal(memberId) {
-    const contentEl = document.getElementById('member-info-content');
-    if (!contentEl) return;
-    contentEl.innerHTML = '<p class="text-muted">불러오는 중...</p>';
-    App.Modal.open('member-info-modal');
-    try {
-        const member = await App.api.get('/members/' + memberId);
-        if (!member) {
-            contentEl.innerHTML = '<p class="text-muted">회원 정보를 찾을 수 없습니다.</p>';
-            return;
-        }
-        const coachName = (member.coach && member.coach.name) ? member.coach.name : '-';
-        const products = member.memberProducts || [];
-        const rows = products.map(mp => {
-            const p = mp.product || {};
-            const coach = (mp.coach && mp.coach.name) ? mp.coach.name : '-';
-            const status = getMemberProductStatusText(mp.status);
-            const purchaseDate = mp.purchaseDate ? App.formatDate(mp.purchaseDate) : '-';
-            const expiryDate = mp.expiryDate ? App.formatDate(mp.expiryDate) : '-';
-            const remain = mp.remainingCount != null && mp.totalCount != null ? mp.remainingCount + ' / ' + mp.totalCount : '-';
-            return `<tr>
-                <td>${App.escapeHtml(p.name || '-')}</td>
-                <td>${status}</td>
-                <td>${coach}</td>
-                <td>${purchaseDate}</td>
-                <td>${expiryDate}</td>
-                <td>${remain}</td>
-            </tr>`;
-        }).join('');
-        contentEl.innerHTML = `
-            <div class="member-info-section">
-                <div class="detail-item"><strong>회원명</strong><span>${App.escapeHtml(member.name || '-')}</span></div>
-                <div class="detail-item"><strong>회원번호</strong><span>${App.escapeHtml(member.memberNumber || '-')}</span></div>
-                <div class="detail-item"><strong>담당 코치</strong><span>${App.escapeHtml(coachName)}</span></div>
-            </div>
-            <h3 class="member-info-subtitle">이용권 목록</h3>
-            <div class="member-info-table-wrap">
-                <table class="table member-info-table">
-                    <thead><tr><th>상품명</th><th>상태</th><th>지정 코치</th><th>구매일</th><th>만료일</th><th>잔여</th></tr></thead>
-                    <tbody>${rows || '<tr><td colspan="6">이용권이 없습니다.</td></tr>'}</tbody>
-                </table>
-            </div>
-        `;
-    } catch (err) {
-        App.err('회원 정보 조회 실패:', err);
-        contentEl.innerHTML = '<p class="text-danger">회원 정보를 불러오지 못했습니다.</p>';
-    }
-}
-
 function applyFilters() {
     const searchInput = document.getElementById('payment-search');
     const searchVal = searchInput && searchInput.value ? searchInput.value.trim() : '';
@@ -809,6 +747,7 @@ function renderUnpaidDetails(details) {
             • 이용권 구매 시점에 이미 선결제이므로 <strong>선결제(PREPAID) 예약은 미수금에 포함되지 않습니다.</strong><br>
             • 아래 목록은 후불(현장/후불) 예약 중 결제 기록이 없는 건만 표시됩니다.
         </div>
+        <div class="unpaid-details-table-wrap">
         <table class="table">
             <thead>
                 <tr>
@@ -850,7 +789,7 @@ function renderUnpaidDetails(details) {
             </tr>
         `;
     });
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
     container.innerHTML = html;
 }
 

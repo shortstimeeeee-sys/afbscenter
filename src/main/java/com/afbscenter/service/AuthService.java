@@ -27,17 +27,20 @@ public class AuthService {
     private final UserAccessLogRepository userAccessLogRepository;
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
+    private final OperationalCoachViewService operationalCoachViewService;
     
     @Value("${admin.init.password:admin123}")
     private String adminInitPassword;
 
     @Autowired
     public AuthService(UserRepository userRepository, UserAccessLogRepository userAccessLogRepository,
-                       JwtUtil jwtUtil, PasswordEncoder passwordEncoder) {
+                       JwtUtil jwtUtil, PasswordEncoder passwordEncoder,
+                       OperationalCoachViewService operationalCoachViewService) {
         this.userRepository = userRepository;
         this.userAccessLogRepository = userAccessLogRepository;
         this.jwtUtil = jwtUtil;
         this.passwordEncoder = passwordEncoder;
+        this.operationalCoachViewService = operationalCoachViewService;
     }
 
     private String buildEmployeeCodeFromUserId(Long userId) {
@@ -141,6 +144,7 @@ public class AuthService {
         response.put("name", user.getName());
         response.put("id", user.getId());
         response.put("employeeCode", user.getEmployeeCode());
+        response.put("operationalCoachView", operationalCoachViewService.isOperationalCoachViewer(user));
 
         return response;
     }
@@ -180,6 +184,29 @@ public class AuthService {
     public User getCurrentUser(String username) {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+    }
+
+    /**
+     * 클라이언트 localStorage와 서버 설정(app.operational-coach-view-*) 불일치 방지용.
+     * 운영 코치 여부는 항상 서버 {@link OperationalCoachViewService#isOperationalCoachViewer(User)} 기준.
+     */
+    public Optional<Map<String, Object>> getSessionUserInfo(String username) {
+        if (username == null || username.isBlank()) {
+            return Optional.empty();
+        }
+        Optional<User> userOpt = userRepository.findByUsername(username.trim());
+        if (userOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        User user = userOpt.get();
+        Map<String, Object> response = new HashMap<>();
+        response.put("username", user.getUsername());
+        response.put("role", user.getRole().name());
+        response.put("name", user.getName());
+        response.put("id", user.getId());
+        response.put("employeeCode", user.getEmployeeCode());
+        response.put("operationalCoachView", operationalCoachViewService.isOperationalCoachViewer(user));
+        return Optional.of(response);
     }
 
     public boolean validateToken(String token) {

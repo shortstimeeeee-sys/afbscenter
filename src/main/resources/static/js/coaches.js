@@ -124,7 +124,7 @@ async function openStatsCoachModal(filterType, titleLabel) {
             var bName = (b.name || '').replace(/\s*\[.*?\]\s*/g, '').trim();
             return aName.localeCompare(bName, 'ko');
         });
-        var tableHtml = '<div class="table-container stats-coaches-modal-table" style="max-height: 60vh; overflow: auto;"><table class="table"><thead><tr><th>이름</th><th>담당 종목</th><th>배정 지점</th><th>수강 인원</th></tr></thead><tbody>';
+        var tableHtml = '<div class="table-container stats-coaches-modal-table"><table class="table"><thead><tr><th>이름</th><th>담당 종목</th><th>배정 지점</th><th>수강 인원</th></tr></thead><tbody>';
         var branchConfig = { 'SAHA': { label: '사하점', class: 'branch-label--saha' }, 'YEONSAN': { label: '연산점', class: 'branch-label--yeonsan' }, 'RENTAL': { label: '대관', class: 'branch-label--rental' } };
         function formatBranchesWithColors(availableBranches) {
             if (availableBranches == null) return '-';

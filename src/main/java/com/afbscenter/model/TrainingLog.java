@@ -42,7 +42,7 @@ public class TrainingLog {
     private Integer swingCount; // 스윙수
 
     @Column(name = "ball_speed")
-    private Double ballSpeed; // 타구속도 (mph)
+    private Double ballSpeed; // 타구속도 (km/h)
 
     @Column(name = "launch_angle")
     private Double launchAngle; // 발사각 (도)

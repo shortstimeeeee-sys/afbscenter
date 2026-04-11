@@ -11,4 +11,6 @@ import java.util.Optional;
 public interface CoachRepository extends JpaRepository<Coach, Long> {
     List<Coach> findByActiveTrue();
     Optional<Coach> findByUserId(Long userId);
+
+    List<Coach> findAllByUserId(Long userId);
 }

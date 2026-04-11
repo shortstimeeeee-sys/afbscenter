@@ -180,8 +180,14 @@
     }
 
     function mbShowMemberAnnouncementModal(announcement) {
-        var title = announcement && announcement.title ? announcement.title : '공지';
-        var body = announcement && announcement.content ? announcement.content : '';
+        var title = mbNormalizeAnnouncementTitle(
+            announcement && announcement.title ? announcement.title : '',
+            announcement && announcement.source ? announcement.source : ''
+        );
+        var body = announcement && announcement.content ? String(announcement.content) : '';
+        if (!body || /^\s*\?+\s*$/.test(body)) {
+            body = '내용이 없습니다.';
+        }
         var esc =
             typeof App !== 'undefined' && App && App.escapeHtml
                 ? App.escapeHtml
@@ -217,6 +223,23 @@
         modal.addEventListener('click', function (e) {
             if (e.target === modal) close();
         });
+    }
+
+    function mbNormalizeAnnouncementTitle(rawTitle, source) {
+        if (source === 'SETTINGS_MEMBERSHIP_DUES') {
+            return '회비 입금 전용계좌';
+        }
+        var title = String(rawTitle || '').trim();
+        if (!title) return '공지사항';
+        // 인코딩 깨짐으로 '2?'처럼 보일 때 -> '2건'
+        title = title.replace(/(\d)\?$/g, '$1건');
+        // 접두사 깨짐([??]) 제거
+        title = title.replace(/^\[\?\?\]\s*/, '');
+        // 제목이 거의 물음표만이면 기본 제목으로 대체
+        if (/^\?+(?:\s*\?+)*$/.test(title)) {
+            return '공지사항';
+        }
+        return title || '공지사항';
     }
 
     function mbSetupMemberNotifications() {
@@ -309,7 +332,7 @@
                 container.innerHTML = list
                     .map(function (a) {
                         var icon = a.source === 'SETTINGS_MEMBERSHIP_DUES' ? '🏦' : '📢';
-                        var title = esc(a.title || '');
+                        var title = esc(mbNormalizeAnnouncementTitle(a.title, a.source));
                         var time = fmt(a.createdAt);
                         var idAttr = a.id != null ? String(a.id) : '';
                         return (
@@ -1562,7 +1585,7 @@
                 'mb-exit-velocity-ranking',
                 teeRows,
                 'ballSpeedMax',
-                'mph',
+                'km/h',
                 grade ? '' : '훈련 기록',
                 myMid
             );

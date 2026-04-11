@@ -94,6 +94,20 @@
     white-space: nowrap;
 }
 
+/* 사용자 목록: 컬럼 타이틀·내용 전체 중앙 정렬 */
+#users-data-table thead th {
+    text-align: center;
+}
+
+#users-data-table tbody td {
+    text-align: center;
+    vertical-align: middle;
+}
+
+#users-data-table tbody td .action-buttons {
+    justify-content: center;
+}
+
 .data-table td {
     padding: 12px;
     border-bottom: 1px solid var(--border-color);

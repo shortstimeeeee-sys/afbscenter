@@ -12,6 +12,9 @@ import com.afbscenter.model.MemberProduct;
 import com.afbscenter.model.Product;
 import com.afbscenter.model.Announcement;
 import com.afbscenter.service.MemberService;
+import com.afbscenter.service.MemberApprovalService;
+import com.afbscenter.service.MemberEndedGraceService;
+import com.afbscenter.service.MemberProductDisplayService;
 import com.afbscenter.util.LessonCategoryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +53,9 @@ public class DashboardController {
     private final CoachRepository coachRepository;
     private final AnnouncementRepository announcementRepository;
     private final MemberService memberService;
+    private final MemberApprovalService memberApprovalService;
+    private final MemberProductDisplayService memberProductDisplayService;
+    private final MemberEndedGraceService memberEndedGraceService;
     private final JdbcTemplate jdbcTemplate;
 
     public DashboardController(BookingRepository bookingRepository,
@@ -60,6 +66,9 @@ public class DashboardController {
                               CoachRepository coachRepository,
                               AnnouncementRepository announcementRepository,
                               MemberService memberService,
+                              MemberApprovalService memberApprovalService,
+                              MemberProductDisplayService memberProductDisplayService,
+                              MemberEndedGraceService memberEndedGraceService,
                               JdbcTemplate jdbcTemplate) {
         this.bookingRepository = bookingRepository;
         this.paymentRepository = paymentRepository;
@@ -69,6 +78,9 @@ public class DashboardController {
         this.coachRepository = coachRepository;
         this.announcementRepository = announcementRepository;
         this.memberService = memberService;
+        this.memberApprovalService = memberApprovalService;
+        this.memberProductDisplayService = memberProductDisplayService;
+        this.memberEndedGraceService = memberEndedGraceService;
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -83,7 +95,8 @@ public class DashboardController {
             // 총 회원 수 (JdbcTemplate으로 직접 조회하여 enum 변환 오류 방지)
             long totalMembers = 0L;
             try {
-                Long totalMembersLong = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM members", Long.class);
+                Long totalMembersLong = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM members WHERE status <> 'PENDING_APPROVAL'", Long.class);
                 totalMembers = totalMembersLong != null ? totalMembersLong : 0L;
             } catch (Exception e) {
                 logger.warn("총 회원 수 조회 실패: {}", e.getMessage());
@@ -95,7 +108,7 @@ public class DashboardController {
             Long monthlyNewMembers = 0L;
             try {
                 Long result = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM members WHERE join_date >= ? AND join_date <= ?",
+                    "SELECT COUNT(*) FROM members WHERE join_date >= ? AND join_date <= ? AND status <> 'PENDING_APPROVAL'",
                     Long.class,
                     firstDayOfMonth, today
                 );
@@ -109,7 +122,7 @@ public class DashboardController {
             Long todayNewMembers = 0L;
             try {
                 Long result = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM members WHERE join_date = ?",
+                    "SELECT COUNT(*) FROM members WHERE join_date = ? AND status <> 'PENDING_APPROVAL'",
                     Long.class,
                     today
                 );
@@ -308,14 +321,14 @@ public class DashboardController {
                     List<com.afbscenter.model.Member> allMembers = memberRepository.findAll();
                     LocalDate expiryThreshold = today.plusDays(3);
                     for (com.afbscenter.model.Member member : allMembers) {
+                        if (member.getStatus() == com.afbscenter.model.Member.MemberStatus.PENDING_APPROVAL) {
+                            continue;
+                        }
                         try {
                             List<MemberProduct> activeProducts = memberProductRepository.findByMemberIdAndStatus(
                                 member.getId(), MemberProduct.Status.ACTIVE);
-                            List<MemberProduct> usedUpMemberProducts = memberProductRepository.findByMemberIdAndStatus(
-                                member.getId(), MemberProduct.Status.USED_UP);
-                            List<MemberProduct> allMemberProducts = memberProductRepository.findByMemberId(member.getId());
+                            List<MemberProduct> allMemberProducts = memberProductRepository.findByMemberIdWithProduct(member.getId());
                             boolean isExpiring = false;
-                            boolean isExpired = false;
                             for (MemberProduct mp : activeProducts) {
                                 try {
                                     if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
@@ -349,11 +362,10 @@ public class DashboardController {
                                     }
                                 } catch (Exception e) { /* ignore */ }
                             }
-                            if (allMemberProducts == null || allMemberProducts.isEmpty()) isExpired = true;
-                            else if (activeProducts == null || activeProducts.isEmpty()) isExpired = true;
-                            else if (!usedUpMemberProducts.isEmpty()) isExpired = true;
                             if (isExpiring) expiringMembersCount++;
-                            if (isExpired) expiredMembersCount++;
+                            if (memberEndedGraceService.memberHasExpiredGraceBadge(member, allMemberProducts)) {
+                                expiredMembersCount++;
+                            }
                         } catch (Exception e) { /* ignore */ }
                     }
                     expiringExpiredCacheAt = now;
@@ -365,6 +377,14 @@ public class DashboardController {
             }
             kpi.put("expiringMembers", expiringMembersCount);
             kpi.put("expiredMembers", expiredMembersCount);
+
+            long pendingMemberApprovals = 0L;
+            try {
+                pendingMemberApprovals = memberApprovalService.countPending();
+            } catch (Exception e) {
+                logger.debug("승인 대기 건수 조회 실패: {}", e.getMessage());
+            }
+            kpi.put("pendingMemberApprovals", pendingMemberApprovals);
 
             return ResponseEntity.ok(kpi);
         } catch (Exception e) {

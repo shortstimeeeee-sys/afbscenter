@@ -8,6 +8,10 @@ body.booking-page .main-content {
     align-content: flex-start;
 }
 body.booking-page .topbar { margin-top: 0 !important; }
+/* 예약 페이지 상단바: 전역 검색 미사용 — HTML에서 제거됨. 캐시된 구버전 HTML 대비 숨김 */
+body.booking-page .topbar .search-box {
+    display: none !important;
+}
 body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
 
 .view-controls {

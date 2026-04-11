@@ -11,6 +11,7 @@ import com.afbscenter.repository.ProductRepository;
 import com.afbscenter.constants.AccountingPolicy;
 import com.afbscenter.model.MemberProduct;
 import com.afbscenter.repository.MemberProductRepository;
+import com.afbscenter.service.MemberService;
 import com.afbscenter.util.PaymentCoachResolver;
 import com.afbscenter.util.PaymentPeriodQueryHelper;
 import org.slf4j.Logger;
@@ -46,6 +47,7 @@ public class PaymentController {
     private final PaymentCoachResolver paymentCoachResolver;
     private final PaymentPeriodQueryHelper paymentPeriodQueryHelper;
     private final MemberProductRepository memberProductRepository;
+    private final MemberService memberService;
 
     public PaymentController(PaymentRepository paymentRepository,
                             MemberRepository memberRepository,
@@ -54,7 +56,8 @@ public class PaymentController {
                             JdbcTemplate jdbcTemplate,
                             PaymentCoachResolver paymentCoachResolver,
                             PaymentPeriodQueryHelper paymentPeriodQueryHelper,
-                            MemberProductRepository memberProductRepository) {
+                            MemberProductRepository memberProductRepository,
+                            MemberService memberService) {
         this.paymentRepository = paymentRepository;
         this.memberRepository = memberRepository;
         this.bookingRepository = bookingRepository;
@@ -63,6 +66,7 @@ public class PaymentController {
         this.paymentCoachResolver = paymentCoachResolver;
         this.paymentPeriodQueryHelper = paymentPeriodQueryHelper;
         this.memberProductRepository = memberProductRepository;
+        this.memberService = memberService;
     }
 
     @GetMapping
@@ -664,8 +668,18 @@ public class PaymentController {
             payment.setRefundAmount(refundAmount);
             payment.setRefundReason(refundReason);
             payment.setStatus(Payment.PaymentStatus.REFUNDED);
-            
+
             Payment saved = paymentRepository.save(payment);
+
+            // 이용권 결제(member_product 연결) 전액 환불: 이용권은 목록에서 제외(소프트 삭제), 결제·member_product_history 등 기록은 유지
+            boolean fullRefund = payment.getAmount() != null && refundAmount != null && refundAmount >= payment.getAmount();
+            if (fullRefund
+                    && payment.getMemberProduct() != null
+                    && payment.getMemberProduct().getId() != null) {
+                memberProductRepository.findById(payment.getMemberProduct().getId()).ifPresent(mp ->
+                        memberService.softDeleteMemberProductAndDetachBookings(mp, "환불"));
+            }
+
             return ResponseEntity.ok(saved);
         } catch (IllegalArgumentException e) {
             logger.warn("결제를 찾을 수 없습니다. ID: {}", id, e);

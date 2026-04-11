@@ -1,6 +1,7 @@
 package com.afbscenter.controller;
 
 import com.afbscenter.model.ActionAuditLog;
+import com.afbscenter.model.Coach;
 import com.afbscenter.model.Product;
 import com.afbscenter.model.MemberProduct;
 import com.afbscenter.repository.ActionAuditLogRepository;
@@ -43,7 +44,19 @@ public class ProductController {
         this.actionAuditLogRepository = actionAuditLogRepository;
     }
 
+    /** 상품 목록 JSON용 담당 코치(연장 모달·이용권 배정 UI에서 사용) */
+    private static Map<String, Object> coachToBriefMap(Coach coach) {
+        if (coach == null) {
+            return null;
+        }
+        Map<String, Object> m = new HashMap<>();
+        m.put("id", coach.getId());
+        m.put("name", coach.getName());
+        return m;
+    }
+
     @GetMapping
+    @Transactional(readOnly = true)
     public ResponseEntity<List<Map<String, Object>>> getAllProducts() {
         try {
             logger.info("상품 목록 조회 시작");
@@ -71,7 +84,7 @@ public class ProductController {
                     map.put("refundPolicy", product.getRefundPolicy());
                     map.put("category", product.getCategory() != null ? product.getCategory().name() : null);
                     map.put("active", product.getActive());
-                    map.put("coach", null);
+                    map.put("coach", coachToBriefMap(product.getCoach()));
                     result.add(map);
                 } catch (Exception e) {
                     logger.warn("상품 변환 실패. Product ID: {}", product.getId(), e);
@@ -108,9 +121,7 @@ public class ProductController {
                         productMap.put("refundPolicy", product.getRefundPolicy());
                         productMap.put("category", product.getCategory() != null ? product.getCategory().name() : null);
                         productMap.put("active", product.getActive());
-                        
-                        // coach 정보는 Lazy loading이므로 null로 설정 (필요시 별도 조회)
-                        productMap.put("coach", null);
+                        productMap.put("coach", coachToBriefMap(product.getCoach()));
                         
                         return ResponseEntity.ok(productMap);
                     })

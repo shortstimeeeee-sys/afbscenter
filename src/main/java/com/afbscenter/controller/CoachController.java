@@ -8,7 +8,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/coaches")
@@ -89,6 +91,38 @@ public class CoachController {
             return ResponseEntity.ok(coachService.updateCoach(id, coach));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * 관리자: 사용자(코치 권한 등)를 코치 명단의 한 행과 연결하거나, 연결을 해제합니다.
+     * 요청 본문: { "userId": number, "coachId": number | null }
+     */
+    @PutMapping("/user-link")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> syncUserCoachLink(@RequestBody Map<String, Object> body) {
+        Object rawUserId = body != null ? body.get("userId") : null;
+        if (!(rawUserId instanceof Number)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "userId가 필요합니다."));
+        }
+        long userId = ((Number) rawUserId).longValue();
+        Long coachId = null;
+        Object rawCoachId = body != null ? body.get("coachId") : null;
+        if (rawCoachId instanceof Number) {
+            coachId = ((Number) rawCoachId).longValue();
+        } else if (rawCoachId != null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "coachId 형식이 올바르지 않습니다."));
+        }
+        try {
+            return coachService.syncUserCoachLink(userId, coachId)
+                    .map(c -> ResponseEntity.ok(Map.<String, Object>of("coach", c)))
+                    .orElseGet(() -> {
+                        Map<String, Object> empty = new HashMap<>();
+                        empty.put("coach", null);
+                        return ResponseEntity.ok(empty);
+                    });
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
 

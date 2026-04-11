@@ -223,82 +223,86 @@ th[onclick]:hover {
     text-decoration: underline;
 }
 
-/* 회원 이용권/코치 정보 모달 - 크기 및 레이아웃 */
-.member-info-modal-box {
-    max-width: 720px;
-    width: 95%;
-    min-width: 320px;
+/* 미수금 상세 내역 모달: 크게 + 본문 높이에 맞춤(아래 빈 여백 완화) */
+#unpaid-details-modal .modal.unpaid-details-modal-dialog {
+    width: min(96vw, 1400px);
+    max-width: min(96vw, 1400px);
+    height: auto !important;
+    max-height: min(92vh, calc(100vh - 24px)) !important;
+    min-height: 0;
 }
-.member-info-modal-body {
-    padding: 20px 24px;
+#unpaid-details-modal .modal.unpaid-details-modal-dialog .modal-header {
+    padding: 18px 28px;
+    flex-shrink: 0;
 }
-#member-info-content {
-    min-width: 0;
+#unpaid-details-modal .modal.unpaid-details-modal-dialog .modal-title {
+    font-size: 1.4rem;
 }
-#member-info-content .member-info-section {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px 20px;
-    padding: 14px 16px;
-    background: var(--bg-tertiary);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border-color);
-    margin-bottom: 18px;
+#unpaid-details-modal .modal.unpaid-details-modal-dialog .modal-body {
+    flex: 0 1 auto !important;
+    min-height: 0;
+    overflow: visible;
+    padding: 18px 28px 20px;
 }
-#member-info-content .member-info-section .detail-item {
+#unpaid-details-modal #unpaid-details-content {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    min-width: 0;
+    gap: 14px;
+    min-height: 0;
 }
-#member-info-content .member-info-section .detail-item strong {
-    font-size: 12px;
-    color: var(--text-secondary);
-    font-weight: 600;
-    text-transform: none;
-    letter-spacing: 0;
-}
-#member-info-content .member-info-section .detail-item span {
-    font-size: 14px;
-    color: var(--text-primary);
-    font-weight: 500;
-    word-break: break-all;
-}
-#member-info-content .member-info-subtitle {
-    margin: 0 0 10px 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-secondary);
-}
-#member-info-content .member-info-table-wrap {
-    max-height: 50vh;
+#unpaid-details-modal .unpaid-details-table-wrap {
+    max-height: min(72vh, 900px);
     overflow: auto;
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    -webkit-overflow-scrolling: touch;
 }
-#member-info-content .member-info-table {
-    width: 100%;
+#unpaid-details-modal .unpaid-details-table-wrap .table {
+    font-size: 15px;
     margin: 0;
-    font-size: 14px;
-    border-collapse: collapse;
+    width: 100%;
 }
-#member-info-content .member-info-table th,
-#member-info-content .member-info-table td {
-    padding: 12px 14px;
-    text-align: left;
-    border-bottom: 1px solid var(--border-color);
-    word-break: break-word;
-    overflow-wrap: break-word;
+#unpaid-details-modal .unpaid-details-table-wrap .table th,
+#unpaid-details-modal .unpaid-details-table-wrap .table td {
+    padding: 12px 16px;
 }
-#member-info-content .member-info-table th {
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    font-weight: 600;
-    font-size: 13px;
+
+/* 총 결제 / 결제수단별 클릭 → 결제 목록 모달 */
+#payment-method-list-modal .modal.payment-method-list-modal-dialog {
+    width: min(96vw, 1400px);
+    max-width: min(96vw, 1400px);
+    height: auto !important;
+    max-height: min(92vh, calc(100vh - 24px)) !important;
+    min-height: 0;
 }
-#member-info-content .member-info-table tbody tr:last-child td {
-    border-bottom: none;
+#payment-method-list-modal .modal.payment-method-list-modal-dialog .modal-header {
+    padding: 18px 28px;
+    flex-shrink: 0;
 }
-#member-info-content .member-info-table tbody tr:hover {
-    background: var(--bg-hover);
+#payment-method-list-modal .modal.payment-method-list-modal-dialog .modal-title {
+    font-size: 1.4rem;
+}
+#payment-method-list-modal .modal.payment-method-list-modal-dialog .modal-body {
+    flex: 0 1 auto !important;
+    min-height: 0;
+    overflow: visible;
+    padding: 18px 28px 20px;
+}
+#payment-method-list-modal .payment-method-list-table-wrap {
+    max-height: min(72vh, 900px);
+    overflow: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    -webkit-overflow-scrolling: touch;
+}
+#payment-method-list-modal .payment-method-list-table-wrap .table {
+    font-size: 15px;
+    margin: 0;
+    width: 100%;
+}
+#payment-method-list-modal .payment-method-list-table-wrap .table th,
+#payment-method-list-modal .payment-method-list-table-wrap .table td {
+    padding: 12px 16px;
 }

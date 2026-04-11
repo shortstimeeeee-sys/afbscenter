@@ -47,6 +47,7 @@ async function loadUsers() {
             App.log(`  - ID: ${user.id}, 사용자명: ${user.username}, 이름: ${user.name}, approved: ${user.approved}, active: ${user.active}`);
         });
         allUsers = users;
+        await loadCoaches();
         updatePendingCount();
         applyFilters();
     } catch (error) {
@@ -140,7 +141,7 @@ function renderUsersTable() {
     if (filteredUsers.length === 0) {
         tbody.innerHTML = `
             <tr>
-                                <td colspan="9" style="text-align: center; padding: 40px; color: var(--text-muted);">
+                                <td colspan="10" style="text-align: center; padding: 40px; color: var(--text-muted);">
                                     사용자가 없습니다.
                                 </td>
             </tr>
@@ -167,6 +168,11 @@ function renderUsersTable() {
             ? new Date(user.lastLogin).toLocaleString('ko-KR')
             : '-';
         
+        const linkedCoach = allCoaches.find(c => c.userId === user.id);
+        const linkedCoachLabel = linkedCoach
+            ? `<span class="badge badge-info" title="코치 명단과 연결됨">${App.escapeHtml(linkedCoach.name)}</span>`
+            : '<span style="color: var(--text-muted);">-</span>';
+        
         // 모든 사용자에 대해 수정 버튼 활성화 (관리자 포함)
         return `
             <tr>
@@ -174,6 +180,7 @@ function renderUsersTable() {
                 <td>${user.username}</td>
                 <td>${user.name || '-'}</td>
                 <td>${roleBadges[user.role] || user.role}</td>
+                <td>${linkedCoachLabel}</td>
                 <td>${user.phoneNumber || '-'}</td>
                 <td>
                     ${user.active 
@@ -243,7 +250,8 @@ function updateCoachSelection() {
 }
 
 // 사용자 추가 모달 열기
-function openUserModal(userId = null) {
+async function openUserModal(userId = null) {
+    await loadCoaches();
     App.log('openUserModal 호출, userId:', userId);
     const modal = document.getElementById('userModal');
     if (!modal) {
@@ -343,77 +351,49 @@ async function saveUser() {
         delete userData.password;
     }
     
-    // 코치 연결 (COACH 권한이고 코치가 선택된 경우)
-    const selectedCoachId = document.getElementById('user-coach').value;
-    if (userData.role === 'COACH' && selectedCoachId) {
-        // 코치와 사용자 연결은 별도 API로 처리
-        try {
-            if (userId) {
-                // 수정
-                await App.api.put(`/users/${userId}`, userData);
-                // 코치 연결 업데이트
-                await updateCoachUserConnection(selectedCoachId, userId);
-            } else {
-                // 추가
-                const response = await App.api.post('/users', userData);
-                const newUserId = response.user.id;
-                // 코치 연결
-                await updateCoachUserConnection(selectedCoachId, newUserId);
-            }
-            App.showNotification('사용자 정보가 저장되었습니다.', 'success');
-        } catch (error) {
-            App.err('사용자 저장 실패:', error);
-            const errorMsg = error.response?.data?.error || '사용자 저장에 실패했습니다.';
-            App.showNotification(errorMsg, 'error');
-            return;
+    const selectedCoachRaw = document.getElementById('user-coach').value;
+    const selectedCoachId = selectedCoachRaw ? parseInt(selectedCoachRaw, 10) : null;
+    
+    try {
+        let savedUserId;
+        if (userId) {
+            await App.api.put(`/users/${userId}`, userData);
+            savedUserId = parseInt(userId, 10);
+            App.showNotification('사용자 정보가 수정되었습니다.', 'success');
+        } else {
+            const response = await App.api.post('/users', userData);
+            savedUserId = response.user.id;
+            App.showNotification('사용자가 추가되었습니다.', 'success');
         }
-    } else {
-        // 코치 연결 없이 저장
-        try {
-            if (userId) {
-                await App.api.put(`/users/${userId}`, userData);
-                App.showNotification('사용자 정보가 수정되었습니다.', 'success');
-            } else {
-                await App.api.post('/users', userData);
-                App.showNotification('사용자가 추가되었습니다.', 'success');
-            }
-        } catch (error) {
-            App.err('사용자 저장 실패:', error);
-            const errorMsg = error.response?.data?.error || '사용자 저장에 실패했습니다.';
-            App.showNotification(errorMsg, 'error');
-            return;
+        
+        if (userData.role === 'COACH') {
+            await updateCoachUserConnection(selectedCoachId, savedUserId);
+        } else {
+            await updateCoachUserConnection(null, savedUserId);
         }
+    } catch (error) {
+        App.err('사용자 저장 실패:', error);
+        const errorMsg = error.response?.data?.error || '사용자 저장에 실패했습니다.';
+        App.showNotification(errorMsg, 'error');
+        return;
     }
     
     closeUserModal();
     loadUsers();
 }
 
-// 코치와 사용자 연결 업데이트
+// 코치 명단과 사용자 계정 연결 (서버 API — DB user_id 반영)
 async function updateCoachUserConnection(coachId, userId) {
     try {
-        // 기존에 연결된 코치가 있으면 연결 해제
-        const existingCoach = allCoaches.find(c => c.userId == userId && c.id != coachId);
-        if (existingCoach) {
-            existingCoach.userId = null;
-            await App.api.put(`/coaches/${existingCoach.id}`, existingCoach);
-        }
-        
-        // 새 코치 연결
-        if (coachId) {
-            const coach = allCoaches.find(c => c.id == coachId);
-            if (coach) {
-                coach.userId = userId;
-                await App.api.put(`/coaches/${coachId}`, coach);
-            }
-        }
-        
-        // 코치 목록 다시 로드
+        await App.api.put('/coaches/user-link', {
+            userId: userId,
+            coachId: coachId
+        });
         await loadCoaches();
     } catch (error) {
         App.err('코치 연결 업데이트 실패:', error);
-        // 코치 연결 실패는 경고만 표시
-        App.showNotification('코치 연결 업데이트에 실패했습니다.', 'warning');
+        const msg = error.response?.data?.error || '코치 명단 연결을 저장하지 못했습니다.';
+        App.showNotification(msg, 'warning');
     }
 }
 

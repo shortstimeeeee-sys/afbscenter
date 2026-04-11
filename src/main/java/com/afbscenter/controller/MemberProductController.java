@@ -5,6 +5,7 @@ import com.afbscenter.model.MemberProduct;
 import com.afbscenter.model.Product;
 import com.afbscenter.model.Payment;
 import com.afbscenter.util.MemberProductCoachResolver;
+import com.afbscenter.util.MemberProductUiDedupe;
 import com.afbscenter.util.PaymentPurchasePriceHelper;
 import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.MemberProductHistoryRepository;
@@ -12,6 +13,9 @@ import com.afbscenter.repository.ProductRepository;
 import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.AttendanceRepository;
 import com.afbscenter.service.MemberService;
+import com.afbscenter.service.MemberApprovalService;
+import com.afbscenter.service.MemberProductDisplayService;
+import com.afbscenter.model.MemberApprovalRequest;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -22,13 +26,17 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RestController
@@ -107,6 +115,8 @@ public class MemberProductController {
     private final com.afbscenter.repository.CoachRepository coachRepository;
     private final MemberProductHistoryRepository memberProductHistoryRepository;
     private final MemberService memberService;
+    private final MemberApprovalService memberApprovalService;
+    private final MemberProductDisplayService memberProductDisplayService;
 
     public MemberProductController(MemberProductRepository memberProductRepository,
                                    ProductRepository productRepository,
@@ -115,7 +125,9 @@ public class MemberProductController {
                                    AttendanceRepository attendanceRepository,
                                    com.afbscenter.repository.CoachRepository coachRepository,
                                    MemberProductHistoryRepository memberProductHistoryRepository,
-                                   MemberService memberService) {
+                                   MemberService memberService,
+                                   MemberApprovalService memberApprovalService,
+                                   MemberProductDisplayService memberProductDisplayService) {
         this.memberProductRepository = memberProductRepository;
         this.productRepository = productRepository;
         this.bookingRepository = bookingRepository;
@@ -124,6 +136,8 @@ public class MemberProductController {
         this.coachRepository = coachRepository;
         this.memberProductHistoryRepository = memberProductHistoryRepository;
         this.memberService = memberService;
+        this.memberApprovalService = memberApprovalService;
+        this.memberProductDisplayService = memberProductDisplayService;
     }
 
     // 상품권 목록 조회 (필터링 가능)
@@ -131,7 +145,8 @@ public class MemberProductController {
     @Transactional(readOnly = true)
     public ResponseEntity<List<Map<String, Object>>> getAllMemberProducts(
             @RequestParam(required = false) Long memberId,
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Boolean forMemberDetailUi) {
         try {
             List<MemberProduct> memberProducts;
             
@@ -157,7 +172,12 @@ public class MemberProductController {
             } else {
                 memberProducts = memberProductRepository.findAllByDeletedAtIsNull();
             }
-            
+
+            final Map<Long, List<Map<String, Object>>> ledgerByMp =
+                    Boolean.TRUE.equals(forMemberDetailUi) && memberId != null
+                            ? memberProductDisplayService.buildLedgerLinesByMemberProductId(memberId)
+                            : Collections.emptyMap();
+
             // Map으로 변환하여 반환 (순환 참조 방지)
             // 횟수권: DB 잔여 우선, 없을 때만 출석·예약 추정(총횟수만 변경해도 잔여 자동 변경 안 함)
             List<Map<String, Object>> result = memberProducts.stream().map(mp -> {
@@ -324,10 +344,32 @@ public class MemberProductController {
 
                 // 이용권 번호 (없으면 null)
                 map.put("voucherNumber", mp.getVoucherNumber());
-                
+                map.put("extendedFromMemberProductId", mp.getExtendedFromMemberProductId());
+
+                LocalDateTime endedAtForApi = mp.getEndedAt();
+                if (endedAtForApi == null && "EXPIRED".equals(statusName) && mp.getExpiryDate() != null) {
+                    endedAtForApi = mp.getExpiryDate().atStartOfDay();
+                }
+                map.put("endedAt", endedAtForApi);
+
+                if (Boolean.TRUE.equals(forMemberDetailUi)
+                        && mp.getProduct() != null
+                        && mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
+                    map.put("ledgerLines", ledgerByMp.getOrDefault(mp.getId(), Collections.emptyList()));
+                } else {
+                    map.put("ledgerLines", Collections.emptyList());
+                }
+
                 return map;
             }).collect(Collectors.toList());
-            
+
+            if (Boolean.TRUE.equals(forMemberDetailUi) && memberId != null) {
+                if (result.size() > 1) {
+                    result = MemberProductUiDedupe.applyDetailUiDedupe(result);
+                }
+                result = MemberProductUiDedupe.removeExtensionChainParentRows(result);
+            }
+
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             logger.error("상품권 목록 조회 중 오류 발생", e);
@@ -335,12 +377,91 @@ public class MemberProductController {
         }
     }
 
-    // 상품권 연장
+    /** 횟수권 연장: 승인 큐에만 넣고, 실제 반영은 관리자·매니저 승인 후 {@link #applyExtensionAfterApproval} */
     @PutMapping("/{id}/extend")
     @Transactional
     public ResponseEntity<Map<String, Object>> extendMemberProduct(
             @PathVariable Long id,
-            @RequestBody Map<String, Object> extendData) {
+            @RequestBody Map<String, Object> extendData,
+            HttpServletRequest request) {
+        try {
+            Integer extendDays;
+            try {
+                extendDays = parseRequestInteger(extendData.get("days"));
+            } catch (NumberFormatException e) {
+                return badRequestNumericOnly();
+            }
+            if (extendDays == null || extendDays <= 0) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "연장 횟수는 1 이상이어야 합니다.");
+                return ResponseEntity.badRequest().body(error);
+            }
+            MemberProduct mpCheck = memberProductRepository.findByIdWithMember(id)
+                    .orElseThrow(() -> new IllegalArgumentException("상품권을 찾을 수 없습니다."));
+            if (mpCheck.getProduct() == null || mpCheck.getProduct().getType() != Product.ProductType.COUNT_PASS) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "횟수권만 연장할 수 있습니다.");
+                return ResponseEntity.badRequest().body(error);
+            }
+            if (mpCheck.getMember() == null || mpCheck.getMember().getId() == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "회원 정보가 없습니다.");
+                return ResponseEntity.badRequest().body(error);
+            }
+            String username = request != null ? (String) request.getAttribute("username") : null;
+            String productLabel = mpCheck.getProduct() != null && mpCheck.getProduct().getName() != null
+                    ? mpCheck.getProduct().getName().trim() : "상품";
+            String summary = "이용권 연장·재구매: " + productLabel + " (" + extendDays + "회)";
+            Optional<MemberApprovalRequest> opt = memberApprovalService.createExtensionPendingIfAbsent(
+                    mpCheck.getMember().getId(), id, extendDays,
+                    username != null ? username : "system", summary);
+            if (opt.isEmpty()) {
+                Map<String, Object> err = new HashMap<>();
+                err.put("error", "이미 동일 이용권에 대한 연장 승인 요청이 대기 중입니다.");
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(err);
+            }
+            MemberApprovalRequest ar = opt.get();
+            Map<String, Object> res = new HashMap<>();
+            res.put("pendingApproval", true);
+            res.put("requestId", ar.getId());
+            res.put("message", "관리자·매니저 승인 후 연장이 적용됩니다.");
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(res);
+        } catch (IllegalArgumentException e) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+        } catch (Exception e) {
+            logger.error("연장 승인 요청 등록 실패 id={}", id, e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "연장 요청 처리 중 오류가 발생했습니다: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        }
+    }
+
+    /**
+     * 승인 완료 후 횟수권 연장 실제 반영 ({@link com.afbscenter.service.MemberApprovalService}에서 호출)
+     */
+    @Transactional
+    public ResponseEntity<Map<String, Object>> applyExtensionAfterApproval(Long memberProductId, int extendDays) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("days", extendDays);
+        return executeExtendMemberProduct(memberProductId, body);
+    }
+
+    /**
+     * 이용권 할당 직후(승인 후 반영 등) 연장 모달에서 입력한 회차를 반영할 때 사용.
+     * HTTP PUT /extend 와 동일한 본처리이며 승인 큐(EXTENSION)는 거치지 않는다.
+     */
+    @Transactional
+    public ResponseEntity<Map<String, Object>> applyExtendDirectly(Long memberProductId, int extendDays) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("days", extendDays);
+        return executeExtendMemberProduct(memberProductId, body);
+    }
+
+    private ResponseEntity<Map<String, Object>> executeExtendMemberProduct(
+            Long id,
+            Map<String, Object> extendData) {
         try {
             // member와 product를 함께 로드 (lazy loading 방지)
             MemberProduct memberProduct = memberProductRepository.findByIdWithMember(id)
@@ -392,6 +513,7 @@ public class MemberProductController {
                     sourceMemberProductIdForHistory = oldMp.getId();
                     previousTotalForExtend = oldMp.getTotalCount();
                     MemberProduct nu = new MemberProduct();
+                    nu.setExtendedFromMemberProductId(oldMp.getId());
                     nu.setMember(member);
                     nu.setProduct(product);
                     try {
@@ -695,6 +817,7 @@ public class MemberProductController {
                         map.put("remainingCount", mp.getRemainingCount());
                         map.put("totalCount", mp.getTotalCount());
                         map.put("status", mp.getStatus() != null ? mp.getStatus().name() : null);
+                        map.put("extendedFromMemberProductId", mp.getExtendedFromMemberProductId());
                         
                         // 만료 여부 확인
                         if (mp.getStatus() == MemberProduct.Status.ACTIVE && 
@@ -1266,6 +1389,7 @@ public class MemberProductController {
                 sourceMemberProductIdForHistory = oldMp.getId();
                 Member member = oldMp.getMember();
                 MemberProduct nu = new MemberProduct();
+                nu.setExtendedFromMemberProductId(oldMp.getId());
                 nu.setMember(member);
                 nu.setProduct(product);
                 try {
@@ -1374,14 +1498,7 @@ public class MemberProductController {
             Long memberId = memberProduct.getMember() != null ? memberProduct.getMember().getId() : null;
             Long productId = memberProduct.getProduct() != null ? memberProduct.getProduct().getId() : null;
             
-            // 관련 Booking의 memberProduct 참조를 null로 설정
-            List<com.afbscenter.model.Booking> bookings = bookingRepository.findAllBookingsByMemberProductId(id);
-            for (com.afbscenter.model.Booking booking : bookings) {
-                booking.setMemberProduct(null);
-                bookingRepository.save(booking);
-            }
-
-            memberService.softDeleteMemberProduct(memberProduct, null);
+            memberService.softDeleteMemberProductAndDetachBookings(memberProduct, null);
             
             logger.info("이용권 소프트 삭제 완료: MemberProduct ID={}, Member ID={}, Product ID={}", 
                 id, memberId, productId);

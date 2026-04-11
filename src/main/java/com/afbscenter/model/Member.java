@@ -70,7 +70,7 @@ public class Member {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private MemberStatus status = MemberStatus.ACTIVE;
+    private MemberStatus status = MemberStatus.ACTIVE; // 신규 API는 역할에 따라 PENDING_APPROVAL 설정
 
     @Column(name = "join_date", nullable = false)
     private LocalDate joinDate = LocalDate.now();
@@ -117,7 +117,7 @@ public class Member {
     private Double swingSpeed; // 스윙 속도 (mph) - 소수점 한자리
 
     @Column(name = "exit_velocity")
-    private Double exitVelocity; // 타구 속도 (mph) - 소수점 한자리
+    private Double exitVelocity; // 타구 속도 (km/h) - 소수점 한자리
 
     @Column(name = "pitching_speed")
     private Double pitchingSpeed; // 구속 (km/h) - 소수점 한자리
@@ -212,6 +212,7 @@ public class Member {
     }
 
     public enum MemberStatus {
+        PENDING_APPROVAL, // 신규 등록 직후(승인 정책 적용 이후) — 관리자·매니저 승인 전. 기존 DB 회원은 마이그레이션으로 ACTIVE 처리
         ACTIVE,     // 활성
         INACTIVE,   // 휴면
         WITHDRAWN   // 탈퇴

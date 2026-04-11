@@ -3,6 +3,7 @@ package com.afbscenter.controller;
 import com.afbscenter.model.Attendance;
 import com.afbscenter.model.Booking;
 import com.afbscenter.model.Member;
+import com.afbscenter.model.Member.MemberStatus;
 import com.afbscenter.model.MemberProduct;
 import com.afbscenter.model.Product;
 import com.afbscenter.repository.AttendanceRepository;
@@ -13,6 +14,7 @@ import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.CoachRepository;
 import com.afbscenter.repository.UserRepository;
 import com.afbscenter.service.MemberService;
+import com.afbscenter.service.OperationalCoachViewService;
 import com.afbscenter.model.Coach;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +33,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 회원 조회 전용 (GET by-number, search). URL은 기존과 동일: /api/members/by-number/{memberNumber}, /api/members/search
@@ -49,6 +52,7 @@ public class MemberQueryController {
     private final PaymentRepository paymentRepository;
     private final UserRepository userRepository;
     private final CoachRepository coachRepository;
+    private final OperationalCoachViewService operationalCoachViewService;
 
     public MemberQueryController(MemberRepository memberRepository,
                                  MemberService memberService,
@@ -57,7 +61,8 @@ public class MemberQueryController {
                                  MemberProductRepository memberProductRepository,
                                  PaymentRepository paymentRepository,
                                  UserRepository userRepository,
-                                 CoachRepository coachRepository) {
+                                 CoachRepository coachRepository,
+                                 OperationalCoachViewService operationalCoachViewService) {
         this.memberRepository = memberRepository;
         this.memberService = memberService;
         this.bookingRepository = bookingRepository;
@@ -66,6 +71,7 @@ public class MemberQueryController {
         this.paymentRepository = paymentRepository;
         this.userRepository = userRepository;
         this.coachRepository = coachRepository;
+        this.operationalCoachViewService = operationalCoachViewService;
     }
 
     private Optional<Long> resolveCoachIdFromRequest(HttpServletRequest request) {
@@ -79,7 +85,9 @@ public class MemberQueryController {
 
     @GetMapping("/by-number/{memberNumber}")
     @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> getMemberByMemberNumber(@PathVariable String memberNumber, HttpServletRequest request) {
+    public ResponseEntity<Map<String, Object>> getMemberByMemberNumber(@PathVariable String memberNumber,
+            @RequestParam(required = false) String viewCoachIds,
+            HttpServletRequest request) {
         try {
             Optional<Member> memberOpt = memberRepository.findByMemberNumber(memberNumber);
             if (memberOpt.isEmpty()) {
@@ -91,10 +99,17 @@ public class MemberQueryController {
             Member member = memberOpt.get();
             String role = request != null ? (String) request.getAttribute("role") : null;
             if ("COACH".equalsIgnoreCase(role)) {
-                Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
-                Long memberCoachId = member.getCoach() != null ? member.getCoach().getId() : null;
-                if (coachIdOpt.isEmpty() || memberCoachId == null || !coachIdOpt.get().equals(memberCoachId)) {
-                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
+                if (!viewIds.isEmpty()) {
+                    Set<Long> eligibleMemberIds = operationalCoachViewService.findMemberIdsMatchingViewCoachIds(viewIds);
+                    if (!eligibleMemberIds.contains(member.getId())) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                    }
+                } else {
+                    Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
+                    if (coachIdOpt.isEmpty() || !operationalCoachViewService.coachCanAccessMember(coachIdOpt.get(), member.getId())) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                    }
                 }
             }
 
@@ -149,6 +164,9 @@ public class MemberQueryController {
     public ResponseEntity<List<Map<String, Object>>> searchMembers(@RequestParam(required = false) String name,
                                                                    @RequestParam(required = false) String memberNumber,
                                                                    @RequestParam(required = false) String phoneNumber,
+                                                                   @RequestParam(required = false) String status,
+                                                                   @RequestParam(required = false) String includePendingApproval,
+                                                                   @RequestParam(required = false) String viewCoachIds,
                                                                    HttpServletRequest request) {
         List<Member> members;
         if (memberNumber != null && !memberNumber.isEmpty()) {
@@ -163,15 +181,46 @@ public class MemberQueryController {
 
         String role = request != null ? (String) request.getAttribute("role") : null;
         if ("COACH".equalsIgnoreCase(role)) {
-            Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
-            if (coachIdOpt.isEmpty()) {
-                members = new java.util.ArrayList<>();
-            } else {
-                Long myCoachId = coachIdOpt.get();
+            List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
+            if (!viewIds.isEmpty()) {
+                Set<Long> eligibleMemberIds = operationalCoachViewService.findMemberIdsMatchingViewCoachIds(viewIds);
                 members = members.stream()
-                        .filter(m -> m != null && m.getCoach() != null && myCoachId.equals(m.getCoach().getId()))
+                        .filter(m -> m != null && m.getId() != null && eligibleMemberIds.contains(m.getId()))
                         .collect(java.util.stream.Collectors.toList());
+            } else {
+                Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
+                if (coachIdOpt.isEmpty()) {
+                    members = new java.util.ArrayList<>();
+                } else {
+                    java.util.Set<Long> eligibleMemberIds = operationalCoachViewService.findMemberIdsMatchingViewCoachIds(
+                            java.util.List.of(coachIdOpt.get()));
+                    members = members.stream()
+                            .filter(m -> m != null && m.getId() != null && eligibleMemberIds.contains(m.getId()))
+                            .collect(java.util.stream.Collectors.toList());
+                }
             }
+        }
+
+        // GET /members 목록과 동일: 기본은 승인 대기 제외. status= 또는 includePendingApproval=true 로 예외 처리
+        boolean includePending = "true".equalsIgnoreCase(includePendingApproval);
+        if (status != null && !status.trim().isEmpty()) {
+            try {
+                MemberStatus statusEnum = MemberStatus.valueOf(status.trim().toUpperCase());
+                members = members.stream()
+                        .filter(m -> m != null && m.getStatus() == statusEnum)
+                        .collect(java.util.stream.Collectors.toList());
+            } catch (IllegalArgumentException e) {
+                logger.warn("잘못된 검색 상태 파라미터: {}", status);
+                if (!includePending) {
+                    members = members.stream()
+                            .filter(m -> m != null && m.getStatus() != MemberStatus.PENDING_APPROVAL)
+                            .collect(java.util.stream.Collectors.toList());
+                }
+            }
+        } else if (!includePending) {
+            members = members.stream()
+                    .filter(m -> m != null && m.getStatus() != MemberStatus.PENDING_APPROVAL)
+                    .collect(java.util.stream.Collectors.toList());
         }
 
         List<com.afbscenter.dto.MemberResponseDTO> memberDTOs = new java.util.ArrayList<>();

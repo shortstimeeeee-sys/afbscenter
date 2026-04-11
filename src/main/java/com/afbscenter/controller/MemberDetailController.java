@@ -17,6 +17,10 @@ import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.ProductRepository;
 import com.afbscenter.service.MemberService;
+import com.afbscenter.service.MemberApprovalService;
+import com.afbscenter.model.MemberApprovalRequest;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,8 +32,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletRequest;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.type.TypeReference;
+import org.springframework.context.annotation.Lazy;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -60,6 +63,9 @@ public class MemberDetailController {
     private final com.afbscenter.repository.MemberProductHistoryRepository memberProductHistoryRepository;
     private final TransactionTemplate transactionTemplate;
     private final ActionAuditLogRepository actionAuditLogRepository;
+    private final MemberApprovalService memberApprovalService;
+    private final ObjectMapper objectMapper;
+    private final MemberProductController memberProductController;
 
     public MemberDetailController(MemberService memberService,
                            MemberRepository memberRepository,
@@ -71,7 +77,10 @@ public class MemberDetailController {
                            AttendanceRepository attendanceRepository,
                            com.afbscenter.repository.MemberProductHistoryRepository memberProductHistoryRepository,
                            org.springframework.transaction.PlatformTransactionManager transactionManager,
-                           ActionAuditLogRepository actionAuditLogRepository) {
+                           ActionAuditLogRepository actionAuditLogRepository,
+                           MemberApprovalService memberApprovalService,
+                           ObjectMapper objectMapper,
+                           @Lazy MemberProductController memberProductController) {
         this.memberService = memberService;
         this.memberRepository = memberRepository;
         this.coachRepository = coachRepository;
@@ -84,7 +93,123 @@ public class MemberDetailController {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.actionAuditLogRepository = actionAuditLogRepository;
+        this.memberApprovalService = memberApprovalService;
+        this.objectMapper = objectMapper;
+        this.memberProductController = memberProductController;
     }
+
+    /** 연장 모달에서 함께 보낸 회차(승인 후 한 번에 반영) */
+    private static Integer parseExtendDaysFromAssignRequest(Map<String, Object> request) {
+        if (request == null) {
+            return null;
+        }
+        Object ed = request.get("extendDays");
+        if (ed == null) {
+            return null;
+        }
+        try {
+            if (ed instanceof Number) {
+                int v = ((Number) ed).intValue();
+                return v > 0 ? v : null;
+            }
+            String s = ed.toString().trim();
+            if (s.isEmpty()) {
+                return null;
+            }
+            int v = Integer.parseInt(s);
+            return v > 0 ? v : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * {@code skipPayment} 할당 시 소진된 기존 행을 재사용해 연장 회차만 반영할지.
+     * [신규](NEW_CATALOG)·회원폼(MEMBER_FORM)으로 산 이용권은 재사용하지 않고 항상 새 행을 만든다.
+     * (재사용 시 동일 바우처·소진 줄이 화면에 같이 남는 문제 방지)
+     */
+    private static boolean shouldReuseUsedUpRowForSkipPaymentAssign(Map<String, Object> request) {
+        if (request == null || !Boolean.TRUE.equals(request.get("skipPayment"))) {
+            return false;
+        }
+        Object intentObj = request.get("productSelectionIntent");
+        if (intentObj == null) {
+            return true;
+        }
+        String intent = intentObj.toString().trim();
+        if (intent.isEmpty()) {
+            return true;
+        }
+        if ("NEW_CATALOG".equalsIgnoreCase(intent) || "MEMBER_FORM".equalsIgnoreCase(intent)) {
+            return false;
+        }
+        return true;
+    }
+
+    private void applyExtendDaysAfterAssignIfNeeded(
+            boolean bypassApprovalQueue,
+            boolean skipPayment,
+            Integer extendDaysFromRequest,
+            Product product,
+            Long memberProductId,
+            Map<String, Object> responseMap) {
+        if (!bypassApprovalQueue || !skipPayment || extendDaysFromRequest == null
+                || product.getType() != Product.ProductType.COUNT_PASS) {
+            return;
+        }
+        ResponseEntity<Map<String, Object>> extRes = memberProductController.applyExtendDirectly(
+                memberProductId, extendDaysFromRequest);
+        if (!extRes.getStatusCode().is2xxSuccessful() || extRes.getBody() == null) {
+            logger.error("승인 경로 연장 반영 실패: memberProductId={}, HTTP {}", memberProductId, extRes.getStatusCode());
+            throw new IllegalStateException("승인 후 이용권 회차 반영에 실패했습니다.");
+        }
+        Map<String, Object> eb = extRes.getBody();
+        if (eb.containsKey("error") && eb.get("error") != null) {
+            throw new IllegalStateException(String.valueOf(eb.get("error")));
+        }
+        Long outId = eb.get("id") != null ? ((Number) eb.get("id")).longValue() : memberProductId;
+        memberProductRepository.findById(outId).ifPresent(mp -> {
+            responseMap.put("id", mp.getId());
+            responseMap.put("remainingCount", mp.getRemainingCount());
+            responseMap.put("totalCount", mp.getTotalCount());
+            responseMap.put("status", mp.getStatus() != null ? mp.getStatus().name() : null);
+            responseMap.put("expiryDate", mp.getExpiryDate());
+        });
+    }
+
+    /**
+     * RE_REGISTER 승인 큐 요약.
+     * {@code productSelectionIntent}: 프론트 연장 모달에서 [보유] vs [신규] 선택과 일치시키기 위한 값.
+     * <ul>
+     *   <li>{@code OWNED_PASS} — 기존 이용권(보유) 기준 연장·재구매</li>
+     *   <li>{@code NEW_CATALOG} — 상품 목록의 [신규] 선택: 이력 있으면 추가 구매, 없으면 신규 구매</li>
+     *   <li>{@code MEMBER_FORM} — 회원 폼에서 상품만 선택(카탈로그 추가)</li>
+     *   <li>{@code null} — 구버전: DB에 동일 상품 이력만으로 연장/신규 구매 추정</li>
+     * </ul>
+     */
+    public String buildReRegisterApprovalDetailSummary(Long memberId, Long productId, String productName, String productSelectionIntent) {
+        String label = productName != null && !productName.isBlank() ? productName.trim() : "상품";
+        if (memberId == null || productId == null) {
+            return "이용권 추가/재등록: " + label;
+        }
+        String intent = productSelectionIntent != null ? productSelectionIntent.trim() : "";
+        if ("OWNED_PASS".equalsIgnoreCase(intent)) {
+            return "이용권 연장·재구매: " + label;
+        }
+        if ("NEW_CATALOG".equalsIgnoreCase(intent) || "MEMBER_FORM".equalsIgnoreCase(intent)) {
+            List<MemberProduct> existing = memberProductRepository.findByMemberIdAndProductId(memberId, productId);
+            boolean hadAnyPass = existing != null && !existing.isEmpty();
+            return hadAnyPass ? ("이용권 추가 구매: " + label) : ("이용권 신규 구매: " + label);
+        }
+        List<MemberProduct> existing = memberProductRepository.findByMemberIdAndProductId(memberId, productId);
+        boolean hadAnyPass = existing != null && !existing.isEmpty();
+        return hadAnyPass ? ("이용권 연장: " + label) : ("이용권 신규 구매: " + label);
+    }
+
+    public String buildReRegisterApprovalDetailSummary(Long memberId, Long productId, String productName) {
+        return buildReRegisterApprovalDetailSummary(memberId, productId, productName, null);
+    }
+
     // 회원에게 상품 할당 및 결제 생성
     // @Transactional 제거: TransactionTemplate을 사용하여 필요한 부분만 트랜잭션 처리
     @PostMapping("/{memberId}/products")
@@ -92,6 +217,30 @@ public class MemberDetailController {
             @PathVariable Long memberId,
             @RequestBody Map<String, Object> request,
             jakarta.servlet.http.HttpServletRequest httpRequest) {
+        return assignProductToMemberBody(memberId, request, httpRequest, false);
+    }
+
+    /**
+     * RE_REGISTER 승인 후 이용권 할당 ({@link MemberApprovalService#approve}에서 호출)
+     */
+    @Transactional
+    public ResponseEntity<Map<String, Object>> applyReRegisterFromApproval(Long memberId, String approvalPayloadJson) {
+        try {
+            Map<String, Object> request = objectMapper.readValue(approvalPayloadJson, new TypeReference<Map<String, Object>>() {});
+            return assignProductToMemberBody(memberId, request, null, true);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            logger.error("재등록 승인 payload 파싱 실패: memberId={}", memberId, e);
+            Map<String, Object> err = new HashMap<>();
+            err.put("error", "승인 요청 데이터를 파싱할 수 없습니다.");
+            return ResponseEntity.badRequest().body(err);
+        }
+    }
+
+    private ResponseEntity<Map<String, Object>> assignProductToMemberBody(
+            Long memberId,
+            Map<String, Object> request,
+            jakarta.servlet.http.HttpServletRequest httpRequest,
+            boolean bypassApprovalQueue) {
         Long productIdLong = null; // catch 블록에서 접근 가능하도록 try 블록 밖에서 선언
         try {
             logger.info("상품 할당 요청 시작: 회원 ID={}, 요청 데이터={}", memberId, request);
@@ -145,6 +294,7 @@ public class MemberDetailController {
             // 연장 모달에서 호출하는지 확인 (결제 생성을 건너뛰기 위해)
             // 람다 표현식에서 사용하기 위해 final 변수로 선언
             final Boolean skipPayment = request.get("skipPayment") != null ? (Boolean) request.get("skipPayment") : false;
+            final Integer extendDaysFromRequest = parseExtendDaysFromAssignRequest(request);
             logger.debug("상품 조회 시작: 상품 ID={}", productIdLong);
             
             // 람다에서 사용하기 위해 final 변수 생성 (effectively final)
@@ -188,8 +338,8 @@ public class MemberDetailController {
             logger.debug("상품 조회 성공: 상품 ID={}, 이름={}, 타입={}", 
                 productIdLong, product.getName(), product.getType());
             
-            // 연장 목적(skipPayment)일 때: 같은 회원·같은 상품의 소진된 이용권이 있으면 새 행 생성 금지 → 기존 행 반환 (이용권 1개 유지)
-            if (Boolean.TRUE.equals(skipPayment)) {
+            // 연장 목적(skipPayment)일 때: 소진 행 재사용은 OWNED·구버전 등에만. [신규]/폼 추가는 새 행 생성(아래 본문).
+            if (shouldReuseUsedUpRowForSkipPaymentAssign(request)) {
                 List<MemberProduct> existing = memberProductRepository.findByMemberIdAndProductId(memberId, productIdLong);
                 if (existing != null && !existing.isEmpty()) {
                     Optional<MemberProduct> usedUp = existing.stream()
@@ -218,6 +368,14 @@ public class MemberDetailController {
                         }
                         logger.info("연장 시 기존 소진 이용권 재사용: 회원 ID={}, 상품 ID={}, MemberProduct ID={} (중복 행 생성 방지)",
                             memberId, productIdLong, existingRow.getId());
+                        try {
+                            applyExtendDaysAfterAssignIfNeeded(bypassApprovalQueue, Boolean.TRUE.equals(skipPayment),
+                                    extendDaysFromRequest, product, existingRow.getId(), responseMap);
+                        } catch (IllegalStateException ex) {
+                            Map<String, Object> err = new HashMap<>();
+                            err.put("error", ex.getMessage());
+                            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(err);
+                        }
                         return ResponseEntity.status(HttpStatus.CREATED).body(responseMap);
                     }
                 }
@@ -240,6 +398,56 @@ public class MemberDetailController {
                 err.put("error", "존재하지 않는 코치입니다.");
                 logger.warn("이용권 할당 거부: 코치 없음. coachId={}, 회원 ID={}, 상품 ID={}", coachId, memberId, productIdLong);
                 return ResponseEntity.badRequest().body(err);
+            }
+
+            if (!bypassApprovalQueue) {
+                try {
+                    String payloadJson = objectMapper.writeValueAsString(request);
+                    String username = httpRequest != null ? (String) httpRequest.getAttribute("username") : null;
+                    Object intentObj = request.get("productSelectionIntent");
+                    String selectionIntent = intentObj != null && !intentObj.toString().isBlank()
+                            ? intentObj.toString().trim() : null;
+                    String summary = buildReRegisterApprovalDetailSummary(memberId, productIdLong, product.getName(), selectionIntent);
+                    // 신규 가입 직후: 별도 RE_REGISTER 대기를 만들지 않고 NEW_MEMBER 승인 건에 이용권 의도만 합침 (대기 줄 중복 방지)
+                    if (member.getStatus() == Member.MemberStatus.PENDING_APPROVAL) {
+                        Optional<MemberApprovalRequest> mergedOpt = memberApprovalService.mergeInitialProductIntoPendingNewMember(
+                                memberId, payloadJson, product.getName());
+                        if (mergedOpt.isPresent()) {
+                            MemberApprovalRequest ar = mergedOpt.get();
+                            Map<String, Object> res = new HashMap<>();
+                            res.put("pendingApproval", true);
+                            res.put("requestId", ar.getId());
+                            res.put("message", "관리자·매니저 승인 후 이용권이 반영됩니다.");
+                            return ResponseEntity.status(HttpStatus.ACCEPTED).body(res);
+                        }
+                    }
+                    Optional<MemberApprovalRequest> mergedRe = memberApprovalService.mergeReRegisterPayloadIntoPending(
+                            memberId, payloadJson, product.getName());
+                    if (mergedRe.isPresent()) {
+                        MemberApprovalRequest ar = mergedRe.get();
+                        Map<String, Object> res = new HashMap<>();
+                        res.put("pendingApproval", true);
+                        res.put("requestId", ar.getId());
+                        res.put("message", "관리자·매니저 승인 후 이용권이 반영됩니다.");
+                        return ResponseEntity.status(HttpStatus.ACCEPTED).body(res);
+                    }
+                    Optional<MemberApprovalRequest> opt = memberApprovalService.createReRegisterPendingIfAbsent(
+                            memberId, payloadJson, username != null && !username.isBlank() ? username : "system", summary);
+                    if (opt.isPresent()) {
+                        MemberApprovalRequest ar = opt.get();
+                        Map<String, Object> res = new HashMap<>();
+                        res.put("pendingApproval", true);
+                        res.put("requestId", ar.getId());
+                        res.put("message", "관리자·매니저 승인 후 이용권이 반영됩니다.");
+                        return ResponseEntity.status(HttpStatus.ACCEPTED).body(res);
+                    }
+                    Map<String, Object> err = new HashMap<>();
+                    err.put("error", "이미 재등록/추가 승인 요청이 대기 중입니다.");
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(err);
+                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                    logger.error("승인 요청용 payload 직렬화 실패", e);
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                }
             }
             
             MemberProduct memberProduct = new MemberProduct();
@@ -482,6 +690,15 @@ public class MemberDetailController {
                 logger.error("결제 생성 트랜잭션 실패: 회원 ID={}, 상품 ID={}, 오류: {}", 
                     memberId, finalProductIdForLambda, e.getMessage(), e);
                 // 결제 생성 실패해도 MemberProduct 저장은 성공했으므로 계속 진행
+            }
+            
+            try {
+                applyExtendDaysAfterAssignIfNeeded(bypassApprovalQueue, Boolean.TRUE.equals(skipPayment),
+                        extendDaysFromRequest, product, saved.getId(), responseMap);
+            } catch (IllegalStateException ex) {
+                Map<String, Object> err = new HashMap<>();
+                err.put("error", ex.getMessage());
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(err);
             }
             
             return ResponseEntity.status(HttpStatus.CREATED).body(responseMap);

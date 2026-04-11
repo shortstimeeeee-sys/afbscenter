@@ -179,3 +179,156 @@ body.analytics-page .topbar { margin-top: 0; }
 .top-spender-row--bronze .top-spender-name { color: #b87333; }
 .top-spender-row--bronze .top-spender-number { color: #7a4e24; }
 .top-spender-row--bronze .top-spender-amount { color: #8b5a2b; }
+
+/* 매출 추이 30일 모달 — 넓은 가로·본문 스크롤 */
+#revenue-trend-month-modal .modal.revenue-trend-month-dialog {
+    width: min(98vw, 1680px);
+    max-width: min(98vw, 1680px);
+    height: auto !important;
+    max-height: min(95vh, calc(100vh - 16px)) !important;
+    min-height: 0;
+    box-sizing: border-box;
+}
+#revenue-trend-month-modal .modal.revenue-trend-month-dialog .modal-body.revenue-trend-month-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 14px 22px 22px;
+}
+#revenue-trend-chart-month {
+    min-height: 420px;
+}
+#revenue-trend-month-modal .modal.revenue-trend-month-dialog .modal-footer {
+    padding: 12px 18px 18px;
+    flex-shrink: 0;
+}
+
+/* ---------- 통계 세부 내역 모달 (#analytics-detail-modal) ---------- */
+#analytics-detail-modal .modal.analytics-detail-modal-dialog {
+    width: min(98vw, 1320px);
+    max-width: min(98vw, 1320px);
+    height: auto !important;
+    max-height: min(94vh, calc(100vh - 16px)) !important;
+    min-height: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+}
+#analytics-detail-modal .analytics-detail-modal-header {
+    padding: 18px 22px 16px;
+    flex-shrink: 0;
+}
+#analytics-detail-modal .analytics-detail-modal-header .modal-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+#analytics-detail-modal .analytics-detail-modal-body {
+    padding: 0 22px 18px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+#analytics-detail-modal .analytics-detail-modal-footer {
+    padding: 12px 22px 18px;
+    flex-shrink: 0;
+    border-top: 1px solid var(--border-color);
+}
+#analytics-detail-modal .analytics-detail-empty {
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 32px 16px;
+    margin: 0;
+    font-size: 14px;
+}
+#analytics-detail-modal .analytics-detail-intro {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    margin-bottom: 14px;
+    padding: 2px 2px 0;
+}
+#analytics-detail-modal .analytics-detail-count-badge {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 5px 12px;
+    line-height: 1;
+}
+#analytics-detail-modal .analytics-detail-intro-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+#analytics-detail-modal .analytics-detail-table-wrap {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+#analytics-detail-modal .analytics-detail-table {
+    width: 100%;
+    margin: 0;
+    font-size: 13px;
+    border-collapse: collapse;
+    min-width: 920px;
+}
+#analytics-detail-modal .analytics-detail-table--payments {
+    min-width: 1040px;
+}
+#analytics-detail-modal .analytics-detail-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 12px;
+    text-align: left;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+#analytics-detail-modal .analytics-detail-table tbody td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+    word-break: break-word;
+}
+#analytics-detail-modal .analytics-detail-table tbody tr:nth-child(even) td {
+    background: rgba(128, 128, 128, 0.04);
+}
+#analytics-detail-modal .analytics-detail-table tbody tr:hover td {
+    background: var(--bg-hover);
+}
+#analytics-detail-modal .analytics-detail-table tbody tr:last-child td {
+    border-bottom: none;
+}
+#analytics-detail-modal .analytics-detail-mono {
+    font-variant-numeric: tabular-nums;
+}
+#analytics-detail-modal .analytics-detail-nowrap {
+    white-space: nowrap;
+}
+#analytics-detail-modal .analytics-detail-muted {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+#analytics-detail-modal .analytics-detail-col-num {
+    text-align: right;
+    white-space: nowrap;
+}
+#analytics-detail-modal .analytics-detail-memo {
+    max-width: 280px;
+    font-size: 12px;
+    line-height: 1.45;
+}

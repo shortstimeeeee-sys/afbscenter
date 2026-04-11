@@ -84,8 +84,32 @@ public class CoachService {
         if (updatedCoach.getActive() != null) {
             coach.setActive(updatedCoach.getActive());
         }
-        
+        // userId는 별도 API(syncUserCoachLink)로만 변경. 부분 PUT 시 JSON에 userId가 없어 null로 오인되지 않도록 여기서는 건드리지 않음.
+
         return coachRepository.save(coach);
+    }
+
+    /**
+     * 사용자 계정과 코치 명단 행을 연결합니다. 동일 사용자에 여러 코치가 묶여 있으면 먼저 모두 해제한 뒤 지정 코치에만 연결합니다.
+     *
+     * @param userId  연결할 사용자 ID
+     * @param coachId 코치 명단 ID, null이면 해당 사용자에 대한 연결만 모두 해제
+     */
+    public Optional<Coach> syncUserCoachLink(Long userId, Long coachId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("userId는 필수입니다.");
+        }
+        for (Coach c : coachRepository.findAllByUserId(userId)) {
+            c.setUserId(null);
+            coachRepository.save(c);
+        }
+        if (coachId == null) {
+            return Optional.empty();
+        }
+        Coach target = coachRepository.findById(coachId)
+                .orElseThrow(() -> new IllegalArgumentException("코치를 찾을 수 없습니다."));
+        target.setUserId(userId);
+        return Optional.of(coachRepository.save(target));
     }
 
     // 코치 삭제 → 실제 삭제 대신 비활성(퇴사 처리)로 변경

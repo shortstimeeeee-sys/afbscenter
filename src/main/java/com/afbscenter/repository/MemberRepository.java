@@ -33,6 +33,13 @@ public interface MemberRepository extends JpaRepository<Member, Long> {
     
     @Query("SELECT m FROM Member m WHERE m.coach.id = :coachId")
     List<Member> findByCoachId(@Param("coachId") Long coachId);
+
+    /** 운영 코치 viewCoachIds: 회원 기본 담당 코치가 목록에 포함되는 회원 ID */
+    @Query("SELECT m.id FROM Member m WHERE m.coach IS NOT NULL AND m.coach.id IN :coachIds")
+    List<Long> findMemberIdsByCoachIdIn(@Param("coachIds") List<Long> coachIds);
+
+    @Query("SELECT CASE WHEN COUNT(m) > 0 THEN true ELSE false END FROM Member m WHERE m.id = :memberId AND m.coach IS NOT NULL AND m.coach.id = :coachId")
+    boolean existsByIdAndCoachId(@Param("memberId") Long memberId, @Param("coachId") Long coachId);
     
     @Query("SELECT COUNT(m) FROM Member m WHERE m.joinDate = :date")
     Long countByJoinDate(@Param("date") java.time.LocalDate date);

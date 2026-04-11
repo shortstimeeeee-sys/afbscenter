@@ -91,8 +91,9 @@ function getCoachColor(coach) {
 function getCoachColors(bookings) {
     const colors = new Set();
     bookings.forEach(booking => {
-        // 예약에 직접 할당된 코치 또는 회원의 코치
-        const coach = booking.coach || (booking.member && booking.member.coach ? booking.member.coach : null);
+        const coach = typeof App.resolveCoachForCalendarDisplay === 'function'
+            ? App.resolveCoachForCalendarDisplay(booking)
+            : (booking.coach || (booking.member && booking.member.coach ? booking.member.coach : null));
         if (coach) {
             const color = getCoachColor(coach);
             if (color) colors.add(color);
@@ -125,10 +126,14 @@ function applyFilterStatsCardBorder() {
 }
 function runBookingsDOMReady() {
     applyFilterStatsCardBorder();
-    initializeBookings();
-    
-    // 레슨 종목 필터링 (페이지 타입에 따라)
-    filterLessonCategoryOptions();
+    (async function() {
+        if (App.currentUser && String(App.currentUser.role || '').toUpperCase() === 'COACH'
+                && typeof App.syncOperationalCoachViewFromServer === 'function') {
+            await App.syncOperationalCoachViewFromServer();
+        }
+        await initializeBookings();
+        filterLessonCategoryOptions();
+    })();
     
     // 필터 셀렉트/날짜 변경 시 적용 버튼 없이 바로 반영
     const filterCoach = document.getElementById('filter-coach');
@@ -300,6 +305,9 @@ async function loadFilterCoaches() {
 
 async function initializeBookings() {
     try {
+        if (typeof App.refreshCoachBookingNameVisibilityCache === 'function') {
+            await App.refreshCoachBookingNameVisibilityCache();
+        }
         // 뷰 전환 이벤트
         document.querySelectorAll('[data-view]').forEach(btn => {
             btn.addEventListener('click', function() {
@@ -1743,6 +1751,7 @@ async function renderCalendar() {
     queryEnd.setHours(23, 59, 59, 999);
     
     let bookings = [];
+    let skipLegendClientFilter = false;
     try {
         // 페이지별 설정 읽기
         const config = window.BOOKING_PAGE_CONFIG || { branch: 'SAHA', facilityType: 'BASEBALL' };
@@ -1761,12 +1770,17 @@ async function renderCalendar() {
         
         const response = await App.api.get(`/bookings?${params.toString()}`);
         bookings = response || [];
+        skipLegendClientFilter = typeof App.isOperationalViewCoachFilterActive === 'function' && App.isOperationalViewCoachFilterActive();
         const filterSet = window.calendarFilterCoachIds;
-        if (filterSet && filterSet.size > 0) {
+        if (!skipLegendClientFilter && filterSet && filterSet.size > 0) {
             bookings = bookings.filter(b => {
-                const coach = b.coach || (b.member && b.member.coach ? b.member.coach : null);
+                const coach = typeof App.resolveCoachForCalendarDisplay === 'function'
+                    ? App.resolveCoachForCalendarDisplay(b)
+                    : (b.coach || (b.member && b.member.coach ? b.member.coach : null));
                 const cid = (coach && coach.id != null) ? coach.id : 'unassigned';
-                return filterSet.has(cid);
+                return typeof App.calendarCoachIdInFilterSet === 'function'
+                    ? App.calendarCoachIdInFilterSet(filterSet, cid)
+                    : filterSet.has(cid);
             });
             App.log(`캘린더 코치 필터 적용: ${bookings.length}건`);
             if (bookings.length === 0 && App.showNotification) {
@@ -1775,8 +1789,10 @@ async function renderCalendar() {
         }
         App.log(`캘린더 로드 (${config.branch} - ${config.facilityType}): ${bookings.length}개의 예약 발견`, bookings);
         
-        // 예약이 없으면 전체 예약도 확인 (디버깅용, 코치 필터 중일 때는 제외)
-        if (bookings.length === 0 && (!filterSet || filterSet.size === 0)) {
+        // 예약이 없으면 전체 예약도 확인 (디버깅용)
+        // 범례(calendarFilterCoachIds) 적용 중·운영 코치 서버 필터(viewCoachIds) 적용 중에는 폴백 금지 — 폴백 시 필터 밖 예약이 섞여 보임
+        const legendFilterActive = !skipLegendClientFilter && filterSet && filterSet.size > 0;
+        if (bookings.length === 0 && !legendFilterActive && !skipLegendClientFilter) {
             App.log('날짜 범위 내 예약 없음, 전체 예약 확인 중...');
             try {
                 const allParams = new URLSearchParams({ branch: config.branch });
@@ -1842,10 +1858,10 @@ async function renderCalendar() {
         App.warn('달력 표시(공휴일) 로드 생략:', e);
     }
     
-    // 코치 필터 시 예약 없음 안내: 달력 그리기 전에 메시지 박스 먼저 표시
+    // 코치 필터 시 예약 없음 안내: 달력 그리기 전에 메시지 박스 먼저 표시 (범례 필터만; 운영 코치 서버 필터만 켠 경우는 제외)
     const container = grid.parentElement;
     const coachFilterSet = window.calendarFilterCoachIds;
-    const shouldShowEmpty = !!(coachFilterSet && coachFilterSet.size > 0 && bookings.length === 0);
+    const shouldShowEmpty = !!(!skipLegendClientFilter && coachFilterSet && coachFilterSet.size > 0 && bookings.length === 0);
     let emptyMsg = document.getElementById('calendar-empty-message');
     if (shouldShowEmpty) {
         if (!emptyMsg) {
@@ -1985,11 +2001,14 @@ async function renderCalendar() {
                 const timeStr = `${startTime.getHours().toString().padStart(2, '0')}:${startTime.getMinutes().toString().padStart(2, '0')} - ${endTime.getHours().toString().padStart(2, '0')}:${endTime.getMinutes().toString().padStart(2, '0')}`;
                 const isMemberWeb = booking.bookingSource === 'MEMBER_WEB';
                 
-                const memberNameRaw = booking.member ? booking.member.name : (booking.nonMemberName || '비회원');
-                const memberNameHtml = App.escapeHtml(memberNameRaw);
+                const memberNameRaw = typeof App.formatBookingMemberDisplayName === 'function'
+                    ? App.formatBookingMemberDisplayName(booking)
+                    : (booking.member ? booking.member.name : (booking.nonMemberName || '비회원'));
+                const namePart = memberNameRaw ? ` / ${App.escapeHtml(memberNameRaw)}` : '';
                 
-                // 코치 정보 추출 (예약에 직접 할당된 코치 우선, 없으면 회원의 코치)
-                const coach = booking.coach || (booking.member && booking.member.coach ? booking.member.coach : null);
+                const coach = typeof App.resolveCoachForCalendarDisplay === 'function'
+                    ? App.resolveCoachForCalendarDisplay(booking)
+                    : (booking.coach || (booking.member && booking.member.coach ? booking.member.coach : null));
                 
                 // 코치별 색상 적용. 미배정이면 통계의 (미배정) 라벨과 동일한 어두운 스타일
                 const coachColor = coach ? getCoachColor(coach) : null;
@@ -2025,12 +2044,12 @@ async function renderCalendar() {
                     : '';
                 if (statusIcon || statusIconStyle) {
                     if (showAsCompleted) {
-                        event.innerHTML = `<span style="${statusIconStyle}"></span>${mBadgeHtml}${timeStr} / ${memberNameHtml}`;
+                        event.innerHTML = `<span style="${statusIconStyle}"></span>${mBadgeHtml}${timeStr}${namePart}`;
                     } else {
-                        event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${mBadgeHtml}${timeStr} / ${memberNameHtml}`;
+                        event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${mBadgeHtml}${timeStr}${namePart}`;
                     }
                 } else {
-                    event.innerHTML = `${mBadgeHtml}${timeStr} / ${memberNameHtml}`;
+                    event.innerHTML = `${mBadgeHtml}${timeStr}${namePart}`;
                 }
                 
                 // 드래그 앤 드롭 기능 추가
@@ -2245,8 +2264,14 @@ function filterDaySchedule() {
     
     if (coachId) {
         filtered = filtered.filter(booking => {
-            const bookingCoachId = booking.coach ? booking.coach.id : 
-                                  (booking.member && booking.member.coach ? booking.member.coach.id : null);
+            var ids = typeof App.getBookingRelatedCoachIds === 'function'
+                ? App.getBookingRelatedCoachIds(booking)
+                : [];
+            if (ids.length > 0) {
+                return ids.some(function(id) { return id != null && String(id) === String(coachId); });
+            }
+            var bookingCoachId = booking.coach ? booking.coach.id
+                : (booking.member && booking.member.coach ? booking.member.coach.id : null);
             return bookingCoachId && bookingCoachId.toString() === coachId;
         });
     }
@@ -2285,12 +2310,15 @@ function renderDaySchedule(bookings) {
             timeStr = `${startTime} - ${endTime}`;
         }
         
-        // 회원/이름
-        const memberName = booking.member ? booking.member.name : 
-                          (booking.nonMemberName || '비회원');
+        // 회원/이름 (코치·타 캘린더 시 마스킹)
+        let memberName = typeof App.formatBookingMemberDisplayName === 'function'
+            ? App.formatBookingMemberDisplayName(booking)
+            : (booking.member ? booking.member.name : (booking.nonMemberName || '비회원'));
+        if (memberName === '') memberName = '-';
         
-        // 코치 이름 (고유색 적용)
-        const coach = booking.coach || (booking.member && booking.member.coach) || null;
+        const coach = typeof App.resolveCoachForCalendarDisplay === 'function'
+            ? App.resolveCoachForCalendarDisplay(booking)
+            : (booking.coach || (booking.member && booking.member.coach) || null);
         const coachNameRaw = coach ? coach.name : '-';
         const coachColor = (coach && App.CoachColors && App.CoachColors.getColor) ? App.CoachColors.getColor(coach) : null;
         const coachHtml = coachNameRaw !== '-' && coachColor
@@ -2308,7 +2336,7 @@ function renderDaySchedule(bookings) {
             <tr>
                 <td>${timeStr}</td>
                 <td>${booking.facility ? booking.facility.name : '-'}</td>
-                <td>${memberName}</td>
+                <td>${App.escapeHtml(memberName)}</td>
                 <td>${coachHtml}</td>
                 <td>${lessonCategory}</td>
                 <td><span class="badge badge-${statusBadge}">${statusText}</span></td>
@@ -2359,12 +2387,17 @@ async function loadBookingsList() {
         if (config.lessonCategory) params.append('lessonCategory', config.lessonCategory);
         
         let bookings = await App.api.get(`/bookings?${params.toString()}`);
+        const skipLegend = typeof App.isOperationalViewCoachFilterActive === 'function' && App.isOperationalViewCoachFilterActive();
         const filterSet = window.calendarFilterCoachIds;
-        if (filterSet && filterSet.size > 0) {
+        if (!skipLegend && filterSet && filterSet.size > 0) {
             bookings = (bookings || []).filter(b => {
-                const coach = b.coach || (b.member && b.member.coach ? b.member.coach : null);
+                const coach = typeof App.resolveCoachForCalendarDisplay === 'function'
+                    ? App.resolveCoachForCalendarDisplay(b)
+                    : (b.coach || (b.member && b.member.coach ? b.member.coach : null));
                 const cid = (coach && coach.id != null) ? coach.id : 'unassigned';
-                return filterSet.has(cid);
+                return typeof App.calendarCoachIdInFilterSet === 'function'
+                    ? App.calendarCoachIdInFilterSet(filterSet, cid)
+                    : filterSet.has(cid);
             });
             App.log('목록 뷰 코치 필터 적용:', bookings.length, '건');
             if (bookings.length === 0 && App.showNotification) {
@@ -2388,12 +2421,17 @@ function renderBookingsTable(bookings) {
     
     tbody.innerHTML = bookings.map(booking => {
         const facilityName = booking.facility ? booking.facility.name : '-';
-        const memberName = booking.member ? booking.member.name : (booking.nonMemberName || '비회원');
+        let memberName = typeof App.formatBookingMemberDisplayName === 'function'
+            ? App.formatBookingMemberDisplayName(booking)
+            : (booking.member ? booking.member.name : (booking.nonMemberName || '비회원'));
+        if (memberName === '') memberName = '-';
         const startTime = booking.startTime ? new Date(booking.startTime).toLocaleString('ko-KR') : '-';
         const status = booking.status || 'PENDING';
         const purpose = getPurposeText(booking.purpose);
         const lessonCategory = booking.lessonCategory ? getLessonCategoryText(booking.lessonCategory) : '-';
-        const coach = booking.coach || (booking.member && booking.member.coach) || null;
+        const coach = typeof App.resolveCoachForCalendarDisplay === 'function'
+            ? App.resolveCoachForCalendarDisplay(booking)
+            : (booking.coach || (booking.member && booking.member.coach) || null);
         const coachNameRaw = (coach && coach.name) ? coach.name : '-';
         const coachColor = (coach && App.CoachColors && App.CoachColors.getColor) ? App.CoachColors.getColor(coach) : null;
         const coachHtml = coachNameRaw !== '-' && coachColor
@@ -2405,7 +2443,7 @@ function renderBookingsTable(bookings) {
             <td>${booking.id}</td>
             <td>${facilityName}</td>
             <td>${startTime}</td>
-            <td>${memberName}</td>
+            <td>${App.escapeHtml(memberName)}</td>
             <td>${coachHtml}</td>
             <td>${purpose}</td>
             <td>${booking.purpose === 'LESSON' && booking.lessonCategory ? `<span class="badge badge-${getLessonCategoryBadge(booking.lessonCategory)}">${lessonCategory}</span>` : '-'}</td>
@@ -3076,6 +3114,12 @@ function changeMember() {
 }
 
 async function openBookingModal(id = null) {
+    window.__bookingPrivacySnapshot = null;
+    const nmPrivacy = document.getElementById('booking-non-member-name');
+    const phPrivacy = document.getElementById('booking-phone');
+    if (nmPrivacy) nmPrivacy.readOnly = false;
+    if (phPrivacy) phPrivacy.readOnly = false;
+
     const modal = document.getElementById('booking-modal');
     const title = document.getElementById('booking-modal-title');
     const deleteBtn = document.getElementById('booking-delete-btn');
@@ -3436,11 +3480,13 @@ async function loadBookingData(id) {
         document.getElementById('selected-member-number').value = booking.member?.memberNumber || '';
         
         if (booking.member) {
-            // 회원 정보 표시
-            document.getElementById('member-info-name').textContent = booking.member.name || '-';
-            document.getElementById('member-info-phone').textContent = booking.member.phoneNumber || '-';
-            document.getElementById('member-info-grade').textContent = getGradeText(booking.member.grade) || '-';
-            document.getElementById('member-info-school').textContent = booking.member.school || '-';
+            const showPriv = typeof App.shouldShowMemberNameOnBookingCalendar !== 'function' || App.shouldShowMemberNameOnBookingCalendar();
+            window.__bookingPrivacySnapshot = null;
+            // 회원 정보 표시 (코치·타 캘린더: 실명 대신 마스킹)
+            document.getElementById('member-info-name').textContent = showPriv ? (booking.member.name || '-') : '-';
+            document.getElementById('member-info-phone').textContent = showPriv ? (booking.member.phoneNumber || '-') : '-';
+            document.getElementById('member-info-grade').textContent = showPriv ? (getGradeText(booking.member.grade) || '-') : '-';
+            document.getElementById('member-info-school').textContent = showPriv ? (booking.member.school || '-') : '-';
             
             document.getElementById('member-info-section').style.display = 'block';
             document.getElementById('non-member-section').style.display = 'none';
@@ -3460,9 +3506,23 @@ async function loadBookingData(id) {
                 coachSelect.value = booking.coach.id;
             }
         } else {
-            // 비회원 정보 표시
-            document.getElementById('booking-non-member-name').value = booking.nonMemberName || '';
-            document.getElementById('booking-phone').value = booking.nonMemberPhone || '';
+            const showPriv = typeof App.shouldShowMemberNameOnBookingCalendar !== 'function' || App.shouldShowMemberNameOnBookingCalendar();
+            if (!showPriv) {
+                window.__bookingPrivacySnapshot = {
+                    nonMemberName: booking.nonMemberName || '',
+                    nonMemberPhone: booking.nonMemberPhone || ''
+                };
+                document.getElementById('booking-non-member-name').value = '비회원';
+                document.getElementById('booking-phone').value = '-';
+                document.getElementById('booking-non-member-name').readOnly = true;
+                document.getElementById('booking-phone').readOnly = true;
+            } else {
+                window.__bookingPrivacySnapshot = null;
+                document.getElementById('booking-non-member-name').value = booking.nonMemberName || '';
+                document.getElementById('booking-phone').value = booking.nonMemberPhone || '';
+                document.getElementById('booking-non-member-name').readOnly = false;
+                document.getElementById('booking-phone').readOnly = false;
+            }
             
             document.getElementById('member-info-section').style.display = 'none';
             document.getElementById('non-member-section').style.display = 'block';
@@ -3631,8 +3691,12 @@ async function saveBooking() {
     
     const memberNumber = document.getElementById('selected-member-number').value; // MEMBER_NUMBER 사용
     const memberId = document.getElementById('selected-member-id').value; // 하위 호환성
-    const nonMemberName = document.getElementById('booking-non-member-name').value;
-    const nonMemberPhone = document.getElementById('booking-phone').value;
+    let nonMemberName = document.getElementById('booking-non-member-name').value;
+    let nonMemberPhone = document.getElementById('booking-phone').value;
+    if (window.__bookingPrivacySnapshot && typeof App.shouldShowMemberNameOnBookingCalendar === 'function' && !App.shouldShowMemberNameOnBookingCalendar()) {
+        nonMemberName = window.__bookingPrivacySnapshot.nonMemberName;
+        nonMemberPhone = window.__bookingPrivacySnapshot.nonMemberPhone;
+    }
     const coachIdElement = document.getElementById('booking-coach');
     const coachId = coachIdElement ? coachIdElement.value : '';
     const participants = document.getElementById('booking-participants').value;
@@ -3996,6 +4060,19 @@ async function confirmAllPendingBookings() {
         if (filterCoach) {
             const coachKey = filterCoach === 'unassigned' ? 'unassigned' : (parseInt(filterCoach, 10) || filterCoach);
             bookings = bookings.filter(b => {
+                if (coachKey === 'unassigned') {
+                    const c = b.coach || (b.member && b.member.coach ? b.member.coach : null);
+                    const cid = (c && c.id != null) ? c.id : 'unassigned';
+                    return cid === 'unassigned';
+                }
+                var ids = typeof App.getBookingRelatedCoachIds === 'function'
+                    ? App.getBookingRelatedCoachIds(b)
+                    : [];
+                if (ids.length > 0) {
+                    return ids.some(function(id) {
+                        return id != null && (String(id) === String(filterCoach) || String(id) === String(coachKey));
+                    });
+                }
                 const c = b.coach || (b.member && b.member.coach ? b.member.coach : null);
                 const cid = (c && c.id != null) ? c.id : 'unassigned';
                 return cid === coachKey || cid.toString() === filterCoach;
@@ -4191,7 +4268,12 @@ async function loadPendingBookingsForModal() {
             const startStr = b.startTime && typeof b.startTime === 'string' ? b.startTime : (b.startTime ? String(b.startTime) : '');
             const start = startStr ? startStr.replace('T', ' ').slice(0, 16) : '-';
             const facilityName = (b.facility && b.facility.name) ? App.escapeHtml(b.facility.name) : '-';
-            const memberName = (b.memberName != null && b.memberName !== '') ? App.escapeHtml(b.memberName) : '-';
+            let memberDisplay = (b.memberName != null && b.memberName !== '') ? String(b.memberName) : '-';
+            if (typeof App.shouldShowMemberNameOnBookingCalendar === 'function' && !App.shouldShowMemberNameOnBookingCalendar()) {
+                var hasMemberNumber = b.memberNumber != null && String(b.memberNumber).trim() !== '';
+                memberDisplay = hasMemberNumber ? '-' : '비회원';
+            }
+            const memberName = memberDisplay === '-' ? '-' : App.escapeHtml(memberDisplay);
             const coachName = (b.coachName != null && b.coachName !== '') ? App.escapeHtml(b.coachName) : '-';
             return `<tr>
                 <td><input type="checkbox" class="pending-approval-cb" data-booking-id="${b.id}"></td>
@@ -4400,11 +4482,14 @@ async function deleteSelectedBooking() {
     }
     
     const booking = selectedBooking.booking;
-    const memberName = booking.member ? booking.member.name : (booking.nonMemberName || '비회원');
+    let delName = typeof App.formatBookingMemberDisplayName === 'function'
+        ? App.formatBookingMemberDisplayName(booking)
+        : (booking.member ? booking.member.name : (booking.nonMemberName || '비회원'));
+    if (delName === '') delName = '-';
     const startTime = new Date(booking.startTime);
     const timeStr = `${startTime.getFullYear()}-${String(startTime.getMonth() + 1).padStart(2, '0')}-${String(startTime.getDate()).padStart(2, '0')} ${startTime.getHours()}:${String(startTime.getMinutes()).padStart(2, '0')}`;
     
-    if (!confirm(`예약을 삭제하시겠습니까?\n\n회원: ${memberName}\n시간: ${timeStr}`)) {
+    if (!confirm(`예약을 삭제하시겠습니까?\n\n회원: ${delName}\n시간: ${timeStr}`)) {
         return;
     }
     
@@ -4427,3 +4512,22 @@ async function deleteSelectedBooking() {
         App.showNotification('예약 삭제에 실패했습니다.', 'danger');
     }
 }
+
+document.addEventListener('afbs-operational-coach-filter-changed', async function() {
+    try {
+        if (typeof currentView !== 'undefined' && currentView === 'calendar' && typeof renderCalendar === 'function') {
+            await renderCalendar();
+        } else if (typeof currentView !== 'undefined' && currentView === 'list' && typeof loadBookingsList === 'function') {
+            loadBookingsList();
+        } else {
+            if (typeof renderCalendar === 'function') {
+                await renderCalendar();
+            }
+            if (typeof loadBookingsList === 'function') {
+                loadBookingsList();
+            }
+        }
+    } catch (e) {
+        App.err('예약 뷰(운영 코치 필터) 새로고침:', e);
+    }
+});

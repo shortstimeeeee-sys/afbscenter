@@ -26,15 +26,19 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.core.annotation.Order;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 데이터베이스 마이그레이션 컴포넌트
@@ -116,6 +120,10 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
     
     @Value("${admin.init.password:admin123}")
     private String adminInitPassword;
+
+    /** 승인 정책 적용 시각(미포함 이전 생성 회원 = 기존 DB로 간주). ISO-8601 로컬 시각. */
+    @Value("${afbscenter.member.approval-policy-effective-at:2026-04-02T00:00:00}")
+    private String approvalPolicyEffectiveAt;
 
     @Override
     public void onApplicationEvent(ApplicationReadyEvent event) {
@@ -359,6 +367,14 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             }
 
             try {
+                logger.info("애플리케이션 시작 시 타구 속도(잘못된 mph→km/h 곱셈) 되돌리기 1회 실행");
+                restoreExitVelocityAndBallSpeedPreConvertValues();
+                logger.info("타구 속도 수치 복원 마이그레이션 처리 완료");
+            } catch (Exception e) {
+                logger.warn("타구 속도 수치 복원 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
                 logger.info("애플리케이션 시작 시 members 데스크 쪽지 스레드 잠금 PIN 컬럼 마이그레이션 실행");
                 migrateMembersDeskThreadLockColumn();
                 logger.info("members desk_thread_lock_pin_hash 컬럼 마이그레이션 완료");
@@ -423,6 +439,21 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             }
 
             try {
+                logger.info("애플리케이션 시작 시 member_approval_requests 테이블 마이그레이션 실행");
+                migrateMemberApprovalRequestsTable();
+                migrateMemberApprovalExtensionColumns();
+                logger.info("member_approval_requests 테이블 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("member_approval_requests 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                migrateGrandfatherExistingMembersAsApproved();
+            } catch (Exception e) {
+                logger.warn("기존 회원 승인 간주 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
                 logger.info("애플리케이션 시작 시 calendar_day_marks 테이블 마이그레이션 실행");
                 migrateCalendarDayMarksTable();
                 logger.info("calendar_day_marks 테이블 마이그레이션 완료");
@@ -437,8 +468,110 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             } catch (Exception e) {
                 logger.warn("횟수권 remaining_count 동기화 중 오류 (무시): {}", e.getMessage());
             }
+
+            try {
+                logger.info("코치(COACH) 역할 기본 권한(예약·훈련 외 제한) 레거시 행 정렬 실행");
+                migrateCoachRoleMenuDefaultsIfLegacyFingerprint();
+                logger.info("코치 역할 권한 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("코치 역할 권한 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
+                applyCoachMemberViewPatchV1();
+            } catch (Exception e) {
+                logger.warn("코치 회원 목록(member_view) 1회 패치 실패 (무시): {}", e.getMessage());
+            }
             
             migrationExecuted = true;
+        }
+    }
+
+    private static final String PATCH_COACH_MEMBER_VIEW_V1 = "coach_member_view_v1";
+
+    /**
+     * COACH 역할에 회원 목록 조회(member_view)를 켠다. 기존 DB는 schema_patches로 1회만 적용.
+     */
+    private void applyCoachMemberViewPatchV1() {
+        try {
+            jdbcTemplate.execute(
+                    "CREATE TABLE IF NOT EXISTS schema_patches (patch_id VARCHAR(128) PRIMARY KEY, "
+                            + "applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+        } catch (Exception e) {
+            logger.warn("schema_patches 테이블 생성 실패: {}", e.getMessage());
+            return;
+        }
+        List<Map<String, Object>> rp = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'ROLE_PERMISSIONS'");
+        if (rp == null || rp.isEmpty()) {
+            return;
+        }
+        try {
+            jdbcTemplate.update("INSERT INTO schema_patches (patch_id) VALUES (?)", PATCH_COACH_MEMBER_VIEW_V1);
+        } catch (DataIntegrityViolationException e) {
+            return;
+        } catch (Exception e) {
+            if (e.getCause() instanceof java.sql.SQLException) {
+                String m = e.getMessage() != null ? e.getMessage() : "";
+                if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                    return;
+                }
+            }
+            logger.warn("coach_member_view 패치 선점 실패: {}", e.getMessage());
+            return;
+        }
+        try {
+            int n = jdbcTemplate.update(
+                    "UPDATE role_permissions SET member_view = TRUE, updated_at = CURRENT_TIMESTAMP "
+                            + "WHERE UPPER(role) = 'COACH'");
+            logger.info("COACH 역할 member_view 활성화 패치 적용: {}행", n);
+        } catch (Exception e) {
+            logger.error("COACH member_view UPDATE 실패, 패치 행 제거: {}", e.getMessage());
+            try {
+                jdbcTemplate.update("DELETE FROM schema_patches WHERE patch_id = ?", PATCH_COACH_MEMBER_VIEW_V1);
+            } catch (Exception e2) {
+                logger.warn("schema_patches 롤백 실패: {}", e2.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 이전 버전에서 저장된 COACH 기본 권한(회원·대시보드·출석·공지 등까지 허용) 행만
+     * 새 기본값(캘린더 예약·훈련 관리 중심)으로 맞춥니다. 관리자가 이미 일부 권한을 바꾼 행은 WHERE 불일치로 건너뜁니다.
+     */
+    private void migrateCoachRoleMenuDefaultsIfLegacyFingerprint() {
+        List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'ROLE_PERMISSIONS'");
+        if (tables == null || tables.isEmpty()) {
+            return;
+        }
+        String sql =
+                "UPDATE role_permissions SET "
+                        + "member_view = TRUE, member_create = FALSE, member_edit = FALSE, member_delete = FALSE, "
+                        + "booking_view = TRUE, booking_create = TRUE, booking_edit = TRUE, booking_delete = FALSE, "
+                        + "coach_view = FALSE, coach_create = FALSE, coach_edit = FALSE, coach_delete = FALSE, "
+                        + "product_view = FALSE, product_create = FALSE, product_edit = FALSE, product_delete = FALSE, "
+                        + "payment_view = FALSE, payment_create = FALSE, payment_edit = FALSE, payment_refund = FALSE, "
+                        + "analytics_view = FALSE, dashboard_view = FALSE, settings_view = FALSE, settings_edit = FALSE, "
+                        + "user_view = FALSE, user_create = FALSE, user_edit = FALSE, user_delete = FALSE, "
+                        + "announcement_view = FALSE, announcement_create = FALSE, announcement_edit = FALSE, announcement_delete = FALSE, "
+                        + "attendance_view = FALSE, attendance_edit = FALSE, "
+                        + "training_log_view = TRUE, training_log_create = TRUE, training_log_edit = TRUE, "
+                        + "updated_at = CURRENT_TIMESTAMP "
+                        + "WHERE UPPER(role) = 'COACH' "
+                        + "AND COALESCE(member_view, FALSE) = TRUE "
+                        + "AND COALESCE(dashboard_view, FALSE) = TRUE "
+                        + "AND COALESCE(coach_view, FALSE) = TRUE "
+                        + "AND COALESCE(announcement_view, FALSE) = TRUE "
+                        + "AND COALESCE(attendance_view, FALSE) = TRUE "
+                        + "AND COALESCE(attendance_edit, FALSE) = TRUE "
+                        + "AND COALESCE(booking_view, FALSE) = TRUE "
+                        + "AND COALESCE(booking_create, FALSE) = FALSE "
+                        + "AND COALESCE(booking_edit, FALSE) = FALSE "
+                        + "AND COALESCE(training_log_view, FALSE) = TRUE";
+        int n = jdbcTemplate.update(sql);
+        if (n > 0) {
+            logger.info("COACH role_permissions 레거시 기본 행을 새 정책으로 갱신: {}행", n);
         }
     }
 
@@ -587,9 +720,48 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                     jdbcTemplate.execute("ALTER TABLE member_products ADD COLUMN deleted_by VARCHAR(100)");
                     logger.info("member_products 테이블에 deleted_by 컬럼 추가 완료");
                 }
+                List<Map<String, Object>> colExtFrom = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE UPPER(TABLE_NAME) = 'MEMBER_PRODUCTS' AND UPPER(COLUMN_NAME) = 'EXTENDED_FROM_MEMBER_PRODUCT_ID'"
+                );
+                if (colExtFrom.isEmpty()) {
+                    jdbcTemplate.execute("ALTER TABLE member_products ADD COLUMN extended_from_member_product_id BIGINT");
+                    logger.info("member_products 테이블에 extended_from_member_product_id 컬럼 추가 완료");
+                }
+                // 과거 연장(신규 행 발급) 건: 히스토리 설명의 "이전 ID=" 로 extended_from 백필
+                try {
+                    Pattern prevIdPattern = Pattern.compile("이전 ID=(\\d+)");
+                    List<Map<String, Object>> histRows = jdbcTemplate.queryForList(
+                            "SELECT member_product_id, description FROM member_product_history "
+                                    + "WHERE description LIKE '%신규 이용권 발급, 이전 ID=%'");
+                    int backfill = 0;
+                    for (Map<String, Object> hr : histRows) {
+                        Object mpIdObj = hr.get("member_product_id");
+                        Object descObj = hr.get("description");
+                        if (mpIdObj == null || descObj == null) {
+                            continue;
+                        }
+                        Matcher m = prevIdPattern.matcher(descObj.toString());
+                        if (!m.find()) {
+                            continue;
+                        }
+                        long prevMpId = Long.parseLong(m.group(1));
+                        long newMpId = ((Number) mpIdObj).longValue();
+                        int n = jdbcTemplate.update(
+                                "UPDATE member_products SET extended_from_member_product_id = ? WHERE id = ? "
+                                        + "AND (extended_from_member_product_id IS NULL)",
+                                prevMpId, newMpId);
+                        backfill += n;
+                    }
+                    if (backfill > 0) {
+                        logger.info("member_products extended_from_member_product_id 백필: {}건 (히스토리 기준)", backfill);
+                    }
+                } catch (Exception ex) {
+                    logger.warn("member_products extended_from 백필 스킵: {}", ex.getMessage());
+                }
             }
         } catch (Exception e) {
-            logger.warn("member_products deleted_at/deleted_by 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+            logger.warn("member_products deleted_at/deleted_by/extended_from 컬럼 마이그레이션 중 오류: {}", e.getMessage());
         }
 
         // members 테이블에 수비 순발력 컬럼 추가
@@ -1425,6 +1597,112 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
         }
     }
 
+    /** 회원 신규·재등록·연장 승인 요청 큐 */
+    private void migrateMemberApprovalRequestsTable() {
+        try {
+            List<Map<String, Object>> t = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBER_APPROVAL_REQUESTS'");
+            if (!t.isEmpty()) {
+                return;
+            }
+            jdbcTemplate.execute(
+                    "CREATE TABLE member_approval_requests ("
+                            + "id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+                            + "member_id BIGINT NOT NULL, "
+                            + "request_type VARCHAR(32) NOT NULL, "
+                            + "status VARCHAR(20) NOT NULL, "
+                            + "requested_by VARCHAR(100), "
+                            + "requested_at TIMESTAMP NOT NULL, "
+                            + "reviewed_by VARCHAR(100), "
+                            + "reviewed_at TIMESTAMP, "
+                            + "review_note VARCHAR(2000), "
+                            + "detail_summary VARCHAR(2000), "
+                            + "extension_member_product_id BIGINT, "
+                            + "extension_days INT, "
+                            + "approval_payload CLOB, "
+                            + "CONSTRAINT fk_mar_member FOREIGN KEY (member_id) REFERENCES members(id))");
+            logger.info("member_approval_requests 테이블 생성 완료");
+        } catch (Exception e) {
+            logger.warn("member_approval_requests 테이블 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** member_approval_requests: 연장 승인용 컬럼 (기존 DB 보강) */
+    private void migrateMemberApprovalExtensionColumns() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBER_APPROVAL_REQUESTS'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            List<Map<String, Object>> c1 = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'MEMBER_APPROVAL_REQUESTS' AND UPPER(COLUMN_NAME) = 'EXTENSION_MEMBER_PRODUCT_ID'");
+            if (c1.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE member_approval_requests ADD COLUMN extension_member_product_id BIGINT");
+                logger.info("member_approval_requests.extension_member_product_id 컬럼 추가 완료");
+            }
+            List<Map<String, Object>> c2 = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'MEMBER_APPROVAL_REQUESTS' AND UPPER(COLUMN_NAME) = 'EXTENSION_DAYS'");
+            if (c2.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE member_approval_requests ADD COLUMN extension_days INT");
+                logger.info("member_approval_requests.extension_days 컬럼 추가 완료");
+            }
+            List<Map<String, Object>> c3 = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'MEMBER_APPROVAL_REQUESTS' AND UPPER(COLUMN_NAME) = 'APPROVAL_PAYLOAD'");
+            if (c3.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE member_approval_requests ADD COLUMN approval_payload CLOB");
+                logger.info("member_approval_requests.approval_payload 컬럼 추가 완료");
+            }
+        } catch (Exception e) {
+            logger.warn("member_approval_requests 연장 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 승인 정책 도입 시점(afbscenter.member.approval-policy-effective-at) 이전에 생성된 회원은 DB상 이미 승인된 것으로 간주한다.
+     * PENDING_APPROVAL+created_at 기준 미만은 ACTIVE로, NEW_MEMBER 승인 대기는 APPROVED로 정리한다.
+     * EXTENSION·RE_REGISTER 대기 건은 건드리지 않는다.
+     */
+    private void migrateGrandfatherExistingMembersAsApproved() {
+        LocalDateTime effectiveAt;
+        try {
+            effectiveAt = LocalDateTime.parse(approvalPolicyEffectiveAt.trim());
+        } catch (DateTimeParseException e) {
+            logger.warn("afbscenter.member.approval-policy-effective-at 파싱 실패, 기존 회원 승인 간주 마이그레이션 생략: {}", approvalPolicyEffectiveAt);
+            return;
+        }
+        try {
+            List<Map<String, Object>> memberTable = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBERS'");
+            if (memberTable.isEmpty()) {
+                return;
+            }
+            int n1 = jdbcTemplate.update(
+                    "UPDATE members SET status = 'ACTIVE' WHERE status = 'PENDING_APPROVAL' AND created_at < ?",
+                    effectiveAt);
+            if (n1 > 0) {
+                logger.info("기존 DB 회원 승인 간주: PENDING_APPROVAL → ACTIVE {} 건 (created_at < {})", n1, effectiveAt);
+            }
+            List<Map<String, Object>> marTable = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBER_APPROVAL_REQUESTS'");
+            if (marTable.isEmpty()) {
+                return;
+            }
+            LocalDateTime now = LocalDateTime.now();
+            String note = "기존 DB 회원(승인 정책 전환) 일괄 처리";
+            int n2 = jdbcTemplate.update(
+                    "UPDATE member_approval_requests SET status = 'APPROVED', reviewed_by = 'system', reviewed_at = ?, review_note = ? "
+                            + "WHERE status = 'PENDING' AND request_type = 'NEW_MEMBER' "
+                            + "AND member_id IN (SELECT id FROM members WHERE created_at < ?)",
+                    now, note, effectiveAt);
+            if (n2 > 0) {
+                logger.info("기존 신규(NEW_MEMBER) 승인 대기 정리: → APPROVED {} 건 (member created_at < {})", n2, effectiveAt);
+            }
+        } catch (Exception e) {
+            logger.warn("기존 회원 승인 간주 마이그레이션 실패: {}", e.getMessage());
+        }
+    }
+
     /** announcements: 회원 예약 페이지 공개 여부 */
     private void migrateAnnouncementsVisibleToMembersColumn() {
         try {
@@ -1526,6 +1804,93 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             }
         } catch (Exception e) {
             logger.warn("settings setting_key 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** 과거 잘못 적용된 mph→km/h 곱셈(×1.609344)을 되돌림. 저장·표시 단위는 km/h, 수치는 환산 전과 동일하게 유지. */
+    private static final String PATCH_RESTORE_EXIT_BALL_SPEED_PRE_CONVERT_V1 = "restore_exit_ball_speed_pre_convert_v1";
+
+    /** 예전 잘못된 곱셈 마이그레이션 패치 ID(이 행이 있을 때만 ÷1.609344 복원). */
+    private static final String PATCH_EXIT_BALL_SPEED_KMH_V1_LEGACY = "exit_ball_speed_kmh_v1";
+
+    private static final double MPH_TO_KMH_FACTOR = 1.609344;
+
+    /**
+     * 잘못된 일괄 환산으로 커진 타구 속도를 ÷1.609344로 복원. 1회만 실행.
+     * {@link #PATCH_EXIT_BALL_SPEED_KMH_V1_LEGACY} 가 schema_patches에 있을 때만 UPDATE(곱셈을 받지 않은 DB는 건드리지 않음).
+     */
+    private void restoreExitVelocityAndBallSpeedPreConvertValues() {
+        try {
+            jdbcTemplate.execute(
+                    "CREATE TABLE IF NOT EXISTS schema_patches (patch_id VARCHAR(128) PRIMARY KEY, "
+                            + "applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+        } catch (Exception e) {
+            logger.warn("schema_patches 테이블 생성 실패: {}", e.getMessage());
+            return;
+        }
+        try {
+            Integer legacy = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM schema_patches WHERE patch_id = ?",
+                    Integer.class,
+                    PATCH_EXIT_BALL_SPEED_KMH_V1_LEGACY);
+            if (legacy == null || legacy == 0) {
+                logger.info(
+                        "구 타구 mph→km/h 곱셈 마이그레이션 이력 없음 — 수치 복원 생략(단위 km/h, 저장값 그대로)");
+                return;
+            }
+        } catch (Exception e) {
+            logger.warn("schema_patches 조회 실패, 타구 복원 생략: {}", e.getMessage());
+            return;
+        }
+        try {
+            jdbcTemplate.update(
+                    "INSERT INTO schema_patches (patch_id) VALUES (?)",
+                    PATCH_RESTORE_EXIT_BALL_SPEED_PRE_CONVERT_V1);
+        } catch (DataIntegrityViolationException e) {
+            return;
+        } catch (Exception e) {
+            if (e.getCause() instanceof java.sql.SQLException) {
+                String m = e.getMessage() != null ? e.getMessage() : "";
+                if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                    return;
+                }
+            }
+            logger.warn("타구 속도 복원 마이그레이션 선점(insert) 실패: {}", e.getMessage());
+            return;
+        }
+        try {
+            List<Map<String, Object>> mtab = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBERS'");
+            if (!mtab.isEmpty()) {
+                int u1 = jdbcTemplate.update(
+                        "UPDATE members SET exit_velocity = ROUND(exit_velocity / ?, 2) "
+                                + "WHERE exit_velocity IS NOT NULL AND exit_velocity > 0",
+                        MPH_TO_KMH_FACTOR);
+                if (u1 > 0) {
+                    logger.info("members.exit_velocity 환산 전 수치 복원: {}건", u1);
+                }
+            }
+            List<Map<String, Object>> ttab = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'TRAINING_LOGS'");
+            if (!ttab.isEmpty()) {
+                int u2 = jdbcTemplate.update(
+                        "UPDATE training_logs SET ball_speed = ROUND(ball_speed / ?, 2) "
+                                + "WHERE ball_speed IS NOT NULL AND ball_speed > 0",
+                        MPH_TO_KMH_FACTOR);
+                if (u2 > 0) {
+                    logger.info("training_logs.ball_speed 환산 전 수치 복원: {}건", u2);
+                }
+            }
+            logger.info("타구 속도 수치 복원 마이그레이션 적용 완료 ({})", PATCH_RESTORE_EXIT_BALL_SPEED_PRE_CONVERT_V1);
+        } catch (Exception e) {
+            logger.error("타구 속도 복원 UPDATE 실패, 다음 기동 시 재시도하도록 patch 행 제거: {}", e.getMessage());
+            try {
+                jdbcTemplate.update(
+                        "DELETE FROM schema_patches WHERE patch_id = ?",
+                        PATCH_RESTORE_EXIT_BALL_SPEED_PRE_CONVERT_V1);
+            } catch (Exception e2) {
+                logger.warn("schema_patches 롤백 삭제 실패: {}", e2.getMessage());
+            }
         }
     }
 

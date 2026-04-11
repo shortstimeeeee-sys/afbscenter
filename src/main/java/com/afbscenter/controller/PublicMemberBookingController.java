@@ -168,7 +168,7 @@ public class PublicMemberBookingController {
         if (!assertPublicMemberBookingAccess(memberNumber, memberId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "회원 정보가 일치하지 않습니다."));
         }
-        return memberController.getMemberById(memberId, request);
+        return memberController.getMemberById(memberId, null, request);
     }
 
     /** 회원번호 + 회원 ID가 DB와 일치할 때만 true (본인 확인) */
@@ -190,7 +190,7 @@ public class PublicMemberBookingController {
         if (!assertPublicMemberBookingAccess(memberNumber, memberId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "회원 정보가 일치하지 않습니다."));
         }
-        return memberProductController.getAllMemberProducts(memberId, null);
+        return memberProductController.getAllMemberProducts(memberId, null, null);
     }
 
     @GetMapping("/members/{id}/ability-stats-context")
@@ -411,8 +411,9 @@ public class PublicMemberBookingController {
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) String facilityType,
             @RequestParam(required = false) String lessonCategory,
-            @RequestParam(required = false) String memberNumber) {
-        return bookingController.getAllBookings(start, end, null, null, memberNumber, branch, facilityType, lessonCategory, true);
+            @RequestParam(required = false) String memberNumber,
+            HttpServletRequest request) {
+        return bookingController.getAllBookings(start, end, null, null, memberNumber, branch, facilityType, lessonCategory, true, null, request);
     }
 
     /**
@@ -505,7 +506,8 @@ public class PublicMemberBookingController {
     @Transactional(readOnly = true)
     public ResponseEntity<?> getBookingForPublicViewer(
             @PathVariable Long id,
-            @RequestParam String memberNumber) {
+            @RequestParam String memberNumber,
+            HttpServletRequest request) {
         if (memberNumber == null || memberNumber.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "회원번호가 필요합니다."));
         }
@@ -520,7 +522,7 @@ public class PublicMemberBookingController {
         if (!assertPublicMemberBookingAccess(memberNumber, booking.getMember().getId())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "본인 예약만 조회할 수 있습니다."));
         }
-        return bookingController.getBookingById(id);
+        return bookingController.getBookingById(id, null, request);
     }
 
     /**

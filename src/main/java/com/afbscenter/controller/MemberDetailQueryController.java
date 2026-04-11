@@ -77,16 +77,42 @@ public class MemberDetailQueryController {
         }
     }
 
-    /** 등급별 개인 능력치 기준값. 엘리트 초/중/고만 구분, 나머지는 중 기준 */
+    /** mph → km/h (타구·회원 DB 단위) */
+    private static final double MPH_TO_KMH = 1.609344;
+
+    private static int mphToKmhInt(int mph) {
+        return (int) Math.round(mph * MPH_TO_KMH);
+    }
+
+    /**
+     * 등급별 개인 능력치 기준값. 엘리트 초/중/고만 구분, 나머지는 중 기준.
+     * refSwing: mph, refExit: km/h, refVelocity: km/h
+     */
     private static Map<String, Object> gradeReference(Member.MemberGrade g) {
         Map<String, Object> ref = new HashMap<>();
-        int swing = 80, exit = 85, stage = 7, velocity = 135; // 스윙/타구/구속 기본 중
+        int swing = 80;
+        int exit = mphToKmhInt(85); // 기본(중) 타구 상한 mph 환산
+        int stage = 7;
+        int velocity = 135;
         if (g != null) {
             switch (g) {
-                case ELITE_ELEMENTARY: swing = 70; exit = 70; velocity = 115; break;
-                case ELITE_MIDDLE: swing = 80; exit = 85; velocity = 135; break;
-                case ELITE_HIGH: swing = 85; exit = 95; velocity = 150; break;
-                default: break;
+                case ELITE_ELEMENTARY:
+                    swing = 70;
+                    exit = mphToKmhInt(110);
+                    velocity = 115;
+                    break;
+                case ELITE_MIDDLE:
+                    swing = 80;
+                    exit = mphToKmhInt(85);
+                    velocity = 135;
+                    break;
+                case ELITE_HIGH:
+                    swing = 85;
+                    exit = mphToKmhInt(95);
+                    velocity = 150;
+                    break;
+                default:
+                    break;
             }
         }
         ref.put("refSwing", swing);

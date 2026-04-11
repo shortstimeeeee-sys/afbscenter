@@ -10,6 +10,10 @@
 /* 타이틀 영역 위쪽 공백 제거 */
 body.rentals-page .main-content { padding-top: 0; }
 body.rentals-page .topbar { margin-top: 0; }
+/* 상단 전역 검색 미사용 — HTML에서 제거. 캐시 대비 */
+body.rentals-page .topbar .search-box {
+    display: none !important;
+}
 
 .view-controls {
     display: flex;

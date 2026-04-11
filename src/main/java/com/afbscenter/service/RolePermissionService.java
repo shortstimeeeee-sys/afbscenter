@@ -259,16 +259,16 @@ public class RolePermissionService {
                 perm.setTrainingLogEdit(false);
                 break;
             case "COACH":
-                // 코치: 코치 관련 기능
+                // 코치: 담당 회원 목록 조회(백엔드에서 본인 담당만). 생성·전체 편집 등은 권한 관리에서 켜줌
                 perm.setMemberView(true);
                 perm.setMemberCreate(false);
                 perm.setMemberEdit(false);
                 perm.setMemberDelete(false);
                 perm.setBookingView(true);
-                perm.setBookingCreate(false);
-                perm.setBookingEdit(false);
+                perm.setBookingCreate(true);
+                perm.setBookingEdit(true);
                 perm.setBookingDelete(false);
-                perm.setCoachView(true);
+                perm.setCoachView(false);
                 perm.setCoachCreate(false);
                 perm.setCoachEdit(false);
                 perm.setCoachDelete(false);
@@ -287,16 +287,16 @@ public class RolePermissionService {
                 perm.setUserCreate(false);
                 perm.setUserEdit(false);
                 perm.setUserDelete(false);
-                perm.setAnnouncementView(true);
+                perm.setAnnouncementView(false);
                 perm.setAnnouncementCreate(false);
                 perm.setAnnouncementEdit(false);
                 perm.setAnnouncementDelete(false);
-                perm.setAttendanceView(true);
-                perm.setAttendanceEdit(true);
+                perm.setAttendanceView(false);
+                perm.setAttendanceEdit(false);
                 perm.setTrainingLogView(true);
                 perm.setTrainingLogCreate(true);
                 perm.setTrainingLogEdit(true);
-                perm.setDashboardView(true);
+                perm.setDashboardView(false);
                 break;
             case "FRONT":
                 // 데스크: 기본 기능

@@ -295,7 +295,7 @@ function renderTeeBallSpeedRanking(containerId, rankingData) {
                     <div class="ranking-member-number">${numberLink}</div>
                 </div>
                 <div class="ranking-value">
-                    <div class="ranking-main-value">${typeof value === 'number' ? value.toFixed(1) : value} mph</div>
+                    <div class="ranking-main-value">${typeof value === 'number' ? value.toFixed(1) : value} km/h</div>
                     <div class="ranking-sub-value">${item.source || '회원 등록 기록'}</div>
                 </div>
             </div>

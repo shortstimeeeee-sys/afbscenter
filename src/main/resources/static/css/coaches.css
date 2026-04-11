@@ -124,6 +124,45 @@ body.coaches-page .topbar {
 #stats-coaches-modal .stats-coaches-modal-table .table td .branch-label--rental { color: #9B59B6; }
 #stats-coaches-modal .stats-coach-row:hover { background-color: var(--bg-hover); }
 
+/* 통계 클릭 → 코치 목록 모달: 전역 .modal 의 88vh 고정 해제, 본문만큼 높이 + 가로 확대 */
+#stats-coaches-modal .modal.stats-coaches-list-modal {
+    width: min(96vw, 1120px);
+    max-width: min(96vw, 1120px);
+    height: auto !important;
+    max-height: min(88vh, calc(100vh - 40px)) !important;
+    min-height: 0;
+}
+#stats-coaches-modal .modal.stats-coaches-list-modal .modal-header {
+    padding: 18px 26px;
+    flex-shrink: 0;
+}
+#stats-coaches-modal .modal.stats-coaches-list-modal .modal-title {
+    font-size: 1.35rem;
+}
+/* 본문이 테이블만 있을 때 세로로 늘어나지 않게(아래 빈 여백 제거) */
+#stats-coaches-modal .modal.stats-coaches-list-modal .modal-body {
+    flex: 0 1 auto !important;
+    min-height: 0;
+    overflow: visible;
+    padding: 18px 26px 22px;
+}
+#stats-coaches-modal .modal.stats-coaches-list-modal .modal-body > .table-container.stats-coaches-modal-table {
+    flex: 0 1 auto !important;
+    min-height: 0;
+    max-height: min(72vh, 820px);
+    overflow: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+}
+#stats-coaches-modal .modal.stats-coaches-list-modal .stats-coaches-modal-table .table {
+    font-size: 15px;
+}
+#stats-coaches-modal .modal.stats-coaches-list-modal .stats-coaches-modal-table .table th,
+#stats-coaches-modal .modal.stats-coaches-list-modal .stats-coaches-modal-table .table td {
+    padding: 14px 18px;
+}
+
 /* 코치 수강 인원 모달: 크게 보이도록 + 내용 깔끔하게 */
 #coach-students-modal .modal.modal--coach-students {
     width: 94%;

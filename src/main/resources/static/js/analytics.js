@@ -719,9 +719,10 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
         return;
     }
     
-    // 매출 추이 차트만 처리 (그래프로 표시)
-    const isTrendChart = containerId === 'revenue-trend-chart';
-    
+    // 매출 추이 차트만 처리 (그래프로 표시) — 카드(7일) / 모달(30일)
+    const isMonthTrendModal = containerId === 'revenue-trend-chart-month';
+    const isTrendChart = containerId === 'revenue-trend-chart' || isMonthTrendModal;
+
     if (isTrendChart) {
         // 매출 추이를 그래프로 표시 (평균선, 전월 비교, 최고/최저, 성장률, 누적 매출 포함)
         const maxValue = Math.max(...data.map(item => Math.max(item.value || 0, item.prevValue || 0, item.cumulative || 0)), 1);
@@ -747,8 +748,11 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
         // 데이터 많을 때 글자 잘리지 않도록 최소 너비 보장 (가로 스크롤로 전부 보임)
         const chartMinWidth = Math.max(380, data.length * 32);
         
+        const trendSubtitle = isMonthTrendModal
+            ? '일별 매출 추이 (최근 30일)'
+            : '일별 매출 추이 (최근 7일)';
         container.innerHTML = `
-            <div class="metric-content-subtitle">일별·한달 매출 추이</div>
+            <div class="metric-content-subtitle">${trendSubtitle}</div>
             <div style="min-width: ${chartMinWidth}px; position: relative; height: ${chartHeight}px; padding: 24px 28px 16px; flex-shrink: 0; overflow: visible;">
                 <svg width="100%" height="${chartHeight}" style="overflow: visible;">
                     <!-- 배경 그리드 -->
@@ -774,8 +778,9 @@ function renderSimpleChart(containerId, data, revenueMetrics = {}) {
                     ` : ''}
                     
                     ${data.map((item, index) => {
-                        // 데이터 개수에 따라 막대 폭 조정 (일주일일 때 더 좁게)
-                        const isWeekView = window.revenueTrendPeriod === 'week' || data.length <= 8;
+                        // 데이터 개수에 따라 막대 폭 조정 (7일 카드는 넓게, 30일 모달은 촘촘히)
+                        const isWeekView =
+                            !isMonthTrendModal && (window.revenueTrendPeriod === 'week' || data.length <= 8);
                         let barWidth;
                         if (isWeekView) {
                             barWidth = Math.max(100 / data.length - 10, 4);
@@ -1435,15 +1440,14 @@ async function openDetailModal(chartType, index, value, displayLabel) {
             }
             // 영문 카테고리명 사용 (한글 대신)
             data = await App.api.get(`/analytics/revenue/category/${value}?${params}`);
-        } else if (chartType === 'revenue-trend-chart') {
+        } else if (chartType === 'revenue-trend-chart' || chartType === 'revenue-trend-chart-month') {
             // 날짜별 매출 세부 내역
             title = `${label} 결제 내역`;
             // 날짜는 일반적으로 URL 인코딩이 필요 없지만 안전을 위해 인코딩
             const encodedDate = encodeURIComponent(label);
             data = await App.api.get(`/analytics/revenue/date/${encodedDate}`);
         } else if (chartType === 'member-trend-chart') {
-            // 회원 지표 세부 내역
-            title = '회원 지표 세부 내역';
+            title = '활성 회원 목록';
             const params = new URLSearchParams();
             if ((period === 'custom' || period === 'all') && startDate && endDate) {
                 params.append('startDate', startDate);
@@ -1470,64 +1474,71 @@ async function openDetailModal(chartType, index, value, displayLabel) {
     }
 }
 
-// 세부 내역 모달 렌더링
-function renderDetailModal(title, data, chartType) {
+/** 통계 세부 내역 공통 모달 (결제·회원·운영 지표) */
+function ensureAnalyticsDetailModal() {
     const modalId = 'analytics-detail-modal';
-    
-    // 모달이 없으면 생성
     let modal = document.getElementById(modalId);
     if (!modal) {
         modal = document.createElement('div');
         modal.id = modalId;
         modal.className = 'modal-overlay';
         modal.innerHTML = `
-            <div class="modal" style="max-width: 1400px; max-height: 85vh; width: 95%;">
-                <div class="modal-header">
-                    <h2 class="modal-title" id="analytics-detail-title">${title}</h2>
-                    <button class="modal-close" onclick="App.Modal.close('${modalId}')">×</button>
+            <div class="modal analytics-detail-modal-dialog">
+                <div class="modal-header analytics-detail-modal-header">
+                    <h2 class="modal-title" id="analytics-detail-title"></h2>
+                    <button type="button" class="modal-close" onclick="App.Modal.close('${modalId}')" aria-label="닫기">×</button>
                 </div>
-                <div class="modal-body" id="analytics-detail-content" style="overflow-y: auto; max-height: 70vh; overflow-x: auto;">
+                <div class="modal-body analytics-detail-modal-body" id="analytics-detail-content"></div>
+                <div class="modal-footer analytics-detail-modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="App.Modal.close('${modalId}')">닫기</button>
                 </div>
             </div>
         `;
         document.body.appendChild(modal);
     }
-    
+    return modal;
+}
+
+// 세부 내역 모달 렌더링
+function renderDetailModal(title, data, chartType) {
+    const modalId = 'analytics-detail-modal';
+    ensureAnalyticsDetailModal();
+
     document.getElementById('analytics-detail-title').textContent = title;
     const content = document.getElementById('analytics-detail-content');
-    
+
     if (!data || data.length === 0) {
-        content.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">세부 내역이 없습니다.</p>';
+        content.innerHTML =
+            '<p class="analytics-detail-empty">세부 내역이 없습니다.</p>';
     } else {
-        if (chartType === 'category-revenue-chart' || chartType === 'revenue-trend-chart') {
-            // 결제 내역 테이블
+        if (chartType === 'category-revenue-chart' || chartType === 'revenue-trend-chart' || chartType === 'revenue-trend-chart-month') {
             content.innerHTML = `
-                <div class="table-container" style="overflow-x: auto;">
-                    <table class="table" style="min-width: 1000px; width: 100%;">
+                <div class="analytics-detail-table-wrap">
+                    <table class="table analytics-detail-table analytics-detail-table--payments">
                         <thead>
                             <tr>
-                                <th style="min-width: 150px;">결제일시</th>
-                                <th style="min-width: 80px;">회원</th>
-                                <th style="min-width: 200px;">상품명</th>
-                                <th style="min-width: 100px;">코치</th>
-                                <th style="min-width: 100px;">결제방법</th>
-                                <th style="min-width: 120px;">금액</th>
-                                <th style="min-width: 250px;">메모</th>
+                                <th>결제일시</th>
+                                <th>회원</th>
+                                <th>상품명</th>
+                                <th>코치</th>
+                                <th>결제방법</th>
+                                <th class="analytics-detail-col-num">금액</th>
+                                <th>메모</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${data.map(p => `
                                 <tr>
-                                    <td style="white-space: nowrap;">${p.paidAt ? App.formatDateTime(p.paidAt) : '-'}</td>
-                                    <td>${p.member ? p.member.name : '비회원'}</td>
-                                    <td>${p.product ? p.product.name : '-'}</td>
-                                    <td>${p.coach ? p.coach.name : '-'}</td>
-                                    <td>${getPaymentMethodText(p.paymentMethod)}</td>
-                                    <td style="font-weight: 600; color: var(--accent-primary); white-space: nowrap;">
+                                    <td class="analytics-detail-nowrap">${p.paidAt ? App.formatDateTime(p.paidAt) : '-'}</td>
+                                    <td>${App.escapeHtml(p.member ? p.member.name : '비회원')}</td>
+                                    <td>${App.escapeHtml(p.product ? p.product.name : '-')}</td>
+                                    <td>${App.escapeHtml(p.coach ? p.coach.name : '-')}</td>
+                                    <td>${App.escapeHtml(getPaymentMethodText(p.paymentMethod))}</td>
+                                    <td class="analytics-detail-col-num" style="font-weight: 600; color: var(--accent-primary);">
                                         ${App.formatCurrency(p.amount || 0)}
                                         ${p.refundAmount > 0 ? `<br><small style="color: var(--danger);">환불: ${App.formatCurrency(p.refundAmount)}</small>` : ''}
                                     </td>
-                                    <td style="word-break: break-word; max-width: 300px;">${p.memo || '-'}</td>
+                                    <td class="analytics-detail-memo">${App.escapeHtml(p.memo || '-')}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -1535,65 +1546,59 @@ function renderDetailModal(title, data, chartType) {
                 </div>
             `;
         } else if (chartType === 'member-trend-chart') {
-            // 회원 내역 테이블
+            const n = data.length;
             content.innerHTML = `
-                <div class="table-container" style="overflow-x: auto;">
-                    <table class="table" style="min-width: 900px; width: 100%;">
+                <div class="analytics-detail-intro">
+                    <span class="analytics-detail-count-badge">${n}명</span>
+                    <span class="analytics-detail-intro-text">통계 상단에서 선택한 기간 기준 활성 회원입니다.</span>
+                </div>
+                <div class="analytics-detail-table-wrap analytics-detail-table-wrap--members">
+                    <table class="table analytics-detail-table analytics-detail-table--members">
                         <thead>
                             <tr>
-                                <th style="min-width: 120px;">회원번호</th>
-                                <th style="min-width: 80px;">이름</th>
-                                <th style="min-width: 120px;">전화번호</th>
-                                <th style="min-width: 100px;">등급</th>
-                                <th style="min-width: 150px;">학교/소속</th>
-                                <th style="min-width: 100px;">담당 코치</th>
-                                <th style="min-width: 150px;">가입일</th>
+                                <th>회원번호</th>
+                                <th>이름</th>
+                                <th>전화번호</th>
+                                <th>등급</th>
+                                <th>학교/소속</th>
+                                <th>담당 코치</th>
+                                <th>가입일</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${data.map(m => `
+                            ${data
+                                .map(m => {
+                                    const gradeText =
+                                        m.grade && App.MemberGrade && App.MemberGrade.getText
+                                            ? App.MemberGrade.getText(m.grade)
+                                            : m.grade || '-';
+                                    return `
                                 <tr>
-                                    <td>${m.memberNumber || '-'}</td>
-                                    <td>${m.name || '-'}</td>
-                                    <td style="white-space: nowrap;">${m.phoneNumber || '-'}</td>
-                                    <td>${m.grade ? (App.MemberGrade && App.MemberGrade.getText ? App.MemberGrade.getText(m.grade) : m.grade) : '-'}</td>
-                                    <td>${m.school || '-'}</td>
-                                    <td>${m.coach ? m.coach.name : '-'}</td>
-                                    <td style="white-space: nowrap;">${m.createdAt ? App.formatDateTime(m.createdAt) : '-'}</td>
-                                </tr>
-                            `).join('')}
+                                    <td class="analytics-detail-mono">${App.escapeHtml(m.memberNumber || '-')}</td>
+                                    <td>${App.escapeHtml(m.name || '-')}</td>
+                                    <td class="analytics-detail-mono analytics-detail-nowrap">${App.escapeHtml(m.phoneNumber || '-')}</td>
+                                    <td>${App.escapeHtml(String(gradeText))}</td>
+                                    <td>${App.escapeHtml(m.school || '-')}</td>
+                                    <td>${App.escapeHtml(m.coach ? m.coach.name : '-')}</td>
+                                    <td class="analytics-detail-nowrap analytics-detail-muted">${m.createdAt ? App.formatDateTime(m.createdAt) : '-'}</td>
+                                </tr>`;
+                                })
+                                .join('')}
                         </tbody>
                     </table>
                 </div>
             `;
         }
     }
-    
+
     App.Modal.open(modalId);
 }
 
 // 운영 지표 세부 내역 모달
 function renderOperationalDetailModal(title, details) {
     const modalId = 'analytics-detail-modal';
-    
-    let modal = document.getElementById(modalId);
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = modalId;
-        modal.className = 'modal-overlay';
-        modal.innerHTML = `
-            <div class="modal" style="max-width: 1400px; max-height: 85vh; width: 95%;">
-                <div class="modal-header">
-                    <h2 class="modal-title" id="analytics-detail-title">${title}</h2>
-                    <button class="modal-close" onclick="App.Modal.close('${modalId}')">×</button>
-                </div>
-                <div class="modal-body" id="analytics-detail-content" style="overflow-y: auto; max-height: 70vh; overflow-x: auto;">
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modal);
-    }
-    
+    ensureAnalyticsDetailModal();
+
     document.getElementById('analytics-detail-title').textContent = title;
     const content = document.getElementById('analytics-detail-content');
     
@@ -1763,97 +1768,122 @@ function showSchoolDetail(schoolName) {
     App.Modal.open('school-detail-modal');
 }
 
-// 매출 추이 차트 필터 기간 설정
+// 매출 추이: 카드는 항상 최근 7일만
 function setRevenueTrendPeriod(period) {
-    App.log('매출 추이 필터 변경:', period);
-    window.revenueTrendPeriod = period;
+    if (period !== 'week') return;
+    App.log('매출 추이 필터: 7일 카드');
+    window.revenueTrendPeriod = 'week';
     updateRevenueTrendFilterButtons();
     loadRevenueTrendChart();
 }
 
-// 매출 추이 필터 버튼 상태 업데이트
 function updateRevenueTrendFilterButtons() {
     const weekBtn = document.getElementById('revenue-trend-filter-week');
     const monthBtn = document.getElementById('revenue-trend-filter-month');
-    
     if (weekBtn && monthBtn) {
-        const period = window.revenueTrendPeriod || 'week';
-        if (period === 'week') {
-            weekBtn.className = 'btn btn-sm btn-primary';
-            monthBtn.className = 'btn btn-sm btn-secondary';
-        } else {
-            weekBtn.className = 'btn btn-sm btn-secondary';
-            monthBtn.className = 'btn btn-sm btn-primary';
-        }
+        weekBtn.className = 'btn btn-sm btn-primary';
+        monthBtn.className = 'btn btn-sm btn-secondary';
     } else {
         App.warn('매출 추이 필터 버튼을 찾을 수 없습니다.');
     }
 }
 
-// 매출 추이 차트만 별도로 로드
+/** 최저일 표시 등 공통 후처리 후 렌더 */
+function applyTrendMinMaxAndRender(trend, rev, containerId) {
+    let t = trend || [];
+    const positiveItems = t.filter(item => (item.value || 0) > 0);
+    const minVal = positiveItems.length > 0 ? Math.min(...positiveItems.map(item => item.value)) : null;
+    rev.trendMinValue = minVal;
+    rev.trendMinDate = minVal != null ? (t.find(item => (item.value || 0) === minVal)?.label || null) : null;
+    t = t.map(item => ({ ...item, isMin: minVal != null && (item.value || 0) === minVal }));
+    rev.trend = t;
+    App.log('매출 추이 데이터:', t.length, '일 →', containerId);
+    renderSimpleChart(containerId, t, rev);
+}
+
+// 매출 추이 카드: 최근 7일
 async function loadRevenueTrendChart() {
     try {
-        const period = window.revenueTrendPeriod || 'week';
+        window.revenueTrendPeriod = 'week';
         const params = new URLSearchParams();
-        
-        // 일주일 또는 한달 기간 계산
         const today = new Date();
         const endDate = new Date(today);
         endDate.setHours(23, 59, 59, 999);
-        
-        let startDate = new Date(today);
-        if (period === 'week') {
-            // 최근 7일
-            startDate.setDate(today.getDate() - 6);
-        } else {
-            // 최근 30일
-            startDate.setDate(today.getDate() - 29);
-        }
+        const startDate = new Date(today);
+        startDate.setDate(today.getDate() - 6);
         startDate.setHours(0, 0, 0, 0);
-        
-        // 백엔드가 startDate/endDate를 인식하도록 period=custom 추가
         params.append('period', 'custom');
         params.append('startDate', startDate.toISOString().split('T')[0]);
         params.append('endDate', endDate.toISOString().split('T')[0]);
-        
-        App.log('매출 추이 차트 로드:', period, startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]);
-        
+        App.log('매출 추이 차트 로드(7일):', startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]);
         const analytics = await App.api.get(`/analytics?${params}`);
-        
-        // 매출 추이 차트만 렌더링
         if (analytics.revenue) {
-            let trend = analytics.revenue.trend || [];
+            const trend = analytics.revenue.trend || [];
             const rev = { ...analytics.revenue };
-            // 한달일 때: 데이터가 있는 첫 날 이전 구간 제거 (앞쪽 빈 기간 축소)
-            if (period === 'month' && trend.length > 0) {
-                const firstWithData = trend.findIndex(item => (item.value || 0) > 0);
-                if (firstWithData > 0) {
-                    trend = trend.slice(firstWithData);
-                    const sum = trend.reduce((s, item) => s + (item.value || 0), 0);
-                    const maxVal = Math.max(...trend.map(item => item.value || 0), 0);
-                    const maxDate = trend.find(item => (item.value || 0) === maxVal)?.label || null;
-                    trend = trend.map(item => ({
-                        ...item,
-                        isMax: (item.value || 0) === maxVal
-                    }));
-                    rev.trend = trend;
-                    rev.trendAvg = trend.length > 0 ? sum / trend.length : 0;
-                    rev.trendMaxDate = maxDate;
-                    rev.trendMaxValue = maxVal;
-                }
-            }
-            // 최저: 0원 제외한 일별 매출 중 최소값
-            const positiveItems = trend.filter(item => (item.value || 0) > 0);
-            const minVal = positiveItems.length > 0 ? Math.min(...positiveItems.map(item => item.value)) : null;
-            const minDate = minVal != null ? (trend.find(item => (item.value || 0) === minVal)?.label || null) : null;
-            rev.trendMinValue = minVal;
-            rev.trendMinDate = minDate;
-            trend = trend.map(item => ({ ...item, isMin: minVal != null && (item.value || 0) === minVal }));
-            rev.trend = trend;
-            App.log('매출 추이 데이터:', trend.length, '일');
-            renderSimpleChart('revenue-trend-chart', trend, rev);
+            applyTrendMinMaxAndRender(trend, rev, 'revenue-trend-chart');
         }
     } catch (error) {
         App.err('매출 추이 차트 로드 실패:', error);
+    }
+}
+
+/** 매출 추이 30일 — 모달 전용 */
+async function loadRevenueTrendMonthChart() {
+    const params = new URLSearchParams();
+    const today = new Date();
+    const endDate = new Date(today);
+    endDate.setHours(23, 59, 59, 999);
+    const startDate = new Date(today);
+    startDate.setDate(today.getDate() - 29);
+    startDate.setHours(0, 0, 0, 0);
+    params.append('period', 'custom');
+    params.append('startDate', startDate.toISOString().split('T')[0]);
+    params.append('endDate', endDate.toISOString().split('T')[0]);
+    App.log('매출 추이 차트 로드(30일·모달):', startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]);
+    const analytics = await App.api.get(`/analytics?${params}`);
+    if (!analytics.revenue) {
+        const container = document.getElementById('revenue-trend-chart-month');
+        if (container) {
+            container.innerHTML =
+                '<p style="color: var(--text-muted); text-align: center; padding: 24px;">매출 데이터가 없습니다.</p>';
+        }
+        return;
+    }
+    let trend = analytics.revenue.trend || [];
+    const rev = { ...analytics.revenue };
+    if (trend.length > 0) {
+        const firstWithData = trend.findIndex(item => (item.value || 0) > 0);
+        if (firstWithData > 0) {
+            trend = trend.slice(firstWithData);
+            const sum = trend.reduce((s, item) => s + (item.value || 0), 0);
+            const maxVal = Math.max(...trend.map(item => item.value || 0), 0);
+            const maxDate = trend.find(item => (item.value || 0) === maxVal)?.label || null;
+            trend = trend.map(item => ({
+                ...item,
+                isMax: (item.value || 0) === maxVal
+            }));
+            rev.trend = trend;
+            rev.trendAvg = trend.length > 0 ? sum / trend.length : 0;
+            rev.trendMaxDate = maxDate;
+            rev.trendMaxValue = maxVal;
+        }
+    }
+    applyTrendMinMaxAndRender(trend, rev, 'revenue-trend-chart-month');
+}
+
+async function openRevenueTrendMonthModal() {
+    const el = document.getElementById('revenue-trend-chart-month');
+    if (el) {
+        el.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 24px;">불러오는 중...</p>';
+    }
+    App.Modal.open('revenue-trend-month-modal');
+    try {
+        await loadRevenueTrendMonthChart();
+    } catch (error) {
+        App.err('매출 추이(30일) 로드 실패:', error);
+        if (el) {
+            el.innerHTML =
+                '<p style="color: var(--danger); text-align: center; padding: 24px;">데이터를 불러오지 못했습니다.</p>';
+        }
     }
 }

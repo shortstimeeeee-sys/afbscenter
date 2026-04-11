@@ -5,6 +5,8 @@ import com.afbscenter.model.Coach;
 import com.afbscenter.model.Facility;
 import com.afbscenter.model.LessonCategory;
 import com.afbscenter.repository.BookingRepository;
+import com.afbscenter.service.OperationalCoachViewService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -33,9 +35,12 @@ public class BookingStatsController {
     private static final Logger logger = LoggerFactory.getLogger(BookingStatsController.class);
 
     private final BookingRepository bookingRepository;
+    private final OperationalCoachViewService operationalCoachViewService;
 
-    public BookingStatsController(BookingRepository bookingRepository) {
+    public BookingStatsController(BookingRepository bookingRepository,
+            OperationalCoachViewService operationalCoachViewService) {
         this.bookingRepository = bookingRepository;
+        this.operationalCoachViewService = operationalCoachViewService;
     }
 
     @GetMapping("/stats")
@@ -45,7 +50,9 @@ public class BookingStatsController {
             @RequestParam(required = false) String end,
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) String facilityType,
-            @RequestParam(required = false) String lessonCategory) {
+            @RequestParam(required = false) String lessonCategory,
+            @RequestParam(required = false) String viewCoachIds,
+            HttpServletRequest request) {
         try {
             LocalDateTime startDate;
             LocalDateTime endDate;
@@ -126,14 +133,57 @@ public class BookingStatsController {
                 } catch (IllegalArgumentException ignored) { }
             }
 
+            if (request != null && "COACH".equalsIgnoreCase((String) request.getAttribute("role"))) {
+                java.util.List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
+                boolean operational = operationalCoachViewService.isOperationalCoachViewer(request);
+                if (operational) {
+                    if (!viewIds.isEmpty()) {
+                        bookings = bookings.stream()
+                                .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b, viewIds))
+                                .collect(Collectors.toList());
+                    } else {
+                        java.util.Optional<Long> coachIdOpt = operationalCoachViewService.resolveCoachIdFromLoggedInUser(request);
+                        if (coachIdOpt.isEmpty()) {
+                            bookings = new java.util.ArrayList<>();
+                        } else {
+                            Long myCoachId = coachIdOpt.get();
+                            bookings = bookings.stream()
+                                    .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b,
+                                            java.util.List.of(myCoachId)))
+                                    .collect(Collectors.toList());
+                        }
+                    }
+                } else if (!viewIds.isEmpty()) {
+                    bookings = bookings.stream()
+                            .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b, viewIds))
+                            .collect(Collectors.toList());
+                } else {
+                    java.util.Optional<Long> coachIdOpt = operationalCoachViewService.resolveCoachIdFromLoggedInUser(request);
+                    if (coachIdOpt.isEmpty()) {
+                        bookings = new java.util.ArrayList<>();
+                    } else {
+                        Long myCoachId = coachIdOpt.get();
+                        bookings = bookings.stream()
+                                .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b,
+                                        java.util.List.of(myCoachId)))
+                                .collect(Collectors.toList());
+                    }
+                }
+            }
+
             int year = startDate.getYear();
             int month = startDate.getMonthValue();
             String monthLabel = year + "년 " + month + "월";
 
-            // 코치별 예약 수(건수): 회원 예약 + 비회원 예약 모두 포함 (수강 인원(회원 수)과 별개)
+            // 코치별 예약 수: 회원이면 카드 담당 코치, 없으면 예약 배정 코치(통계 칩이 목록 필터와 맞도록)
             java.util.Map<Long, java.util.Map<String, Object>> coachMap = new java.util.LinkedHashMap<>();
             for (Booking b : bookings) {
-                Coach c = b.getCoach();
+                Coach c = null;
+                if (b.getMember() != null && b.getMember().getCoach() != null) {
+                    c = b.getMember().getCoach();
+                } else {
+                    c = b.getCoach();
+                }
                 final Long key = c != null ? c.getId() : -1L;
                 final String name = c != null ? c.getName() : "(미배정)";
                 coachMap.computeIfAbsent(key, k -> {

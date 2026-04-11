@@ -165,3 +165,41 @@ body.products-page .topbar { margin-top: 0; }
     min-width: 90px;
     text-align: center;
 }
+
+/* 통계 클릭 → 총 이용권 수 목록 모달: 전역 .modal 88vh 고제 + 가로·글자 확대, 본문만큼 높이 */
+#stats-products-modal .modal.stats-products-list-modal {
+    width: min(96vw, 1200px);
+    max-width: min(96vw, 1200px);
+    height: auto !important;
+    max-height: min(90vh, calc(100vh - 32px)) !important;
+    min-height: 0;
+}
+#stats-products-modal .modal.stats-products-list-modal .modal-header {
+    padding: 18px 28px;
+    flex-shrink: 0;
+}
+#stats-products-modal .modal.stats-products-list-modal .modal-title {
+    font-size: 1.4rem;
+}
+#stats-products-modal .modal.stats-products-list-modal .modal-body {
+    flex: 0 1 auto !important;
+    min-height: 0;
+    overflow: visible;
+    padding: 18px 28px 22px;
+}
+#stats-products-modal .modal.stats-products-list-modal .modal-body > .table-container.stats-products-modal-table {
+    flex: 0 1 auto !important;
+    min-height: 0;
+    max-height: min(78vh, 900px);
+    overflow: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+}
+#stats-products-modal .modal.stats-products-list-modal .stats-products-modal-table .table {
+    font-size: 15px;
+}
+#stats-products-modal .modal.stats-products-list-modal .stats-products-modal-table .table th,
+#stats-products-modal .modal.stats-products-list-modal .stats-products-modal-table .table td {
+    padding: 14px 18px;
+}

@@ -1068,3 +1068,15 @@ body.light-mode .badge-expired {
         grid-template-columns: 1fr;
     }
 }
+
+/* 회원 등록/수정: 상품 다중 선택 목록 가독성 (한 줄로 뭉개져 보이는 현상 완화) */
+#member-products.member-products-select {
+    min-height: 220px;
+    padding: 8px;
+    font-size: 13px;
+    line-height: 1.45;
+    resize: vertical;
+}
+#member-products.member-products-select option {
+    padding: 4px 6px;
+}

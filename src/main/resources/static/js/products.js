@@ -290,7 +290,7 @@ async function openStatsProductModal(filterType, filterValue, titleLabel) {
             bodyEl.innerHTML = '<p style="color: var(--text-muted); padding: 16px;">해당 조건의 이용권이 없습니다.</p>';
             return;
         }
-        var tableHtml = '<div class="table-container" style="max-height: 60vh; overflow: auto;"><table class="table"><thead><tr><th>이용권명</th><th>유형</th><th>카테고리</th><th>가격</th></tr></thead><tbody>';
+        var tableHtml = '<div class="table-container stats-products-modal-table"><table class="table"><thead><tr><th>이용권명</th><th>유형</th><th>카테고리</th><th>가격</th></tr></thead><tbody>';
         products.forEach(function(p) {
             var typeText = typeLabels[p.type] || p.type || '-';
             var categoryText = categoryLabels[p.category] || p.category || '-';

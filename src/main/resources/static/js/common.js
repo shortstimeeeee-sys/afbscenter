@@ -8,20 +8,30 @@ const App = {
     currentRole: null, // Admin, Manager, Coach, Front
     apiBase: '/api',
     authToken: null,
-    // 디버그 로그: true면 콘솔 출력, false면 생략(운영 시 로그/토큰 노출 방지)
-    debug: (function() {
-        try {
-            const h = window.location.hostname || '';
-            return h === 'localhost' || h === '127.0.0.1';
-        } catch (e) {
-            return false;
-        }
-    })()
+    // 디버그 로그: 작업 편의를 위해 기본 활성화
+    debug: true
 };
 App.log = function() { if (App.debug) console.log.apply(console, arguments); };
 App.warn = function() { if (App.debug) console.warn.apply(console, arguments); };
 // 에러는 항상 콘솔에 출력 (디버깅·운영 공통)
 App.err = function() { console.error.apply(console, arguments); };
+
+// 디버그 토글(브라우저 콘솔에서 사용): App.setDebug(true|false)
+App.setDebug = function(enabled) {
+    App.debug = !!enabled;
+    try {
+        localStorage.setItem('afbs_debug', App.debug ? '1' : '0');
+    } catch (e) {}
+    console.info('[AFBS] debug:', App.debug ? 'ON' : 'OFF');
+};
+
+// 저장된 디버그 설정이 있으면 우선 적용
+try {
+    var savedDebug = localStorage.getItem('afbs_debug');
+    if (savedDebug === '0' || savedDebug === '1') {
+        App.debug = savedDebug === '1';
+    }
+} catch (e) {}
 
 /** 회원 예약 페이지: true이면 /api/public/member-announcements + 로컬 읽음 상태로 종 알림 */
 App.usePublicMemberAnnouncements = false;
@@ -36,6 +46,22 @@ App.escapeHtml = function(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+};
+
+/** 회원 관리 화면에서 해당 회원으로 검색·상세 열기 위해 이동 (대시보드 승인·이용권 처리 후 등) */
+App.goToMembersWithFocus = function(memberId) {
+    if (memberId == null || memberId === '') {
+        return;
+    }
+    try {
+        sessionStorage.setItem('afbs_members_focus_id', String(memberId));
+    } catch (e) { /* ignore */ }
+    window.location.href = '/members.html?focusMember=' + encodeURIComponent(String(memberId));
+};
+
+/** 대시보드 회원 관리 모달을 승인 대기 탭으로 연 후 이동 (신규 회원 등록 직후 등) */
+App.goToDashboardMemberApprovals = function() {
+    window.location.href = '/?openMemberApprovals=1';
 };
 
 /** 로컬 날짜 yyyy-MM-dd */
@@ -288,6 +314,7 @@ App.hasPermission = function(requiredRole, permissionKey) {
 // 야구와 야구(유소년)는 공유 메뉴가 아닌 별도 메뉴임 (동일 권한 bookingView 사용)
 const menuPermissionMap = {
     '/': 'dashboardView', // 대시보드
+    '/index.html': 'dashboardView',
     '/members.html': 'memberView',
     '/coaches.html': 'coachView',
     '/bookings.html': 'bookingView',           // 야구 (사하/연산 각각 별도 페이지)
@@ -309,6 +336,97 @@ const menuPermissionMap = {
     '/users.html': 'userView',
     '/permissions.html': 'userView', // 권한 관리도 사용자 관리 권한 필요
     '/settings.html': 'settingsView'
+};
+
+/** 코치: 현재 예약 페이지(BOOKING_PAGE_CONFIG)에서 회원 실명을 표시할지 — 소속 캘린더만 true */
+App._coachCalendarNameVisible = undefined;
+
+/**
+ * 코치 로그인 시 페이지별로 이름 표시 여부 캐시.
+ * - allowedCoaches에 로그인 사용자 이름(User.name)이 있으면 해당 캘린더에서 실명 표시
+ * - 없으면 코치 프로필의 availableBranches에 페이지 branch(예: SAHA, RENTAL)가 포함될 때만 실명 표시
+ */
+App.refreshCoachBookingNameVisibilityCache = async function() {
+    App._coachCalendarNameVisible = undefined;
+    if ((App.currentRole || '').toUpperCase() !== 'COACH') {
+        App._coachCalendarNameVisible = true;
+        return true;
+    }
+    var cfg = typeof window !== 'undefined' ? (window.BOOKING_PAGE_CONFIG || {}) : {};
+    var myName = (App.currentUser && App.currentUser.name) ? String(App.currentUser.name).trim() : '';
+    var allowed = cfg.allowedCoaches;
+    if (Array.isArray(allowed) && allowed.length > 0) {
+        var ok = myName && allowed.some(function(n) { return String(n).trim() === myName; });
+        App._coachCalendarNameVisible = ok;
+        return ok;
+    }
+    try {
+        var uid = App.currentUser && App.currentUser.id;
+        if (!uid) {
+            App._coachCalendarNameVisible = false;
+            return false;
+        }
+        var coach = await App.api.get('/coaches/by-user/' + uid);
+        var branches = (coach && coach.availableBranches)
+            ? String(coach.availableBranches).split(',').map(function(s) { return s.trim().toUpperCase(); }).filter(Boolean)
+            : [];
+        var br = (cfg.branch || '').toUpperCase();
+        var ok = !!(br && branches.indexOf(br) !== -1);
+        App._coachCalendarNameVisible = ok;
+        return ok;
+    } catch (e) {
+        App._coachCalendarNameVisible = false;
+        return false;
+    }
+};
+
+App.shouldShowMemberNameOnBookingCalendar = function() {
+    if ((App.currentRole || '').toUpperCase() !== 'COACH') return true;
+    return App._coachCalendarNameVisible === true;
+};
+
+/** 예약 한 건 기준 표시용 이름 (코치·타 캘린더일 때 마스킹) — 회원은 빈 문자열(달력에서는 시간만), 비회원만 '비회원' */
+App.formatBookingMemberDisplayName = function(booking) {
+    if (!booking || typeof booking !== 'object') return '';
+    var raw = booking.member ? booking.member.name : (booking.nonMemberName || '비회원');
+    var isNonMember = !booking.member || !booking.member.id || (booking.nonMemberName && String(booking.nonMemberName).trim() !== '');
+    if (typeof App.shouldShowMemberNameOnBookingCalendar === 'function' && !App.shouldShowMemberNameOnBookingCalendar()) {
+        if (isNonMember) return '비회원';
+        return '';
+    }
+    return raw;
+};
+
+/** 코치: 담당 회원 목록·예약·훈련 중 허용된 첫 화면 */
+App.coachAccessibleFallbackPath = function() {
+    if (App.hasDetailPermission('memberView')) return '/members.html';
+    if (App.hasDetailPermission('bookingView')) return '/bookings.html';
+    if (App.hasDetailPermission('trainingLogView')) return '/training-logs.html';
+    return '/login.html';
+};
+
+/**
+ * 코치 계정이 세부 권한 없는 페이지(URL 직접 입력 등)로 들어온 경우 허용 화면으로 이동
+ */
+App.enforceCoachPageAccess = async function() {
+    if ((App.currentRole || '').toUpperCase() !== 'COACH') return;
+    var p = window.location.pathname || '';
+    var norm = p.endsWith('/') && p.length > 1 ? p.slice(0, -1) : p;
+    if (norm === '/bookings-without-product.html' || p.endsWith('/bookings-without-product.html')) {
+        window.location.replace(App.coachAccessibleFallbackPath());
+        return;
+    }
+    var key = menuPermissionMap[norm];
+    if ((norm === '/' || norm === '') && menuPermissionMap['/']) {
+        key = menuPermissionMap['/'];
+    }
+    if (!key && (norm.indexOf('bookings') !== -1 || p.indexOf('bookings') !== -1) && norm.indexOf('without-product') === -1 && p.indexOf('without-product') === -1) {
+        key = 'bookingView';
+    }
+    if (!key) return;
+    if (!App.hasDetailPermission(key)) {
+        window.location.replace(App.coachAccessibleFallbackPath());
+    }
 };
 
 // 메뉴 필터링 (권한 기반)
@@ -394,16 +512,372 @@ function applyDeskThreadUnlockHeader(headers, options) {
     var t = sessionStorage.getItem('deskThreadUnlock_' + mid);
     if (t) headers['X-Desk-Thread-Unlock'] = t;
 }
+/**
+ * 운영 코치 뷰(사용자 모달 담당 코치 체크, viewCoachIds 붙임).
+ * 1) 서버 플래그(로그인·GET /auth/me) 우선
+ * 2) 구 localStorage·users.name 미동기 시: 표시명이 서정훈(역할 접미사 제거)이면 표시 — 서버 OperationalCoachViewService 와 동일 취지
+ */
+App.isOperationalCoachViewer = function() {
+    var u = App.currentUser;
+    if (!u || String(u.role || '').toUpperCase() !== 'COACH') {
+        return false;
+    }
+    if (u.operationalCoachView === true) {
+        return true;
+    }
+    var n = (u.name || '').trim();
+    var base = n.replace(/\s*\[[^\]]+\]\s*$/, '').trim();
+    return n === '서정훈' || base === '서정훈';
+};
+
+/** 서버와 operationalCoachView 동기화 — 오래된 localStorage 복원 시 필수 */
+App.syncOperationalCoachViewFromServer = async function() {
+    try {
+        var data = await App.api.get('/auth/me');
+        if (!data || !App.currentUser) {
+            return;
+        }
+        App.currentUser.operationalCoachView = data.operationalCoachView === true;
+        try {
+            localStorage.setItem('currentUser', JSON.stringify(App.currentUser));
+        } catch (e) {}
+        try {
+            document.dispatchEvent(new CustomEvent('afbs-operational-coach-flag-synced'));
+        } catch (e2) {}
+    } catch (err) {
+        App.warn('운영 코치 여부 동기화 실패:', err);
+    }
+};
+
+App.OPERATIONAL_VIEW_COACH_IDS_KEY = 'afbs_operational_view_coach_ids';
+
+App.appendViewCoachIdsToUrl = function(url) {
+    if (typeof url !== 'string') {
+        return url;
+    }
+    var membersPath = url.indexOf('/members') === 0;
+    var bookingsPath = url.indexOf('/bookings') === 0;
+    if (!membersPath && !bookingsPath) {
+        return url;
+    }
+    if (url.startsWith('/members/stats')) {
+        return url;
+    }
+    if (url.indexOf('/member-products') === 0 || url.indexOf('/memberships') === 0) {
+        return url;
+    }
+    if (url.startsWith('/bookings/non-members') || url.startsWith('/bookings/pending')) {
+        return url;
+    }
+    // 모달에서 선택한 코치 id는 sessionStorage에만 의존. localStorage 역할 문자열과 JWT 불일치 시 COACH만 보던 기존 로직 때문에 viewCoachIds가 빠지는 문제가 있었음 → 붙이기만 하고, 실제 필터는 서버가 COACH 요청에만 적용
+    if (url.indexOf('viewCoachIds=') !== -1) {
+        return url;
+    }
+    var raw = sessionStorage.getItem(App.OPERATIONAL_VIEW_COACH_IDS_KEY);
+    var ids = [];
+    try {
+        ids = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+        ids = [];
+    }
+    if (!Array.isArray(ids) || ids.length === 0) {
+        return url;
+    }
+    var compact = ids.filter(function(id) {
+        return id != null && id !== '';
+    }).map(function(id) {
+        return String(id).trim();
+    }).filter(function(s) {
+        return s.length > 0;
+    });
+    if (compact.length === 0) {
+        return url;
+    }
+    var q = 'viewCoachIds=' + encodeURIComponent(compact.join(','));
+    return url + (url.indexOf('?') >= 0 ? '&' : '?') + q;
+};
+
+/** 코치가 모달에서 담당 코치를 선택한 상태면 서버가 이미 viewCoachIds로 필터함. 범례(calendarFilterCoachIds)와 이중 필터되면 캘린더가 비는 문제가 생길 수 있어 구분용. */
+App.isOperationalViewCoachFilterActive = function() {
+    if (!App.currentUser || String(App.currentUser.role || '').toUpperCase() !== 'COACH') {
+        return false;
+    }
+    try {
+        var raw = sessionStorage.getItem(App.OPERATIONAL_VIEW_COACH_IDS_KEY);
+        var ids = raw ? JSON.parse(raw) : [];
+        return Array.isArray(ids) && ids.length > 0;
+    } catch (e) {
+        return false;
+    }
+};
+
+/**
+ * 일별 스케줄·내보내기 코치 필터: 회원이면 담당 코치 id, 담당 없으면 예약 코치. 비회원이면 예약 코치.
+ */
+App.getBookingRelatedCoachIds = function(booking) {
+    if (!booking) {
+        return [];
+    }
+    var out = [];
+    function push(id) {
+        if (id == null || id === '') {
+            return;
+        }
+        var k = String(id);
+        var i;
+        for (i = 0; i < out.length; i++) {
+            if (String(out[i]) === k) {
+                return;
+            }
+        }
+        out.push(typeof id === 'number' ? id : (isNaN(Number(id)) ? id : Number(id)));
+    }
+    if (booking.member) {
+        if (booking.member.coach && booking.member.coach.id != null) {
+            push(booking.member.coach.id);
+        } else if (booking.coach && booking.coach.id != null) {
+            push(booking.coach.id);
+        }
+    } else if (booking.coach && booking.coach.id != null) {
+        push(booking.coach.id);
+    }
+    return out;
+};
+
+/**
+ * 캘린더·목록 색/라벨: 예약 배정 코치 우선, 없으면 회원 담당 코치.
+ * 운영 코치 모달에서 담당 코치만 볼 때(GET /bookings·회원 카드 담당 기준)는 서버와 동일하게
+ * 회원이면 담당 코치를 먼저 쓴다. 그렇지 않으면 대표 담당인데 예약 배정만 다른 코치인 경우
+ * 필터는 서정민인데 칸·목록은 다른 코치로 보이는 불일치가 난다.
+ */
+App.resolveCoachForCalendarDisplay = function(booking) {
+    if (!booking) {
+        return null;
+    }
+    if (typeof App.isOperationalViewCoachFilterActive === 'function' && App.isOperationalViewCoachFilterActive()) {
+        if (booking.member && booking.member.coach) {
+            return booking.member.coach;
+        }
+    }
+    return booking.coach || (booking.member && booking.member.coach) || null;
+};
+
+/** 범례/통계 코치 칩 필터(Set)에 id가 포함되는지 — Set에 숫자/문자열이 섞여도 매칭 */
+App.calendarCoachIdInFilterSet = function(filterSet, coachIdOrUnassigned) {
+    if (!filterSet || filterSet.size === 0) {
+        return true;
+    }
+    if (coachIdOrUnassigned === 'unassigned' || coachIdOrUnassigned == null) {
+        return filterSet.has('unassigned');
+    }
+    try {
+        var it = filterSet.values();
+        var step;
+        while (!(step = it.next()).done) {
+            var k = step.value;
+            if (k === 'unassigned') {
+                continue;
+            }
+            if (Number(k) === Number(coachIdOrUnassigned)) {
+                return true;
+            }
+            if (String(k) === String(coachIdOrUnassigned)) {
+                return true;
+            }
+        }
+    } catch (e2) {
+        return filterSet.has(coachIdOrUnassigned);
+    }
+    return filterSet.has(coachIdOrUnassigned);
+};
+
+App.refreshOperationalCoachDependentViews = function() {
+    try {
+        if (typeof window !== 'undefined' && window.calendarFilterCoachIds && typeof window.calendarFilterCoachIds.clear === 'function') {
+            window.calendarFilterCoachIds.clear();
+        }
+    } catch (e) {}
+    try {
+        document.dispatchEvent(new CustomEvent('afbs-operational-coach-filter-changed'));
+    } catch (e) {}
+};
+
+/**
+ * 조직도(org chart)와 동일 규칙: specialties·이름 기준 종목 키
+ * RENTAL | BASEBALL | YOUTH | TRAINING | PILATES | OTHER
+ */
+App.categorizeCoachBySubject = function(coach) {
+    var spec = ((coach && coach.specialties) ? coach.specialties : '') + ' ' + ((coach && coach.name) ? coach.name : '');
+    if (/대관|\[대관담당\]/.test(spec)) {
+        return 'RENTAL';
+    }
+    if (/\[트레이너\]|트레이닝/.test(spec)) {
+        return 'TRAINING';
+    }
+    if (/\[강사\]|필라테스/.test(spec)) {
+        return 'PILATES';
+    }
+    if (/유소년/.test(spec)) {
+        return 'YOUTH';
+    }
+    if (/\[대표\]|\[코치\]|\[포수코치\]|\[투수코치\]|야구|타격|투구|수비|포수|투수/.test(spec)) {
+        return 'BASEBALL';
+    }
+    return 'OTHER';
+};
+
+/** 운영 코치 필터 UI — 사용자 정보 모달의 host 요소 안에만 삽입 */
+App.mountOperationalCoachFilterBar = function(hostEl) {
+    if (!hostEl) {
+        return;
+    }
+    if (typeof App.isOperationalCoachViewer !== 'function' || !App.isOperationalCoachViewer()) {
+        return;
+    }
+    var legacyTop = document.querySelector('.user-info-container #operational-coach-filter-bar');
+    if (legacyTop) {
+        legacyTop.remove();
+    }
+    var existing = document.getElementById('operational-coach-filter-bar');
+    if (existing) {
+        existing.remove();
+    }
+    hostEl.innerHTML = '';
+    var bar = document.createElement('div');
+    bar.id = 'operational-coach-filter-bar';
+    bar.className = 'operational-coach-filter-bar operational-coach-filter-bar--modal';
+    bar.innerHTML = '<div class="ocb-loading">코치 목록 로딩…</div>';
+    hostEl.appendChild(bar);
+
+    App.api.get('/coaches').then(function(list) {
+        var coaches = Array.isArray(list) ? list : [];
+        coaches = coaches.filter(function(c) {
+            return c && c.active !== false && c.id != null;
+        });
+        coaches.sort(function(a, b) {
+            return String(a.name || '').localeCompare(String(b.name || ''), 'ko');
+        });
+        var subjectOrder = ['RENTAL', 'BASEBALL', 'YOUTH', 'TRAINING', 'PILATES', 'OTHER'];
+        var subjectLabels = {
+            RENTAL: '대관',
+            BASEBALL: '야구',
+            YOUTH: '유소년',
+            TRAINING: '트레이닝',
+            PILATES: '필라테스',
+            OTHER: '기타'
+        };
+        var buckets = { RENTAL: [], BASEBALL: [], YOUTH: [], TRAINING: [], PILATES: [], OTHER: [] };
+        coaches.forEach(function(c) {
+            var k = App.categorizeCoachBySubject(c);
+            if (buckets[k]) {
+                buckets[k].push(c);
+            } else {
+                buckets.OTHER.push(c);
+            }
+        });
+        var saved = [];
+        try {
+            saved = JSON.parse(sessionStorage.getItem(App.OPERATIONAL_VIEW_COACH_IDS_KEY) || '[]');
+        } catch (e2) {
+            saved = [];
+        }
+        if (!Array.isArray(saved)) {
+            saved = [];
+        }
+        if (saved.length > 1) {
+            saved = [saved[saved.length - 1]];
+            try {
+                sessionStorage.setItem(App.OPERATIONAL_VIEW_COACH_IDS_KEY, JSON.stringify(saved));
+            } catch (eNorm) {}
+        }
+        var savedSet = {};
+        saved.forEach(function(id) {
+            savedSet[String(id)] = true;
+        });
+
+        function renderChecks(arr) {
+            if (!arr.length) {
+                return '<span class="ocb-empty">없음</span>';
+            }
+            return arr.map(function(c) {
+                var cid = String(c.id);
+                var checked = savedSet[cid] ? ' checked' : '';
+                var label = App.escapeHtml((c.name || '').replace(/\s*\[[^\]]*\]\s*$/,'').trim() || cid);
+                return '<label class="ocb-cb-label"><input type="checkbox" class="ocb-coach-cb" data-coach-id="' +
+                    App.escapeHtml(cid) + '" value="' + App.escapeHtml(cid) + '"' + checked + '><span class="ocb-cb-text">' + label + '</span></label>';
+            }).join('');
+        }
+
+        var sectionsHtml = '';
+        subjectOrder.forEach(function(key) {
+            var arr = buckets[key] || [];
+            if (arr.length === 0) {
+                return;
+            }
+            sectionsHtml +=
+                '<div class="ocb-section ocb-section--subject" data-subject="' + key + '">' +
+                '<div class="ocb-section-title">' + subjectLabels[key] + '</div>' +
+                '<div class="ocb-chips ocb-chips--row">' + renderChecks(arr) + '</div></div>';
+        });
+        if (!sectionsHtml) {
+            sectionsHtml = '<div class="ocb-section"><span class="ocb-empty">등록된 코치가 없습니다.</span></div>';
+        }
+        bar.innerHTML = sectionsHtml;
+
+        function persistFromDom() {
+            var boxes = bar.querySelectorAll('.ocb-coach-cb:checked');
+            var ids = [];
+            boxes.forEach(function(cb) {
+                var v = cb.getAttribute('data-coach-id') || cb.value;
+                if (v) {
+                    ids.push(v);
+                }
+            });
+            try {
+                sessionStorage.setItem(App.OPERATIONAL_VIEW_COACH_IDS_KEY, JSON.stringify(ids));
+            } catch (e3) {}
+            App.refreshOperationalCoachDependentViews();
+        }
+
+        bar.querySelectorAll('.ocb-coach-cb').forEach(function(cb) {
+            cb.addEventListener('change', function() {
+                if (!cb.checked) {
+                    var n = bar.querySelectorAll('.ocb-coach-cb:checked').length;
+                    if (n === 0) {
+                        cb.checked = true;
+                        return;
+                    }
+                }
+                if (cb.checked) {
+                    bar.querySelectorAll('.ocb-coach-cb').forEach(function(other) {
+                        if (other !== cb) {
+                            other.checked = false;
+                        }
+                    });
+                }
+                persistFromDom();
+            });
+        });
+    }).catch(function(err) {
+        App.err('운영 코치 필터 바 로드 실패:', err);
+        bar.innerHTML = '<div class="ocb-error">코치 목록을 불러오지 못했습니다.</div>';
+    });
+};
+
 App.api = {
     get: async function(url, options) {
         try {
+            var reqUrl = url;
+            if (typeof App.appendViewCoachIdsToUrl === 'function') {
+                reqUrl = App.appendViewCoachIdsToUrl(url);
+            }
             const headers = App.getAuthHeaders();
             if (options && options.deskInboxUnlock) {
                 var deskTok = sessionStorage.getItem('deskInboxUnlockToken');
                 if (deskTok) headers['X-Desk-Inbox-Unlock'] = deskTok;
             }
             applyDeskThreadUnlockHeader(headers, options);
-            const response = await fetch(`${App.apiBase}${url}`, {
+            const response = await fetch(`${App.apiBase}${reqUrl}`, {
                 headers: headers
             });
             
@@ -880,6 +1354,449 @@ App.formatMemberProductOptionLabel = function(mp) {
     return text;
 };
 
+/** 회원 이용권 상태 라벨 (결제·출석 모달 공통) */
+App.memberProductStatusLabel = function(status) {
+    const map = { ACTIVE: '사용중', EXPIRED: '만료', USED_UP: '소진' };
+    return map[status] || (status || '-');
+};
+
+/**
+ * DB는 ACTIVE인데 횟수권 잔여 0(전부 소진 표시) — 3일 유예·만료 배지에 USED_UP과 동일 취급.
+ */
+App.isActiveCountPassExhaustedForGrace = function(mp) {
+    if (!mp || !mp.product || mp.product.type !== 'COUNT_PASS') {
+        return false;
+    }
+    const st = mp.status && String(mp.status).toUpperCase();
+    if (st !== 'ACTIVE') {
+        return false;
+    }
+    if (!App.resolveDisplayRemainingCount) {
+        const rc = mp.remainingCount;
+        return rc !== null && rc !== undefined && Number(rc) === 0;
+    }
+    return App.resolveDisplayRemainingCount(mp, { whenAllUnknown: 'zero' }) === 0;
+};
+
+/**
+ * 종료(소진/만료) 이용권의 UI 기준 시각 — 회원 목록「만료」배지와 상세「전부 소진」행을 같은 3일 규칙으로 맞춤.
+ * (MemberResponseDTO·/api/member-products 공통: endedAt 우선, EXPIRED만 expiryDate 보조)
+ * ACTIVE·횟수권·잔여0: endedAt 없으면 만료일 → 구매일 순으로 유예 기준 시각.
+ */
+App.resolveMemberProductEndedAtForGrace = function(mp) {
+    if (!mp) {
+        return null;
+    }
+    if (mp.endedAt) {
+        const d = new Date(mp.endedAt);
+        return isNaN(d.getTime()) ? null : d;
+    }
+    const st = mp.status && String(mp.status).toUpperCase();
+    if (st === 'EXPIRED' && mp.expiryDate) {
+        const d2 = new Date(mp.expiryDate);
+        return isNaN(d2.getTime()) ? null : d2;
+    }
+    if (typeof App.isActiveCountPassExhaustedForGrace === 'function' && App.isActiveCountPassExhaustedForGrace(mp)) {
+        if (mp.expiryDate) {
+            const d3 = new Date(mp.expiryDate);
+            return isNaN(d3.getTime()) ? null : d3;
+        }
+        if (mp.purchaseDate) {
+            const d4 = new Date(mp.purchaseDate);
+            return isNaN(d4.getTime()) ? null : d4;
+        }
+    }
+    return null;
+};
+
+/** endedAt·만료일·구매일 기준 3일이 지난 종료 행은 목록에서 제거(USED_UP/EXPIRED 및 ACTIVE·횟수권·잔여0 = 전부 소진) */
+App.filterEndedMemberProductsPastGraceDays = function(rows) {
+    if (!rows || rows.length === 0) {
+        return rows || [];
+    }
+    const GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    return rows.filter(function(p) {
+        const st = p && p.status ? String(p.status).toUpperCase() : '';
+        const inGraceWindow =
+            st === 'USED_UP' ||
+            st === 'EXPIRED' ||
+            (typeof App.isActiveCountPassExhaustedForGrace === 'function' && App.isActiveCountPassExhaustedForGrace(p));
+        if (!inGraceWindow) {
+            return true;
+        }
+        const end = App.resolveMemberProductEndedAtForGrace(p);
+        if (!end) {
+            return true;
+        }
+        return (now - end.getTime()) <= GRACE_MS;
+    });
+};
+
+/**
+ * 회원 상세 이용권 목록 정리:
+ * - 신규 구매: 같은 상품·같은 바우처로 꼬인 옛 줄(소진)은 숨기고, 지금 쓰는 이용권 한 줄만.
+ * - 연장: 새 행이 extendedFromMemberProductId로 직전 행을 가리키면 직전 소진 줄+새 줄 2줄 유지(바우처 번호가 달라도 동일 상품+링크면 동일).
+ * - 동일 바우처 번호가 두 행: 연장 링크가 있으면 2줄, 없으면 잔여 많은(같으면 id 큰) 한 줄만.
+ */
+App.filterMemberProductsForDisplayList = function(products) {
+    if (!products || products.length === 0) {
+        return products || [];
+    }
+    function getPid(p) {
+        if (p && p.product && p.product.id != null) {
+            return String(p.product.id);
+        }
+        if (p && p.productId != null) {
+            return String(p.productId);
+        }
+        return null;
+    }
+    /** 회원 상세 목록(renderProductsList)과 동일한 잔여 기준 — 'null'만 쓰면 UI는 'zero'로 0회로 보이는데 필터는 비소진으로 남는 불일치가 난다 */
+    function isExhaustedLikeRow(p) {
+        if (!p) {
+            return false;
+        }
+        if (p.status === 'USED_UP' || p.status === 'EXPIRED') {
+            return true;
+        }
+        const pt = p.product && p.product.type;
+        if (pt !== 'COUNT_PASS') {
+            return false;
+        }
+        if (p.packageItemsRemaining) {
+            try {
+                const pkg = JSON.parse(p.packageItemsRemaining);
+                if (Array.isArray(pkg) && pkg.length > 0) {
+                    const sum = pkg.reduce(function(s, it) {
+                        return s + (Number(it && it.remaining) || 0);
+                    }, 0);
+                    return sum === 0;
+                }
+            } catch (e) {
+                /* fall through */
+            }
+        }
+        if (!App.resolveDisplayRemainingCount) {
+            const rc = p.remainingCount;
+            return rc !== null && rc !== undefined && Number(rc) === 0;
+        }
+        const remUi = App.resolveDisplayRemainingCount(p, { whenAllUnknown: 'zero' });
+        return remUi === 0;
+    }
+    function isNonExhaustedSameProductRow(o) {
+        return !!o && !isExhaustedLikeRow(o);
+    }
+    function rowRemainingForDedupe(p) {
+        if (!App.resolveDisplayRemainingCount) {
+            const rc = p && p.remainingCount;
+            return rc != null ? Number(rc) : 0;
+        }
+        const r = App.resolveDisplayRemainingCount(p, { whenAllUnknown: 'zero' });
+        return r != null ? Number(r) : 0;
+    }
+    /** 동일 바우처가 두 행 이상: 연장(extendedFrom이 그룹 내 다른 id)이면 유지, 아니면 잔여↑ 한 줄만 */
+    function dedupeIdenticalVoucherNumber(rows) {
+        const byV = new Map();
+        for (let i = 0; i < rows.length; i++) {
+            const p = rows[i];
+            const v = p && p.voucherNumber ? String(p.voucherNumber).trim() : '';
+            if (!v) {
+                continue;
+            }
+            if (!byV.has(v)) {
+                byV.set(v, []);
+            }
+            byV.get(v).push(p);
+        }
+        const sup2 = new Set();
+        byV.forEach(function(list) {
+            if (list.length < 2) {
+                return;
+            }
+            const idSet = new Set();
+            list.forEach(function(x) {
+                if (x && x.id != null) {
+                    idSet.add(String(x.id));
+                }
+            });
+            const hasExtensionPair = list.some(function(a) {
+                if (!a || a.status !== 'ACTIVE') {
+                    return false;
+                }
+                const ext = a.extendedFromMemberProductId;
+                if (ext == null) {
+                    return false;
+                }
+                if (!idSet.has(String(ext))) {
+                    return false;
+                }
+                const parent = list.find(function(x) {
+                    return x && String(x.id) === String(ext);
+                });
+                if (!parent) {
+                    return false;
+                }
+                const va = a.voucherNumber ? String(a.voucherNumber).trim() : '';
+                const vp = parent.voucherNumber ? String(parent.voucherNumber).trim() : '';
+                if (va && vp && va === vp) {
+                    return false;
+                }
+                // 목록 API 등 바우처 미포함 시 extendedFrom 만으로 연장으로 오인하지 않음
+                if (!va || !vp) {
+                    return false;
+                }
+                return true;
+            });
+            if (hasExtensionPair) {
+                return;
+            }
+            let best = list[0];
+            let bestRem = rowRemainingForDedupe(best);
+            let bestId = Number(best && best.id) || 0;
+            for (let j = 1; j < list.length; j++) {
+                const q = list[j];
+                const rem = rowRemainingForDedupe(q);
+                const qid = Number(q && q.id) || 0;
+                if (rem > bestRem || (rem === bestRem && qid > bestId)) {
+                    best = q;
+                    bestRem = rem;
+                    bestId = qid;
+                }
+            }
+            list.forEach(function(p) {
+                if (p !== best) {
+                    sup2.add(p);
+                }
+            });
+        });
+        return rows.filter(function(p) {
+            return !sup2.has(p);
+        });
+    }
+    /** 바우처 번호 없이도 같은 상품에 소진 줄 + 정상 줄이 있으면 소진만 제거(연장 링크 있을 때만 유지) */
+    function hideExhaustedWhenNonExhaustedExistsSameProduct(rows) {
+        const byPid = new Map();
+        for (let i = 0; i < rows.length; i++) {
+            const p = rows[i];
+            const pid = getPid(p);
+            if (!pid) {
+                continue;
+            }
+            if (!byPid.has(pid)) {
+                byPid.set(pid, []);
+            }
+            byPid.get(pid).push(p);
+        }
+        const sup3 = new Set();
+        byPid.forEach(function(list) {
+            if (list.length < 2) {
+                return;
+            }
+            const exhausted = list.filter(isExhaustedLikeRow);
+            if (exhausted.length === 0) {
+                return;
+            }
+            const fresh = list.filter(isNonExhaustedSameProductRow);
+            if (fresh.length === 0) {
+                return;
+            }
+            const linked = fresh.some(function(g) {
+                const ext = g.extendedFromMemberProductId;
+                if (ext == null) {
+                    return false;
+                }
+                return exhausted.some(function(b) {
+                    if (String(b.id) !== String(ext)) {
+                        return false;
+                    }
+                    const vg = g.voucherNumber ? String(g.voucherNumber).trim() : '';
+                    const vb = b.voucherNumber ? String(b.voucherNumber).trim() : '';
+                    if (vg && vb && vg === vb) {
+                        return false;
+                    }
+                    if (!vg || !vb) {
+                        return false;
+                    }
+                    return true;
+                });
+            });
+            if (linked) {
+                return;
+            }
+            exhausted.forEach(function(b) {
+                sup3.add(b);
+            });
+        });
+        return rows.filter(function(p) {
+            return !sup3.has(p);
+        });
+    }
+    const suppressed = new Set();
+    for (let i = 0; i < products.length; i++) {
+        const p = products[i];
+        const pid = getPid(p);
+        if (pid == null || !isExhaustedLikeRow(p)) {
+            continue;
+        }
+        const hasBetterRow = products.some(function(o) {
+            if (!o || String(o.id) === String(p.id)) {
+                return false;
+            }
+            if (getPid(o) !== pid) {
+                return false;
+            }
+            return isNonExhaustedSameProductRow(o);
+        });
+        if (!hasBetterRow) {
+            continue;
+        }
+        const linkedByExtension = products.some(function(o) {
+            if (!o || o.status !== 'ACTIVE') {
+                return false;
+            }
+            const ext = o.extendedFromMemberProductId;
+            if (ext == null || String(ext) !== String(p.id)) {
+                return false;
+            }
+            const vo = o.voucherNumber ? String(o.voucherNumber).trim() : '';
+            const vp = p.voucherNumber ? String(p.voucherNumber).trim() : '';
+            if (vo && vp && vo === vp) {
+                return false;
+            }
+            if (!vo || !vp) {
+                return false;
+            }
+            return true;
+        });
+        if (!linkedByExtension) {
+            suppressed.add(p);
+        }
+    }
+    let out = products.filter(function(row) {
+        return !suppressed.has(row);
+    });
+    out = dedupeIdenticalVoucherNumber(out);
+    out = hideExhaustedWhenNonExhaustedExistsSameProduct(out);
+    return typeof App.filterEndedMemberProductsPastGraceDays === 'function'
+        ? App.filterEndedMemberProductsPastGraceDays(out)
+        : out;
+};
+
+/**
+ * 회원 API 응답 → 「회원 · 이용권」 모달 본문 HTML
+ */
+App.renderMemberInfoPanelHtml = function(member) {
+    if (!member) {
+        return '<p class="text-muted">회원 정보가 없습니다.</p>';
+    }
+    const coachName = member.coach && member.coach.name ? member.coach.name : '-';
+    const rawProducts = member.memberProducts || [];
+    const products = App.filterMemberProductsForDisplayList
+        ? App.filterMemberProductsForDisplayList(rawProducts)
+        : rawProducts;
+    const rows = products
+        .map(function(mp) {
+            const p = mp.product || {};
+            const coach = mp.coach && mp.coach.name ? mp.coach.name : '-';
+            const status = App.memberProductStatusLabel(mp.status);
+            const purchaseDate = mp.purchaseDate ? App.formatDate(mp.purchaseDate) : '-';
+            const expiryDate = mp.expiryDate ? App.formatDate(mp.expiryDate) : '-';
+            const remain =
+                mp.remainingCount != null && mp.totalCount != null
+                    ? mp.remainingCount + ' / ' + mp.totalCount
+                    : '-';
+            let stClass = 'mp-status';
+            if (mp.status === 'ACTIVE') stClass += ' mp-status--active';
+            else if (mp.status === 'EXPIRED') stClass += ' mp-status--expired';
+            else if (mp.status === 'USED_UP') stClass += ' mp-status--usedup';
+            return (
+                '<tr>' +
+                '<td class="member-info-col-product">' +
+                App.escapeHtml(p.name || '-') +
+                '</td>' +
+                '<td class="member-info-col-status"><span class="' +
+                stClass +
+                '">' +
+                App.escapeHtml(status) +
+                '</span></td>' +
+                '<td class="member-info-col-coach">' +
+                App.escapeHtml(coach) +
+                '</td>' +
+                '<td class="member-info-col-date">' +
+                purchaseDate +
+                '</td>' +
+                '<td class="member-info-col-date">' +
+                expiryDate +
+                '</td>' +
+                '<td class="member-info-col-remain">' +
+                App.escapeHtml(remain) +
+                '</td>' +
+                '</tr>'
+            );
+        })
+        .join('');
+    const count = products.length;
+    const tbody = rows
+        ? rows
+        : '<tr><td colspan="6" class="member-info-empty">등록된 이용권이 없습니다.</td></tr>';
+    return (
+        '<div class="member-info-panel">' +
+        '<div class="member-info-summary">' +
+        '<div class="member-info-summary-item">' +
+        '<span class="member-info-summary-label">회원명</span>' +
+        '<span class="member-info-summary-value">' +
+        App.escapeHtml(member.name || '-') +
+        '</span></div>' +
+        '<div class="member-info-summary-item">' +
+        '<span class="member-info-summary-label">회원번호</span>' +
+        '<span class="member-info-summary-value member-info-mono">' +
+        App.escapeHtml(member.memberNumber || '-') +
+        '</span></div>' +
+        '<div class="member-info-summary-item">' +
+        '<span class="member-info-summary-label">담당 코치</span>' +
+        '<span class="member-info-summary-value">' +
+        App.escapeHtml(coachName) +
+        '</span></div>' +
+        '</div>' +
+        '<div class="member-info-list-bar">' +
+        '<span class="member-info-list-title">보유 이용권</span>' +
+        '<span class="member-info-list-badge">' +
+        count +
+        '건</span>' +
+        '</div>' +
+        '<div class="member-info-table-wrap">' +
+        '<table class="table member-info-table">' +
+        '<thead><tr><th>상품명</th><th>상태</th><th>지정 코치</th><th>구매일</th><th>만료일</th><th>잔여</th></tr></thead>' +
+        '<tbody>' +
+        tbody +
+        '</tbody></table></div></div>'
+    );
+};
+
+/**
+ * 결제·출석 등 회원명 클릭 시 (#member-info-content, #member-info-modal)
+ */
+App.openMemberInfoModal = async function(memberId) {
+    const contentEl = document.getElementById('member-info-content');
+    if (!contentEl) return;
+    contentEl.innerHTML = '<p class="member-info-loading text-muted">불러오는 중...</p>';
+    if (typeof App.Modal !== 'undefined' && App.Modal.open) {
+        App.Modal.open('member-info-modal');
+    }
+    try {
+        const member = await App.api.get('/members/' + memberId);
+        if (!member) {
+            contentEl.innerHTML = '<p class="text-muted">회원 정보를 찾을 수 없습니다.</p>';
+            return;
+        }
+        contentEl.innerHTML = App.renderMemberInfoPanelHtml(member);
+    } catch (err) {
+        App.err('회원 정보 조회 실패:', err);
+        contentEl.innerHTML = '<p class="text-danger">회원 정보를 불러오지 못했습니다.</p>';
+    }
+};
+
 // 페이지네이션
 App.Pagination = {
     render: function(containerId, currentPage, totalPages, onPageChange) {
@@ -1122,6 +2039,7 @@ App.Status = {
     member: {
         getBadge: function(status) {
             const map = {
+                'PENDING_APPROVAL': 'warning',
                 'ACTIVE': 'success',
                 'INACTIVE': 'warning',
                 'WITHDRAWN': 'danger'
@@ -1130,6 +2048,7 @@ App.Status = {
         },
         getText: function(status) {
             const map = {
+                'PENDING_APPROVAL': '승인 대기',
                 'ACTIVE': '활성',
                 'INACTIVE': '휴면',
                 'WITHDRAWN': '탈퇴'
@@ -1524,6 +2443,22 @@ App.loadNotifications = async function() {
     if (!listElement) return;
     
     try {
+        function normalizeAnnouncementTitle(rawTitle, source) {
+            if (source === 'SETTINGS_MEMBERSHIP_DUES') {
+                return '회비 입금 전용계좌';
+            }
+            var title = String(rawTitle || '').trim();
+            if (!title) return '공지사항';
+            // 인코딩 깨짐으로 '2?' 같은 꼬리가 보일 때 보정
+            title = title.replace(/(\d)\?$/g, '$1건');
+            // 깨진 접두사 제거
+            title = title.replace(/^\[\?\?\]\s*/, '');
+            if (/^\?+(?:\s*\?+)*$/.test(title)) {
+                return '공지사항';
+            }
+            return title || '공지사항';
+        }
+
         let announcements;
         if (App.usePublicMemberAnnouncements) {
             const mn =
@@ -1601,7 +2536,7 @@ App.loadNotifications = async function() {
                             '</div>' +
                             '<div class="notification-content">' +
                             '<div class="notification-title">' +
-                            App.escapeHtml(announcement.title || '') +
+                            App.escapeHtml(normalizeAnnouncementTitle(announcement.title, announcement.source)) +
                             '</div>' +
                             '<div class="notification-time">' +
                             App.formatDateTime(announcement.createdAt) +
@@ -1682,7 +2617,7 @@ App.loadNotifications = async function() {
                         '</div>' +
                         '<div class="notification-content">' +
                         '<div class="notification-title">' +
-                        App.escapeHtml(announcement.title || '') +
+                        App.escapeHtml(normalizeAnnouncementTitle(announcement.title, announcement.source)) +
                         '</div>' +
                         '<div class="notification-time">' +
                         App.formatDateTime(announcement.createdAt) +
@@ -3170,6 +4105,7 @@ App.updateUserDisplay = function() {
     } else {
         usernameElement.style.display = 'none';
     }
+
 };
 
 // 페이지 로드 시 인증 체크 (로그인·회원 공개 예약 페이지 제외)
@@ -3204,13 +4140,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 스크린샷 발췌 페이지는 관리자(Admin)만 접근 가능
     if (window.location.pathname === '/screenshot-export.html' && (App.currentRole || '').toUpperCase() !== 'ADMIN') {
-        window.location.href = '/';
+        var scrRole = (App.currentRole || '').toUpperCase();
+        window.location.href = scrRole === 'COACH' ? '/bookings.html' : '/';
         return;
     }
 
-    // 권한 데이터 로드 후 메뉴 필터링
+    // 권한 데이터 로드 후 코치 페이지 접근 제한 → 메뉴 필터링
     (async function() {
+        if (App.currentUser && String(App.currentUser.role || '').toUpperCase() === 'COACH'
+                && typeof App.syncOperationalCoachViewFromServer === 'function') {
+            await App.syncOperationalCoachViewFromServer();
+        }
         await App.loadRolePermissions();
+        await App.enforceCoachPageAccess();
         // 약간의 지연을 두어 DOM이 완전히 로드된 후 필터링
         setTimeout(function() {
             App.filterMenuByRole();
@@ -3328,9 +4270,19 @@ async function showUserMenuModal() {
         coachText = '코치';
     }
     
+    const opFilter = (typeof App.isOperationalCoachViewer === 'function' && App.isOperationalCoachViewer())
+        ? `
+                        <div class="user-menu-operational-filter-wrap">
+                            <div class="user-menu-op-filter-heading">담당 코치별로 회원 보기</div>
+                            <p class="user-menu-op-filter-hint">체크한 코치 담당 회원만 목록에 표시됩니다. 미선택 시 전체입니다.</p>
+                            <div id="user-menu-operational-filter-host"></div>
+                        </div>
+        `
+        : '';
+
     const modalHtml = `
         <div id="user-menu-modal" class="modal-overlay active" style="display: flex;">
-            <div class="modal modal-compact">
+            <div class="modal modal-compact ${opFilter ? 'modal-user-menu--with-op-filter' : ''}">
                 <div class="modal-header">
                     <h2 class="modal-title">사용자 정보</h2>
                     <button class="modal-close" onclick="closeUserMenuModal()">×</button>
@@ -3352,6 +4304,7 @@ async function showUserMenuModal() {
                               App.currentUser.role === 'COACH' ? '코치' : 
                               App.currentUser.role === 'FRONT' ? '데스크' : App.currentUser.role}
                         </div>
+                        ${opFilter}
                     </div>
                 </div>
                 <div class="modal-footer user-menu-modal-footer">
@@ -3370,6 +4323,11 @@ async function showUserMenuModal() {
     
     // 모달 추가
     document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    var filterHost = document.getElementById('user-menu-operational-filter-host');
+    if (filterHost && typeof App.mountOperationalCoachFilterBar === 'function') {
+        App.mountOperationalCoachFilterBar(filterHost);
+    }
     
     // 모달 배경 클릭 시 닫기
     const modal = document.getElementById('user-menu-modal');
@@ -3398,4 +4356,7 @@ function logoutUser() {
 /** const App 는 window 프로퍼티가 아니므로, 다른 스크립트의 window.App 검사가 실패하지 않도록 연결 */
 if (typeof window !== 'undefined' && typeof App !== 'undefined') {
     window.App = App;
+    window.openMemberInfoModal = function(memberId) {
+        return App.openMemberInfoModal(memberId);
+    };
 }

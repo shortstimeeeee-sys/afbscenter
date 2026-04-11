@@ -7,17 +7,17 @@
 }
 
 #today-schedule {
-    min-height: 200px;
+    min-height: 0;
 }
 
 .schedule-item {
-    padding: 12px;
+    padding: 6px 10px;
     border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
     justify-content: space-between;
     border-radius: var(--radius-md);
-    margin-bottom: 8px;
+    margin-bottom: 4px;
     transition: all 0.2s;
 }
 
@@ -33,27 +33,33 @@
 .schedule-time {
     font-weight: 600;
     color: var(--accent-primary);
-    min-width: 80px;
+    min-width: 72px;
+    font-size: 13px;
+    line-height: 1.25;
 }
 
 .schedule-info {
     flex: 1;
-    margin-left: 16px;
+    margin-left: 10px;
+    min-width: 0;
 }
 
 .schedule-title {
     font-weight: 500;
     color: var(--text-primary);
-    margin-bottom: 4px;
+    margin-bottom: 2px;
+    font-size: 13px;
+    line-height: 1.3;
 }
 
 .schedule-detail {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-secondary);
+    line-height: 1.35;
 }
 
 #pending-alerts {
-    min-height: 150px;
+    min-height: 0;
 }
 
 .alert-item {
@@ -62,6 +68,19 @@
     background-color: var(--bg-tertiary);
     margin-bottom: 12px;
     border-radius: var(--radius-md);
+}
+
+.alert-item--row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.alert-item-body {
+    flex: 1;
+    min-width: 0;
 }
 
 .alert-item.danger {
@@ -100,4 +119,26 @@
     .charts-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* 회원 승인 반려 모달 — 회원 관리 모달(z-index 2000) 위에 표시 */
+#member-approval-reject-modal.modal-overlay {
+    z-index: 2100;
+}
+
+#member-approval-reject-modal .member-approval-reject-modal-box {
+    width: min(92vw, 440px);
+    max-width: min(92vw, 440px);
+}
+
+#member-approval-reject-modal .member-approval-reject-header {
+    border-left: 4px solid var(--danger, #E74C3C);
+    background-color: var(--bg-tertiary);
+}
+
+#member-approval-reject-modal .member-approval-reject-hint {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0 0 16px 0;
+    line-height: 1.45;
 }

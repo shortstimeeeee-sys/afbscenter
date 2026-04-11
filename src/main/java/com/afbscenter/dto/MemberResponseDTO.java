@@ -8,11 +8,14 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.afbscenter.util.MemberProductCoachResolver;
+
 
 /**
  * 회원 응답용 DTO
@@ -97,7 +100,7 @@ public class MemberResponseDTO {
         dto.createdAt = member.getCreatedAt();
         dto.updatedAt = member.getUpdatedAt();
         
-        // 코치 정보 (ACTIVE 이용권이 없으면 아래에서 dto.coach를 null로 맞춤)
+        // 회원 카드 담당 코치(항목 유지 — 목록·필터 기준과 표시 일치)
         if (member.getCoach() != null) {
             dto.coach = new CoachInfo();
             dto.coach.id = member.getCoach().getId();
@@ -170,14 +173,13 @@ public class MemberResponseDTO {
             return a.coachName.compareTo(b.coachName);
         });
         
-        // 코치 목록을 문자열로 변환 (줄바꿈으로 구분)
+        // ACTIVE 이용권 기준 담당 코치 문자열(줄바꿈). 없어도 회원 카드 dto.coach는 유지(이용권만 전부 종료된 경우 등)
         if (!coachList.isEmpty()) {
             dto.coachNames = coachList.stream()
-                .map(c -> c.coachName)
-                .collect(java.util.stream.Collectors.joining("\n"));
+                    .map(c -> c.coachName)
+                    .collect(java.util.stream.Collectors.joining("\n"));
         } else {
             dto.coachNames = null;
-            dto.coach = null; // 종료된 이용권만 있으면 담당 코치 미표시
         }
         
         // 집계 데이터
@@ -206,6 +208,8 @@ public class MemberResponseDTO {
                         statusName = "EXPIRED";
                     }
                     info.status = statusName;
+                    info.extendedFromMemberProductId = mp.getExtendedFromMemberProductId();
+                    info.voucherNumber = mp.getVoucherNumber();
                     // endedAt이 없으면 만료일 기준으로라도 채워 종료 배지 규칙에 사용
                     try {
                         info.endedAt = mp.getEndedAt();
@@ -253,6 +257,7 @@ public class MemberResponseDTO {
                     return info;
                 })
                 .collect(Collectors.toList());
+            dto.memberProducts = filterExtensionParentMemberProductInfos(dto.memberProducts);
         }
         
         // 기간권 정보
@@ -271,6 +276,28 @@ public class MemberResponseDTO {
                                                MemberProduct activePeriodPass) {
         return fromMember(member, totalPayment, latestLessonDate, remainingCount,
                 allMemberProducts, activePeriodPass, null);
+    }
+
+    /**
+     * 다른 이용권의 {@code extendedFromMemberProductId}가 가리키는 행(직전 이용권)은 목록에서 제외.
+     * {@link com.afbscenter.util.MemberProductUiDedupe#removeExtensionChainParentRows(java.util.List)} 와 동일.
+     */
+    private static List<MemberProductInfo> filterExtensionParentMemberProductInfos(List<MemberProductInfo> list) {
+        if (list == null || list.size() < 2) {
+            return list;
+        }
+        Set<Long> pointedIds = new HashSet<>();
+        for (MemberProductInfo mp : list) {
+            if (mp != null && mp.extendedFromMemberProductId != null) {
+                pointedIds.add(mp.extendedFromMemberProductId);
+            }
+        }
+        if (pointedIds.isEmpty()) {
+            return list;
+        }
+        return list.stream()
+                .filter(mp -> mp != null && (mp.id == null || !pointedIds.contains(mp.id)))
+                .collect(Collectors.toList());
     }
 
     // Map으로 변환
@@ -330,6 +357,8 @@ public class MemberResponseDTO {
                     mpMap.put("totalCount", mp.totalCount);
                     mpMap.put("status", mp.status);
                     mpMap.put("endedAt", mp.endedAt);
+                    mpMap.put("extendedFromMemberProductId", mp.extendedFromMemberProductId);
+                    mpMap.put("voucherNumber", mp.voucherNumber);
                     mpMap.put("coachName", mp.coachName); // 상품에 지정된 코치명
                     
                     if (mp.product != null) {
@@ -406,6 +435,10 @@ public class MemberResponseDTO {
         public LocalDateTime endedAt;
         public ProductInfo product;
         public String coachName; // 이용권 직접 배정 또는 상품 기본 코치명
+        /** 이용권 번호 — 목록·필터에서 상세 API와 동일한 중복 제거 규칙에 필요 */
+        public String voucherNumber;
+        /** 연장으로 새 행일 때 직전 이용권 ID (신규 재구매면 null) */
+        public Long extendedFromMemberProductId;
         
         public Long getId() { return id; }
         public LocalDateTime getPurchaseDate() { return purchaseDate; }
@@ -416,6 +449,8 @@ public class MemberResponseDTO {
         public LocalDateTime getEndedAt() { return endedAt; }
         public ProductInfo getProduct() { return product; }
         public String getCoachName() { return coachName; }
+        public String getVoucherNumber() { return voucherNumber; }
+        public Long getExtendedFromMemberProductId() { return extendedFromMemberProductId; }
     }
     
     // 내부 클래스: 상품 정보

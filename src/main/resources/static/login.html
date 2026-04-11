@@ -457,7 +457,8 @@
                         username: response.username,
                         role: response.role,
                         name: response.name,
-                        id: response.id
+                        id: response.id,
+                        operationalCoachView: response.operationalCoachView === true
                     };
                     App.currentRole = response.role;
                     

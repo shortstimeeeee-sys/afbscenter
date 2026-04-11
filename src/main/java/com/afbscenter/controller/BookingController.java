@@ -5,6 +5,8 @@ import com.afbscenter.model.Coach;
 import com.afbscenter.model.Facility;
 import com.afbscenter.model.LessonCategory;
 import com.afbscenter.model.Member;
+import com.afbscenter.model.MemberProduct;
+import com.afbscenter.model.Product;
 import com.afbscenter.model.BookingAuditLog;
 import com.afbscenter.repository.AttendanceRepository;
 import com.afbscenter.model.FacilitySlot;
@@ -15,7 +17,9 @@ import com.afbscenter.repository.CoachRepository;
 import com.afbscenter.repository.FacilityRepository;
 import com.afbscenter.repository.FacilitySlotRepository;
 import com.afbscenter.repository.MemberRepository;
+import com.afbscenter.repository.UserRepository;
 import com.afbscenter.service.MemberService;
+import com.afbscenter.service.OperationalCoachViewService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,7 +42,9 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -62,6 +68,7 @@ public class BookingController {
     private final FacilityRepository facilityRepository;
     private final FacilitySlotRepository facilitySlotRepository;
     private final MemberRepository memberRepository;
+    private final UserRepository userRepository;
     private final CoachRepository coachRepository;
     private final com.afbscenter.repository.MemberProductRepository memberProductRepository;
     private final JdbcTemplate jdbcTemplate;
@@ -70,6 +77,7 @@ public class BookingController {
     private final com.afbscenter.repository.MemberProductHistoryRepository memberProductHistoryRepository;
     private final BookingAuditLogRepository bookingAuditLogRepository;
     private final PaymentRepository paymentRepository;
+    private final OperationalCoachViewService operationalCoachViewService;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -78,6 +86,7 @@ public class BookingController {
                             FacilityRepository facilityRepository,
                             FacilitySlotRepository facilitySlotRepository,
                             MemberRepository memberRepository,
+                            UserRepository userRepository,
                             CoachRepository coachRepository,
                             com.afbscenter.repository.MemberProductRepository memberProductRepository,
                             JdbcTemplate jdbcTemplate,
@@ -85,11 +94,13 @@ public class BookingController {
                             AttendanceRepository attendanceRepository,
                             com.afbscenter.repository.MemberProductHistoryRepository memberProductHistoryRepository,
                             BookingAuditLogRepository bookingAuditLogRepository,
-                            PaymentRepository paymentRepository) {
+                            PaymentRepository paymentRepository,
+                            OperationalCoachViewService operationalCoachViewService) {
         this.bookingRepository = bookingRepository;
         this.facilityRepository = facilityRepository;
         this.facilitySlotRepository = facilitySlotRepository;
         this.memberRepository = memberRepository;
+        this.userRepository = userRepository;
         this.coachRepository = coachRepository;
         this.memberProductRepository = memberProductRepository;
         this.jdbcTemplate = jdbcTemplate;
@@ -98,6 +109,15 @@ public class BookingController {
         this.memberProductHistoryRepository = memberProductHistoryRepository;
         this.bookingAuditLogRepository = bookingAuditLogRepository;
         this.paymentRepository = paymentRepository;
+        this.operationalCoachViewService = operationalCoachViewService;
+    }
+
+    private Optional<Long> resolveCoachIdFromRequest(HttpServletRequest request) {
+        return operationalCoachViewService.resolveCoachIdFromLoggedInUser(request);
+    }
+
+    private boolean bookingMatchesOperationalCoachIds(Booking b, java.util.Collection<Long> coachIds) {
+        return operationalCoachViewService.bookingMatchesOperationalCoachIds(b, coachIds);
     }
 
     /** 무제한 이용권 여부: totalCount 또는 product.usageCount가 null 또는 999 이상 */
@@ -392,7 +412,9 @@ public class BookingController {
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) String facilityType,
             @RequestParam(required = false) String lessonCategory,
-            @RequestParam(required = false, defaultValue = "false") boolean publicMemberCalendar) {
+            @RequestParam(required = false, defaultValue = "false") boolean publicMemberCalendar,
+            @RequestParam(required = false) String viewCoachIds,
+            HttpServletRequest request) {
         try {
             logger.info("[BOOKING_FLOW] getAllBookings start date={} start={} end={} memberId={} memberNumber={} branch={}", date, start, end, memberId, memberNumber != null ? "***" : null, branch);
             List<Booking> bookings = new java.util.ArrayList<>();
@@ -647,6 +669,51 @@ public class BookingController {
                     logger.info("레슨 카테고리 필터링 완료: {} - {}건", categoryEnum, bookings.size());
                 } catch (IllegalArgumentException e) {
                     logger.warn("잘못된 레슨 카테고리 파라미터: {}", lessonCategory);
+                }
+            }
+
+            // 코치 로그인: 본인에게 배정된 예약만 (공개 회원 점유 달력 모드는 제외)
+            if (!publicMemberCalendarOccupancyMode && request != null
+                    && "COACH".equalsIgnoreCase((String) request.getAttribute("role"))) {
+                List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
+                boolean operational = operationalCoachViewService.isOperationalCoachViewer(request);
+                if (operational) {
+                    if (!viewIds.isEmpty()) {
+                        bookings = bookings.stream()
+                                .filter(b -> bookingMatchesOperationalCoachIds(b, viewIds))
+                                .collect(java.util.stream.Collectors.toList());
+                        logger.info("운영 코치 담당 회원 예약만 표시(회원 카드 담당·비회원은 예약 코치): viewCoachIds={} → {}건", viewIds, bookings.size());
+                    } else {
+                        Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
+                        if (coachIdOpt.isEmpty()) {
+                            logger.warn("운영 코치인데 체크박스 미선택이고 계정 연결 코치 없음 → 예약 목록 비움");
+                            bookings = new java.util.ArrayList<>();
+                        } else {
+                            Long myCoachId = coachIdOpt.get();
+                            bookings = bookings.stream()
+                                    .filter(b -> bookingMatchesOperationalCoachIds(b, java.util.List.of(myCoachId)))
+                                    .collect(java.util.stream.Collectors.toList());
+                            logger.info("운영 코치 체크 미선택: 본인 계정 코치로만 제한 coachId={} → {}건", myCoachId, bookings.size());
+                        }
+                    }
+                } else if (!viewIds.isEmpty()) {
+                    // 운영 플래그 미인식이어도 프론트가 viewCoachIds를 붙이면 체크박스 필터와 동일하게 적용
+                    bookings = bookings.stream()
+                            .filter(b -> bookingMatchesOperationalCoachIds(b, viewIds))
+                            .collect(java.util.stream.Collectors.toList());
+                    logger.info("viewCoachIds 예약 필터(담당 회원·비회원 예약 코치): viewIds={} → {}건", viewIds, bookings.size());
+                } else {
+                    Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
+                    if (coachIdOpt.isEmpty()) {
+                        logger.warn("코치 계정에 연결된 coach 정보가 없어 예약 목록을 비웁니다.");
+                        bookings = new java.util.ArrayList<>();
+                    } else {
+                        Long myCoachId = coachIdOpt.get();
+                        bookings = bookings.stream()
+                                .filter(b -> bookingMatchesOperationalCoachIds(b, java.util.List.of(myCoachId)))
+                                .collect(java.util.stream.Collectors.toList());
+                        logger.info("코치 담당 회원 예약만 표시(회원 카드 담당·비회원은 예약 코치): coachId={} → {}건", myCoachId, bookings.size());
+                    }
                 }
             }
             
@@ -935,6 +1002,14 @@ public class BookingController {
                         if (coachForCalendar == null && mpEntity.getProduct() != null) {
                             coachForCalendar = mpEntity.getProduct().getCoach();
                         }
+                        if (mpEntity.getCoach() != null) {
+                            memberProductMap.put("memberProductCoachId", mpEntity.getCoach().getId());
+                            memberProductMap.put("memberProductCoachName", mpEntity.getCoach().getName());
+                        }
+                        if (mpEntity.getProduct() != null && mpEntity.getProduct().getCoach() != null) {
+                            memberProductMap.put("productCoachId", mpEntity.getProduct().getCoach().getId());
+                            memberProductMap.put("productCoachName", mpEntity.getProduct().getCoach().getName());
+                        }
                         if (coachForCalendar != null) {
                             memberProductMap.put("coachId", coachForCalendar.getId());
                             memberProductMap.put("coachName", coachForCalendar.getName());
@@ -1004,13 +1079,42 @@ public class BookingController {
 
     @GetMapping("/{id}")
     @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> getBookingById(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> getBookingById(@PathVariable Long id,
+            @RequestParam(required = false) String viewCoachIds,
+            HttpServletRequest request) {
         try {
             // memberProduct까지 함께 로드 (수정 시 이용권이 보이도록)
             Booking booking = bookingRepository.findByIdWithAllRelations(id);
             
             if (booking == null) {
                 return ResponseEntity.notFound().build();
+            }
+
+            String role = request != null ? (String) request.getAttribute("role") : null;
+            if ("COACH".equalsIgnoreCase(role)) {
+                List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
+                boolean operational = operationalCoachViewService.isOperationalCoachViewer(request);
+                if (operational) {
+                    if (!viewIds.isEmpty()) {
+                        if (!bookingMatchesOperationalCoachIds(booking, viewIds)) {
+                            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                        }
+                    } else {
+                        Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
+                        if (coachIdOpt.isEmpty() || !bookingMatchesOperationalCoachIds(booking, java.util.List.of(coachIdOpt.get()))) {
+                            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                        }
+                    }
+                } else if (!viewIds.isEmpty()) {
+                    if (!bookingMatchesOperationalCoachIds(booking, viewIds)) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                    }
+                } else {
+                    Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
+                    if (coachIdOpt.isEmpty() || !bookingMatchesOperationalCoachIds(booking, java.util.List.of(coachIdOpt.get()))) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                    }
+                }
             }
             
             // Booking을 Map으로 변환하여 JSON 직렬화 문제 방지

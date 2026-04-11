@@ -69,6 +69,13 @@ public class MemberProduct {
     @Column(name = "deleted_by", length = 100)
     private String deletedBy;
 
+    /**
+     * 연장(소진·만료 후 횟수 연장으로 신규 행 발급) 시 직전 이용권 행 ID.
+     * 신규 재구매로 생긴 행은 null. UI에서 연장일 때만 이전 소진 줄을 함께 표시할 때 사용.
+     */
+    @Column(name = "extended_from_member_product_id")
+    private Long extendedFromMemberProductId;
+
     public enum Status {
         ACTIVE,     // 사용 가능
         EXPIRED,    // 만료

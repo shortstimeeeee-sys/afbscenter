@@ -17,6 +17,10 @@ import com.afbscenter.repository.PaymentRepository;
 import com.afbscenter.repository.ProductRepository;
 import com.afbscenter.repository.UserRepository;
 import com.afbscenter.service.MemberService;
+import com.afbscenter.service.MemberApprovalService;
+import com.afbscenter.service.OperationalCoachViewService;
+import com.afbscenter.model.MemberApprovalRequest;
+import com.afbscenter.util.MemberProductUiDedupe;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
@@ -55,6 +60,8 @@ public class MemberController {
     private final com.afbscenter.repository.MemberProductHistoryRepository memberProductHistoryRepository;
     private final TransactionTemplate transactionTemplate;
     private final ActionAuditLogRepository actionAuditLogRepository;
+    private final MemberApprovalService memberApprovalService;
+    private final OperationalCoachViewService operationalCoachViewService;
 
     public MemberController(MemberService memberService,
                            MemberRepository memberRepository,
@@ -67,7 +74,9 @@ public class MemberController {
                            UserRepository userRepository,
                            com.afbscenter.repository.MemberProductHistoryRepository memberProductHistoryRepository,
                            org.springframework.transaction.PlatformTransactionManager transactionManager,
-                           ActionAuditLogRepository actionAuditLogRepository) {
+                           ActionAuditLogRepository actionAuditLogRepository,
+                           MemberApprovalService memberApprovalService,
+                           OperationalCoachViewService operationalCoachViewService) {
         this.memberService = memberService;
         this.memberRepository = memberRepository;
         this.coachRepository = coachRepository;
@@ -81,6 +90,8 @@ public class MemberController {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.actionAuditLogRepository = actionAuditLogRepository;
+        this.memberApprovalService = memberApprovalService;
+        this.operationalCoachViewService = operationalCoachViewService;
     }
 
     private Optional<Long> resolveCoachIdFromRequest(HttpServletRequest request) {
@@ -102,25 +113,39 @@ public class MemberController {
             @RequestParam(required = false) Boolean endedTicket,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
+            @RequestParam(required = false) String viewCoachIds,
             HttpServletRequest request) {
         try {
             logger.debug("회원 목록 조회 시작: productCategory={}, grade={}, status={}, branch={}, endedTicket={}, page={}, size={}",
                 productCategory, grade, status, branch, endedTicket, page, size);
             
-            // Service에서 필터링 및 변환 로직 처리
-            List<com.afbscenter.dto.MemberResponseDTO> memberDTOs = 
-                    memberService.getAllMembersWithFilters(productCategory, grade, status, branch, endedTicket);
-
             String role = request != null ? (String) request.getAttribute("role") : null;
+            java.lang.Long restrictCoachId = null;
+            boolean coachWithoutLink = false;
             if ("COACH".equalsIgnoreCase(role)) {
-                Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
-                if (coachIdOpt.isEmpty()) {
-                    logger.warn("코치 계정에 연결된 coach 정보가 없어 회원 목록을 비웁니다.");
-                    memberDTOs = new java.util.ArrayList<>();
-                } else {
-                    Long myCoachId = coachIdOpt.get();
+                List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
+                if (viewIds.isEmpty()) {
+                    Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
+                    if (coachIdOpt.isEmpty()) {
+                        logger.warn("코치 계정에 연결된 coach 정보가 없어 회원 목록을 비웁니다.");
+                        coachWithoutLink = true;
+                    } else {
+                        restrictCoachId = coachIdOpt.get();
+                    }
+                }
+            }
+
+            // Service에서 필터링 및 변환 (코치 본인: 카드·이용권·상품 담당과 동일 규칙)
+            List<com.afbscenter.dto.MemberResponseDTO> memberDTOs = coachWithoutLink
+                    ? new java.util.ArrayList<>()
+                    : memberService.getAllMembersWithFilters(productCategory, grade, status, branch, endedTicket, restrictCoachId);
+
+            if ("COACH".equalsIgnoreCase(role)) {
+                List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
+                if (!viewIds.isEmpty()) {
+                    Set<Long> eligibleMemberIds = operationalCoachViewService.findMemberIdsMatchingViewCoachIds(viewIds);
                     memberDTOs = memberDTOs.stream()
-                            .filter(dto -> dto != null && dto.getCoach() != null && myCoachId.equals(dto.getCoach().getId()))
+                            .filter(dto -> dto != null && dto.getId() != null && eligibleMemberIds.contains(dto.getId()))
                             .collect(java.util.stream.Collectors.toList());
                 }
             }
@@ -177,7 +202,9 @@ public class MemberController {
 
     @GetMapping("/{id}")
     @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> getMemberById(@PathVariable Long id, HttpServletRequest request) {
+    public ResponseEntity<Map<String, Object>> getMemberById(@PathVariable Long id,
+            @RequestParam(required = false) String viewCoachIds,
+            HttpServletRequest request) {
         try {
             if (id == null) {
                 return ResponseEntity.badRequest().build();
@@ -190,10 +217,17 @@ public class MemberController {
 
             String role = request != null ? (String) request.getAttribute("role") : null;
             if ("COACH".equalsIgnoreCase(role)) {
-                Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
-                Long memberCoachId = member.getCoach() != null ? member.getCoach().getId() : null;
-                if (coachIdOpt.isEmpty() || memberCoachId == null || !coachIdOpt.get().equals(memberCoachId)) {
-                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
+                if (!viewIds.isEmpty()) {
+                    Set<Long> eligibleMemberIds = operationalCoachViewService.findMemberIdsMatchingViewCoachIds(viewIds);
+                    if (!eligibleMemberIds.contains(member.getId())) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                    }
+                } else {
+                    Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
+                    if (coachIdOpt.isEmpty() || !operationalCoachViewService.coachCanAccessMember(coachIdOpt.get(), member.getId())) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                    }
                 }
             }
             
@@ -297,6 +331,8 @@ public class MemberController {
                             mpMap.put("remainingCount", remainingCount);
                             mpMap.put("totalCount", totalCount);
                             mpMap.put("status", statusName);
+                            mpMap.put("voucherNumber", mp.getVoucherNumber());
+                            mpMap.put("extendedFromMemberProductId", mp.getExtendedFromMemberProductId());
                             
                             // 코치 정보 유지 (종료된 이용권도 당시 배정 코치 표시)
                             Map<String, Object> coachMap = null;
@@ -346,7 +382,15 @@ public class MemberController {
             } catch (Exception e) {
                 logger.warn("MemberProducts 로드 실패 (회원 ID: {}): {}", id, e.getMessage(), e);
             }
-            
+            try {
+                if (memberProductsList.size() > 1) {
+                    memberProductsList = MemberProductUiDedupe.applyDetailUiDedupe(memberProductsList);
+                }
+                memberProductsList = MemberProductUiDedupe.removeExtensionChainParentRows(memberProductsList);
+            } catch (Exception e) {
+                logger.debug("회원 상세 이용권 목록 정리 스킵 (회원 ID: {}): {}", id, e.getMessage());
+            }
+
             memberMap.put("memberProducts", memberProductsList);
             
             // 누적 결제 금액 계산
@@ -664,8 +708,27 @@ public class MemberController {
             if (member.getGender() == null) {
                 throw new IllegalArgumentException("성별은 필수입니다.");
             }
+
+            // 회원(members)과 이용권(member_products)은 별도 저장됨. POST만으로는 회원 행만 생기므로,
+            // 신규 등록 시 상품·코치 의도(initialProductAssignments)를 반드시 받음(프론트·API 직접 호출 공통).
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> initialAssignments = (List<Map<String, Object>>) requestData.get("initialProductAssignments");
+            if (initialAssignments == null || initialAssignments.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "신규 회원 등록 시 이용권(상품)과 담당 코치가 필요합니다. initialProductAssignments에 최소 1건(productId, coachId)을 넣어 주세요.");
+            }
+            for (Map<String, Object> row : initialAssignments) {
+                if (row == null || row.get("productId") == null || row.get("coachId") == null) {
+                    throw new IllegalArgumentException(
+                            "initialProductAssignments의 각 항목에 productId와 coachId가 필요합니다.");
+                }
+            }
+
             String username = request != null ? (String) request.getAttribute("username") : null;
             if (username != null && !username.isEmpty()) member.setProcessedBy(username);
+
+            // 역할과 무관하게 신규 등록은 승인 대기(관리자·매니저 승인 후 활성)
+            member.setStatus(Member.MemberStatus.PENDING_APPROVAL);
             
             logger.info("MemberService.createMember() 호출 전 - Member 객체: name={}, phoneNumber={}, gender={}, grade={}, status={}, joinDate={}, createdAt={}, memberNumber={}", 
                 member.getName(), member.getPhoneNumber(), member.getGender(), member.getGrade(), 
@@ -685,6 +748,16 @@ public class MemberController {
                 throw new IllegalStateException("회원 생성에 실패했습니다.");
             }
             logger.info("회원 등록 성공: ID={}, 회원번호={}", createdMember.getId(), createdMember.getMemberNumber());
+
+            try {
+                memberApprovalService.createPendingIfAbsent(
+                        createdMember.getId(),
+                        MemberApprovalRequest.RequestType.NEW_MEMBER,
+                        username != null ? username : "system",
+                        "신규 회원 등록");
+            } catch (Exception e) {
+                logger.warn("승인 대기 요청 등록 실패(회원은 생성됨): {}", e.getMessage());
+            }
             
             // JSON 직렬화를 위해 Map으로 변환 (순환 참조 방지)
             Map<String, Object> memberMap = new HashMap<>();
