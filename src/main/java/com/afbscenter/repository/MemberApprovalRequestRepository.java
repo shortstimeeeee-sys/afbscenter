@@ -19,7 +19,8 @@ public interface MemberApprovalRequestRepository extends JpaRepository<MemberApp
     @Query("SELECT r FROM MemberApprovalRequest r JOIN FETCH r.member WHERE r.status = :status ORDER BY r.requestedAt DESC")
     List<MemberApprovalRequest> findByStatusWithMemberOrderByRequestedAtDesc(@Param("status") MemberApprovalRequest.Status status);
 
-    boolean existsByMemberIdAndStatusAndRequestType(
+    /** member FK 기준 — {@code memberId} 단일 프로퍼티가 없으므로 {@code member.id} 경로를 명시 */
+    boolean existsByMember_IdAndStatusAndRequestType(
             Long memberId,
             MemberApprovalRequest.Status status,
             MemberApprovalRequest.RequestType requestType);
@@ -33,4 +34,8 @@ public interface MemberApprovalRequestRepository extends JpaRepository<MemberApp
             Long memberId,
             MemberApprovalRequest.Status status,
             MemberApprovalRequest.RequestType requestType);
+
+    /** API 응답 직렬화용: member를 한 번에 로드 (컨트롤러 세션 밖에서도 안전) */
+    @Query("SELECT r FROM MemberApprovalRequest r JOIN FETCH r.member WHERE r.id = :id")
+    Optional<MemberApprovalRequest> findByIdWithMember(@Param("id") Long id);
 }

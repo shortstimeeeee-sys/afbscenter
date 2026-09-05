@@ -2,6 +2,9 @@
 
 let memberChart = null;
 let revenueChart = null;
+let monthlyRevenueCategoryCache = {};
+let monthlyRevenueCalendarState = { categoryKey: null, categoryTitle: '', year: null, month: null };
+let monthlyRevenueDayPaymentMap = {};
 // currentMemberDetail — members.js \uC5D0\uC11C var \uC120\uC5B8 (index.html: members.js \u2192 dashboard.js \uC21C\uC11C)
 
 /** ??????(FRONT)? ?? KPI??? ?? ?? */
@@ -67,7 +70,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (window.parent !== window) window.parent.postMessage('screenshot-export-ready', '*');
         }
 
-        App.log('???? ???');
+        App.log('대시보드 초기화');
         
         const kpiModalEl = document.getElementById('kpi-detail-modal');
         if (kpiModalEl) {
@@ -79,6 +82,12 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (nonMemberModalEl) {
             nonMemberModalEl.addEventListener('click', function(e) {
                 if (e.target === nonMemberModalEl) closeNonMemberBookingsModal();
+            });
+        }
+        const monthlyRevenueCalendarModalEl = document.getElementById('monthly-revenue-calendar-modal');
+        if (monthlyRevenueCalendarModalEl) {
+            monthlyRevenueCalendarModalEl.addEventListener('click', function(e) {
+                if (e.target === monthlyRevenueCalendarModalEl) closeMonthlyRevenueCalendarModal();
             });
         }
         document.querySelectorAll('.kpi-card-clickable[data-kpi]').forEach(function(card) {
@@ -98,7 +107,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 } else if (typeof window.openExpiringMembersModal === 'function') {
                     window.openExpiringMembersModal();
                 } else {
-                    App.err('openExpiringMembersModal ?(?) ?? ? ????.');
+                    App.err('openExpiringMembersModal 함수를 찾을 수 없습니다.');
                 }
             });
         }
@@ -108,52 +117,36 @@ document.addEventListener('DOMContentLoaded', async function() {
         const tabNoProduct = document.getElementById('tab-no-product');
         if (tabExpiring) {
             tabExpiring.addEventListener('click', function() {
-                if (typeof switchTab === 'function') {
-                    switchTab('expiring');
-                } else if (typeof window.switchTab === 'function') {
-                    window.switchTab('expiring');
-                }
+                switchMemberStatusTab('expiring');
             });
         }
         if (tabExpired) {
             tabExpired.addEventListener('click', function() {
-                if (typeof switchTab === 'function') {
-                    switchTab('expired');
-                } else if (typeof window.switchTab === 'function') {
-                    window.switchTab('expired');
-                }
+                switchMemberStatusTab('expired');
             });
         }
         if (tabNoProduct) {
             tabNoProduct.addEventListener('click', function() {
-                if (typeof switchTab === 'function') {
-                    switchTab('noProduct');
-                } else if (typeof window.switchTab === 'function') {
-                    window.switchTab('noProduct');
-                }
+                switchMemberStatusTab('noProduct');
             });
         }
         const tabApproval = document.getElementById('tab-approval');
         if (tabApproval) {
             tabApproval.addEventListener('click', function() {
-                if (typeof switchTab === 'function') {
-                    switchTab('approval');
-                } else if (typeof window.switchTab === 'function') {
-                    window.switchTab('approval');
-                }
+                switchMemberStatusTab('approval');
             });
         }
         
         try {
             await loadDashboardData();
         } catch (error) {
-            App.err('???? ??? ?? ??:', error);
+            App.err('대시보드 데이터 로드 실패:', error);
         }
         
         try {
             await initCharts();
         } catch (error) {
-            App.err('?? ??? ??:', error);
+            App.err('차트 초기화 실패:', error);
         }
 
         if (window.__dashboardExportId) {
@@ -174,13 +167,13 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         }
         
-        App.log('???? ??? ??');
+        App.log('대시보드 초기화 완료');
     } catch (error) {
-        App.err('???? ??? ??:', error);
-        App.err('?? ??:', error.message, error.stack);
+        App.err('대시보드 초기화 중 오류:', error);
+        App.err('오류 상세:', error.message, error.stack);
         
         if (typeof App !== 'undefined' && App.showNotification) {
-            App.showNotification('????? ???? ? ??? ??????. ???? ????? ???.', 'danger');
+            App.showNotification('대시보드를 불러오는 중 오류가 발생했습니다. 페이지를 새로고침해 주세요.', 'danger');
         }
     }
 });
@@ -188,16 +181,16 @@ document.addEventListener('DOMContentLoaded', async function() {
 async function loadDashboardData() {
     try {
         var exportId = window.__dashboardExportId;
-        App.log('???? ??? ??', exportId ? '(export: ' + exportId + ')' : '');
+        App.log('대시보드 데이터 로드 시작', exportId ? '(export: ' + exportId + ')' : '');
 
         if (exportId === 'export-announcements') {
             try {
                 const announcements = await App.api.get('/dashboard/announcements');
                 renderActiveAnnouncements(announcements);
             } catch (error) {
-                App.err('???? ?? ??:', error);
+                App.err('공지 데이터 로드 실패:', error);
             }
-            App.log('???? ??? ?? ?? (???)');
+            App.log('대시보드 데이터 로드 완료 (공지 export)');
             return;
         }
         if (exportId === 'export-today-schedule') {
@@ -205,30 +198,30 @@ async function loadDashboardData() {
                 const schedule = await App.api.get('/dashboard/today-schedule');
                 renderTodaySchedule(schedule);
             } catch (error) {
-                App.err('?? ?? ?? ??:', error);
+                App.err('오늘 일정 로드 실패:', error);
             }
-            App.log('???? ??? ?? ?? (???)');
+            App.log('대시보드 데이터 로드 완료 (일정 export)');
             return;
         }
         if (exportId === 'export-member-chart' || exportId === 'export-revenue-chart') {
-            App.log('???? ??? ?? ?? (??? initCharts??)');
+            App.log('대시보드 데이터 로드 완료 (차트 export: initCharts에서 처리)');
             return;
         }
 
         const [kpiData, schedule, alerts, announcements] = await Promise.all([
             App.api.get('/dashboard/kpi'),
-            exportId ? null : App.api.get('/dashboard/today-schedule').catch(function(e) { App.err('?? ?? ?? ??:', e); return []; }),
-            exportId ? null : App.api.get('/dashboard/alerts').catch(function(e) { App.err('??? ?? ?? ??:', e); return []; }),
-            exportId ? null : App.api.get('/dashboard/announcements').catch(function(e) { App.err('???? ?? ??:', e); return []; })
+            exportId ? null : App.api.get('/dashboard/today-schedule').catch(function(e) { App.err('오늘 일정 로드 실패:', e); return []; }),
+            exportId ? null : App.api.get('/dashboard/alerts').catch(function(e) { App.err('미처리 알림 로드 실패:', e); return []; }),
+            exportId ? null : App.api.get('/dashboard/announcements').catch(function(e) { App.err('공지 데이터 로드 실패:', e); return []; })
         ]);
-        App.log('KPI ?? ???:', kpiData);
+        App.log('KPI 데이터:', kpiData);
         
         const updateElement = (id, value) => {
             const element = document.getElementById(id);
             if (element) {
                 element.textContent = value;
             } else {
-                App.warn(`DOM ??? ?? ? ??: ${id}`);
+                App.warn(`DOM 요소를 찾을 수 없습니다: ${id}`);
             }
         };
         
@@ -312,7 +305,7 @@ async function loadDashboardData() {
         const pendingApprovals = kpiData.pendingMemberApprovals != null ? Number(kpiData.pendingMemberApprovals) : 0;
         const totalCount = expiringMembers + expiredMembers + pendingApprovals;
         
-        App.log('?? ????? ?? ?:', {
+        App.log('회원 상태 관리 집계:', {
             expiringMembers,
             expiredMembers,
             pendingApprovals,
@@ -354,7 +347,7 @@ async function loadDashboardData() {
             if (announcements != null) renderActiveAnnouncements(announcements);
         }
         
-        App.log('loadDashboardData ok');
+        App.log('대시보드 데이터 로드 완료');
         
     } catch (error) {
         App.err('loadDashboardData', error);
@@ -760,6 +753,7 @@ function renderMonthlyRevenueDetail(payments, periodLabel, kpiMonthlyTotal, kpiP
         { key: 'pilates', title: '\uD544\uB77C\uD14C\uC2A4', icon: '\uD83E\uDD38' },
         { key: 'other', title: '\uAE30\uD0C0', icon: '\uD83D\uDCC1' }
     ];
+    monthlyRevenueCategoryCache = {};
     var totalHero = 0;
     if (kpiMonthlyTotal != null && !isNaN(Number(kpiMonthlyTotal))) {
         totalHero = Number(kpiMonthlyTotal);
@@ -782,10 +776,10 @@ function renderMonthlyRevenueDetail(payments, periodLabel, kpiMonthlyTotal, kpiP
     html += '<div class="mr-category-grid">';
     buckets.forEach(function(b) {
         var catList = list.filter(function(p) { return getProductSportBucket(p) === b.key; });
+        monthlyRevenueCategoryCache[b.key] = catList.slice();
         var sub = 0;
         catList.forEach(function(p) { sub += (p.amount != null ? p.amount : 0); });
-        html += '<details class="mr-category-details">';
-        html += '<summary class="mr-category-summary">';
+        html += '<button type="button" class="mr-category-summary" onclick="openMonthlyRevenueCalendarModal(\'' + b.key + '\', \'' + App.escapeHtml(b.title) + '\')" style="width:100%; text-align:left; background:none; border:1px solid var(--border-color); border-radius:12px; padding:0; cursor:pointer;">';
         html += '<div class="mr-category-face">';
         html += '<span class="mr-category-icon" aria-hidden="true">' + b.icon + '</span>';
         html += '<div class="mr-category-text">';
@@ -796,44 +790,9 @@ function renderMonthlyRevenueDetail(payments, periodLabel, kpiMonthlyTotal, kpiP
         html += '<span class="mr-category-sum">' + App.formatCurrency(sub) + '</span>';
         html += '<span class="mr-category-count">' + catList.length + '\uAC74</span>';
         html += '</div>';
-        html += '<span class="mr-category-chevron" aria-hidden="true"></span>';
+        html += '<span class="mr-category-chevron" aria-hidden="true">📅</span>';
         html += '</div>';
-        html += '</summary>';
-        html += '<div class="mr-category-panel">';
-        if (catList.length === 0) {
-            html += '<p class="mr-empty-msg">\uD574\uB2F9 \uCE74\uD14C\uACE0\uB9AC \uB9E4\uCD9C \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
-        } else {
-            var coachMap = {};
-            catList.forEach(function(p) {
-                var k = coachKeyForPayment(p);
-                if (!coachMap[k]) coachMap[k] = { label: coachLabelForPayment(p), payments: [] };
-                coachMap[k].payments.push(p);
-            });
-            var coachKeys = Object.keys(coachMap);
-            coachKeys.sort(function(a, b) {
-                var sumA = 0, sumB = 0;
-                coachMap[a].payments.forEach(function(x) { sumA += x.amount || 0; });
-                coachMap[b].payments.forEach(function(x) { sumB += x.amount || 0; });
-                return sumB - sumA;
-            });
-            coachKeys.forEach(function(k) {
-                var cg = coachMap[k];
-                var csum = 0;
-                cg.payments.forEach(function(x) { csum += x.amount || 0; });
-                html += '<details class="mr-coach-details">';
-                html += '<summary class="mr-coach-summary">';
-                html += '<span class="mr-coach-name">' + App.escapeHtml(cg.label) + '</span>';
-                html += '<span class="mr-coach-sum">' + App.formatCurrency(csum) + '</span>';
-                html += '<span class="mr-coach-count">' + cg.payments.length + '\uAC74</span>';
-                html += '<span class="mr-coach-chevron" aria-hidden="true"></span>';
-                html += '</summary>';
-                html += '<div class="mr-coach-table-wrap">';
-                html += '<table class="table mr-coach-table"><thead><tr><th>\uC77C\uC790</th><th>\uD68C\uC6D0</th><th>\uC0C1\uD488</th><th>\uAE08\uC561</th><th>\uACB0\uC81C \uC218\uB2E8</th></tr></thead><tbody>';
-                cg.payments.forEach(function(p) { html += buildPaymentDetailRow(p); });
-                html += '</tbody></table></div></details>';
-            });
-        }
-        html += '</div></details>';
+        html += '</button>';
     });
     html += '</div>';
 
@@ -850,6 +809,144 @@ function renderMonthlyRevenueDetail(payments, periodLabel, kpiMonthlyTotal, kpiP
     html += '</div>';
     return html;
 }
+
+function paymentDateString(p) {
+    if (!p || !p.paidAt) return '';
+    if (typeof p.paidAt === 'string') return p.paidAt.slice(0, 10);
+    return '';
+}
+
+function openMonthlyRevenueCalendarModal(categoryKey, categoryTitle) {
+    const modal = document.getElementById('monthly-revenue-calendar-modal');
+    if (!modal) return;
+    const now = new Date();
+    monthlyRevenueCalendarState = {
+        categoryKey: categoryKey,
+        categoryTitle: categoryTitle || '',
+        year: now.getFullYear(),
+        month: now.getMonth()
+    };
+    modal.style.display = 'flex';
+    renderMonthlyRevenueCalendar();
+    renderMonthlyRevenueCalendarDayDetail(null);
+}
+
+function closeMonthlyRevenueCalendarModal() {
+    const modal = document.getElementById('monthly-revenue-calendar-modal');
+    if (modal) modal.style.display = 'none';
+    monthlyRevenueDayPaymentMap = {};
+}
+
+function changeMonthlyRevenueCalendarMonth(delta) {
+    if (!monthlyRevenueCalendarState || monthlyRevenueCalendarState.year == null || monthlyRevenueCalendarState.month == null) return;
+    const dt = new Date(monthlyRevenueCalendarState.year, monthlyRevenueCalendarState.month + Number(delta || 0), 1);
+    monthlyRevenueCalendarState.year = dt.getFullYear();
+    monthlyRevenueCalendarState.month = dt.getMonth();
+    renderMonthlyRevenueCalendar();
+}
+
+function renderMonthlyRevenueCalendar() {
+    const wrap = document.getElementById('monthly-revenue-calendar-wrap');
+    const titleEl = document.getElementById('monthly-revenue-calendar-title');
+    const monthLabel = document.getElementById('monthly-revenue-calendar-month-label');
+    if (!wrap || !monthLabel) return;
+    const key = monthlyRevenueCalendarState.categoryKey;
+    const payments = (monthlyRevenueCategoryCache && monthlyRevenueCategoryCache[key]) ? monthlyRevenueCategoryCache[key] : [];
+    const y = monthlyRevenueCalendarState.year;
+    const m = monthlyRevenueCalendarState.month;
+    const title = monthlyRevenueCalendarState.categoryTitle || '카테고리';
+    if (titleEl) titleEl.textContent = title + ' 매출 달력';
+    monthLabel.textContent = y + '년 ' + (m + 1) + '월';
+
+    const dayMap = {};
+    monthlyRevenueDayPaymentMap = {};
+    payments.forEach(function(p) {
+        const ds = paymentDateString(p);
+        if (!ds) return;
+        const dt = new Date(ds + 'T00:00:00');
+        if (isNaN(dt.getTime()) || dt.getFullYear() !== y || dt.getMonth() !== m) return;
+        if (!dayMap[ds]) dayMap[ds] = { count: 0, amount: 0 };
+        if (!monthlyRevenueDayPaymentMap[ds]) monthlyRevenueDayPaymentMap[ds] = [];
+        monthlyRevenueDayPaymentMap[ds].push(p);
+        dayMap[ds].count += 1;
+        dayMap[ds].amount += (p.amount != null ? Number(p.amount) : 0);
+    });
+
+    const first = new Date(y, m, 1);
+    const last = new Date(y, m + 1, 0);
+    const startWeekday = first.getDay();
+    const daysInMonth = last.getDate();
+    const weekLabels = ['일', '월', '화', '수', '목', '금', '토'];
+
+    let html = '<div style="display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:10px;">';
+    weekLabels.forEach(function(w, idx) {
+        const color = idx === 0 ? '#e74c3c' : (idx === 6 ? '#3498db' : 'var(--text-secondary)');
+        html += '<div style="text-align:center; font-weight:700; color:' + color + '; font-size:14px; padding:8px 0;">' + w + '</div>';
+    });
+    for (let i = 0; i < startWeekday; i++) {
+        html += '<div style="border:1px solid var(--border-color); border-radius:12px; min-height:120px; background:var(--bg-secondary); opacity:.45;"></div>';
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+        const ds = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        const info = dayMap[ds];
+        const hasData = !!info;
+        html += '<div style="border:1px solid ' + (hasData ? 'var(--accent-primary)' : 'var(--border-color)') + '; border-radius:12px; min-height:120px; padding:10px; background:' + (hasData ? 'rgba(52,152,219,0.08)' : 'var(--bg-primary)') + ';">';
+        html += '<div style="font-size:15px; font-weight:700; margin-bottom:8px;">' + d + '</div>';
+        if (hasData) {
+            html += '<button type="button" onclick="openMonthlyRevenueDayDetail(\'' + ds + '\')" style="font-size:13px; color:var(--text-secondary); border:none; background:none; padding:0; text-decoration:underline; cursor:pointer;">' + info.count + '건</button>';
+            html += '<div style="font-size:14px; font-weight:700; margin-top:4px;">' + App.formatCurrency(info.amount) + '</div>';
+        } else {
+            html += '<div style="font-size:13px; color:var(--text-muted);">-</div>';
+        }
+        html += '</div>';
+    }
+    html += '</div>';
+
+    var monthTotal = 0;
+    var monthCount = 0;
+    Object.keys(dayMap).forEach(function(k) {
+        monthCount += dayMap[k].count;
+        monthTotal += dayMap[k].amount;
+    });
+    html += '<div style="margin-top:12px; font-size:13px; color:var(--text-secondary);">합계: <strong>' + monthCount + '건</strong> / <strong>' + App.formatCurrency(monthTotal) + '</strong></div>';
+    wrap.innerHTML = html;
+    renderMonthlyRevenueCalendarDayDetail(null);
+}
+
+function openMonthlyRevenueDayDetail(dateStr) {
+    renderMonthlyRevenueCalendarDayDetail(dateStr);
+}
+
+function renderMonthlyRevenueCalendarDayDetail(dateStr) {
+    const detailEl = document.getElementById('monthly-revenue-calendar-day-detail');
+    if (!detailEl) return;
+    if (!dateStr) {
+        detailEl.innerHTML = '<p style="margin:0; color: var(--text-muted);">달력의 건수를 누르면 해당 날짜의 상세 내역이 표시됩니다.</p>';
+        return;
+    }
+    const rows = monthlyRevenueDayPaymentMap[dateStr] || [];
+    if (!rows.length) {
+        detailEl.innerHTML = '<p style="margin:0; color: var(--text-muted);">선택한 날짜의 내역이 없습니다.</p>';
+        return;
+    }
+    let total = 0;
+    rows.forEach(function(p) { total += (p.amount != null ? Number(p.amount) : 0); });
+    let html = '<div style="border:1px solid var(--border-color); border-radius:10px; padding:12px; background: var(--bg-secondary);">';
+    html += '<div style="font-size:14px; font-weight:700; margin-bottom:10px;">' + dateStr + ' 상세 (' + rows.length + '건 / ' + App.formatCurrency(total) + ')</div>';
+    html += '<div style="overflow-x:auto;"><table class="table" style="width:100%; font-size:13px;"><thead><tr><th>회원</th><th>상품</th><th>금액</th><th>결제 수단</th></tr></thead><tbody>';
+    rows.forEach(function(p) {
+        const memberName = App.escapeHtml((p.member && p.member.name) ? p.member.name : '-');
+        const productName = App.escapeHtml((p.product && p.product.name) ? p.product.name : '-');
+        html += '<tr><td>' + memberName + '</td><td>' + productName + '</td><td>' + App.formatCurrency(p.amount != null ? p.amount : 0) + '</td><td>' + App.escapeHtml(paymentMethodText(p.paymentMethod)) + '</td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+    detailEl.innerHTML = html;
+}
+
+window.openMonthlyRevenueCalendarModal = openMonthlyRevenueCalendarModal;
+window.closeMonthlyRevenueCalendarModal = closeMonthlyRevenueCalendarModal;
+window.changeMonthlyRevenueCalendarMonth = changeMonthlyRevenueCalendarMonth;
+window.openMonthlyRevenueDayDetail = openMonthlyRevenueDayDetail;
 
 function renderPaymentsDetail(payments, periodLabel) {
     if (!payments || payments.length === 0) {
@@ -872,7 +969,7 @@ function getCoachColorForSchedule(coachId) {
 function renderTodaySchedule(schedule) {
     const container = document.getElementById('today-schedule');
     if (!container) {
-        App.warn('today-schedule ??? ?? ? ????.');
+        App.warn('today-schedule 요소를 찾을 수 없습니다.');
         return;
     }
     
@@ -979,7 +1076,7 @@ function renderScheduleGroup(items, isCompleted = false) {
 function renderPendingAlerts(alerts) {
     const container = document.getElementById('pending-alerts');
     if (!container) {
-        App.warn('pending-alerts ??? ?? ? ????.');
+        App.warn('pending-alerts 요소를 찾을 수 없습니다.');
         return;
     }
     
@@ -1170,9 +1267,9 @@ function showAnnouncementDetail(id) {
 async function initCharts() {
     var exportId = window.__dashboardExportId;
     try {
-        App.log('?? ???', exportId ? '(export: ' + exportId + ')' : '');
+        App.log('차트 초기화', exportId ? '(export: ' + exportId + ')' : '');
         if (exportId && exportId !== 'export-member-chart' && exportId !== 'export-revenue-chart') {
-            App.log('?? ??? ?? (export ?? ??)');
+            App.log('차트 초기화 건너뜀 (현재 export 대상 아님)');
             return;
         }
         var needMemberChart = !exportId || exportId === 'export-member-chart';
@@ -1186,7 +1283,7 @@ async function initCharts() {
                 members = await App.api.get('/members');
                 if (!Array.isArray(members)) members = [];
             } catch (error) {
-                App.err('?? ?? ?? ??:', error);
+                App.err('회원 목록 조회 실패:', error);
             }
             memberGrowthData = calculateMonthlyGrowth(members);
         }
@@ -1196,7 +1293,7 @@ async function initCharts() {
                 payments = await App.api.get('/payments');
                 if (!Array.isArray(payments)) payments = [];
             } catch (error) {
-                App.warn('Payment ?? ?? ??:', error);
+                App.warn('결제 목록 조회 실패:', error);
             }
             if (!payments || payments.length === 0) {
                 try {
@@ -1213,21 +1310,21 @@ async function initCharts() {
             try {
                 createMemberChart(memberGrowthData);
             } catch (error) {
-                App.err('?? ?? ?? ?? ??:', error);
+                App.err('회원 차트 렌더링 실패:', error);
             }
         }
         if (needRevenueChart) {
             try {
                 createRevenueChart(revenueData);
             } catch (error) {
-                App.err('?? ?? ?? ??:', error);
+                App.err('매출 차트 렌더링 실패:', error);
             }
         }
         
-        App.log('?? ??? ??');
+        App.log('차트 초기화 완료');
     } catch (error) {
-        App.err('?? ??? ??:', error);
-        App.err('?? ??:', error.message, error.stack);
+        App.err('차트 초기화 중 오류:', error);
+        App.err('오류 상세:', error.message, error.stack);
     }
 }
 
@@ -1235,10 +1332,10 @@ let currentTab = 'expiring';
 
 function canReviewMemberApprovals() {
     var r = (typeof App !== 'undefined' && App.currentRole) ? String(App.currentRole).toUpperCase() : '';
-    return r === 'ADMIN' || r === 'MANAGER';
+    return r === 'ADMIN';
 }
 
-function switchTab(tab) {
+function switchMemberStatusTab(tab) {
     currentTab = tab;
     const expiringTab = document.getElementById('tab-expiring');
     const expiredTab = document.getElementById('tab-expired');
@@ -1361,6 +1458,7 @@ function filterApprovalRowsByMemberName(rows, query) {
 function memberApprovalRequestTypeLabel(type, detailSummary) {
     var t = (type || '').toString().toUpperCase();
     if (t === 'NEW_MEMBER') return '\uC2E0\uADDC \uB4F1\uB85D';
+    if (t === 'COACH_REASSIGNMENT') return '\uB2F4\uB2F9 \uCF54\uCE58 \uBCC0\uACBD';
     if (t === 'EXTENSION') return '\uC5F0\uC7A5';
     if (t === 'RE_REGISTER') {
         var s = (detailSummary != null && detailSummary !== undefined) ? String(detailSummary).trim() : '';
@@ -1448,9 +1546,13 @@ async function dashboardApproveMemberRequest(requestId) {
         } catch (e1) { /* ignore */ }
     } catch (e) {
         var st = e && e.response && e.response.status;
-        var msg = (e && e.message) ? e.message : '';
+        var data = e && e.response ? e.response.data : null;
+        var serverMsg = data && (data.error || data.message)
+            ? String(data.error || data.message)
+            : '';
+        var msg = serverMsg || ((e && e.message) ? e.message : '');
         if (st === 403 || msg.indexOf('403') !== -1) {
-            App.showNotification('\uAD00\uB9AC\uC790/\uB9E4\uB2C8\uC800\uB9CC \uC2B9\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.', 'warning');
+            App.showNotification('\uAD00\uB9AC\uC790\uB9CC \uC2B9\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.', 'warning');
         } else {
             App.showNotification('\uC2B9\uC778 \uC2E4\uD328: ' + msg, 'danger');
         }
@@ -1496,7 +1598,7 @@ async function confirmMemberApprovalReject() {
         var st = e && e.response && e.response.status;
         var msg = (e && e.message) ? e.message : '';
         if (st === 403 || msg.indexOf('403') !== -1) {
-            App.showNotification('\uAD00\uB9AC\uC790/\uB9E4\uB2C8\uC800\uB9CC \uBC18\uB824\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.', 'warning');
+            App.showNotification('\uAD00\uB9AC\uC790\uB9CC \uBC18\uB824\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.', 'warning');
         } else {
             App.showNotification('\uBC18\uB824 \uC2E4\uD328: ' + msg, 'danger');
         }
@@ -1645,7 +1747,7 @@ async function openExpiringMembersModal(initialTab) {
     modal.style.display = 'flex';
     listContainer.innerHTML = '<p style="text-align: center; color: var(--text-muted);">\uB85C\uB529 \uC911...</p>';
     currentTab = 'expiring';
-    switchTab('expiring');
+    switchMemberStatusTab('expiring');
     
     // ?? ? ?? ?? (?? ??? 0?? ??)
     updateTabCounts(0, 0, 0);
@@ -1656,10 +1758,10 @@ async function openExpiringMembersModal(initialTab) {
     try {
         const response = await App.api.get('/dashboard/expiring-members');
         
-        App.log('?? ?? ??? ??:', response);
-        App.log('?? ?? ?? ?:', response.expiring?.length || 0);
-        App.log('?? ?? ?:', response.expired?.length || 0);
-        App.log('??? ?? ?? ?:', response.noProduct?.length || 0);
+        App.log('회원 상태 목록 응답:', response);
+        App.log('만료 임박 수:', response.expiring?.length || 0);
+        App.log('종료 수:', response.expired?.length || 0);
+        App.log('이용권 없음 수:', response.noProduct?.length || 0);
         
         membersData = {
             expiring: response.expiring || [],
@@ -1667,7 +1769,7 @@ async function openExpiringMembersModal(initialTab) {
             noProduct: response.noProduct || []
         };
         
-        App.log('membersData ?? ??:', membersData);
+        App.log('membersData 업데이트:', membersData);
         
         // ?? ?? ?? ????
         updateTabCounts(membersData.expiring.length, membersData.expired.length, membersData.noProduct.length);
@@ -1688,7 +1790,7 @@ async function openExpiringMembersModal(initialTab) {
         
         renderMembersList();
         if (wantApprovalTab) {
-            switchTab('approval');
+            switchMemberStatusTab('approval');
         }
     } catch (error) {
         App.err('\uB9CC\uB8CC \uD68C\uC6D0 \uBAA9\uB85D \uB85C\uB4DC \uC2E4\uD328:', error);
@@ -1698,7 +1800,7 @@ async function openExpiringMembersModal(initialTab) {
 
 // ???? ?? ????? window ??? ?? ??
 window.openExpiringMembersModal = openExpiringMembersModal;
-window.switchTab = switchTab;
+window.switchMemberStatusTab = switchMemberStatusTab;
 
 // ?? ?? ?? ?? ??
 function closeExpiringMembersModal() {
@@ -1725,7 +1827,7 @@ let extendRepurchaseData = {
  */
 async function openUnifiedExtendRepurchaseModal(memberId, memberProductId, productType, productName, usageCountDefault) {
     if (memberProductId == null || productType === 'NONE') {
-        App.showNotification('???? ????. ???? ?? ?? ??? ??? ???.', 'warning');
+        App.showNotification('회원 정보를 찾을 수 없습니다. 회원 목록에서 다시 선택해 주세요.', 'warning');
         return;
     }
     // ??????? ?? ??/?? ?? ?? ?? ??? ?? ??
@@ -1841,13 +1943,13 @@ async function openRepurchaseModal(memberId, memberProductId, productType, produ
     try {
         const memberProduct = await App.api.get(`/member-products/${memberProductId}`);
         if (!memberProduct) {
-            App.err('MemberProduct? ?? ? ????:', memberProductId);
+            App.err('MemberProduct ID가 올바르지 않습니다:', memberProductId);
             return;
         }
         
         const product = memberProduct.product;
         if (!product) {
-            App.err('Product ??? ?? ? ????:', memberProductId);
+            App.err('상품 정보를 찾을 수 없습니다. memberProductId:', memberProductId);
             return;
         }
         
@@ -1885,7 +1987,7 @@ async function openRepurchaseModal(memberId, memberProductId, productType, produ
             `;
         }
     } catch (error) {
-        App.err('?? ?? ?? ??:', error);
+        App.err('연장/재구매 모달 렌더링 실패:', error);
         content.innerHTML = '<p style="color: var(--danger);">?? ??? ????? ??????.</p>';
         return;
     }
@@ -1938,7 +2040,7 @@ async function openNewProductModal(memberId) {
     try {
         // ?? ?? ????
         const member = await App.api.get(`/members/${memberId}`);
-        App.log('?? ?? ?? ?? - ?? ??:', member);
+        App.log('신규 상품 구매 모달 - 회원 정보:', member);
         
         // ?? ??? ?? ?? ?? ????
         try {
@@ -1951,7 +2053,7 @@ async function openNewProductModal(memberId) {
                 }
             }
         } catch (error) {
-            App.err('?? ?? ?? ?? ?? ??:', error);
+            App.err('신규 상품 구매 모달 회원 정보 조회 실패:', error);
             if (currentProductsList) {
                 currentProductsList.innerHTML = '<div style="color: var(--text-muted); font-size: 12px;">\uBCF4\uC720 \uC0C1\uD488 \uBAA9\uB85D\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</div>';
             }
@@ -1960,7 +2062,7 @@ async function openNewProductModal(memberId) {
         // ?? ?? ?? ????
         const allProducts = await App.api.get('/products');
         const activeProducts = allProducts.filter(p => p.active !== false);
-        App.log('?? ?? ?? ?? - ?? ?? ??:', activeProducts.length);
+        App.log('신규 상품 구매 모달 - 활성 이용권 수:', activeProducts.length);
         
         // ?? ?? ???? ???
         productSelect.innerHTML = '<option value="">\uC0C1\uD488\uC744 \uC120\uD0DD\uD558\uC138\uC694</option>';
@@ -1984,16 +2086,19 @@ async function openNewProductModal(memberId) {
         modal.style.display = 'flex';
         
     } catch (error) {
-        App.err('?? ?? ?? ?? ?? ??:', error);
-        App.showNotification('?? ??? ????? ??????.', 'danger');
+        App.err('신규 상품 구매 모달 로드 실패:', error);
+        App.showNotification('상품 구매 모달을 불러오지 못했습니다.', 'danger');
     }
 }
 
 // ?? ?? ?? ?? ?? ??? (???)
 function renderCurrentMemberProducts(memberProducts) {
-    const list = App.filterMemberProductsForDisplayList
+    let list = App.filterMemberProductsForDisplayList
         ? App.filterMemberProductsForDisplayList(memberProducts || [])
         : (memberProducts || []);
+    if (typeof App.sortMemberProductsRemainingFirst === 'function' && list && list.length > 1) {
+        list = App.sortMemberProductsRemainingFirst(list);
+    }
     if (!list || list.length === 0) {
         return '<div style="color: var(--text-muted); font-size: 12px;">\uBCF4\uC720 \uC0C1\uD488/\uC774\uC6A9\uAD8C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.</div>';
     }
@@ -2117,7 +2222,7 @@ async function updateNewProductCoachSelection(memberId) {
     }
     
     const selectedOptions = Array.from(productSelect.selectedOptions).filter(opt => opt.value && opt.value !== '');
-    App.log('?? ?? ?? - ??? ?? ??:', selectedOptions.length);
+    App.log('코치 선택 UI 렌더링 - 선택 상품 수:', selectedOptions.length);
     
     // ?? ?? ??
     coachSelectionContainer.innerHTML = '';
@@ -2130,17 +2235,17 @@ async function updateNewProductCoachSelection(memberId) {
     let allCoaches = [];
     try {
         allCoaches = await App.api.get('/coaches');
-        App.log('?? ?? ?? - ?? ?? ?? (??? ?):', allCoaches.length);
+        App.log('코치 선택 UI 렌더링 - 전체 코치 수 (캐시 사용):', allCoaches.length);
         allCoaches = allCoaches.filter(c => c.active !== false);
-        App.log('?? ?? ?? - ?? ?? ??:', allCoaches.length);
+        App.log('코치 선택 UI 렌더링 - 전체 코치 수:', allCoaches.length);
         
         if (allCoaches.length === 0) {
-            App.warn('?? ??? ????!');
+            App.warn('등록 가능한 코치가 없습니다.');
             coachSelectionContainer.innerHTML = '<div style="color: var(--text-muted); padding: 12px;">?? ??? ????.</div>';
             return;
         }
     } catch (error) {
-        App.err('?? ?? ?? ??:', error);
+        App.err('코치 목록 조회 실패:', error);
         coachSelectionContainer.innerHTML = '<div style="color: var(--danger); padding: 12px;">?? ??? ????? ??????.</div>';
         return;
     }
@@ -2211,10 +2316,9 @@ async function updateNewProductCoachSelection(memberId) {
                 return true;
             });
             
-            // ??? ? ??? ??? ?? ?? ?? (????)
+            // 카테고리 매칭 코치가 없으면 빈 목록 유지 (잘못된 카테고리 코치 선택 방지)
             if (relevantCoaches.length === 0) {
-                App.warn(`???? "${productCategory}"? ?? ??? ?? ?? ??? ?????.`);
-                relevantCoaches = allCoaches;
+                App.warn(`상품 카테고리 "${productCategory}"에 매칭되는 코치가 없습니다.`);
             }
         } else {
             App.log(`?? "${productName}"? ????? ?? ?? ??? ?????.`);
@@ -2295,7 +2399,7 @@ async function submitNewProductPurchase() {
     const productSelect = document.getElementById('new-product-select');
     
     if (!memberIdInput || !productSelect) {
-        App.showNotification('?? ??? ????.', 'danger');
+        App.showNotification('선택한 상품이 없습니다.', 'danger');
         return;
     }
     
@@ -2303,7 +2407,7 @@ async function submitNewProductPurchase() {
     const selectedOptions = Array.from(productSelect.selectedOptions).filter(opt => opt.value && opt.value !== '');
     
     if (selectedOptions.length === 0) {
-        App.showNotification('??? ??? ??????.', 'danger');
+        App.showNotification('회원 정보가 유효하지 않습니다.', 'danger');
         return;
     }
     
@@ -2324,7 +2428,7 @@ async function submitNewProductPurchase() {
 
     for (const productId of productIds) {
         if (!productCoachMap[productId]) {
-            App.showNotification('??? ???? ?? ??? ??? ???.', 'warning');
+            App.showNotification('선택한 코치 정보를 확인할 수 없습니다.', 'warning');
             return;
         }
     }
@@ -2385,7 +2489,7 @@ async function submitNewProductPurchase() {
             }
             App.showNotification(message, successCount > 0 && conflictCount === 0 ? 'success' : 'warning');
         } else if (conflictCount > 0) {
-            App.showNotification('??? ??? ?? ??? ?????. ?? ??? ??????.', 'warning');
+            App.showNotification('코치 지정 없이 등록이 진행되었습니다. 필요한 경우 회원 상세에서 코치를 지정해 주세요.', 'warning');
         }
         
         closeNewProductPurchaseModal();
@@ -2424,7 +2528,7 @@ async function submitNewProductPurchase() {
             currentMemberDetail = updatedMember;
             
             // ?? ?? ?? ??
-            document.getElementById('member-detail-title').textContent = `${updatedMember.name} ?? ??`;
+            document.getElementById('member-detail-title').textContent = `${updatedMember.name} \uC0C1\uC138 \uC815\uBCF4`;
             const memberDetailModal = document.getElementById('member-detail-modal');
             if (memberDetailModal) {
                 memberDetailModal.style.display = 'flex';
@@ -2445,7 +2549,7 @@ async function submitNewProductPurchase() {
             // ??? ??? ??
             switchMemberDetailTab('products', updatedMember);
         } catch (error) {
-            App.err('?? ?? ???? ??:', error);
+            App.err('상품 구매 후 대시보드 데이터 새로고침 실패:', error);
             // ??? ???? ?? ?? ?? ?? ??
             if (currentMemberDetail) {
                 const memberDetailModal = document.getElementById('member-detail-modal');
@@ -2457,11 +2561,11 @@ async function submitNewProductPurchase() {
         }
         
     } catch (error) {
-        App.err('?? ?? ?? ??:', error);
+        App.err('신규 상품 구매 처리 실패:', error);
         if (error.response && error.response.data && error.response.data.error) {
             App.showNotification(error.response.data.error, 'danger');
         } else {
-            App.showNotification('?? ??? ??????.', 'danger');
+            App.showNotification('상품을 선택해 주세요.', 'danger');
         }
     }
 }
@@ -2479,13 +2583,13 @@ async function submitExtendRepurchase() {
     const { memberId, memberProductId, productType, action } = extendRepurchaseData;
     
     if (!memberId || !action) {
-        App.showNotification('?? ??? ???????.', 'danger');
+        App.showNotification('상품 정보를 찾을 수 없습니다.', 'danger');
         return;
     }
     
     // ??? ?? memberProductId? ??
     if (action === 'extend' && !memberProductId) {
-        App.showNotification('??? ??? ??? ????.', 'danger');
+        App.showNotification('추가 정보를 입력해 주세요.', 'danger');
         return;
     }
     
@@ -2504,27 +2608,27 @@ async function submitExtendRepurchase() {
                 const el = document.getElementById('extend-days');
                 rawInput = el ? el.value : '';
             } else {
-                App.showNotification('??? ?? ??? ??? ? ????.', 'danger');
+                App.showNotification('연장 일수는 1 이상이어야 합니다.', 'danger');
                 submitBtn.disabled = false;
                 submitBtn.textContent = action === 'extend' ? '????' : '?????';
                 return;
             }
             const t = String(rawInput).trim();
             if (t === '') {
-                App.showNotification('?? ?? ??? ???.', 'danger');
+                App.showNotification('연장 일수 형식이 올바르지 않습니다.', 'danger');
                 submitBtn.disabled = false;
                 submitBtn.textContent = action === 'extend' ? '????' : '?????';
                 return;
             }
             if (!/^\d+$/.test(t)) {
-                App.showNotification('??? ??? ???.', 'danger');
+                App.showNotification('연장 일수를 입력해 주세요.', 'danger');
                 submitBtn.disabled = false;
                 submitBtn.textContent = action === 'extend' ? '????' : '?????';
                 return;
             }
             const extendValue = parseInt(t, 10);
             if (!extendValue || extendValue <= 0) {
-                App.showNotification('??? ?? 1 ????? ???.', 'danger');
+                App.showNotification('추가 횟수는 1 이상이어야 합니다.', 'danger');
                 submitBtn.disabled = false;
                 submitBtn.textContent = action === 'extend' ? '????' : '?????';
                 return;
@@ -2559,8 +2663,8 @@ async function submitExtendRepurchase() {
             // ??? ?? - ?? ??? ??? ???? ?? ??
             const memberProduct = await App.api.get(`/member-products/${memberProductId}`);
             if (!memberProduct || !memberProduct.product || !memberProduct.product.id) {
-                App.err('MemberProduct ?? Product ??? ?? ? ????:', memberProductId);
-                App.showNotification('?? ??? ??? ? ????.', 'danger');
+                App.err('MemberProduct에 연결된 상품 정보를 찾을 수 없습니다:', memberProductId);
+                App.showNotification('선택한 이용권 정보를 찾을 수 없습니다.', 'danger');
                 return;
             }
             const productId = memberProduct.product.id;
@@ -2570,7 +2674,7 @@ async function submitExtendRepurchase() {
                 (memberProduct.coach && memberProduct.coach.id) ||
                 (memberProduct.product && memberProduct.product.coach && memberProduct.product.coach.id);
             if (!coachIdForPurchase) {
-                App.showNotification('? ???? ?? ??? ?? ???? ? ????. ?? ???? ??? ??? ? ?? ??? ???.', 'warning');
+                App.showNotification('코치가 지정되지 않아 상품 기본 코치로 자동 지정되었습니다. 필요 시 회원 상세에서 변경해 주세요.', 'warning');
                 submitBtn.disabled = false;
                 submitBtn.textContent = action === 'extend' ? '????' : '?????';
                 return;
@@ -2599,7 +2703,7 @@ async function submitExtendRepurchase() {
                     'info'
                 );
             } else {
-                App.showNotification('??? ????????.', 'success');
+                App.showNotification('처리가 완료되었습니다.', 'success');
             }
             closeExtendRepurchaseModal();
             var roleRepDash = (App.currentRole || '').toUpperCase();
@@ -2619,7 +2723,7 @@ async function submitExtendRepurchase() {
             await openExpiringMembersModal();
         }
     } catch (error) {
-        App.err('??/??? ??:', error);
+        App.err('연장/재구매 처리 실패:', error);
         let errorMsg = '?? ? ??? ??????.';
         if (error.response && error.response.data && error.response.data.error) {
             errorMsg = error.response.data.error;
@@ -2656,8 +2760,8 @@ async function openMemberDetailFromDashboard(memberId) {
             });
         });
     } catch (error) {
-        App.err('?? ?? ?? ?? ??:', error);
-        App.showNotification('?? ??? ????? ??????.', 'danger');
+        App.err('추가 상품 구매 모달 로드 실패:', error);
+        App.showNotification('추가 상품 구매 모달을 불러오지 못했습니다.', 'danger');
     }
 }
 
@@ -2668,6 +2772,15 @@ function closeMemberDetailModal() {
         modal.style.display = 'none';
     }
     currentMemberDetail = null;
+}
+
+// members.js의 isMemberDetailModalTab이 없을 때(스크립트 순서) 대비
+function isMemberDetailModalTabDash(expectedTab) {
+    if (typeof isMemberDetailModalTab === 'function') {
+        return isMemberDetailModalTab(expectedTab);
+    }
+    const box = document.querySelector('#member-detail-modal .member-detail-modal-box');
+    return !!(box && box.getAttribute('data-detail-tab') === expectedTab);
 }
 
 // ?? ?? ? ??
@@ -2694,56 +2807,61 @@ function switchMemberDetailTab(tab, member = null) {
             if (member?.id && typeof loadMemberTimeline === 'function') {
                 loadMemberTimeline(member.id);
             } else if (member?.id) {
-                content.innerHTML = '<p style="color: var(--text-muted);">?? ?...</p>';
+                content.innerHTML = '<p style="color: var(--text-muted);">\uBD88\uB7EC\uC624\uB294 \uC911...</p>';
                 App.api.get('/members/' + member.id + '/timeline').then(events => {
+                    if (!isMemberDetailModalTabDash('timeline')) return;
                     content.innerHTML = typeof renderMemberTimelineContent === 'function' ? renderMemberTimelineContent(events) : '<pre>' + JSON.stringify(events, null, 2) + '</pre>';
                 }).catch(() => {
-                    content.innerHTML = '<p style="color: var(--text-muted);">?? ????? ??? ? ????.</p>';
+                    if (!isMemberDetailModalTabDash('timeline')) return;
+                    content.innerHTML = '<p style="color: var(--text-muted);">\uD0C0\uC784\uB77C\uC778\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
                 });
             } else {
-                content.innerHTML = '<p style="color: var(--text-muted);">?? ??? ??? ? ????.</p>';
+                content.innerHTML = '<p style="color: var(--text-muted);">\uD68C\uC6D0 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
             }
             break;
         case 'products':
             if (member?.id) {
                 loadMemberProductsForDetail(member.id);
             } else {
-                content.innerHTML = '<p style="color: var(--text-muted);">?? ??? ??? ? ????.</p>';
+                content.innerHTML = '<p style="color: var(--text-muted);">\uD68C\uC6D0 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
             }
             break;
         case 'payments':
             if (member?.id) {
                 loadMemberPaymentsForDetail(member.id);
             } else {
-                content.innerHTML = '<p style="color: var(--text-muted);">?? ??? ??? ? ????.</p>';
+                content.innerHTML = '<p style="color: var(--text-muted);">\uD68C\uC6D0 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
             }
             break;
         case 'bookings':
             if (member?.id) {
                 loadMemberBookingsForDetail(member.id);
             } else {
-                content.innerHTML = '<p style="color: var(--text-muted);">?? ??? ??? ? ????.</p>';
+                content.innerHTML = '<p style="color: var(--text-muted);">\uD68C\uC6D0 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
             }
             break;
         case 'attendance':
             if (member?.id) {
                 loadMemberAttendanceForDetail(member.id);
             } else {
-                content.innerHTML = '<p style="color: var(--text-muted);">?? ??? ??? ? ????.</p>';
+                content.innerHTML = '<p style="color: var(--text-muted);">\uD68C\uC6D0 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
             }
             break;
         case 'product-history':
             if (member?.id) {
                 loadMemberProductHistoryForDetail(member.id);
             } else {
-                content.innerHTML = '<p style="color: var(--text-muted);">?? ??? ??? ? ????.</p>';
+                content.innerHTML = '<p style="color: var(--text-muted);">\uD68C\uC6D0 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
             }
             break;
         case 'stats':
-            content.innerHTML = (typeof renderMemberStats === 'function' ? renderMemberStats(member) : '<p style="color: var(--text-muted);">?? ???? ??? ? ????.</p>');
+            content.innerHTML = (typeof renderMemberStats === 'function' ? renderMemberStats(member) : '<p style="color: var(--text-muted);">\uAC1C\uC778 \uB2A5\uB825\uCE58\uB97C \uD45C\uC2DC\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>');
             break;
         case 'memo':
             content.innerHTML = renderMemberMemo(member);
+            if (typeof setupMemberMemoTabSave === 'function') {
+                setupMemberMemoTabSave(content, member);
+            }
             break;
     }
 }
@@ -2804,17 +2922,6 @@ function renderMemberDetailInfo(member) {
                 <label class="form-label">\uB204\uC801 \uACB0\uC81C</label>
                 <div class="form-control" style="background: var(--bg-tertiary); font-weight: 600; color: var(--accent-primary);">${App.formatCurrency(member.totalPayment || 0)}</div>
             </div>
-        </div>
-    `;
-}
-
-// ?? ?? ???
-function renderMemberMemo(member) {
-    if (!member) return '<p>\uB85C\uB529 \uC911...</p>';
-    return `
-        <div class="form-group">
-            <label class="form-label">\uCF54\uCE58 \uBA54\uBAA8</label>
-            <div class="form-control" style="background: var(--bg-tertiary); min-height: 200px; white-space: pre-wrap; padding: 12px;">${member.memo || '\uB4F1\uB85D\uB41C \uBA54\uBAA8\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.'}</div>
         </div>
     `;
 }
@@ -2917,9 +3024,12 @@ function renderProductsListForDashboard(products) {
     if (typeof window.renderProductsList === 'function') {
         return window.renderProductsList(products, null);
     }
-    const list = App.filterMemberProductsForDisplayList
+    let list = App.filterMemberProductsForDisplayList
         ? App.filterMemberProductsForDisplayList(products || [])
         : (products || []);
+    if (typeof App.sortMemberProductsRemainingFirst === 'function' && list && list.length > 1) {
+        list = App.sortMemberProductsRemainingFirst(list);
+    }
     if (!list || list.length === 0) {
         return '<p style="color: var(--text-muted);">\uB4F1\uB85D\uB41C \uC774\uC6A9\uAD8C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
@@ -2931,17 +3041,21 @@ function renderProductsListForDashboard(products) {
 // ?? ?? - ??? ?? ??
 async function loadMemberProductsForDetail(memberId) {
     const content = document.getElementById('detail-tab-content');
-    content.innerHTML = '<p style="text-align: center; color: var(--text-muted);">?? ?...</p>';
+    if (!content) return;
+    content.innerHTML = '<p style="text-align: center; color: var(--text-muted);">\uBD88\uB7EC\uC624\uB294 \uC911...</p>';
     
     try {
         const memberProducts = await App.api.get(`/member-products?memberId=${memberId}&forMemberDetailUi=true`);
         
+        if (!isMemberDetailModalTabDash('products')) return;
+        
         if (!memberProducts || memberProducts.length === 0) {
-            content.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px;">???? ????.</p>';
+            content.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px;">\uB4F1\uB85D\uB41C \uC774\uC6A9\uAD8C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
             return;
         }
         
-        // dashboard.js? renderProductsListForDashboard ?? ?? ?? members.js? ?? ??
+        if (!isMemberDetailModalTabDash('products')) return;
+        
         if (typeof window.renderProductsList === 'function') {
             content.innerHTML = window.renderProductsList(memberProducts, memberId);
             if (typeof window.applyCoachNameColors === 'function') {
@@ -2951,26 +3065,33 @@ async function loadMemberProductsForDetail(memberId) {
             content.innerHTML = renderProductsListForDashboard(memberProducts);
         }
     } catch (error) {
-        App.err('??? ?? ?? ??:', error);
-        content.innerHTML = '<p style="color: var(--danger);">??? ??? ????? ??????.</p>';
+        if (!isMemberDetailModalTabDash('products')) return;
+        App.err('이용권 목록 조회 실패:', error);
+        content.innerHTML = '<p style="color: var(--danger);">\uC774\uC6A9\uAD8C \uBAA9\uB85D\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
 }
 
 // \uB300\uC2DC\uBCF4\uB4DC \uD68C\uC6D0 \uC0C1\uC138 - \uACB0\uC81C \uB0B4\uC5ED \uD0ED
 async function loadMemberPaymentsForDetail(memberId) {
     const content = document.getElementById('detail-tab-content');
+    if (!content) return;
     content.innerHTML = '<p style="text-align: center; color: var(--text-muted);">\uBD88\uB7EC\uC624\uB294 \uC911...</p>';
     
     try {
         const payments = await App.api.get(`/members/${memberId}/payments`);
+        
+        if (!isMemberDetailModalTabDash('payments')) return;
         
         if (!payments || payments.length === 0) {
             content.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px;">\uACB0\uC81C \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
             return;
         }
         
+        if (!isMemberDetailModalTabDash('payments')) return;
+        
         content.innerHTML = renderPaymentsList(payments);
     } catch (error) {
+        if (!isMemberDetailModalTabDash('payments')) return;
         App.err('\uACB0\uC81C \uB0B4\uC5ED \uC870\uD68C \uC624\uB958:', error);
         content.innerHTML = '<p style="color: var(--danger);">\uACB0\uC81C \uB0B4\uC5ED\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
@@ -3027,6 +3148,7 @@ function renderPaymentsList(payments) {
                         <th>\uACB0\uC81C\uC77C\uC2DC</th>
                         <th>\uC0C1\uD488</th>
                         <th>\uBD84\uB958</th>
+                        <th>\uC774\uC6A9\uAD8C \uC5F0\uACB0</th>
                         <th>\uB2F4\uB2F9 \uCF54\uCE58</th>
                         <th>\uACB0\uC81C\uC218\uB2E8</th>
                         <th>\uAE08\uC561</th>
@@ -3039,6 +3161,9 @@ function renderPaymentsList(payments) {
                         const paidAt = p.paidAt ? App.formatDateTime(p.paidAt) : '-';
                         const productName = p.product?.name || '-';
                         const category = getCategoryText(p.category);
+                        const mpLink = typeof formatPaymentMemberProductLinkCell === 'function'
+                            ? formatPaymentMemberProductLinkCell(p)
+                            : '<span style="color:var(--text-muted);">\u2014</span>';
                         const method = getPaymentMethodText(p.paymentMethod);
                         const amount = App.formatCurrency(p.amount || 0);
                         const status = getStatusText(p.status);
@@ -3052,6 +3177,7 @@ function renderPaymentsList(payments) {
                             <td>${paidAt}</td>
                             <td>${productName}</td>
                             <td>${category}</td>
+                            <td>${mpLink}</td>
                             <td>${coachName}</td>
                             <td>${method}</td>
                             <td style="font-weight: 600; color: var(--accent-primary);">
@@ -3072,15 +3198,20 @@ function renderPaymentsList(payments) {
 // \uB300\uC2DC\uBCF4\uB4DC \uD68C\uC6D0 \uC0C1\uC138 - \uC608\uC57D \uB0B4\uC5ED \uD0ED
 async function loadMemberBookingsForDetail(memberId) {
     const content = document.getElementById('detail-tab-content');
+    if (!content) return;
     content.innerHTML = '<p style="text-align: center; color: var(--text-muted);">\uBD88\uB7EC\uC624\uB294 \uC911...</p>';
     
     try {
         const bookings = await App.api.get(`/members/${memberId}/bookings`);
         
+        if (!isMemberDetailModalTabDash('bookings')) return;
+        
         if (!bookings || bookings.length === 0) {
             content.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px;">\uC608\uC57D \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
             return;
         }
+        
+        if (!isMemberDetailModalTabDash('bookings')) return;
         
         // members.js? renderBookingsList? ??? ?? ??
         function getBookingStatusText(status) {
@@ -3159,6 +3290,7 @@ async function loadMemberBookingsForDetail(memberId) {
             window.applyCoachNameColors(content);
         }
     } catch (error) {
+        if (!isMemberDetailModalTabDash('bookings')) return;
         App.err('\uC608\uC57D \uB0B4\uC5ED \uC870\uD68C \uC624\uB958:', error);
         content.innerHTML = '<p style="color: var(--danger);">\uC608\uC57D \uB0B4\uC5ED\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
@@ -3167,15 +3299,20 @@ async function loadMemberBookingsForDetail(memberId) {
 // \uB300\uC2DC\uBCF4\uB4DC \uD68C\uC6D0 \uC0C1\uC138 - \uCD9C\uC11D \uB0B4\uC5ED \uD0ED
 async function loadMemberAttendanceForDetail(memberId) {
     const content = document.getElementById('detail-tab-content');
+    if (!content) return;
     content.innerHTML = '<p style="text-align: center; color: var(--text-muted);">\uBD88\uB7EC\uC624\uB294 \uC911...</p>';
     
     try {
         const attendance = await App.api.get(`/members/${memberId}/attendance`);
         
+        if (!isMemberDetailModalTabDash('attendance')) return;
+        
         if (!attendance || attendance.length === 0) {
             content.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px;">\uCD9C\uC11D \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
             return;
         }
+        
+        if (!isMemberDetailModalTabDash('attendance')) return;
         
         // members.js? renderAttendanceList? ??? ?? ??
         function getAttendanceStatusText(status) {
@@ -3255,6 +3392,7 @@ async function loadMemberAttendanceForDetail(memberId) {
         
         content.innerHTML = attendanceHtml;
     } catch (error) {
+        if (!isMemberDetailModalTabDash('attendance')) return;
         App.err('\uCD9C\uC11D \uB0B4\uC5ED \uC870\uD68C \uC624\uB958:', error);
         content.innerHTML = '<p style="color: var(--danger);">\uCD9C\uC11D \uB0B4\uC5ED\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
@@ -3263,15 +3401,20 @@ async function loadMemberAttendanceForDetail(memberId) {
 // \uB300\uC2DC\uBCF4\uB4DC \uD68C\uC6D0 \uC0C1\uC138 - \uC774\uC6A9\uAD8C \uBCC0\uB3D9 \uC774\uB825 \uD0ED
 async function loadMemberProductHistoryForDetail(memberId) {
     const content = document.getElementById('detail-tab-content');
+    if (!content) return;
     content.innerHTML = '<p style="text-align: center; color: var(--text-muted);">\uBD88\uB7EC\uC624\uB294 \uC911...</p>';
     
     try {
         const history = await App.api.get(`/members/${memberId}/product-history`);
         
+        if (!isMemberDetailModalTabDash('product-history')) return;
+        
         if (!history || history.length === 0) {
             content.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px;">\uC774\uC6A9\uAD8C \uBCC0\uB3D9 \uC774\uB825\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
             return;
         }
+        
+        if (!isMemberDetailModalTabDash('product-history')) return;
         
         function getTransactionTypeText(type) {
             const typeMap = {
@@ -3345,6 +3488,7 @@ async function loadMemberProductHistoryForDetail(memberId) {
         
         content.innerHTML = historyHtml;
     } catch (error) {
+        if (!isMemberDetailModalTabDash('product-history')) return;
         App.err('\uC774\uC6A9\uAD8C \uBCC0\uB3D9 \uC774\uB825 \uC870\uD68C \uC624\uB958:', error);
         content.innerHTML = '<p style="color: var(--danger);">\uC774\uC6A9\uAD8C \uBCC0\uB3D9 \uC774\uB825\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
@@ -3658,7 +3802,7 @@ async function calculateMonthlyRevenueFromMemberProducts() {
         }
         
     } catch (error) {
-        App.err('MemberProduct ?? ?? ?? ?? ??:', error);
+        App.err('MemberProduct 구매일자 조회 실패:', error);
         // ??? ?? ??? ?? ? ??? ???.
         if (labels.length === 0) {
             for (let i = 5; i >= 0; i--) {

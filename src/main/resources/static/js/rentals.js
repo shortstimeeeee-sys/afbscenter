@@ -214,6 +214,10 @@ async function loadFilterFacilities() {
 }
 
 async function initializeBookings() {
+    if (App.currentUser && String(App.currentUser.role || '').toUpperCase() === 'COACH'
+            && typeof App.syncOperationalCoachViewFromServer === 'function') {
+        await App.syncOperationalCoachViewFromServer();
+    }
     if (typeof App.refreshCoachBookingNameVisibilityCache === 'function') {
         await App.refreshCoachBookingNameVisibilityCache();
     }
@@ -595,6 +599,9 @@ async function loadCoachesForBooking() {
             option.textContent = coach.name;
             select.appendChild(option);
         });
+        if (typeof App.applyBookingCoachEditPolicy === 'function') {
+            App.applyBookingCoachEditPolicy();
+        }
     } catch (error) {
         App.err('코치 목록 로드 실패:', error);
     }
@@ -615,6 +622,9 @@ async function loadCoachesForBookingNonMember() {
             option.textContent = coach.name;
             select.appendChild(option);
         });
+        if (typeof App.applyBookingCoachEditPolicy === 'function') {
+            App.applyBookingCoachEditPolicy();
+        }
     } catch (error) {
         App.err('비회원 코치 목록 로드 실패:', error);
     }
@@ -2759,6 +2769,9 @@ function openBookingModal(id = null) {
     }
     
     App.Modal.open('booking-modal');
+    if (typeof App.applyBookingCoachEditPolicy === 'function') {
+        App.applyBookingCoachEditPolicy();
+    }
     
     // 모달 닫기 이벤트 리스너 추가
     setupBookingModalCloseHandler();
@@ -3019,6 +3032,9 @@ async function loadBookingData(id) {
         // 코치 선택 필드 설정 (비회원 예약 시에도 사용)
         if (document.getElementById('booking-coach')) {
             document.getElementById('booking-coach').value = booking.coach?.id || '';
+        }
+        if (typeof App.applyBookingCoachEditPolicy === 'function') {
+            App.applyBookingCoachEditPolicy();
         }
     } catch (error) {
         App.showNotification('예약 정보를 불러오는데 실패했습니다.', 'danger');

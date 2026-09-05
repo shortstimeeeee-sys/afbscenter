@@ -62,6 +62,14 @@ public class MemberApprovalRequest {
     @Column(name = "extension_days")
     private Integer extensionDays;
 
+    /** COACH_REASSIGNMENT: 승인 후 회원 카드·이용권 담당을 이 코치로 통일 */
+    @Column(name = "reassignment_new_coach_id")
+    private Long reassignmentNewCoachId;
+
+    /** COACH_REASSIGNMENT: 대상 활성 이용권(MemberProduct) — 종목별 담당 변경 구분 */
+    @Column(name = "reassignment_member_product_id")
+    private Long reassignmentMemberProductId;
+
     /** RE_REGISTER: 원본 요청 JSON(POST /members/{id}/products body) */
     @Column(name = "approval_payload", columnDefinition = "TEXT")
     private String approvalPayload;
@@ -79,7 +87,9 @@ public class MemberApprovalRequest {
     public enum RequestType {
         NEW_MEMBER,
         RE_REGISTER,
-        EXTENSION
+        EXTENSION,
+        /** 회원 담당 코치 변경 — 관리자 승인 후 카드·미삭제 이용권·히스토리 반영 */
+        COACH_REASSIGNMENT
     }
 
     public enum Status {

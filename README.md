@@ -7,7 +7,7 @@
 - **노트북↔데스크탑 동기화**: [SYNC_노트북_데스크탑.md](SYNC_노트북_데스크탑.md) (Git으로 코드 맞추기, `git-upload.ps1` 로 한 번 올리기)  
 - **배포**: [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)  
 - **전체 검토**(구조·보안·개선 권장): [PROJECT_REVIEW_FULL.md](PROJECT_REVIEW_FULL.md)  
-- **점검/가독성**: [PROJECT_AUDIT_2026.md](PROJECT_AUDIT_2026.md), [PROJECT_REVIEW_2026.md](PROJECT_REVIEW_2026.md)  
+- **점검/가독성**: [PROJECT_AUDIT_2026-09-04.md](PROJECT_AUDIT_2026-09-04.md) (최신 기능 점검), [PROJECT_AUDIT_2026.md](PROJECT_AUDIT_2026.md), [PROJECT_REVIEW_2026.md](PROJECT_REVIEW_2026.md)  
 - **기타 문서**(과거 점검·리팩터링): [docs/](docs/) 참고
 
 ## 기술 스택

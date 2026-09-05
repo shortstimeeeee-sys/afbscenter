@@ -2,10 +2,14 @@ package com.afbscenter.service;
 
 import com.afbscenter.controller.MemberDetailController;
 import com.afbscenter.controller.MemberProductController;
+import com.afbscenter.model.Coach;
 import com.afbscenter.model.Member;
 import com.afbscenter.model.Member.MemberStatus;
 import com.afbscenter.model.MemberApprovalRequest;
+import com.afbscenter.model.MemberProduct;
+import com.afbscenter.repository.CoachRepository;
 import com.afbscenter.repository.MemberApprovalRequestRepository;
+import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -19,8 +23,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -35,26 +42,37 @@ import java.util.Optional;
 public class MemberApprovalService {
 
     private static final Logger logger = LoggerFactory.getLogger(MemberApprovalService.class);
+    private static final DateTimeFormatter ISO_LDT = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
     private final MemberApprovalRequestRepository memberApprovalRequestRepository;
     private final MemberRepository memberRepository;
+    private final CoachRepository coachRepository;
+    private final MemberProductRepository memberProductRepository;
     private final MemberService memberService;
     private final MemberProductController memberProductController;
     private final MemberDetailController memberDetailController;
     private final ObjectMapper objectMapper;
+    /** 내부 호출 시 @Transactional 적용을 위해 프록시로 승인 처리 */
+    private final MemberApprovalService self;
 
     public MemberApprovalService(MemberApprovalRequestRepository memberApprovalRequestRepository,
                                  MemberRepository memberRepository,
+                                 CoachRepository coachRepository,
+                                 MemberProductRepository memberProductRepository,
                                  @Lazy MemberService memberService,
                                  @Lazy MemberProductController memberProductController,
                                  @Lazy MemberDetailController memberDetailController,
-                                 ObjectMapper objectMapper) {
+                                 ObjectMapper objectMapper,
+                                 @Lazy MemberApprovalService self) {
         this.memberApprovalRequestRepository = memberApprovalRequestRepository;
         this.memberRepository = memberRepository;
+        this.coachRepository = coachRepository;
+        this.memberProductRepository = memberProductRepository;
         this.memberService = memberService;
         this.memberProductController = memberProductController;
         this.memberDetailController = memberDetailController;
         this.objectMapper = objectMapper;
+        this.self = self;
     }
 
     /**
@@ -120,7 +138,7 @@ public class MemberApprovalService {
         if (memberId == null) {
             return Optional.empty();
         }
-        if (memberApprovalRequestRepository.existsByMemberIdAndStatusAndRequestType(
+        if (memberApprovalRequestRepository.existsByMember_IdAndStatusAndRequestType(
                 memberId, MemberApprovalRequest.Status.PENDING, requestType)) {
             logger.debug("승인 요청 이미 존재: memberId={}, type={}", memberId, requestType);
             return Optional.empty();
@@ -186,7 +204,7 @@ public class MemberApprovalService {
         if (memberId == null || approvalPayloadJson == null || approvalPayloadJson.isBlank()) {
             return Optional.empty();
         }
-        if (memberApprovalRequestRepository.existsByMemberIdAndStatusAndRequestType(
+        if (memberApprovalRequestRepository.existsByMember_IdAndStatusAndRequestType(
                 memberId, MemberApprovalRequest.Status.PENDING, MemberApprovalRequest.RequestType.RE_REGISTER)) {
             logger.debug("재등록 승인 요청 이미 존재: memberId={}", memberId);
             return Optional.empty();
@@ -204,6 +222,123 @@ public class MemberApprovalService {
         MemberApprovalRequest saved = memberApprovalRequestRepository.save(r);
         logger.info("재등록/이용권 추가 승인 요청 등록: id={}, memberId={}, by={}", saved.getId(), memberId, requestedBy);
         return Optional.of(saved);
+    }
+
+    /**
+     * 담당 코치 변경 승인 요청 — 회원당 동시에 1건만 대기
+     */
+    @Transactional
+    public Optional<MemberApprovalRequest> createCoachReassignmentPendingIfAbsent(
+            Long memberId,
+            Long newCoachId,
+            Long reassignmentMemberProductId,
+            String requestedBy,
+            String detailSummary) {
+        if (memberId == null || newCoachId == null) {
+            throw new IllegalArgumentException("memberId와 newCoachId가 필요합니다.");
+        }
+        if (reassignmentMemberProductId == null) {
+            throw new IllegalArgumentException("대상 이용권(memberProductId)이 필요합니다.");
+        }
+        if (memberApprovalRequestRepository.existsByMember_IdAndStatusAndRequestType(
+                memberId, MemberApprovalRequest.Status.PENDING, MemberApprovalRequest.RequestType.COACH_REASSIGNMENT)) {
+            logger.debug("코치 변경 승인 요청 이미 존재: memberId={}", memberId);
+            return Optional.empty();
+        }
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new IllegalArgumentException("회원을 찾을 수 없습니다."));
+        MemberProduct mp = memberProductRepository.findByIdAndDeletedAtIsNull(reassignmentMemberProductId)
+                .orElseThrow(() -> new IllegalArgumentException("이용권을 찾을 수 없습니다."));
+        if (!Objects.equals(memberId, mp.getMember().getId())) {
+            throw new IllegalArgumentException("회원과 이용권이 일치하지 않습니다.");
+        }
+        if (mp.getStatus() != MemberProduct.Status.ACTIVE) {
+            throw new IllegalArgumentException("활성 이용권만 담당 코치 변경을 요청할 수 있습니다.");
+        }
+        Long mpCoachId = mp.getCoach() != null ? mp.getCoach().getId() : null;
+        if (Objects.equals(mpCoachId, newCoachId)) {
+            throw new IllegalArgumentException("이미 해당 코치가 이 이용권에 배정되어 있습니다.");
+        }
+        Coach newCoach = coachRepository.findById(newCoachId)
+                .orElseThrow(() -> new IllegalArgumentException("선택한 코치를 찾을 수 없습니다."));
+        String summary = detailSummary;
+        if (summary == null || summary.isBlank()) {
+            String pn = mp.getProduct() != null && mp.getProduct().getName() != null ? mp.getProduct().getName() : "이용권";
+            String nn = newCoach.getName() != null ? newCoach.getName() : ("ID " + newCoachId);
+            summary = "[" + pn + "] 담당 코치 변경 → " + nn;
+        }
+        MemberApprovalRequest r = new MemberApprovalRequest();
+        r.setMember(member);
+        r.setRequestType(MemberApprovalRequest.RequestType.COACH_REASSIGNMENT);
+        r.setStatus(MemberApprovalRequest.Status.PENDING);
+        r.setRequestedBy(requestedBy);
+        r.setRequestedAt(LocalDateTime.now());
+        r.setDetailSummary(summary);
+        r.setReassignmentNewCoachId(newCoachId);
+        r.setReassignmentMemberProductId(reassignmentMemberProductId);
+        MemberApprovalRequest saved = memberApprovalRequestRepository.save(r);
+        logger.info("담당 코치 변경 승인 요청: id={}, memberId={}, memberProductId={}, newCoachId={}, by={}",
+                saved.getId(), memberId, reassignmentMemberProductId, newCoachId, requestedBy);
+        return Optional.of(saved);
+    }
+
+    /**
+     * 담당 코치 변경: 등록(+관리자면 즉시 승인)과 API 응답 맵 생성을 <strong>한 트랜잭션</strong>에서 처리한다.
+     * 컨트롤러에서 create → approve 를 따로 호출하면 커밋/세션 경계 때문에 LazyInitializationException 또는 응답 직렬화 500이 날 수 있다.
+     */
+    @Transactional
+    public Map<String, Object> createCoachReassignmentFlow(
+            long memberId,
+            long newCoachId,
+            long memberProductId,
+            String requestedBy,
+            String detailSummary,
+            boolean adminAutoApprove) {
+        Optional<MemberApprovalRequest> opt = createCoachReassignmentPendingIfAbsent(
+                memberId, newCoachId, memberProductId, requestedBy, detailSummary);
+        Map<String, Object> res = new HashMap<>();
+        res.put("success", true);
+        res.put("created", opt.isPresent());
+        if (opt.isEmpty()) {
+            return res;
+        }
+        MemberApprovalRequest entity = opt.get();
+        if (adminAutoApprove) {
+            entity = self.approve(entity.getId(), requestedBy, detailSummary);
+            res.put("autoApproved", true);
+        }
+        res.put("request", approvalRequestToResponseMap(entity));
+        return res;
+    }
+
+    private static String isoLocalDateTime(LocalDateTime t) {
+        return t == null ? null : t.format(ISO_LDT);
+    }
+
+    /** 동일 영속성 컨텍스트(서비스 트랜잭션) 안에서만 호출 — member LAZY 초기화 안전 */
+    private Map<String, Object> approvalRequestToResponseMap(MemberApprovalRequest r) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("id", r.getId());
+        m.put("requestType", r.getRequestType() != null ? r.getRequestType().name() : null);
+        m.put("status", r.getStatus() != null ? r.getStatus().name() : null);
+        m.put("requestedBy", r.getRequestedBy());
+        m.put("requestedAt", isoLocalDateTime(r.getRequestedAt()));
+        m.put("reviewedBy", r.getReviewedBy());
+        m.put("reviewedAt", isoLocalDateTime(r.getReviewedAt()));
+        m.put("reviewNote", r.getReviewNote());
+        m.put("detailSummary", r.getDetailSummary());
+        m.put("extensionMemberProductId", r.getExtensionMemberProductId());
+        m.put("extensionDays", r.getExtensionDays());
+        m.put("reassignmentNewCoachId", r.getReassignmentNewCoachId());
+        m.put("reassignmentMemberProductId", r.getReassignmentMemberProductId());
+        Member mem = r.getMember();
+        if (mem != null) {
+            m.put("memberId", mem.getId());
+            m.put("memberName", mem.getName());
+            m.put("memberNumber", mem.getMemberNumber());
+            m.put("phoneNumber", mem.getPhoneNumber());
+        }
+        return m;
     }
 
     /**
@@ -287,21 +422,40 @@ public class MemberApprovalService {
 
     @Transactional
     public MemberApprovalRequest approve(Long id, String reviewerUsername, String note) {
-        MemberApprovalRequest r = memberApprovalRequestRepository.findById(id)
+        MemberApprovalRequest r = memberApprovalRequestRepository.findByIdWithMember(id)
                 .orElseThrow(() -> new IllegalArgumentException("승인 요청을 찾을 수 없습니다."));
         if (r.getStatus() != MemberApprovalRequest.Status.PENDING) {
             throw new IllegalStateException("이미 처리된 요청입니다.");
         }
         if (r.getRequestType() == MemberApprovalRequest.RequestType.EXTENSION
                 && r.getExtensionMemberProductId() != null && r.getExtensionDays() != null) {
+            Long extensionMemberProductId = r.getExtensionMemberProductId();
+            boolean targetExists = memberProductRepository.findByIdAndDeletedAtIsNull(extensionMemberProductId).isPresent();
+            if (!targetExists) {
+                throw new IllegalStateException(
+                        "연장 대상 이용권(ID: " + extensionMemberProductId + ")을 찾을 수 없어 승인할 수 없습니다. "
+                                + "요청을 반려한 뒤 회원 화면에서 이용권 추가/재등록으로 다시 요청해 주세요.");
+            }
             ResponseEntity<Map<String, Object>> extRes = memberProductController.applyExtensionAfterApproval(
-                    r.getExtensionMemberProductId(), r.getExtensionDays());
+                    extensionMemberProductId, r.getExtensionDays());
             if (!extRes.getStatusCode().is2xxSuccessful()) {
                 throw new IllegalStateException("이용권 연장 적용에 실패했습니다. HTTP " + extRes.getStatusCode().value());
             }
             Map<String, Object> body = extRes.getBody();
             if (body != null && body.containsKey("error") && body.get("error") != null) {
                 throw new IllegalStateException(String.valueOf(body.get("error")));
+            }
+        }
+        if (r.getRequestType() == MemberApprovalRequest.RequestType.COACH_REASSIGNMENT) {
+            Long nc = r.getReassignmentNewCoachId();
+            if (nc == null) {
+                throw new IllegalStateException("코치 변경 요청에 새 코치가 지정되지 않았습니다.");
+            }
+            Long mpId = r.getReassignmentMemberProductId();
+            if (mpId != null) {
+                memberService.applyCoachReassignmentForMemberProduct(r.getMember().getId(), mpId, nc, reviewerUsername);
+            } else {
+                memberService.applyCoachReassignmentAfterApproval(r.getMember().getId(), nc, reviewerUsername);
             }
         }
         // 신규 가입 건에 합쳐 둔 초기 이용권(approvalPayload JSON 배열) — 활성화 전에 반영
@@ -338,7 +492,7 @@ public class MemberApprovalService {
      */
     @Transactional
     public MemberApprovalRequest reject(Long id, String reviewerUsername, String note) {
-        MemberApprovalRequest r = memberApprovalRequestRepository.findById(id)
+        MemberApprovalRequest r = memberApprovalRequestRepository.findByIdWithMember(id)
                 .orElseThrow(() -> new IllegalArgumentException("승인 요청을 찾을 수 없습니다."));
         if (r.getStatus() != MemberApprovalRequest.Status.PENDING) {
             throw new IllegalStateException("이미 처리된 요청입니다.");

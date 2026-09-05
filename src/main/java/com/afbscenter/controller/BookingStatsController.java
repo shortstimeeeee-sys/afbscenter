@@ -20,9 +20,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -175,15 +177,13 @@ public class BookingStatsController {
             int month = startDate.getMonthValue();
             String monthLabel = year + "년 " + month + "월";
 
-            // 코치별 예약 수: 회원이면 카드 담당 코치, 없으면 예약 배정 코치(통계 칩이 목록 필터와 맞도록)
+            // 코치별 예약 수: common.js App.resolveCoachForCalendarDisplay 와 동일
+            // viewCoachIds 있으면 예약·카드 중 선택 id와 맞는 쪽 우선(배정 먼저); 없으면 예약 배정 코치 우선.
+            java.util.List<Long> vidForAttribution = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
+
             java.util.Map<Long, java.util.Map<String, Object>> coachMap = new java.util.LinkedHashMap<>();
             for (Booking b : bookings) {
-                Coach c = null;
-                if (b.getMember() != null && b.getMember().getCoach() != null) {
-                    c = b.getMember().getCoach();
-                } else {
-                    c = b.getCoach();
-                }
+                Coach c = resolveCoachForByCoachAttribution(b, vidForAttribution);
                 final Long key = c != null ? c.getId() : -1L;
                 final String name = c != null ? c.getName() : "(미배정)";
                 coachMap.computeIfAbsent(key, k -> {
@@ -228,7 +228,9 @@ public class BookingStatsController {
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) String facilityType,
             @RequestParam(required = false) String lessonCategory,
-            @RequestParam(required = false) Long coachId) {
+            @RequestParam(required = false) Long coachId,
+            @RequestParam(required = false) String viewCoachIds,
+            HttpServletRequest request) {
         try {
             LocalDateTime startDate;
             LocalDateTime endDate;
@@ -300,6 +302,48 @@ public class BookingStatsController {
                         .collect(Collectors.toList());
             }
 
+            if (request != null && "COACH".equalsIgnoreCase((String) request.getAttribute("role"))) {
+                List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
+                boolean operational = operationalCoachViewService.isOperationalCoachViewer(request);
+                if (operational) {
+                    if (!viewIds.isEmpty()) {
+                        bookings = bookings.stream()
+                                .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b, viewIds))
+                                .collect(Collectors.toList());
+                    } else {
+                        Optional<Long> coachIdOpt = operationalCoachViewService.resolveCoachIdFromLoggedInUser(request);
+                        if (coachIdOpt.isEmpty()) {
+                            bookings = new ArrayList<>();
+                        } else {
+                            Long myCoachId = coachIdOpt.get();
+                            bookings = bookings.stream()
+                                    .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b,
+                                            java.util.List.of(myCoachId)))
+                                    .collect(Collectors.toList());
+                        }
+                    }
+                } else if (!viewIds.isEmpty()) {
+                    bookings = bookings.stream()
+                            .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b, viewIds))
+                            .collect(Collectors.toList());
+                } else {
+                    Optional<Long> coachIdOpt = operationalCoachViewService.resolveCoachIdFromLoggedInUser(request);
+                    if (coachIdOpt.isEmpty()) {
+                        bookings = new ArrayList<>();
+                    } else {
+                        Long myCoachId = coachIdOpt.get();
+                        bookings = bookings.stream()
+                                .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b,
+                                        java.util.List.of(myCoachId)))
+                                .collect(Collectors.toList());
+                    }
+                }
+            }
+
+            final boolean redactPendingMemberPii = request != null
+                    && "COACH".equalsIgnoreCase((String) request.getAttribute("role"))
+                    && !operationalCoachViewService.isOperationalCoachViewer(request);
+
             List<Map<String, Object>> resultList = new java.util.ArrayList<>();
             for (Booking b : bookings) {
                 Map<String, Object> m = new HashMap<>();
@@ -314,11 +358,21 @@ public class BookingStatsController {
                     m.put("facility", f);
                 }
                 if (b.getMember() != null) {
-                    m.put("memberName", b.getMember().getName());
-                    m.put("memberNumber", b.getMember().getMemberNumber());
+                    if (redactPendingMemberPii) {
+                        m.put("memberName", "");
+                        m.put("memberNumber", null);
+                    } else {
+                        m.put("memberName", b.getMember().getName());
+                        m.put("memberNumber", b.getMember().getMemberNumber());
+                    }
                 } else {
-                    m.put("memberName", b.getNonMemberName() != null ? b.getNonMemberName() : "-");
-                    m.put("memberNumber", null);
+                    if (redactPendingMemberPii) {
+                        m.put("memberName", "비회원");
+                        m.put("memberNumber", null);
+                    } else {
+                        m.put("memberName", b.getNonMemberName() != null ? b.getNonMemberName() : "-");
+                        m.put("memberNumber", null);
+                    }
                 }
                 if (b.getCoach() != null) {
                     m.put("coachId", b.getCoach().getId());
@@ -645,5 +699,36 @@ public class BookingStatsController {
             logger.error("이용권 미연결 예약 목록 조회 실패", e);
             return ResponseEntity.status(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    /**
+     * {@code common.js} 의 {@code App.resolveCoachForCalendarDisplay} 와 동일한 우선순위로
+     * 통계 칩(byCoach)에 묶일 코치를 고른다.
+     *
+     * @param operationalViewIds 운영 모달 {@code viewCoachIds}; 비어 있으면 예약 배정 코치 우선(일반).
+     */
+    private static Coach resolveCoachForByCoachAttribution(Booking b, java.util.List<Long> operationalViewIds) {
+        if (b == null) {
+            return null;
+        }
+        if (operationalViewIds != null && !operationalViewIds.isEmpty()) {
+            Coach bCoach = b.getCoach();
+            Coach mCoach = b.getMember() != null ? b.getMember().getCoach() : null;
+            java.util.Set<Long> want = new java.util.HashSet<>(operationalViewIds);
+            if (bCoach != null && bCoach.getId() != null && want.contains(bCoach.getId())) {
+                return bCoach;
+            }
+            if (mCoach != null && mCoach.getId() != null && want.contains(mCoach.getId())) {
+                return mCoach;
+            }
+            return bCoach != null ? bCoach : mCoach;
+        }
+        if (b.getCoach() != null) {
+            return b.getCoach();
+        }
+        if (b.getMember() != null && b.getMember().getCoach() != null) {
+            return b.getMember().getCoach();
+        }
+        return null;
     }
 }

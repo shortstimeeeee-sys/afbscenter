@@ -62,6 +62,8 @@ body.coaches-page .topbar {
 }
 .coaches-stats-item--total { border-left: 4px solid var(--accent-primary); background: rgba(94, 106, 210, 0.08); }
 .coaches-stats-item--total .coaches-stats-item-value { font-size: 1.35rem; font-weight: 700; color: var(--accent-primary); }
+.coaches-stats-item--manager { border-left: 4px solid #607D8B; background: rgba(96, 125, 139, 0.08); }
+.coaches-stats-item--manager .coaches-stats-item-value { color: #607D8B; }
 .coaches-stats-item--baseball { border-left: 4px solid #6E7AE8; background: rgba(94, 106, 210, 0.08); }
 .coaches-stats-item--baseball .coaches-stats-item-value { color: #6E7AE8; }
 .coaches-stats-item--pilates { border-left: 4px solid #5DADE2; background: rgba(52, 152, 219, 0.08); }
@@ -74,6 +76,11 @@ body.coaches-page .topbar {
 .coaches-stats-item--rental .coaches-stats-item-value { color: #9B59B6; }
 
 /* 코치 목록 테이블 - 담당 종목: 셀 테두리/배경 + 항목별 글자색 */
+.coaches-page .table td.coach-specialty--manager {
+    border-left: 4px solid #607D8B;
+    background: rgba(96, 125, 139, 0.1);
+    font-weight: 500;
+}
 .coaches-page .table td.coach-specialty--baseball {
     border-left: 4px solid #6E7AE8;
     background: rgba(94, 106, 210, 0.1);
@@ -95,6 +102,7 @@ body.coaches-page .topbar {
     font-weight: 500;
 }
 .coaches-page .table td.coach-specialty-cell .spec-item { font-weight: 500; }
+.coaches-page .table td.coach-specialty-cell .spec-color--manager { color: #607D8B; }
 .coaches-page .table td.coach-specialty-cell .spec-color--baseball { color: #6E7AE8; }
 .coaches-page .table td.coach-specialty-cell .spec-color--youth { color: #84cc16; }
 .coaches-page .table td.coach-specialty-cell .spec-color--training { color: #2ECC71; }
@@ -109,11 +117,13 @@ body.coaches-page .topbar {
 
 /* 통계 클릭 모달: 코치 목록 고유색 (이름·담당 종목·배정 지점) */
 #stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-item { font-weight: 500; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--manager { color: #607D8B; }
 #stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--baseball { color: #6E7AE8; }
 #stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--youth { color: #84cc16; }
 #stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--training { color: #2ECC71; }
 #stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--pilates { color: #5DADE2; }
 #stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty-cell .spec-color--rental { color: #9B59B6; }
+#stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--manager { border-left: none; background: rgba(96, 125, 139, 0.1); font-weight: 500; }
 #stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--baseball { border-left: none; background: rgba(94, 106, 210, 0.1); font-weight: 500; }
 #stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--pilates { border-left: none; background: rgba(52, 152, 219, 0.1); font-weight: 500; }
 #stats-coaches-modal .stats-coaches-modal-table .table td.coach-specialty--training { border-left: none; background: rgba(46, 204, 113, 0.1); font-weight: 500; }

@@ -56,6 +56,11 @@ public class Coach {
     @Column(name = "user_id")
     private Long userId; // 연결된 사용자 계정 ID (User 테이블 참조)
 
+    /** 코치 고유색 (#RRGGBB). 예약 달력·목록 표시용. null이면 서버에서 미사용 색 자동 할당 */
+    @Size(max = 20, message = "색상은 20자 이하여야 합니다")
+    @Column(name = "color", length = 20)
+    private String color;
+
     @Column(nullable = false)
     private Boolean active = true;
 }

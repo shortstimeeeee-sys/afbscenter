@@ -911,7 +911,12 @@ public class MemberController {
             return ResponseEntity.ok(memberMap);
         } catch (IllegalArgumentException e) {
             logger.warn("회원 수정 실패: {}", e.getMessage(), e);
-            return ResponseEntity.notFound().build();
+            if (e.getMessage() != null && e.getMessage().contains("회원을 찾을 수 없습니다")) {
+                return ResponseEntity.notFound().build();
+            }
+            Map<String, Object> err = new HashMap<>();
+            err.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(err);
         } catch (Exception e) {
             logger.error("회원 수정 중 오류 발생. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();

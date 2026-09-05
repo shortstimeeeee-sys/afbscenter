@@ -52,4 +52,8 @@ public class FacilitySlot {
     /** 해당 요일에 운영 여부. false면 예약 불가 */
     @Column(name = "is_open", nullable = false)
     private Boolean isOpen = true;
+
+    /** 레거시 DB 호환: 일부 스키마에 NOT NULL 로 남아 있는 컬럼 */
+    @Column(name = "available", nullable = false)
+    private Boolean available = true;
 }

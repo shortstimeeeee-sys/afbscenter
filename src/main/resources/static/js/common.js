@@ -162,7 +162,10 @@ App.clearAuth = function() {
     this.currentRole = null;
     localStorage.removeItem('authToken');
     localStorage.removeItem('currentUser');
-    window.location.href = '/login.html';
+    // 로그인·공개 페이지에서는 리다이렉트하지 않음 (401 프리로드 등으로 무한 새로고침 방지)
+    if (!isLoginPagePath()) {
+        window.location.href = '/login.html';
+    }
 };
 
 App.isAuthenticated = function() {
@@ -221,12 +224,25 @@ App.getAuthHeaders = function() {
 
 // 401 발생 시 공통 처리: 인증 제거, 알림, 로그인 페이지로 이동
 App.handle401 = function() {
+    // 이미 로그인/공개 페이지면 토큰만 정리하고 리다이렉트·알림 생략 (무한 새로고침 방지)
+    if (isLoginPagePath()) {
+        this.authToken = null;
+        this.currentUser = null;
+        this.currentRole = null;
+        try {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('currentUser');
+        } catch (e) { /* ignore */ }
+        return;
+    }
     App.clearAuth();
     if (typeof App.showNotification === 'function') {
         App.showNotification('로그인 세션이 만료되었습니다. 다시 로그인해 주세요.', 'info');
     }
     setTimeout(function() {
-        window.location.href = '/login.html';
+        if (!isLoginPagePath()) {
+            window.location.href = '/login.html';
+        }
     }, 600);
 };
 
@@ -342,9 +358,9 @@ const menuPermissionMap = {
 App._coachCalendarNameVisible = undefined;
 
 /**
- * 코치 로그인 시 페이지별로 이름 표시 여부 캐시.
- * - allowedCoaches에 로그인 사용자 이름(User.name)이 있으면 해당 캘린더에서 실명 표시
- * - 없으면 코치 프로필의 availableBranches에 페이지 branch(예: SAHA, RENTAL)가 포함될 때만 실명 표시
+ * 코치 로그인 시 예약 캘린더·목록에서 회원 실명 표시 여부.
+ * - 일반 코치: 항상 숨김(시간·코치만 — GET /bookings 에서도 비식별 처리).
+ * - 운영형 코치(서정훈/서정민 등, 서버 operationalCoachView·이름 매칭): 실명 표시.
  */
 App.refreshCoachBookingNameVisibilityCache = async function() {
     App._coachCalendarNameVisible = undefined;
@@ -352,37 +368,37 @@ App.refreshCoachBookingNameVisibilityCache = async function() {
         App._coachCalendarNameVisible = true;
         return true;
     }
-    var cfg = typeof window !== 'undefined' ? (window.BOOKING_PAGE_CONFIG || {}) : {};
-    var myName = (App.currentUser && App.currentUser.name) ? String(App.currentUser.name).trim() : '';
-    var allowed = cfg.allowedCoaches;
-    if (Array.isArray(allowed) && allowed.length > 0) {
-        var ok = myName && allowed.some(function(n) { return String(n).trim() === myName; });
-        App._coachCalendarNameVisible = ok;
-        return ok;
+    if (typeof App.isOperationalCoachViewer === 'function' && App.isOperationalCoachViewer()) {
+        App._coachCalendarNameVisible = true;
+        return true;
     }
-    try {
-        var uid = App.currentUser && App.currentUser.id;
-        if (!uid) {
-            App._coachCalendarNameVisible = false;
-            return false;
-        }
-        var coach = await App.api.get('/coaches/by-user/' + uid);
-        var branches = (coach && coach.availableBranches)
-            ? String(coach.availableBranches).split(',').map(function(s) { return s.trim().toUpperCase(); }).filter(Boolean)
-            : [];
-        var br = (cfg.branch || '').toUpperCase();
-        var ok = !!(br && branches.indexOf(br) !== -1);
-        App._coachCalendarNameVisible = ok;
-        return ok;
-    } catch (e) {
-        App._coachCalendarNameVisible = false;
-        return false;
-    }
+    App._coachCalendarNameVisible = false;
+    return false;
 };
 
 App.shouldShowMemberNameOnBookingCalendar = function() {
     if ((App.currentRole || '').toUpperCase() !== 'COACH') return true;
     return App._coachCalendarNameVisible === true;
+};
+
+/**
+ * 캘린더 예약 모달의 담당 코치 선택: 관리자(ADMIN)만 변경 가능. 그 외 역할은 값만 표시.
+ */
+App.applyBookingCoachEditPolicy = function() {
+    var isAdmin = (App.currentRole || '').toUpperCase() === 'ADMIN';
+    var hint = '담당 코치 변경은 관리자만 가능합니다.';
+    ['booking-coach', 'booking-coach-nonmember'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (!el) {
+            return;
+        }
+        el.disabled = !isAdmin;
+        el.title = isAdmin ? '' : hint;
+    });
+    var grp = document.getElementById('coach-group');
+    if (grp) {
+        grp.classList.toggle('booking-coach-readonly', !isAdmin);
+    }
 };
 
 /** 예약 한 건 기준 표시용 이름 (코치·타 캘린더일 때 마스킹) — 회원은 빈 문자열(달력에서는 시간만), 비회원만 '비회원' */
@@ -527,7 +543,7 @@ App.isOperationalCoachViewer = function() {
     }
     var n = (u.name || '').trim();
     var base = n.replace(/\s*\[[^\]]+\]\s*$/, '').trim();
-    return n === '서정훈' || base === '서정훈';
+    return n === '서정훈' || base === '서정훈' || n === '서정민' || base === '서정민';
 };
 
 /** 서버와 operationalCoachView 동기화 — 오래된 localStorage 복원 시 필수 */
@@ -566,7 +582,7 @@ App.appendViewCoachIdsToUrl = function(url) {
     if (url.indexOf('/member-products') === 0 || url.indexOf('/memberships') === 0) {
         return url;
     }
-    if (url.startsWith('/bookings/non-members') || url.startsWith('/bookings/pending')) {
+    if (url.startsWith('/bookings/non-members')) {
         return url;
     }
     // 모달에서 선택한 코치 id는 sessionStorage에만 의존. localStorage 역할 문자열과 JWT 불일치 시 COACH만 보던 기존 로직 때문에 viewCoachIds가 빠지는 문제가 있었음 → 붙이기만 하고, 실제 필터는 서버가 COACH 요청에만 적용
@@ -611,8 +627,26 @@ App.isOperationalViewCoachFilterActive = function() {
     }
 };
 
+/** 운영 모달에서 체크한 코치 id 목록(sessionStorage JSON → 정규화된 문자열 id 배열). */
+App.getOperationalViewCoachIdsNormalized = function() {
+    try {
+        var raw = sessionStorage.getItem(App.OPERATIONAL_VIEW_COACH_IDS_KEY);
+        var ids = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(ids)) {
+            return [];
+        }
+        return ids.map(function(id) {
+            return id != null ? String(id).trim() : '';
+        }).filter(function(s) {
+            return s.length > 0;
+        });
+    } catch (e2) {
+        return [];
+    }
+};
+
 /**
- * 일별 스케줄·내보내기 코치 필터: 회원이면 담당 코치 id, 담당 없으면 예약 코치. 비회원이면 예약 코치.
+ * 일별 스케줄·보내기 코치 필터: 회원이면 담당 코치 id, 담당 없으면 예약 코치. 비회원이면 예약 코치.
  */
 App.getBookingRelatedCoachIds = function(booking) {
     if (!booking) {
@@ -645,21 +679,44 @@ App.getBookingRelatedCoachIds = function(booking) {
 };
 
 /**
- * 캘린더·목록 색/라벨: 예약 배정 코치 우선, 없으면 회원 담당 코치.
- * 운영 코치 모달에서 담당 코치만 볼 때(GET /bookings·회원 카드 담당 기준)는 서버와 동일하게
- * 회원이면 담당 코치를 먼저 쓴다. 그렇지 않으면 대표 담당인데 예약 배정만 다른 코치인 경우
- * 필터는 서정민인데 칸·목록은 다른 코치로 보이는 불일치가 난다.
+ * 캘린더·목록 색/라벨: 기본은 예약 배정 코치 우선, 없으면 회원 카드 담당.
+ * 운영 모달(viewCoachIds) 사용 시 서버는 "카드 담당 OR 예약 배정"으로 걸러 주므로,
+ * 표시도 선택한 코치 id와 맞는 쪽을 우선한다. 예전에는 항상 카드 담당만 써서
+ * "공인욱만 선택했는데 칸에는 다른 담당 코치"처럼 보이는 불일치가 났다.
  */
 App.resolveCoachForCalendarDisplay = function(booking) {
     if (!booking) {
         return null;
     }
+    var bCoach = booking.coach || null;
+    var mCoach = booking.member && booking.member.coach ? booking.member.coach : null;
     if (typeof App.isOperationalViewCoachFilterActive === 'function' && App.isOperationalViewCoachFilterActive()) {
-        if (booking.member && booking.member.coach) {
-            return booking.member.coach;
+        var viewList = typeof App.getOperationalViewCoachIdsNormalized === 'function'
+            ? App.getOperationalViewCoachIdsNormalized()
+            : [];
+        if (viewList.length > 0) {
+            function inView(coach) {
+                if (!coach || coach.id == null) {
+                    return false;
+                }
+                var cid = String(coach.id);
+                var i;
+                for (i = 0; i < viewList.length; i++) {
+                    if (viewList[i] === cid) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            if (inView(bCoach)) {
+                return bCoach;
+            }
+            if (inView(mCoach)) {
+                return mCoach;
+            }
         }
     }
-    return booking.coach || (booking.member && booking.member.coach) || null;
+    return bCoach || mCoach || null;
 };
 
 /** 범례/통계 코치 칩 필터(Set)에 id가 포함되는지 — Set에 숫자/문자열이 섞여도 매칭 */
@@ -691,23 +748,91 @@ App.calendarCoachIdInFilterSet = function(filterSet, coachIdOrUnassigned) {
     return filterSet.has(coachIdOrUnassigned);
 };
 
+/**
+ * 캘린더·목록·통계 칩 코치 필터.
+ * 칸 스트라이프 색(레슨 배정 → 없으면 회원 카드 담당)과 같은 "한 명"만 본다.
+ * 예전 OR(담당·배정 중 하나만 맞으면 통과)이면 서정민만 골라도 레슨이 다른 코치인 예약이 남아 다른 색이 섞여 보였음.
+ */
+App.bookingMatchesLegendCoachFilterSet = function(booking, filterSet) {
+    if (!filterSet || filterSet.size === 0) {
+        return true;
+    }
+    if (!booking) {
+        return false;
+    }
+    var stripeId = null;
+    if (booking.coach && booking.coach.id != null) {
+        stripeId = booking.coach.id;
+    } else if (booking.member && booking.member.coach && booking.member.coach.id != null) {
+        stripeId = booking.member.coach.id;
+    }
+    if (stripeId == null) {
+        return typeof App.calendarCoachIdInFilterSet === 'function'
+            ? App.calendarCoachIdInFilterSet(filterSet, 'unassigned')
+            : filterSet.has('unassigned');
+    }
+    return typeof App.calendarCoachIdInFilterSet === 'function'
+        ? App.calendarCoachIdInFilterSet(filterSet, stripeId)
+        : filterSet.has(stripeId);
+};
+
+/**
+ * 범례·드롭다운에서 코치 id를 Set에 넣을 때 숫자/문자열이 섞이면 filterSet.has()·삭제 토글이 어긋난다.
+ * 항상 숫자(또는 'unassigned')로 맞춘다.
+ */
+App.normalizeCalendarCoachFilterKey = function(raw) {
+    if (raw === 'unassigned' || raw === null || raw === undefined || raw === '') {
+        return 'unassigned';
+    }
+    if (String(raw).trim() === 'unassigned') {
+        return 'unassigned';
+    }
+    var n = Number(raw);
+    if (!isNaN(n) && isFinite(n)) {
+        return n;
+    }
+    return raw;
+};
+
+/** 기존 Set 내용을 정규화(제자리). */
+App.normalizeCalendarFilterCoachIdsSet = function(set) {
+    if (!set || set.size === 0 || typeof App.normalizeCalendarCoachFilterKey !== 'function') {
+        return;
+    }
+    var keys = Array.from(set).map(function(k) {
+        return App.normalizeCalendarCoachFilterKey(k);
+    });
+    set.clear();
+    keys.forEach(function(k) {
+        set.add(k);
+    });
+};
+
 App.refreshOperationalCoachDependentViews = function() {
-    try {
-        if (typeof window !== 'undefined' && window.calendarFilterCoachIds && typeof window.calendarFilterCoachIds.clear === 'function') {
-            window.calendarFilterCoachIds.clear();
-        }
-    } catch (e) {}
+    // 예전에는 여기서 calendarFilterCoachIds 를 비웠는데, 운영 코치 체크만 바꿔도 범례 필터가 통째로 풀려
+    // "캘린더 필터가 안 먹는다"로 느껴짐. 서버 viewCoachIds 와 범례 이중 필터는 사용자가 범례 해제로 조정.
     try {
         document.dispatchEvent(new CustomEvent('afbs-operational-coach-filter-changed'));
     } catch (e) {}
 };
 
 /**
+ * 코치 "그룹"이 코드에 여러 층으로 나뉘어 있음 (필터가 헷갈리지 않게 한곳에서 정리):
+ *
+ * 1) DB(코치/레슨 관리): availableBranches = 어느 지점 예약·캘린더에 올릴지. specialties + 이름 접미사([코치] 등).
+ * 2) API: GET /coaches?branch=SAHA|YEONSAN|RENTAL → 지점 배정만 서버에서 걸러짐.
+ * 3) 예약 페이지 범례·예약 모달: `App.filterCoachesForBookingCalendar` 로 페이지 종목(야구/유소년/트레이닝)에 맞게 한 번 더 필터.
+ * 4) 운영(서정훈) 계정 모달: `App.categorizeCoachBySubject` 로 종목별 섹션(야구/필라테스…) 표시 — 표시용 그룹.
+ * 5) BOOKING_PAGE_CONFIG.allowedCoaches: 레거시. 실명 표시는 운영형 코치 여부(`App.isOperationalCoachViewer`·서버 플래그)로 통일됨.
+ *
  * 조직도(org chart)와 동일 규칙: specialties·이름 기준 종목 키
- * RENTAL | BASEBALL | YOUTH | TRAINING | PILATES | OTHER
+ * MANAGER | RENTAL | BASEBALL | YOUTH | TRAINING | PILATES | OTHER
  */
 App.categorizeCoachBySubject = function(coach) {
     var spec = ((coach && coach.specialties) ? coach.specialties : '') + ' ' + ((coach && coach.name) ? coach.name : '');
+    if (/매니저|\[매니저\]/.test(spec)) {
+        return 'MANAGER';
+    }
     if (/대관|\[대관담당\]/.test(spec)) {
         return 'RENTAL';
     }
@@ -724,6 +849,53 @@ App.categorizeCoachBySubject = function(coach) {
         return 'BASEBALL';
     }
     return 'OTHER';
+};
+
+/**
+ * 예약 캘린더 범례·예약 등록 시 코치 드롭다운에 넣을 사람만 남김.
+ * 예전에는 specialties 문자열만 봐서, 이름만 "○○ [코치]"이고 담당 종목에 '야구' 글자가 없으면 범례에서 빠지는 경우가 있었음.
+ */
+App.filterCoachesForBookingCalendar = function(coaches, config) {
+    config = config || {};
+    var list = Array.isArray(coaches)
+        ? coaches.filter(function(c) {
+            return c && c.active !== false;
+        })
+        : [];
+    var lessonCategory = config.lessonCategory;
+    var facilityType = config.facilityType;
+    var combined = function(c) {
+        return ((c.specialties || '') + ' ' + (c.name || '')).toLowerCase();
+    };
+    var hasToken = function(c, keys) {
+        var t = combined(c);
+        for (var i = 0; i < keys.length; i++) {
+            if (t.indexOf(String(keys[i]).toLowerCase()) !== -1) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if (lessonCategory === 'YOUTH_BASEBALL') {
+        return list.filter(function(c) {
+            return hasToken(c, ['유소년', '야구']);
+        });
+    }
+    if (facilityType === 'BASEBALL') {
+        return list.filter(function(c) {
+            if (typeof App.categorizeCoachBySubject === 'function' && App.categorizeCoachBySubject(c) === 'BASEBALL') {
+                return true;
+            }
+            return hasToken(c, ['야구', '타격', '투구', '수비', '포수', '투수', '코치', '대표', '포수코치', '투수코치', '비야구인']);
+        });
+    }
+    if (facilityType === 'TRAINING_FITNESS') {
+        return list.filter(function(c) {
+            var cat = typeof App.categorizeCoachBySubject === 'function' ? App.categorizeCoachBySubject(c) : 'OTHER';
+            return cat === 'TRAINING' || cat === 'PILATES';
+        });
+    }
+    return list;
 };
 
 /** 운영 코치 필터 UI — 사용자 정보 모달의 host 요소 안에만 삽입 */
@@ -757,8 +929,9 @@ App.mountOperationalCoachFilterBar = function(hostEl) {
         coaches.sort(function(a, b) {
             return String(a.name || '').localeCompare(String(b.name || ''), 'ko');
         });
-        var subjectOrder = ['RENTAL', 'BASEBALL', 'YOUTH', 'TRAINING', 'PILATES', 'OTHER'];
+        var subjectOrder = ['MANAGER', 'RENTAL', 'BASEBALL', 'YOUTH', 'TRAINING', 'PILATES', 'OTHER'];
         var subjectLabels = {
+            MANAGER: '매니저',
             RENTAL: '대관',
             BASEBALL: '야구',
             YOUTH: '유소년',
@@ -766,7 +939,7 @@ App.mountOperationalCoachFilterBar = function(hostEl) {
             PILATES: '필라테스',
             OTHER: '기타'
         };
-        var buckets = { RENTAL: [], BASEBALL: [], YOUTH: [], TRAINING: [], PILATES: [], OTHER: [] };
+        var buckets = { MANAGER: [], RENTAL: [], BASEBALL: [], YOUTH: [], TRAINING: [], PILATES: [], OTHER: [] };
         coaches.forEach(function(c) {
             var k = App.categorizeCoachBySubject(c);
             if (buckets[k]) {
@@ -822,7 +995,11 @@ App.mountOperationalCoachFilterBar = function(hostEl) {
         if (!sectionsHtml) {
             sectionsHtml = '<div class="ocb-section"><span class="ocb-empty">등록된 코치가 없습니다.</span></div>';
         }
-        bar.innerHTML = sectionsHtml;
+        bar.innerHTML =
+            '<p class="ocb-hint" style="margin:0 0 10px 0;font-size:12px;color:var(--text-muted);line-height:1.45;">' +
+            '섹션(야구·필라테스 등)은 <strong>이름·담당 종목</strong>으로 자동 분류됩니다. 예약 목록은 체크한 코치와 연결된 건만 보입니다 ' +
+            '(회원 카드 담당 또는 그날 예약 배정 코치).</p>' +
+            sectionsHtml;
 
         function persistFromDom() {
             var boxes = bar.querySelectorAll('.ocb-coach-cb:checked');
@@ -898,7 +1075,16 @@ App.api = {
                 error.response = { status: response.status, data: data };
                 throw error;
             }
-            return await response.json();
+            const json = await response.json();
+            if (App.CoachColors && typeof App.CoachColors.registerFromCoaches === 'function') {
+                var pathOnly = String(reqUrl || url || '').split('?')[0];
+                if (pathOnly === '/coaches' || pathOnly === '/coaches/active') {
+                    App.CoachColors.registerFromCoaches(json);
+                } else if (/^\/coaches\/\d+$/.test(pathOnly) && json && json.color) {
+                    App.CoachColors.registerFromCoaches([json]);
+                }
+            }
+            return json;
         } catch (error) {
             App.err('API GET Error:', error);
             throw error;
@@ -1379,38 +1565,116 @@ App.isActiveCountPassExhaustedForGrace = function(mp) {
 };
 
 /**
+ * API·Jackson이 LocalDateTime/LocalDate를 배열·객체로 줄 때 new Date()가 Invalid가 되는 경우 보정
+ */
+App.parseFlexibleDate = function(val) {
+    if (val == null || val === '') {
+        return null;
+    }
+    if (typeof val === 'number' && !isNaN(val)) {
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? null : d;
+    }
+    if (Array.isArray(val) && val.length >= 3) {
+        var y = Number(val[0]);
+        var mo = Number(val[1]);
+        var day = Number(val[2]);
+        var h = val.length > 3 ? Number(val[3]) : 0;
+        var mi = val.length > 4 ? Number(val[4]) : 0;
+        var s = val.length > 5 ? Number(val[5]) : 0;
+        if (mo >= 1 && mo <= 12) {
+            mo = mo - 1;
+        }
+        var dArr = new Date(y, mo, day, h, mi, s);
+        return isNaN(dArr.getTime()) ? null : dArr;
+    }
+    if (typeof val === 'object' && val !== null && (val.year != null || val.year === 0)) {
+        try {
+            var y2 = Number(val.year);
+            var mo2 = Number(val.monthValue != null ? val.monthValue : val.month) - 1;
+            var day2 = Number(val.dayOfMonth != null ? val.dayOfMonth : val.day);
+            var dObj = new Date(y2, mo2, day2);
+            return isNaN(dObj.getTime()) ? null : dObj;
+        } catch (e) {
+            return null;
+        }
+    }
+    var dStr = new Date(val);
+    return isNaN(dStr.getTime()) ? null : dStr;
+};
+
+/**
  * 종료(소진/만료) 이용권의 UI 기준 시각 — 회원 목록「만료」배지와 상세「전부 소진」행을 같은 3일 규칙으로 맞춤.
- * (MemberResponseDTO·/api/member-products 공통: endedAt 우선, EXPIRED만 expiryDate 보조)
- * ACTIVE·횟수권·잔여0: endedAt 없으면 만료일 → 구매일 순으로 유예 기준 시각.
+ * endedAt 우선.
+ * ※ 횟수만 소진·유효기간(만료일)은 아직 미래인 경우, 만료일을 종료 시각으로 쓰면 (now-end)이 음수가 되어 3일 숨김이 영원히 동작하지 않는다 → 구매일 우선.
  */
 App.resolveMemberProductEndedAtForGrace = function(mp) {
     if (!mp) {
         return null;
     }
     if (mp.endedAt) {
-        const d = new Date(mp.endedAt);
-        return isNaN(d.getTime()) ? null : d;
+        const d = App.parseFlexibleDate(mp.endedAt);
+        return d;
+    }
+    function expiryOnOrBeforeToday(expiryVal) {
+        if (!expiryVal) {
+            return false;
+        }
+        const e = App.parseFlexibleDate(expiryVal);
+        if (!e) {
+            return false;
+        }
+        const endOfDay = new Date(e);
+        endOfDay.setHours(23, 59, 59, 999);
+        return endOfDay.getTime() <= Date.now();
     }
     const st = mp.status && String(mp.status).toUpperCase();
-    if (st === 'EXPIRED' && mp.expiryDate) {
-        const d2 = new Date(mp.expiryDate);
-        return isNaN(d2.getTime()) ? null : d2;
-    }
-    if (typeof App.isActiveCountPassExhaustedForGrace === 'function' && App.isActiveCountPassExhaustedForGrace(mp)) {
-        if (mp.expiryDate) {
-            const d3 = new Date(mp.expiryDate);
-            return isNaN(d3.getTime()) ? null : d3;
+    if (st === 'EXPIRED') {
+        if (mp.expiryDate && expiryOnOrBeforeToday(mp.expiryDate)) {
+            return App.parseFlexibleDate(mp.expiryDate);
         }
         if (mp.purchaseDate) {
-            const d4 = new Date(mp.purchaseDate);
-            return isNaN(d4.getTime()) ? null : d4;
+            return App.parseFlexibleDate(mp.purchaseDate);
         }
+        if (mp.expiryDate) {
+            return App.parseFlexibleDate(mp.expiryDate);
+        }
+        return null;
+    }
+    if (st === 'USED_UP') {
+        if (mp.expiryDate && expiryOnOrBeforeToday(mp.expiryDate)) {
+            return App.parseFlexibleDate(mp.expiryDate);
+        }
+        if (mp.purchaseDate) {
+            return App.parseFlexibleDate(mp.purchaseDate);
+        }
+        if (mp.expiryDate) {
+            return App.parseFlexibleDate(mp.expiryDate);
+        }
+        return null;
+    }
+    if (typeof App.isActiveCountPassExhaustedForGrace === 'function' && App.isActiveCountPassExhaustedForGrace(mp)) {
+        if (mp.expiryDate && expiryOnOrBeforeToday(mp.expiryDate)) {
+            return App.parseFlexibleDate(mp.expiryDate);
+        }
+        if (mp.purchaseDate) {
+            return App.parseFlexibleDate(mp.purchaseDate);
+        }
+        return null;
     }
     return null;
 };
 
-/** endedAt·만료일·구매일 기준 3일이 지난 종료 행은 목록에서 제거(USED_UP/EXPIRED 및 ACTIVE·횟수권·잔여0 = 전부 소진) */
-App.filterEndedMemberProductsPastGraceDays = function(rows) {
+/**
+ * endedAt·만료일·구매일 기준 3일이 지난 종료 행을 목록에서 제거.
+ * @param {Array} rows
+ * @param {Object} [options]
+ * @param {boolean} [options.includeActiveExhaustedInGrace] true: 회원 목록 상품/이용권 열 전용 — DB가 ACTIVE인 횟수권 잔여 0(전부 소진)도 USED_UP과 같이 3일 후 숨김.
+ *   false/미지정: USED_UP·EXPIRED만 (회원 상세 이용권 탭은 applyEndedGraceFilter false로 이 경로를 타지 않음)
+ */
+App.filterEndedMemberProductsPastGraceDays = function(rows, options) {
+    options = options || {};
+    const includeActiveExhaustedInGrace = options.includeActiveExhaustedInGrace === true;
     if (!rows || rows.length === 0) {
         return rows || [];
     }
@@ -1418,18 +1682,103 @@ App.filterEndedMemberProductsPastGraceDays = function(rows) {
     const now = Date.now();
     return rows.filter(function(p) {
         const st = p && p.status ? String(p.status).toUpperCase() : '';
-        const inGraceWindow =
-            st === 'USED_UP' ||
-            st === 'EXPIRED' ||
-            (typeof App.isActiveCountPassExhaustedForGrace === 'function' && App.isActiveCountPassExhaustedForGrace(p));
+        let inGraceWindow = st === 'USED_UP' || st === 'EXPIRED';
+        if (includeActiveExhaustedInGrace && typeof App.isActiveCountPassExhaustedForGrace === 'function' && App.isActiveCountPassExhaustedForGrace(p)) {
+            inGraceWindow = true;
+        }
         if (!inGraceWindow) {
             return true;
         }
         const end = App.resolveMemberProductEndedAtForGrace(p);
         if (!end) {
+            // 종료 시각을 못 잡으면(날짜 파싱 실패 등) 목록에서 영원히 남지 않게 제거. 상세 이용권 탭은 이 필터를 쓰지 않음.
+            if (includeActiveExhaustedInGrace) {
+                return false;
+            }
             return true;
         }
         return (now - end.getTime()) <= GRACE_MS;
+    });
+};
+
+/**
+ * 이용권 목록: 잔여가 남은 행을 위로(잔여 많은 순), 소진·만료 등은 아래로.
+ * renderProductsList·연장 선택·회원 정보 패널 등에서 공통 사용.
+ */
+App.sortMemberProductsRemainingFirst = function(rows) {
+    if (!rows || rows.length < 2) {
+        return rows ? rows.slice() : [];
+    }
+    function packageRemainingSum(p) {
+        if (!p || !p.packageItemsRemaining) {
+            return null;
+        }
+        try {
+            const pkg = JSON.parse(p.packageItemsRemaining);
+            if (!Array.isArray(pkg) || pkg.length === 0) {
+                return null;
+            }
+            return pkg.reduce(function(s, it) {
+                return s + (Number(it && it.remaining) || 0);
+            }, 0);
+        } catch (e) {
+            return null;
+        }
+    }
+    function hasUsableRemaining(p) {
+        if (!p) {
+            return false;
+        }
+        const st = String(p.status || '').toUpperCase();
+        const pkgSum = packageRemainingSum(p);
+        if (pkgSum !== null) {
+            return pkgSum > 0;
+        }
+        if (st === 'USED_UP' || st === 'EXPIRED') {
+            return false;
+        }
+        if (st === 'INACTIVE') {
+            return false;
+        }
+        const product = p.product || {};
+        const pt = product.type;
+        if (pt === 'COUNT_PASS') {
+            if (typeof App.isActiveCountPassExhaustedForGrace === 'function' && App.isActiveCountPassExhaustedForGrace(p)) {
+                return false;
+            }
+            const rem = App.resolveDisplayRemainingCount
+                ? App.resolveDisplayRemainingCount(p, { whenAllUnknown: 'zero' })
+                : 0;
+            return rem > 0;
+        }
+        if (pt === 'MONTHLY_PASS' || pt === 'TIME_PASS') {
+            return st === 'ACTIVE';
+        }
+        return st === 'ACTIVE';
+    }
+    function sortKeyDescending(p) {
+        const pkgSum = packageRemainingSum(p);
+        if (pkgSum !== null) {
+            return pkgSum;
+        }
+        if (App.resolveDisplayRemainingCount) {
+            return App.resolveDisplayRemainingCount(p, { whenAllUnknown: 'zero' });
+        }
+        const rc = p && p.remainingCount;
+        return rc != null ? Number(rc) : 0;
+    }
+    return rows.slice().sort(function(a, b) {
+        const ua = hasUsableRemaining(a);
+        const ub = hasUsableRemaining(b);
+        if (ua !== ub) {
+            return ua ? -1 : 1;
+        }
+        if (ua) {
+            return sortKeyDescending(b) - sortKeyDescending(a);
+        }
+        const ida = Number(a && a.id) || 0;
+        const idb = Number(b && b.id) || 0;
+        return idb - ida;
     });
 };
 
@@ -1438,8 +1787,14 @@ App.filterEndedMemberProductsPastGraceDays = function(rows) {
  * - 신규 구매: 같은 상품·같은 바우처로 꼬인 옛 줄(소진)은 숨기고, 지금 쓰는 이용권 한 줄만.
  * - 연장: 새 행이 extendedFromMemberProductId로 직전 행을 가리키면 직전 소진 줄+새 줄 2줄 유지(바우처 번호가 달라도 동일 상품+링크면 동일).
  * - 동일 바우처 번호가 두 행: 연장 링크가 있으면 2줄, 없으면 잔여 많은(같으면 id 큰) 한 줄만.
+ * @param {Object} [options]
+ * @param {boolean} [options.applyEndedGraceFilter] true일 때만 종료 행 3일 유예 후 목록에서 제거(회원 목록 테이블). 상세 이용권 탭·모달 등은 false.
  */
-App.filterMemberProductsForDisplayList = function(products) {
+App.filterMemberProductsForDisplayList = function(products, options) {
+    options = options || {};
+    const applyEndedGraceFilter = options.applyEndedGraceFilter === true;
+    /** 회원 목록 상품/이용권 열: 같은 상품에 연장(새 줄)이 있어도 직전 소진 줄은 숨김 — 상세 탭은 연장 짝을 유지 */
+    const strictHideExhaustedWhenFreshExists = applyEndedGraceFilter === true;
     if (!products || products.length === 0) {
         return products || [];
     }
@@ -1601,26 +1956,28 @@ App.filterMemberProductsForDisplayList = function(products) {
             if (fresh.length === 0) {
                 return;
             }
-            const linked = fresh.some(function(g) {
-                const ext = g.extendedFromMemberProductId;
-                if (ext == null) {
-                    return false;
-                }
-                return exhausted.some(function(b) {
-                    if (String(b.id) !== String(ext)) {
+            const linked =
+                !strictHideExhaustedWhenFreshExists &&
+                fresh.some(function(g) {
+                    const ext = g.extendedFromMemberProductId;
+                    if (ext == null) {
                         return false;
                     }
-                    const vg = g.voucherNumber ? String(g.voucherNumber).trim() : '';
-                    const vb = b.voucherNumber ? String(b.voucherNumber).trim() : '';
-                    if (vg && vb && vg === vb) {
-                        return false;
-                    }
-                    if (!vg || !vb) {
-                        return false;
-                    }
-                    return true;
+                    return exhausted.some(function(b) {
+                        if (String(b.id) !== String(ext)) {
+                            return false;
+                        }
+                        const vg = g.voucherNumber ? String(g.voucherNumber).trim() : '';
+                        const vb = b.voucherNumber ? String(b.voucherNumber).trim() : '';
+                        if (vg && vb && vg === vb) {
+                            return false;
+                        }
+                        if (!vg || !vb) {
+                            return false;
+                        }
+                        return true;
+                    });
                 });
-            });
             if (linked) {
                 return;
             }
@@ -1630,6 +1987,52 @@ App.filterMemberProductsForDisplayList = function(products) {
         });
         return rows.filter(function(p) {
             return !sup3.has(p);
+        });
+    }
+    /**
+     * 회원 목록 전용: product.id가 달라도 상품명·카테고리가 같으면「전부 소진」줄 + 잔여 줄 동시 노출 방지
+     * (야구 10회권이 카탈로그에 두 개로 잡힌 경우 등)
+     */
+    function hideExhaustedWhenFreshExistsSameProductName(rows) {
+        function displayKey(p) {
+            if (!p || !p.product) {
+                return '';
+            }
+            const name = (p.product.name || '').trim().toLowerCase();
+            if (!name) {
+                return '';
+            }
+            const cat = (p.product.category || '').trim();
+            return cat + '\u0001' + name;
+        }
+        const byKey = new Map();
+        for (let i = 0; i < rows.length; i++) {
+            const p = rows[i];
+            const k = displayKey(p);
+            if (!k) {
+                continue;
+            }
+            if (!byKey.has(k)) {
+                byKey.set(k, []);
+            }
+            byKey.get(k).push(p);
+        }
+        const supN = new Set();
+        byKey.forEach(function(list) {
+            if (list.length < 2) {
+                return;
+            }
+            const exhausted = list.filter(isExhaustedLikeRow);
+            const fresh = list.filter(isNonExhaustedSameProductRow);
+            if (exhausted.length === 0 || fresh.length === 0) {
+                return;
+            }
+            exhausted.forEach(function(b) {
+                supN.add(b);
+            });
+        });
+        return rows.filter(function(p) {
+            return !supN.has(p);
         });
     }
     const suppressed = new Set();
@@ -1669,7 +2072,7 @@ App.filterMemberProductsForDisplayList = function(products) {
             }
             return true;
         });
-        if (!linkedByExtension) {
+        if (strictHideExhaustedWhenFreshExists || !linkedByExtension) {
             suppressed.add(p);
         }
     }
@@ -1678,9 +2081,13 @@ App.filterMemberProductsForDisplayList = function(products) {
     });
     out = dedupeIdenticalVoucherNumber(out);
     out = hideExhaustedWhenNonExhaustedExistsSameProduct(out);
-    return typeof App.filterEndedMemberProductsPastGraceDays === 'function'
-        ? App.filterEndedMemberProductsPastGraceDays(out)
-        : out;
+    if (strictHideExhaustedWhenFreshExists) {
+        out = hideExhaustedWhenFreshExistsSameProductName(out);
+    }
+    if (applyEndedGraceFilter && typeof App.filterEndedMemberProductsPastGraceDays === 'function') {
+        return App.filterEndedMemberProductsPastGraceDays(out, { includeActiveExhaustedInGrace: true });
+    }
+    return out;
 };
 
 /**
@@ -1692,9 +2099,12 @@ App.renderMemberInfoPanelHtml = function(member) {
     }
     const coachName = member.coach && member.coach.name ? member.coach.name : '-';
     const rawProducts = member.memberProducts || [];
-    const products = App.filterMemberProductsForDisplayList
-        ? App.filterMemberProductsForDisplayList(rawProducts)
+    let products = App.filterMemberProductsForDisplayList
+        ? App.filterMemberProductsForDisplayList(rawProducts, { applyEndedGraceFilter: false })
         : rawProducts;
+    if (typeof App.sortMemberProductsRemainingFirst === 'function' && products && products.length > 1) {
+        products = App.sortMemberProductsRemainingFirst(products);
+    }
     const rows = products
         .map(function(mp) {
             const p = mp.product || {};
@@ -1839,61 +2249,83 @@ App.Pagination = {
 // 코치 색상 관리
 // ========================================
 App.CoachColors = {
-    // 확장된 색상 팔레트 (중복 방지)
-    // 빨간색(#F44336) 제거 - 고정 색상과 충돌 방지
+    // 확장된 색상 팔레트 (DB 색 없을 때 폴백용)
     default: [
-        '#5E6AD2', '#4CAF50', '#FF9800', '#E91E63', '#00BCD4', 
+        '#5E6AD2', '#4CAF50', '#FF9800', '#E91E63', '#00BCD4',
         '#9C27B0', '#795548', '#2196F3', '#FF5722',
         '#009688', '#FFC107', '#673AB7', '#CDDC39', '#FF4081',
-        '#3F51B5', '#8BC34A', '#FF6B6B', '#4ECDC4', '#45B7D1'
+        '#3F51B5', '#8BC34A', '#FF6B6B', '#4ECDC4', '#45B7D1',
+        '#1976D2', '#F57C00', '#00897B', '#8E24AA', '#D32F2F',
+        '#0288D1', '#F9A825', '#558B2F', '#C2185B'
     ],
-    
-    // 특정 코치 이름에 대한 고정 색상 (모든 페이지에서 동일)
-    // 11명 모두 고유한 색상 할당 (중복 없음)
+
+    // 특정 코치 이름에 대한 고정 색상 (DB color 로드 전 폴백 · 마이그레이션 선호색과 동기)
+    // 공인욱·박근엽·이원준·이유진은 서로 다른 색상 계열로 고정
     fixedColors: {
-        // 대표
-        '서정민 [대표]': '#FF9800',          // 1. 오렌지
+        '서정민 [대표]': '#FF9800',
         '서정민': '#FF9800',
-        
-        // 코치
-        '조장우 [코치]': '#4CAF50',          // 2. 초록
+        '서정훈': '#FFFFFF',
+        '서정훈[운영/대관담당]': '#FFFFFF',
+        '서정훈 [운영/대관담당]': '#FFFFFF',
+        '서정훈[대관담당]': '#FFFFFF',
+        '서정훈 [대관담당]': '#FFFFFF',
+        '조장우 [코치]': '#4CAF50',
         '조장우': '#4CAF50',
-        '최성훈 [코치]': '#E91E63',          // 3. 핫핑크
+        '최성훈 [코치]': '#E91E63',
         '최성훈': '#E91E63',
-        
-        // 분야별 코치
-        '김우경 [투수코치]': '#9C27B0',      // 4. 보라
+        '김우경 [투수코치]': '#9C27B0',
         '김우경': '#9C27B0',
-        '이원준 [포수코치]': '#00BCD4',      // 5. 청록
-        '이원준': '#00BCD4',
-        
-        // 트레이너
-        '박준현 [트레이너]': '#5E6AD2',      // 6. 남색
+        '이원준 [포수코치]': '#00897B',
+        '이원준': '#00897B',
+        '박준현 [트레이너]': '#5E6AD2',
         '박준현': '#5E6AD2',
-        
-        // 대관 담당 등
-        '공인욱': '#2196F3',                 // 밝은 파랑
-        '공인욱[대관담당]': '#2196F3',
-        
-        // 연산점 강사
-        '이소연 [강사]': '#FFC107',          // 7. 노란색
+        '공인욱': '#1976D2',
+        '공인욱[코치]': '#1976D2',
+        '공인욱 [코치]': '#1976D2',
+        '공인욱[대관담당]': '#1976D2',
+        '이소연 [강사]': '#FFC107',
         '이소연': '#FFC107',
-        '이서현 [강사]': '#F06292',          // 8. 밝은핑크
+        '이서현 [강사]': '#F06292',
         '이서현': '#F06292',
-        
-        // 사하점 강사
-        '김가영 [강사]': '#795548',          // 9. 브라운
+        '김가영 [강사]': '#795548',
         '김가영': '#795548',
-        '김소연 [강사]': '#009688',          // 10. 틸 (이원준 청록과 구분되는 색상)
+        '김소연 [강사]': '#009688',
         '김소연': '#009688',
-        '조혜진 [강사]': '#673AB7',          // 11. 진보라
-        '조혜진': '#673AB7'
+        '조혜진 [강사]': '#673AB7',
+        '조혜진': '#673AB7',
+        '박근엽': '#C0CA33',
+        '박근엽[투수코치]': '#C0CA33',
+        '박근엽 [투수코치]': '#C0CA33',
+        '이유진': '#8E24AA',
+        '이유진[강사]': '#8E24AA',
+        '이유진 [강사]': '#8E24AA'
     },
-    
-    // 코치별 색상 캐시 (ID -> 색상 매핑)
+
+    // 코치별 색상 캐시 (ID / 이름 → 색상). DB color 등록 시 채워짐
     colorCache: {},
-    
-    // 코치별 색상 가져오기 (중복 방지)
+    nameColorCache: {},
+
+    /** API에서 받은 코치 목록의 color를 캐시에 반영 (DB 고유색 우선) */
+    registerFromCoaches: function(coaches) {
+        if (!Array.isArray(coaches)) return;
+        var self = this;
+        coaches.forEach(function(c) {
+            if (!c) return;
+            var color = c.color ? String(c.color).trim() : '';
+            if (!color) return;
+            if (c.id != null) {
+                self.colorCache[String(c.id)] = color;
+            }
+            if (c.name) {
+                self.nameColorCache[String(c.name).replace(/\s+/g, ' ').trim()] = color;
+                var base = String(c.name).replace(/\s+/g, ' ').trim()
+                    .replace(/\s*[\[\(].*?[\]\)]\s*$/, '').trim();
+                if (base) self.nameColorCache[base] = color;
+            }
+        });
+    },
+
+    // 코치별 색상 가져오기 (DB color → 캐시 → 고정색 → 폴백)
     getColor: function(coach) {
         if (!coach) return null;
         const coachId = coach.id ?? coach.name ?? coach;
@@ -1916,28 +2348,41 @@ App.CoachColors = {
             if (normalized) nameCandidates.push(normalized);
             nameCandidates.push(trimmed.replace(/\s+/g, ''));
         }
-        
-        // 고정 색상이 있으면 우선 사용 (캐시 완전히 무시하고 항상 고정 색상 사용)
-        // 먼저 정확한 이름으로 찾기
+
+        // 1) API 객체에 color가 있으면 최우선 (DB 고유색)
+        if (coach.color && String(coach.color).trim()) {
+            const dbColor = String(coach.color).trim();
+            if (coachCacheKey) this.colorCache[coachCacheKey] = dbColor;
+            nameCandidates.forEach((n) => { if (n) this.nameColorCache[n] = dbColor; });
+            return dbColor;
+        }
+
+        // 2) ID 캐시 (registerFromCoaches)
+        if (coachCacheKey && this.colorCache[coachCacheKey]) {
+            return this.colorCache[coachCacheKey];
+        }
+
+        // 3) 이름 캐시
+        for (const candidate of nameCandidates) {
+            if (candidate && this.nameColorCache[candidate]) {
+                const cached = this.nameColorCache[candidate];
+                if (coachCacheKey) this.colorCache[coachCacheKey] = cached;
+                return cached;
+            }
+        }
+
+        // 4) 고정 색상 폴백
         if (coachName) {
             for (const candidate of nameCandidates) {
                 if (candidate && this.fixedColors[candidate]) {
                     const fixedColor = this.fixedColors[candidate];
-                    if (coachCacheKey) {
-                        this.colorCache[coachCacheKey] = fixedColor;
-                    }
+                    if (coachCacheKey) this.colorCache[coachCacheKey] = fixedColor;
                     return fixedColor;
                 }
             }
         }
-        
-        // 고정 색상이 없을 때만 캐시 확인
-        if (coachCacheKey && this.colorCache[coachCacheKey]) {
-            return this.colorCache[coachCacheKey];
-        }
-        
-        // 코치 ID(또는 이름 해시)로 결정론적 인덱스 계산 → 코치/레슨·대관 등 모든 페이지에서 동일 코치 동일 색
-        // 고정 색상은 제외한 팔레트 사용 → 박준현(#5E6AD2) 등과 겹치지 않도록
+
+        // 5) 결정론적 폴백 (DB 미반영·오프라인 등)
         const fixedValues = Object.values(this.fixedColors);
         const availablePalette = this.default.filter(c => !fixedValues.includes(c));
         const palette = availablePalette.length > 0 ? availablePalette : this.default;
@@ -1957,50 +2402,61 @@ App.CoachColors = {
         }
         const colorIndex = seed % palette.length;
         const color = palette[colorIndex];
-        
+
         if (coachCacheKey) {
             this.colorCache[coachCacheKey] = color;
         }
         return color;
     },
-    
+
     // 코치 ID로 색상 가져오기
     getColorById: function(coachId) {
         if (!coachId) return null;
         return this.getColor({ id: coachId });
     },
-    
+
     // 색상 캐시 초기화
     resetCache: function() {
         this.colorCache = {};
+        this.nameColorCache = {};
     },
-    
+
     // 고정 색상 강제 적용 (캐시 무시)
     forceFixedColor: function(coachName) {
         if (!coachName) return null;
         const trimmedName = coachName.trim();
-        return this.fixedColors[trimmedName] || null;
+        return this.fixedColors[trimmedName] || this.nameColorCache[trimmedName] || null;
     }
 };
 
-// 코치 표시 순서: 대표 → 대관 담당 → 메인 코치 → 야구 관련 코치 → 트레이닝 강사 → 필라테스 강사
+// 코치 표시 순서: 매니저 → 대표 → 대관 담당 → 메인 코치 → 야구 관련 코치 → 트레이닝 강사 → 필라테스 강사
 App.CoachSortOrder = function(coach) {
     var name = (coach.name || '') + ' ' + (coach.specialties || '');
     var n = name.toLowerCase();
-    if (/대표/.test(name)) return 0;
-    if (/대관\s*담당|대관담당/.test(name)) return 1;
-    if ((/\[코치\]|코치/.test(name)) && !/투수코치|포수코치/.test(name)) return 2;
-    if (/투수코치|포수코치|야구|타격|투구|수비|포수|투수/.test(name)) return 3;
-    if (/트레이너|트레이닝/.test(name)) return 4;
-    if (/필라테스|강사/.test(name)) return 5;
-    return 6;
+    if (/매니저|\[매니저\]/.test(name)) return 0;
+    if (/대표/.test(name)) return 1;
+    if (/대관\s*담당|대관담당/.test(name)) return 2;
+    if ((/\[코치\]|코치/.test(name)) && !/투수코치|포수코치/.test(name)) return 3;
+    if (/투수코치|포수코치|야구|타격|투구|수비|포수|투수/.test(name)) return 4;
+    if (/트레이너|트레이닝/.test(name)) return 5;
+    if (/필라테스|강사/.test(name)) return 6;
+    return 7;
 };
 
-// 페이지 로드 시 색상 캐시 초기화 (고정 색상 우선 적용 보장)
+// 페이지 로드 시 색상 캐시 초기화 후 DB 코치 고유색 프리로드 (인증된 페이지만)
 if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', function() {
         if (App.CoachColors) {
             App.CoachColors.resetCache();
+            if (typeof isLoginPagePath === 'function' && isLoginPagePath()) {
+                return;
+            }
+            if (App.isAuthenticated && App.isAuthenticated()
+                    && App.api && typeof App.api.get === 'function') {
+                App.api.get('/coaches').then(function(list) {
+                    App.CoachColors.registerFromCoaches(list);
+                }).catch(function() { /* 무시 */ });
+            }
         }
     });
 }

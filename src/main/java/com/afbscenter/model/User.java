@@ -1,6 +1,6 @@
 package com.afbscenter.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -33,7 +33,7 @@ public class User {
 
     @NotBlank(message = "비밀번호는 필수입니다")
     @Size(min = 4, message = "비밀번호는 최소 4자 이상이어야 합니다")
-    @JsonIgnore
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     @Column(nullable = false)
     private String password;
 

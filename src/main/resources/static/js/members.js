@@ -77,6 +77,15 @@ document.addEventListener('DOMContentLoaded', async function() {
             deleteAllBtn.style.display = 'inline-flex';
         }
     }
+
+    const reassignBtn = document.getElementById('member-coach-reassign-submit-btn');
+    if (reassignBtn) {
+        reassignBtn.addEventListener('click', submitCoachReassignRequest);
+    }
+    const reassignMpSel = document.getElementById('member-coach-reassign-mp');
+    if (reassignMpSel) {
+        reassignMpSel.addEventListener('change', handleCoachReassignMpChange);
+    }
     
     // 검색 입력
     const searchInput = document.getElementById('member-search');
@@ -505,9 +514,12 @@ function renderMembersTable(members, showLoadMore) {
         tbody.innerHTML = members.map(member => {
         const isExpiring = checkMemberExpiring(member);
         const hasExpired = checkMemberHasExpired(member);
-        const expiringBadge = isExpiring ? '<span class="badge badge-expiring" style="margin-left: 4px; font-size: 11px;">\uB9CC\uB8CC \uC784\uBC15</span>' : '';
         const expiredBadge = hasExpired ? '<span class="badge badge-expired" style="margin-left: 4px; font-size: 11px;">\uB9C8\uAC10</span>' : '';
-        const badgesHtml = [expiringBadge, expiredBadge].filter(Boolean).join(' ');
+        const expiringBadge =
+            !hasExpired && isExpiring
+                ? '<span class="badge badge-expiring" style="margin-left: 4px; font-size: 11px;">\uB9CC\uB8CC \uC784\uBC15</span>'
+                : '';
+        const badgesHtml = [expiredBadge, expiringBadge].filter(Boolean).join(' ');
         
         let rowStyle = '';
         if (hasExpired) {
@@ -604,7 +616,7 @@ function getMemberProductsForTableDisplay(member) {
         return [];
     }
     if (typeof App.filterMemberProductsForDisplayList === 'function') {
-        return App.filterMemberProductsForDisplayList(member.memberProducts.slice());
+        return App.filterMemberProductsForDisplayList(member.memberProducts.slice(), { applyEndedGraceFilter: true });
     }
     return member.memberProducts.slice();
 }
@@ -753,18 +765,31 @@ function normalizeCoachNameForColor(rawName) {
 const COACH_FIXED_COLORS_FALLBACK = {
     '\uC11C\uC815\uBBFC [\uB300\uD45C]': '#FF9800',
     '\uC11C\uC815\uBBFC': '#FF9800',
+    '\uC11C\uC815\uD6C8': '#FFFFFF',
+    '\uC11C\uC815\uD6C8[\uC6B4\uC601/\uB300\uAD00\uB2F4\uB2F9]': '#FFFFFF',
+    '\uC11C\uC815\uD6C8 [\uC6B4\uC601/\uB300\uAD00\uB2F4\uB2F9]': '#FFFFFF',
+    '\uC11C\uC815\uD6C8[\uB300\uAD00\uB2F4\uB2F9]': '#FFFFFF',
+    '\uC11C\uC815\uD6C8 [\uB300\uAD00\uB2F4\uB2F9]': '#FFFFFF',
     '\uC870\uC7A5\uC6B0 [\uCF54\uCE58]': '#4CAF50',
     '\uC870\uC7A5\uC6B0': '#4CAF50',
     '\uCD5C\uC131\uD6C8 [\uCF54\uCE58]': '#E91E63',
     '\uCD5C\uC131\uD6C8': '#E91E63',
     '\uAE40\uC6B0\uACBD [\uD22C\uC218\uCF54\uCE58]': '#9C27B0',
     '\uAE40\uC6B0\uACBD': '#9C27B0',
-    '\uC774\uC6D0\uC900 [\uD3EC\uC218\uCF54\uCE58]': '#00BCD4',
-    '\uC774\uC6D0\uC900': '#00BCD4',
+    '\uC774\uC6D0\uC900 [\uD3EC\uC218\uCF54\uCE58]': '#00897B',
+    '\uC774\uC6D0\uC900': '#00897B',
     '\uBC15\uC900\uD604 [\uD2B8\uB808\uC774\uB108]': '#5E6AD2',
     '\uBC15\uC900\uD604': '#5E6AD2',
-    '\uACF5\uC778\uC6B1': '#2196F3',
-    '\uACF5\uC778\uC6B1[\uB300\uAD00\uB2F4\uB2F9]': '#2196F3',
+    '\uACF5\uC778\uC6B1': '#1976D2',
+    '\uACF5\uC778\uC6B1[\uCF54\uCE58]': '#1976D2',
+    '\uACF5\uC778\uC6B1 [\uCF54\uCE58]': '#1976D2',
+    '\uACF5\uC778\uC6B1[\uB300\uAD00\uB2F4\uB2F9]': '#1976D2',
+    '\uBC15\uADFC\uC5FD': '#C0CA33',
+    '\uBC15\uADFC\uC5FD[\uD22C\uC218\uCF54\uCE58]': '#C0CA33',
+    '\uBC15\uADFC\uC5FD [\uD22C\uC218\uCF54\uCE58]': '#C0CA33',
+    '\uC774\uC720\uC9C4': '#8E24AA',
+    '\uC774\uC720\uC9C4[\uAC15\uC0AC]': '#8E24AA',
+    '\uC774\uC720\uC9C4 [\uAC15\uC0AC]': '#8E24AA',
     '\uC774\uC18C\uC5F0 [\uAC15\uC0AC]': '#FFC107',
     '\uC774\uC18C\uC5F0': '#FFC107',
     '\uC774\uC11C\uD604 [\uAC15\uC0AC]': '#F06292',
@@ -877,10 +902,11 @@ function getMemberCoachDisplayFromProducts(member) {
     };
     let categoryMap = null;
     if (memberProducts.length > 0) {
+        // 담당 코치 열: ACTIVE면 잔여 0 횟수권도 담당에 포함(박시후처럼 DB·운영필터와 표시 정합). 잔여/소진 구분은 상품·잔여 열·배지에서 처리.
         const activeProducts = memberProducts.filter(mp => {
             if (!mp) return false;
-            if (mp.status && mp.status !== 'ACTIVE') return false;
-            return !isCountPassExhaustedForMemberTable(mp);
+            const st = mp.status && String(mp.status).toUpperCase();
+            return !st || st === 'ACTIVE';
         });
         categoryMap = collectCoachNamesByCategory(activeProducts);
         const totalActive = Object.values(categoryMap).reduce((sum, set) => sum + set.size, 0);
@@ -1096,12 +1122,20 @@ function renderMemberProducts(member) {
     const activeProducts = sourceProducts.filter(mp =>
         mp && mp.status === 'ACTIVE' && !isCountPassExhaustedForMemberTable(mp)
     );
-    const endedProducts = sourceProducts.filter(mp => {
+    let endedProducts = sourceProducts.filter(mp => {
         if (!mp || !mp.status) return false;
         const s = String(mp.status).toUpperCase();
         if (s === 'USED_UP' || s === 'EXPIRED') return true;
         return isCountPassExhaustedForMemberTable(mp);
     });
+    // 다른 상품(야구 vs 트레이닝 등)은 displayKey가 달라 common.js 중복 제거에 안 걸림.
+    // 잔여·기간이 남은 이용권이 하나라도 있으면 횟수권「전부 소진」줄만 목록에서 생략(상세 탭은 그대로).
+    if (memberHasUsableActivePass(member)) {
+        endedProducts = endedProducts.filter(mp => {
+            const pt = mp && mp.product && mp.product.type;
+            return pt !== 'COUNT_PASS';
+        });
+    }
 
     if (activeProducts.length === 0 && endedProducts.length === 0) {
         App.warn('\uD45C\uC2DC\uD560 \uC774\uC6A9\uAD8C \uC5C6\uC74C:', {
@@ -1411,6 +1445,10 @@ function openMemberModal(id = null) {
         setRadioStage('member-running-speed', 0, false, true);
         setRadioStage('member-flexibility', 0, true, true);
         App.log('회원 모달 초기화 - 능력치 단계 0');
+        const crs = document.getElementById('member-coach-reassign-section');
+        if (crs) {
+            crs.style.display = 'none';
+        }
     }
     
     App.Modal.open('member-modal');
@@ -1523,11 +1561,318 @@ async function loadMemberData(id) {
         document.getElementById('member-memo').value = member.memo || '';
         document.getElementById('member-coach-memo').value = member.coachMemo || '';
         
-        //    (  )
-        await loadMemberProducts(id);
+        // 상품·담당 코치 UI: 방금 GET 한 member 기준으로 채움(currentEditingMember 외부 참조와 불일치 방지)
+        await loadMemberProducts(id, member);
+        await setupCoachReassignSection(currentEditingMember || member);
     } catch (error) {
         App.err('\uD68C\uC6D0 \uC815\uBCF4 \uB85C\uB529 \uC624\uB958:', error);
         App.showNotification('\uD68C\uC6D0 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.', 'danger');
+    }
+}
+
+/** 담당 코치 변경 UI: /coaches 캐시 (이용권 종목별 필터용) */
+var coachReassignAllCoachesCache = [];
+
+function productCategoryShortLabel(cat) {
+    if (!cat) {
+        return '';
+    }
+    var m = {
+        BASEBALL: '\uC57C\uAD6C',
+        TRAINING_FITNESS: '\uD2B8\uB808\uC774\uB2DD\u00B7\uD544\uB77C\uD14C\uC2A4',
+        TRAINING: '\uD2B8\uB808\uC774\uB2DD',
+        PILATES: '\uD544\uB77C\uD14C\uC2A4',
+        GENERAL: '\uC77C\uBC18',
+        RENTAL: '\uB300\uAD00'
+    };
+    return m[cat] || String(cat);
+}
+
+/**
+ * 담당 코치 변경 드롭다운용 종목 키.
+ * DB category가 GENERAL이어도 상품명에 '야구' 등이 있으면 BASEBALL로 본다 (목록 담당 코치 열과 동일 취지).
+ */
+function resolveCoachFilterCategoryFromMemberProduct(mp) {
+    if (!mp || !mp.product) {
+        return '';
+    }
+    var product = mp.product;
+    var category = String(product.category || '')
+        .trim()
+        .toUpperCase()
+        .replace(/-/g, '_');
+    var nameLower = String(product.name || '').toLowerCase();
+    if (category === 'BASEBALL' || nameLower.includes('\uC57C\uAD6C') || nameLower.includes('baseball')) {
+        return 'BASEBALL';
+    }
+    if (category === 'PILATES' || nameLower.includes('\uD544\uB77C\uD14C\uC2A4') || nameLower.includes('pilates')) {
+        return 'PILATES';
+    }
+    if (category === 'TRAINING_FITNESS') {
+        return 'TRAINING_FITNESS';
+    }
+    if (category === 'TRAINING' || nameLower.includes('\uD2B8\uB808\uC774\uB2DD') || nameLower.includes('training')) {
+        return 'TRAINING';
+    }
+    if (category === 'RENTAL' || nameLower.includes('\uB300\uAD00')) {
+        return 'RENTAL';
+    }
+    if (category === 'GENERAL' || category === '') {
+        return 'GENERAL';
+    }
+    return category;
+}
+
+/**
+ * 상품 category와 같은 종목 코치만 (App.categorizeCoachBySubject 기준).
+ * 목록이 비면 filterCoachesByProductCategory로 폴백.
+ */
+function filterCoachesForProductReassignment(allCoaches, productCategory) {
+    var active = (allCoaches || []).filter(function (c) {
+        return c && c.active !== false;
+    });
+    if (!active.length) {
+        return [];
+    }
+    var cat = (productCategory || '').toString().trim().toUpperCase().replace(/-/g, '_');
+    if (!cat || cat === 'GENERAL') {
+        return active.slice();
+    }
+    if (typeof App.categorizeCoachBySubject !== 'function') {
+        return filterCoachesByProductCategory(allCoaches, productCategory);
+    }
+    function subj(c) {
+        return App.categorizeCoachBySubject(c);
+    }
+    var filtered;
+    if (cat === 'BASEBALL') {
+        if (typeof App.filterCoachesForBookingCalendar === 'function') {
+            filtered = App.filterCoachesForBookingCalendar(active, { facilityType: 'BASEBALL' });
+        } else {
+            filtered = [];
+        }
+        if (!filtered || !filtered.length) {
+            filtered = active.filter(function (c) {
+                var s = subj(c);
+                return s === 'BASEBALL' || s === 'YOUTH';
+            });
+        }
+    } else if (cat === 'TRAINING_FITNESS') {
+        filtered = active.filter(function (c) {
+            var s = subj(c);
+            return s === 'TRAINING' || s === 'PILATES';
+        });
+    } else if (cat === 'TRAINING') {
+        filtered = active.filter(function (c) {
+            return subj(c) === 'TRAINING';
+        });
+    } else if (cat === 'PILATES') {
+        filtered = active.filter(function (c) {
+            return subj(c) === 'PILATES';
+        });
+    } else if (cat === 'RENTAL') {
+        filtered = active.filter(function (c) {
+            return subj(c) === 'RENTAL';
+        });
+    } else {
+        return filterCoachesByProductCategory(allCoaches, productCategory);
+    }
+    if (!filtered.length) {
+        return filterCoachesByProductCategory(allCoaches, productCategory);
+    }
+    return filtered;
+}
+
+function getCurrentCoachIdForMemberProduct(mp) {
+    if (!mp) {
+        return null;
+    }
+    if (mp.coach && mp.coach.id != null) {
+        return Number(mp.coach.id);
+    }
+    if (mp.coachId != null) {
+        return Number(mp.coachId);
+    }
+    return null;
+}
+
+function refillCoachReassignTargetSelect(productCategory, memberProduct) {
+    var targetSel = document.getElementById('member-coach-reassign-target');
+    if (!targetSel) {
+        return;
+    }
+    var list = filterCoachesForProductReassignment(coachReassignAllCoachesCache, productCategory);
+    var curCoachId = getCurrentCoachIdForMemberProduct(memberProduct);
+    targetSel.innerHTML = '<option value="">\uBCC0\uACBD\uD560 \uCF54\uCE58 \uC120\uD0DD\u2026</option>';
+    var added = 0;
+    list.forEach(function (c) {
+        if (curCoachId != null && Number(c.id) === curCoachId) {
+            return;
+        }
+        var o = document.createElement('option');
+        o.value = String(c.id);
+        o.textContent = c.name || ('ID ' + c.id);
+        targetSel.appendChild(o);
+        added++;
+    });
+    if (added === 0) {
+        var hint = document.createElement('option');
+        hint.value = '';
+        hint.disabled = true;
+        hint.textContent =
+            list.length === 0
+                ? '\uC774 \uC0C1\uD488 \uC885\uBAA9\uC5D0 \uB9DE\uB294 \uCF54\uCE58\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.'
+                : '\uAC19\uC740 \uC885\uBAA9\uC5D0 \uBC30\uC815 \uAC00\uB2A5\uD55C \uB2E4\uB978 \uCF54\uCE58\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.';
+        targetSel.appendChild(hint);
+    }
+}
+
+function handleCoachReassignMpChange() {
+    var member = currentEditingMember;
+    var mpSel = document.getElementById('member-coach-reassign-mp');
+    var currentPill = document.getElementById('member-coach-reassign-current');
+    if (!mpSel || !member) {
+        return;
+    }
+    var activeMps = getSortedActiveProductsForMember(member);
+    var mp = activeMps.find(function (m) {
+        return String(m.id) === String(mpSel.value);
+    });
+    var effectiveCat = mp ? resolveCoachFilterCategoryFromMemberProduct(mp) : '';
+    if (currentPill) {
+        var nm = mp ? getCoachNameForMemberProduct(mp, member) : null;
+        currentPill.textContent = nm ? nm : '(\uBBF8\uC9C0\uC815)';
+        currentPill.title = nm ? String(nm) : '';
+    }
+    refillCoachReassignTargetSelect(effectiveCat, mp || null);
+}
+
+async function setupCoachReassignSection(member) {
+    var sec = document.getElementById('member-coach-reassign-section');
+    var emptyEl = document.getElementById('member-coach-reassign-empty');
+    var fieldsEl = document.getElementById('member-coach-reassign-fields');
+    var mpSel = document.getElementById('member-coach-reassign-mp');
+    var targetSel = document.getElementById('member-coach-reassign-target');
+    var noteEl = document.getElementById('member-coach-reassign-note');
+    if (!sec) {
+        return;
+    }
+    if (!member || !member.id) {
+        sec.style.display = 'none';
+        coachReassignAllCoachesCache = [];
+        return;
+    }
+    sec.style.display = 'block';
+    try {
+        coachReassignAllCoachesCache = (await App.api.get('/coaches')) || [];
+    } catch (e) {
+        App.err('\uCF54\uCE58 \uBAA9\uB85D \uB85C\uB4DC \uC2E4\uD328:', e);
+        coachReassignAllCoachesCache = [];
+    }
+    var activeMps = getSortedActiveProductsForMember(member);
+    if (mpSel) {
+        mpSel.innerHTML = '';
+        activeMps.forEach(function (mp) {
+            var opt = document.createElement('option');
+            opt.value = String(mp.id);
+            var pn = mp.product && mp.product.name ? mp.product.name : '\uC774\uC6A9\uAD8C';
+            var resolved = resolveCoachFilterCategoryFromMemberProduct(mp);
+            opt.dataset.category = resolved;
+            var catLabel = productCategoryShortLabel(resolved);
+            opt.textContent = catLabel ? pn + ' \u00B7 ' + catLabel : pn;
+            mpSel.appendChild(opt);
+        });
+    }
+    if (noteEl) {
+        noteEl.value = '';
+    }
+    if (activeMps.length === 0) {
+        if (emptyEl) {
+            emptyEl.style.display = 'block';
+        }
+        if (fieldsEl) {
+            fieldsEl.style.display = 'none';
+        }
+        if (targetSel) {
+            targetSel.innerHTML = '<option value="">\uD65C\uC131 \uC774\uC6A9\uAD8C \uC5C6\uC74C</option>';
+        }
+        return;
+    }
+    if (emptyEl) {
+        emptyEl.style.display = 'none';
+    }
+    if (fieldsEl) {
+        fieldsEl.style.display = '';
+    }
+    if (mpSel && mpSel.options.length) {
+        mpSel.selectedIndex = 0;
+    }
+    handleCoachReassignMpChange();
+}
+
+async function submitCoachReassignRequest() {
+    var memberId = document.getElementById('member-id').value;
+    var mpSel = document.getElementById('member-coach-reassign-mp');
+    var sel = document.getElementById('member-coach-reassign-target');
+    var noteEl = document.getElementById('member-coach-reassign-note');
+    if (!memberId) {
+        App.showNotification('\uD68C\uC6D0 \uC815\uBCF4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.', 'warning');
+        return;
+    }
+    var mpid = mpSel && mpSel.value ? parseInt(mpSel.value, 10) : NaN;
+    if (!mpid || isNaN(mpid)) {
+        App.showNotification('\uB300\uC0C1 \uC774\uC6A9\uAD8C\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.', 'warning');
+        return;
+    }
+    if (!sel || !sel.value) {
+        App.showNotification('\uBCC0\uACBD\uD560 \uCF54\uCE58\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.', 'warning');
+        return;
+    }
+    try {
+        var body = {
+            memberId: parseInt(memberId, 10),
+            requestType: 'COACH_REASSIGNMENT',
+            memberProductId: mpid,
+            newCoachId: parseInt(sel.value, 10),
+            detailSummary: noteEl && noteEl.value ? String(noteEl.value).trim() : null
+        };
+        var res = await App.api.post('/member-approvals', body);
+        if (res && res.created === false) {
+            App.showNotification('\uC774\uBBF8 \uB300\uAE30 \uC911\uC778 \uCF54\uCE58 \uBCC0\uACBD \uC694\uCCAD\uC774 \uC788\uC2B5\uB2C8\uB2E4.', 'info');
+            return;
+        }
+        if (res && res.autoApproved) {
+            App.showNotification(
+                '\uAD00\uB9AC\uC790(ADMIN) \uAD8C\uD55C\uC73C\uB85C \uB2F4\uB2F9 \uCF54\uCE58\uAC00 \uC989\uC2DC \uBC18\uC601\uB418\uC5C8\uC2B5\uB2C8\uB2E4.',
+                'success'
+            );
+            sel.value = '';
+            if (noteEl) {
+                noteEl.value = '';
+            }
+            await loadMemberData(parseInt(memberId, 10));
+            try {
+                await updateProductCoachSelection();
+            } catch (e) {
+                App.err('updateProductCoachSelection after coach reassign:', e);
+            }
+            if (typeof loadMembers === 'function') {
+                await loadMembers(false, { refreshStats: false });
+            }
+            return;
+        }
+        App.showNotification('\uAD00\uB9AC\uC790 \uC2B9\uC778 \uC694\uCCAD\uC774 \uB4F1\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB300\uC2DC\uBCF4\uB4DC\uC5D0\uC11C \uC2B9\uC778\uB418\uBA74 \uBC18\uC601\uB429\uB2C8\uB2E4.', 'success');
+        sel.value = '';
+        if (noteEl) {
+            noteEl.value = '';
+        }
+        handleCoachReassignMpChange();
+    } catch (error) {
+        if (typeof App.showApiError === 'function') {
+            App.showApiError(error);
+        } else {
+            App.showNotification('\uC694\uCCAD \uC2E4\uD328', 'danger');
+        }
     }
 }
 
@@ -1938,7 +2283,11 @@ async function updateProductCoachSelection() {
     });
 }
 
-async function loadMemberProducts(memberId) {
+/**
+ * @param {number|string} memberId
+ * @param {object} [memberSnapshot] loadMemberData 등에서 방금 받은 회원 객체 — 있으면 그 memberProducts 로 상품 선택·coachName 동기화(캐시와 서버 불일치 방지)
+ */
+async function loadMemberProducts(memberId, memberSnapshot) {
     try {
         const productSelect = document.getElementById('member-products');
         if (!productSelect) {
@@ -1961,7 +2310,10 @@ async function loadMemberProducts(memberId) {
         }
         
         let memberProducts = null;
-        if (currentEditingMember && currentEditingMember.memberProducts) {
+        if (memberSnapshot != null && Array.isArray(memberSnapshot.memberProducts)) {
+            memberProducts = memberSnapshot.memberProducts;
+            App.log('loadMemberProducts - memberSnapshot 기준 memberProducts:', memberProducts);
+        } else if (currentEditingMember && currentEditingMember.memberProducts) {
             memberProducts = currentEditingMember.memberProducts;
             App.log('loadMemberProducts - currentEditingMember 기준 memberProducts:', memberProducts);
         } else {
@@ -2107,7 +2459,12 @@ async function saveMember(allowDuplicatePhone = false) {
         data.createdAt = createdAt + ':00';
     }
     
-    data.coach = null;
+    const memberFormIdEarly = document.getElementById('member-id').value;
+    if (memberFormIdEarly && currentEditingMember && currentEditingMember.coach && currentEditingMember.coach.id != null) {
+        data.coach = { id: currentEditingMember.coach.id };
+    } else {
+        data.coach = null;
+    }
     
     const memberFormId = document.getElementById('member-id').value;
     const productSelectEl = document.getElementById('member-products');
@@ -2614,20 +2971,29 @@ function renderMemberInfo(member) {
     `;
 }
 
+/** 회원 상세 모달에서 비동기 응답 시점에도 해당 탭이면 본문만 갱신 */
+function isMemberDetailModalTab(expectedTab) {
+    const box = document.querySelector('#member-detail-modal .member-detail-modal-box');
+    return !!(box && box.getAttribute('data-detail-tab') === expectedTab);
+}
+
 async function loadMemberProductsForDetail(memberId) {
     const content = document.getElementById('detail-tab-content');
+    if (!content) return;
     if (!memberId) {
         content.innerHTML = '<p style="color: var(--text-muted);">\uD68C\uC6D0 ID\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
         return;
     }
     try {
         const products = await App.api.get(`/member-products?memberId=${memberId}&forMemberDetailUi=true`);
+        if (!isMemberDetailModalTab('products')) return;
         App.log('이용권 목록:', products);
         content.innerHTML = renderProductsList(products, memberId);
         if (typeof window.applyCoachNameColors === 'function') {
             window.applyCoachNameColors(content);
         }
     } catch (error) {
+        if (!isMemberDetailModalTab('products')) return;
         App.err('이용권 로드 실패:', error);
         content.innerHTML = '<p style="color: var(--text-muted);">\uC774\uC6A9\uAD8C \uBAA9\uB85D\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
@@ -2648,26 +3014,22 @@ function isPublicMemberBookingReadOnly() {
  * @param {number|string|null} memberId
  */
 function renderProductsList(products, memberId) {
-    const list = App.filterMemberProductsForDisplayList
-        ? App.filterMemberProductsForDisplayList(products || [])
+    let list = App.filterMemberProductsForDisplayList
+        ? App.filterMemberProductsForDisplayList(products || [], { applyEndedGraceFilter: false })
         : (products || []);
+    if (typeof App.sortMemberProductsRemainingFirst === 'function' && list && list.length > 1) {
+        list = App.sortMemberProductsRemainingFirst(list);
+    }
     const hideProductActions = isPublicMemberBookingReadOnly();
-    const purchaseBtn = !hideProductActions && (memberId != null && memberId !== '') ? `
-        <div style="margin-bottom: 14px;">
-            <button type="button" class="btn btn-primary" onclick="openExtendProductModal(${memberId})" title="\uC774\uC6A9\uAD8C \uCD94\uAC00 \uB610\uB294 \uC5F0\uC7A5 \uB4F1\uB85D">
-                \uC774\uC6A9\uAD8C \uCD94\uAC00/\uC5F0\uC7A5
-            </button>
-        </div>
-    ` : '';
     if (!list || list.length === 0) {
-        return purchaseBtn + '<p style="color: var(--text-muted);">\uB4F1\uB85D\uB41C \uC774\uC6A9\uAD8C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
+        return '<p style="color: var(--text-muted);">\uB4F1\uB85D\uB41C \uC774\uC6A9\uAD8C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
     const extendBtn = !hideProductActions && (memberId != null && memberId !== '') ? `
                             <button class="btn btn-sm btn-primary" onclick="openExtendProductModal(${memberId})" title="\uC774\uC6A9\uAD8C \uC5F0\uC7A5" style="margin-right: 4px;">
                                 \uC5F0\uC7A5
                             </button>
                         ` : '';
-    return purchaseBtn + `
+    return `
         <div class="product-list">
             ${list.map(p => {
                 const product = p.product || {};
@@ -2781,6 +3143,25 @@ function renderProductsList(products, memberId) {
                     ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">\uBC14\uC6B0\uCC98 \uBC88\uD638: ${App.escapeHtml ? App.escapeHtml(voucherNumber) : voucherNumber}</div>`
                     : '';
 
+                let dbVerifyHtml = '';
+                if (p.dbStatus != null || p.dbRemainingCount != null) {
+                    const ds = p.dbStatus != null ? (App.escapeHtml ? App.escapeHtml(String(p.dbStatus)) : String(p.dbStatus)) : '\u2014';
+                    const dr =
+                        p.dbRemainingCount != null && p.dbRemainingCount !== ''
+                            ? String(p.dbRemainingCount)
+                            : '\u2014';
+                    const pid = p.id != null ? String(p.id) : '\u2014';
+                    dbVerifyHtml =
+                        '<div style="font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.45; padding: 6px 8px; background: rgba(128,128,128,0.08); border-radius: 4px;" title="\uD654\uBA74 \uC794\uC5EC\uB294 MemberProductCountPassHelper \uB4F1 \uC870\uD68C \uADDC\uCE59 \uBC18\uC601\uAC12\uC785\uB2C8\uB2E4. USED_UP\uC774\uBA74 \uC794\uC5EC\uB294 \uD56D\uC0C1 0\uC73C\uB85C \uBCF4\uC5EC \uC9D1\uB2C8\uB2E4.">' +
+                        '<strong style="color: var(--text-secondary);">DB \uD655\uC778</strong> \u00B7 \uC800\uC7A5 \uC0C1\uD0DC ' +
+                        ds +
+                        ' \u00B7 \uC800\uC7A5 \uC794\uC5EC ' +
+                        dr +
+                        '\uD68C \u00B7 \uC774\uC6A9\uAD8C ID ' +
+                        pid +
+                        '</div>';
+                }
+
                 let ledgerHtml = '';
                 if (isCountPass && Array.isArray(p.ledgerLines) && p.ledgerLines.length > 0) {
                     const rows = p.ledgerLines.map(function (line) {
@@ -2845,6 +3226,7 @@ function renderProductsList(products, memberId) {
                             ${remainingDisplay}${periodInfo}
                         </div>
                         ${voucherText}
+                        ${dbVerifyHtml}
                         ${ledgerHtml}
                         <div class="product-coach" style="font-size: 12px; color: var(--text-secondary); margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-color);">
                             \uB2F4\uB2F9 \uCF54\uCE58: ${coachDisplay}
@@ -3159,13 +3541,32 @@ async function processEditPeriodPass() {
 
 async function loadMemberPayments(memberId) {
     const content = document.getElementById('detail-tab-content');
+    if (!content) return;
     try {
         const payments = await App.api.get(`/members/${memberId}/payments`);
+        if (!isMemberDetailModalTab('payments')) return;
         content.innerHTML = renderPaymentsList(payments);
     } catch (error) {
+        if (!isMemberDetailModalTab('payments')) return;
         App.err('\uACB0\uC81C \uB0B4\uC5ED \uB85C\uB529 \uC624\uB958:', error);
         content.innerHTML = '<p style="color: var(--text-muted);">\uACB0\uC81C \uB0B4\uC5ED\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
+}
+
+/** \uD68C\uC6D0 \uC0C1\uC138 \uACB0\uC81C \uD14C\uC774\uBE14: \uACB0\uC81C\uC5D0 \uC5F0\uACB0\uB41C \uC774\uC6A9\uAD8C(ID) \uD45C\uC2DC */
+function formatPaymentMemberProductLinkCell(p) {
+    var mp = p && p.memberProduct;
+    if (mp && mp.id != null) {
+        if (mp.deletedAt) {
+            return '<span style="color:var(--warning);" title="\uC0AD\uC81C\uB41C \uC774\uC6A9\uAD8C \uD589\">\uC0AD\uC81C\uB428 #' + mp.id + '</span>';
+        }
+        return '<span style="color:var(--success);" title="\uC774\uC6A9\uAD8C \uC5F0\uACB0\uB428">#' + mp.id + '</span>';
+    }
+    var isProductSale = p && p.category === 'PRODUCT_SALE';
+    if (isProductSale) {
+        return '<span style="color:var(--danger);" title="\uC0C1\uD488\uD310\uB9E4 \uACB0\uC81C\uC778\uB370 member_product\uC5D0 \uC5F0\uACB0\uB41C \uD589\uC774 \uC5C6\uC74C">\uBBF8\uC5F0\uACB0</span>';
+    }
+    return '<span style="color:var(--text-muted);">\u2014</span>';
 }
 
 function renderPaymentsList(payments) {
@@ -3218,6 +3619,7 @@ function renderPaymentsList(payments) {
                         <th>\uACB0\uC81C\uC77C\uC2DC</th>
                         <th>\uC0C1\uD488</th>
                         <th>\uBD84\uB958</th>
+                        <th>\uC774\uC6A9\uAD8C \uC5F0\uACB0</th>
                         <th>\uB2F4\uB2F9 \uCF54\uCE58</th>
                         <th>\uACB0\uC81C\uC218\uB2E8</th>
                         <th>\uAE08\uC561</th>
@@ -3230,6 +3632,7 @@ function renderPaymentsList(payments) {
                         const paidAt = p.paidAt ? App.formatDateTime(p.paidAt) : '-';
                         const productName = p.product?.name || '-';
                         const category = getCategoryText(p.category);
+                        const mpLink = formatPaymentMemberProductLinkCell(p);
                         const method = getPaymentMethodText(p.paymentMethod);
                         const amount = App.formatCurrency(p.amount || 0);
                         const status = getStatusText(p.status);
@@ -3244,6 +3647,7 @@ function renderPaymentsList(payments) {
                             <td>${paidAt}</td>
                             <td>${productName}</td>
                             <td>${category}</td>
+                            <td>${mpLink}</td>
                             <td>${coachName}</td>
                             <td>${method}</td>
                             <td style="font-weight: 600; color: var(--accent-primary);">
@@ -3308,13 +3712,16 @@ async function deleteMemberProduct(memberProductId, productName) {
 
 async function loadMemberBookings(memberId) {
     const content = document.getElementById('detail-tab-content');
+    if (!content) return;
     try {
         const bookings = await App.api.get(`/members/${memberId}/bookings`);
+        if (!isMemberDetailModalTab('bookings')) return;
         content.innerHTML = renderBookingsList(bookings);
         if (typeof window.applyCoachNameColors === 'function') {
             window.applyCoachNameColors(content);
         }
     } catch (error) {
+        if (!isMemberDetailModalTab('bookings')) return;
         content.innerHTML = '<p style="color: var(--text-muted);">\uC608\uC57D \uB0B4\uC5ED\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
 }
@@ -3389,10 +3796,13 @@ function renderBookingsList(bookings) {
 
 async function loadMemberAttendance(memberId) {
     const content = document.getElementById('detail-tab-content');
+    if (!content) return;
     try {
         const attendance = await App.api.get(`/members/${memberId}/attendance`);
+        if (!isMemberDetailModalTab('attendance')) return;
         content.innerHTML = renderAttendanceList(attendance);
     } catch (error) {
+        if (!isMemberDetailModalTab('attendance')) return;
         content.innerHTML = '<p style="color: var(--text-muted);">\uCD9C\uC11D \uB0B4\uC5ED\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
 }
@@ -3480,11 +3890,14 @@ function renderAttendanceList(attendance) {
 /** 회원 타임라인(상세 모달 탭) */
 async function loadMemberTimeline(memberId) {
     const content = document.getElementById('detail-tab-content');
+    if (!content) return;
     content.innerHTML = '<p style="text-align: center; color: var(--text-muted);">\uBD88\uB7EC\uC624\uB294 \uC911...</p>';
     try {
         const events = await App.api.get(`/members/${memberId}/timeline`);
+        if (!isMemberDetailModalTab('timeline')) return;
         content.innerHTML = renderMemberTimelineContent(events, memberId);
     } catch (error) {
+        if (!isMemberDetailModalTab('timeline')) return;
         App.err('\uD0C0\uC784\uB77C\uC778 \uB85C\uB529 \uC624\uB958:', error);
         content.innerHTML = '<p style="color: var(--text-muted);">\uD0C0\uC784\uB77C\uC778\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
@@ -3613,6 +4026,7 @@ async function toggleTimelineSelectOrDelete(memberId) {
 
 async function loadMemberProductHistory(memberId) {
     const content = document.getElementById('detail-tab-content');
+    if (!content) return;
     content.innerHTML = '<p style="text-align: center; color: var(--text-muted);">\uBD88\uB7EC\uC624\uB294 \uC911...</p>';
     
     try {
@@ -3620,8 +4034,10 @@ async function loadMemberProductHistory(memberId) {
             App.api.get(`/members/${memberId}/products`),
             App.api.get(`/members/${memberId}/product-history`)
         ]);
+        if (!isMemberDetailModalTab('product-history')) return;
         content.innerHTML = renderPurchaseHistorySection(products) + renderProductHistory(history);
     } catch (error) {
+        if (!isMemberDetailModalTab('product-history')) return;
         App.err('\uC774\uC6A9\uAD8C \uC774\uB825 \uB85C\uB529 \uC624\uB958:', error);
         content.innerHTML = '<p style="color: var(--text-muted);">\uC774\uC6A9\uAD8C \uC774\uB825\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.</p>';
     }
@@ -4588,7 +5004,7 @@ function filterCoachesByProductCategory(allCoaches, productCategory) {
         return matchesCategory(coach, categoryLower);
     });
     if (filtered.length === 0) {
-        return active.slice();
+        return [];
     }
     return filtered;
 }
@@ -4622,6 +5038,7 @@ async function openExtendProductModal(memberId, options) {
         options.defaultExtendDays != null && options.defaultExtendDays !== ''
             ? Number(options.defaultExtendDays)
             : null;
+    const isAdminForCoachEdit = ((App.currentRole || '').toUpperCase() === 'ADMIN');
 
     if (!document.getElementById('extend-member-id')) {
         App.warn('openExtendProductModal: extend-product-modal \uC5C6\uC74C');
@@ -4642,6 +5059,12 @@ async function openExtendProductModal(memberId, options) {
             ecs0.innerHTML = '<option value="">\uCF54\uCE58\uB97C \uC120\uD0DD\uD558\uC138\uC694...</option>';
             ecs0.value = '';
         }
+        var coachEditBtn0 = document.getElementById('extend-coach-admin-edit-btn');
+        var coachEditWrap0 = document.getElementById('extend-coach-admin-edit-wrap');
+        var coachEditSel0 = document.getElementById('extend-coach-admin-select');
+        if (coachEditBtn0) coachEditBtn0.style.display = 'none';
+        if (coachEditWrap0) coachEditWrap0.style.display = 'none';
+        if (coachEditSel0) coachEditSel0.innerHTML = '<option value="">\uCF54\uCE58\uB97C \uC120\uD0DD\uD558\uC138\uC694...</option>';
 
     function toggleExtendDaysField(productType) {
         const daysInput = document.getElementById('extend-days');
@@ -4661,20 +5084,22 @@ async function openExtendProductModal(memberId, options) {
     }
     
     try {
-        const [memberProducts, allProducts, memberForExtendModal, coachesRaw] = await Promise.all([
+        const [memberProducts, allProducts, coachesRaw] = await Promise.all([
             App.api.get(`/member-products?memberId=${memberId}`),
             App.api.get('/products'),
-            App.api.get(`/members/${memberId}`),
             App.api.get('/coaches')
         ]);
 
         /** 상세·목록과 동일 규칙 — 소진 중복 행은 연장 선택 목록에서 제외 */
-        const memberProductsForSelect =
+        let memberProductsForSelect =
             Array.isArray(memberProducts) && memberProducts.length > 0 && typeof App.filterMemberProductsForDisplayList === 'function'
-                ? App.filterMemberProductsForDisplayList(memberProducts.slice())
+                ? App.filterMemberProductsForDisplayList(memberProducts.slice(), { applyEndedGraceFilter: false })
                 : Array.isArray(memberProducts)
                   ? memberProducts.slice()
                   : [];
+        if (typeof App.sortMemberProductsRemainingFirst === 'function' && memberProductsForSelect.length > 1) {
+            memberProductsForSelect = App.sortMemberProductsRemainingFirst(memberProductsForSelect);
+        }
 
         const extendModalAllCoaches = (Array.isArray(coachesRaw) ? coachesRaw : []).filter(function (c) {
             return c && c.active !== false;
@@ -4710,6 +5135,85 @@ async function openExtendProductModal(memberId, options) {
                     }
                 }
             }
+        }
+
+        function hideAdminCoachEditor() {
+            var btn = document.getElementById('extend-coach-admin-edit-btn');
+            var wrap = document.getElementById('extend-coach-admin-edit-wrap');
+            if (btn) btn.style.display = 'none';
+            if (wrap) wrap.style.display = 'none';
+        }
+
+        function showAdminCoachEditor(selectedMemberProduct, selectedProduct) {
+            var btn = document.getElementById('extend-coach-admin-edit-btn');
+            var wrap = document.getElementById('extend-coach-admin-edit-wrap');
+            var sel = document.getElementById('extend-coach-admin-select');
+            var cancelBtn = document.getElementById('extend-coach-admin-cancel-btn');
+            var saveBtn = document.getElementById('extend-coach-admin-save-btn');
+            if (!btn || !wrap || !sel || !cancelBtn || !saveBtn || !isAdminForCoachEdit || !selectedMemberProduct || !selectedMemberProduct.id) {
+                hideAdminCoachEditor();
+                return;
+            }
+            var coachList = filterCoachesByProductCategory(extendModalAllCoaches, selectedProduct ? selectedProduct.category : null);
+            sel.innerHTML = '<option value="">\uCF54\uCE58\uB97C \uC120\uD0DD\uD558\uC138\uC694...</option>';
+            coachList.forEach(function (c) {
+                if (c && c.id != null) {
+                    sel.appendChild(new Option(c.name || ('#' + c.id), String(c.id)));
+                }
+            });
+            var currentCoachId =
+                selectedMemberProduct.coach && selectedMemberProduct.coach.id != null
+                    ? selectedMemberProduct.coach.id
+                    : (selectedProduct && selectedProduct.coach && selectedProduct.coach.id != null ? selectedProduct.coach.id : null);
+            if (currentCoachId != null && sel.querySelector('option[value="' + String(currentCoachId) + '"]')) {
+                sel.value = String(currentCoachId);
+            } else {
+                sel.value = '';
+            }
+            btn.style.display = '';
+            wrap.style.display = 'none';
+            btn.onclick = function () {
+                wrap.style.display = '';
+            };
+            cancelBtn.onclick = function () {
+                wrap.style.display = 'none';
+            };
+            saveBtn.onclick = async function () {
+                var coachIdValue = sel.value ? parseInt(sel.value, 10) : null;
+                if (!coachIdValue || isNaN(coachIdValue)) {
+                    App.showNotification('\uCF54\uCE58\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.', 'warning');
+                    return;
+                }
+                saveBtn.disabled = true;
+                try {
+                    await App.api.put('/member-products/' + selectedMemberProduct.id + '/coach', { coachId: coachIdValue });
+                    var selectedCoach = extendModalAllCoaches.find(function (c) { return String(c.id) === String(coachIdValue); });
+                    if (selectedCoach) {
+                        selectedMemberProduct.coach = { id: selectedCoach.id, name: selectedCoach.name };
+                        selectedMemberProduct.coachName = selectedCoach.name;
+                        var coachTextEl = document.getElementById('extend-coach');
+                        if (coachTextEl) {
+                            coachTextEl.textContent = selectedCoach.name || '-';
+                        }
+                        var activeSelect = document.getElementById('extend-product-select');
+                        if (activeSelect && activeSelect.value === ('memberProduct_' + selectedMemberProduct.id)) {
+                            var activeOpt = activeSelect.options[activeSelect.selectedIndex];
+                            if (activeOpt) {
+                                activeOpt.dataset.coachId = String(selectedCoach.id);
+                                activeOpt.dataset.coachName = String(selectedCoach.name || '');
+                            }
+                        }
+                    }
+                    wrap.style.display = 'none';
+                    App.showNotification('\uB2F4\uB2F9 \uCF54\uCE58\uAC00 \uC218\uC815\uB418\uC5C8\uC2B5\uB2C8\uB2E4.', 'success');
+                } catch (e) {
+                    App.err('\uC774\uC6A9\uAD8C \uCF54\uCE58 \uC218\uC815 \uC2E4\uD328:', e);
+                    var msg = e && e.response && e.response.data && e.response.data.error ? e.response.data.error : '\uB2F4\uB2F9 \uCF54\uCE58 \uC218\uC815\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.';
+                    App.showNotification(msg, 'danger');
+                } finally {
+                    saveBtn.disabled = false;
+                }
+            };
         }
 
         const select = document.getElementById('extend-product-select');
@@ -4912,6 +5416,7 @@ async function openExtendProductModal(memberId, options) {
                             || selectedOption.dataset.coachName
                             || '\uBBF8\uC9C0\uC815';
                         document.getElementById('extend-coach').textContent = coachName;
+                        showAdminCoachEditor(selectedMemberProduct, selectedMemberProduct.product || null);
 
                         const mpType = selectedMemberProduct.product?.type || '';
                         const mpStatus = selectedMemberProduct.status || '';
@@ -4924,6 +5429,7 @@ async function openExtendProductModal(memberId, options) {
                         }
                     } else {
                         document.getElementById('extend-coach').textContent = '-';
+                        hideAdminCoachEditor();
                     }
                 } else {
                     // \uC2E0\uADDC \uC0C1\uD488: \uC0C1\uD488 category\uBCC4 \uCF54\uCE58 \uBAA9\uB85D \uD544\uD130 + \uAE30\uBCF8\uAC12 \uC790\uB3D9 \uC120\uD0DD
@@ -4947,9 +5453,6 @@ async function openExtendProductModal(memberId, options) {
                             (selectedProduct.coach && selectedProduct.coach.id != null)
                                 ? selectedProduct.coach.id
                                 : (selectedOption.dataset.coachId ? parseInt(selectedOption.dataset.coachId, 10) : null);
-                        if ((!prefCoachId || isNaN(prefCoachId)) && memberForExtendModal && memberForExtendModal.coach && memberForExtendModal.coach.id != null) {
-                            prefCoachId = memberForExtendModal.coach.id;
-                        }
                         if (coachSel) {
                             var prefStr = prefCoachId != null && !isNaN(prefCoachId) ? String(prefCoachId) : '';
                             if (prefStr && coachSel.querySelector('option[value="' + prefStr + '"]')) {
@@ -4967,6 +5470,7 @@ async function openExtendProductModal(memberId, options) {
                             coachSelEmpty.value = '';
                         }
                     }
+                    hideAdminCoachEditor();
                 }
                 
                 updateExtendPrice();
@@ -4978,6 +5482,7 @@ async function openExtendProductModal(memberId, options) {
                 document.getElementById('extend-coach').textContent = '-';
                 document.getElementById('extend-calculated-price').textContent = '-';
                 daysInput.value = '';
+                hideAdminCoachEditor();
             }
         });
 
@@ -5054,10 +5559,6 @@ async function processExtendProduct() {
                 }
                 let coachId = parseInt(selectedOption.dataset.coachId, 10);
                 if (!coachId) {
-                    const memberForCoach = await App.api.get(`/members/${memberId}`);
-                    coachId = (memberForCoach && memberForCoach.coach && memberForCoach.coach.id) ? memberForCoach.coach.id : null;
-                }
-                if (!coachId) {
                     const products = await App.api.get('/products');
                     const p = Array.isArray(products) ? products.find(pr => pr.id === baseProductId) : null;
                     if (p && p.coach && p.coach.id) coachId = p.coach.id;
@@ -5101,11 +5602,6 @@ async function processExtendProduct() {
             var coachPick = document.getElementById('extend-coach-select');
             if (coachPick && coachPick.value) {
                 extendCoachId = parseInt(coachPick.value, 10);
-            }
-            if (!extendCoachId || isNaN(extendCoachId)) {
-                const memberForCoach = await App.api.get(`/members/${memberId}`);
-                extendCoachId =
-                    (memberForCoach && memberForCoach.coach && memberForCoach.coach.id) ? memberForCoach.coach.id : null;
             }
             if (!extendCoachId) {
                 const products = await App.api.get('/products');

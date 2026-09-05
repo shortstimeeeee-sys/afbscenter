@@ -7,10 +7,12 @@ import com.afbscenter.model.Member.MemberGrade;
 import com.afbscenter.model.Member.MemberStatus;
 import com.afbscenter.model.Booking;
 import com.afbscenter.model.MemberProduct;
+import com.afbscenter.model.MemberProductHistory;
 import com.afbscenter.model.Product;
 import com.afbscenter.repository.AttendanceRepository;
 import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.CoachRepository;
+import com.afbscenter.repository.MemberProductHistoryRepository;
 import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.PaymentRepository;
@@ -26,6 +28,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -42,6 +45,7 @@ public class MemberService {
     private final BookingRepository bookingRepository;
     private final AttendanceRepository attendanceRepository;
     private final MemberProductRepository memberProductRepository;
+    private final MemberProductHistoryRepository memberProductHistoryRepository;
     private final ProductRepository productRepository;
     private final JdbcTemplate jdbcTemplate;
     private final OperationalCoachViewService operationalCoachViewService;
@@ -53,6 +57,7 @@ public class MemberService {
                         BookingRepository bookingRepository,
                         AttendanceRepository attendanceRepository,
                         MemberProductRepository memberProductRepository,
+                        MemberProductHistoryRepository memberProductHistoryRepository,
                         ProductRepository productRepository,
                         JdbcTemplate jdbcTemplate,
                         OperationalCoachViewService operationalCoachViewService) {
@@ -62,6 +67,7 @@ public class MemberService {
         this.bookingRepository = bookingRepository;
         this.attendanceRepository = attendanceRepository;
         this.memberProductRepository = memberProductRepository;
+        this.memberProductHistoryRepository = memberProductHistoryRepository;
         this.productRepository = productRepository;
         this.jdbcTemplate = jdbcTemplate;
         this.operationalCoachViewService = operationalCoachViewService;
@@ -946,10 +952,25 @@ public class MemberService {
         return memberRepository.findByPhoneNumberContaining(phoneNumber);
     }
 
-    // 회원 수정
+    /**
+     * 회원 수정. 담당 코치(카드)는 저장으로 바꾸지 않으며, 변경은 {@code /api/member-approvals} COACH_REASSIGNMENT 승인 후
+     * {@link #applyCoachReassignmentAfterApproval} 로만 반영한다.
+     */
     public Member updateMember(Long id, Member updatedMember) {
         Member member = memberRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("회원을 찾을 수 없습니다."));
+
+        Coach coachBeforeCard = member.getCoach();
+        Long oldCoachId = coachBeforeCard != null ? coachBeforeCard.getId() : null;
+        Long newCoachId = null;
+        if (updatedMember.getCoach() != null && updatedMember.getCoach().getId() != null) {
+            newCoachId = updatedMember.getCoach().getId();
+        }
+        boolean coachCardChanged = !Objects.equals(oldCoachId, newCoachId);
+        if (coachCardChanged) {
+            throw new IllegalArgumentException(
+                    "담당 코치는 저장만으로 변경할 수 없습니다. 회원 관리 화면에서 「담당 코치 변경 승인 요청」으로 신청하면 관리자 승인 후 이용권·히스토리에 반영됩니다.");
+        }
         
         // 기존 회원번호 저장 (소급 등록 시 불변 유지용)
         String originalMemberNumber = member.getMemberNumber();
@@ -1029,14 +1050,7 @@ public class MemberService {
         member.setCatcherBlocking(updatedMember.getCatcherBlocking());
         member.setCatcherThrowing(updatedMember.getCatcherThrowing());
         member.setCatcherFraming(updatedMember.getCatcherFraming());
-        // 코치 설정
-        if (updatedMember.getCoach() != null && updatedMember.getCoach().getId() != null) {
-            Coach coach = coachRepository.findById(updatedMember.getCoach().getId())
-                    .orElseThrow(() -> new IllegalArgumentException("코치를 찾을 수 없습니다."));
-            member.setCoach(coach);
-        } else {
-            member.setCoach(null);
-        }
+        // 담당 코치는 위에서 변경 요청 시 예외 처리 — 여기서는 유지(변경 없음)
         
         // 소급 등록 시 회원번호는 절대 변경하지 않음 (불변)
         if (isBackdateOnly) {
@@ -1052,6 +1066,100 @@ public class MemberService {
         }
         
         return memberRepository.save(member);
+    }
+
+    /**
+     * 승인된 담당 코치 변경(레거시): 회원 카드 코치 설정 후, 미삭제 이용권 담당을 동일하게 맞추고 이용권 히스토리(ADJUST)에 기록한다.
+     */
+    public void applyCoachReassignmentAfterApproval(Long memberId, Long newCoachId, String processedBy) {
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new IllegalArgumentException("회원을 찾을 수 없습니다."));
+        Coach coachBefore = member.getCoach();
+        Coach coachAfter = coachRepository.findById(newCoachId)
+                .orElseThrow(() -> new IllegalArgumentException("코치를 찾을 수 없습니다."));
+        member.setCoach(coachAfter);
+        memberRepository.save(member);
+        syncAllMemberProductsCoachFromMemberCard(member, coachBefore, coachAfter, processedBy);
+    }
+
+    /**
+     * 승인된 담당 코치 변경: 지정한 <strong>활성</strong> 이용권 1건의 담당만 바꾼다.
+     * 다른 이용권·회원 카드의 대표 담당({@link Member#getCoach()})은 변경하지 않는다. 히스토리는 해당 이용권 1건만 ADJUST 기록.
+     */
+    public void applyCoachReassignmentForMemberProduct(Long memberId, Long memberProductId, Long newCoachId, String processedBy) {
+        MemberProduct mp = memberProductRepository.findByIdAndDeletedAtIsNull(memberProductId)
+                .orElseThrow(() -> new IllegalArgumentException("이용권을 찾을 수 없습니다."));
+        if (!Objects.equals(memberId, mp.getMember().getId())) {
+            throw new IllegalArgumentException("회원과 이용권이 일치하지 않습니다.");
+        }
+        if (mp.getStatus() != MemberProduct.Status.ACTIVE) {
+            throw new IllegalStateException("활성 이용권만 담당 코치를 변경할 수 있습니다.");
+        }
+        Coach coachAfter = coachRepository.findById(newCoachId)
+                .orElseThrow(() -> new IllegalArgumentException("코치를 찾을 수 없습니다."));
+        Coach coachBefore = mp.getCoach();
+        Long beforeId = coachBefore != null ? coachBefore.getId() : null;
+        if (Objects.equals(beforeId, newCoachId)) {
+            throw new IllegalStateException("이미 해당 코치가 이 이용권에 배정되어 있습니다.");
+        }
+        Member member = mp.getMember();
+        String oldName = coachBefore != null ? coachBefore.getName() : "(없음)";
+        String newName = coachAfter.getName() != null ? coachAfter.getName() : ("ID " + newCoachId);
+        String productLabel = mp.getProduct() != null && mp.getProduct().getName() != null ? mp.getProduct().getName() : "이용권";
+        mp.setCoach(coachAfter);
+        memberProductRepository.save(mp);
+        // 회원 카드(Member.coach)는 건드리지 않는다. 복수 이용권·종목별 담당이 다를 수 있으므로
+        // 이 메서드는 지정한 이용권 1행만 새 코치로 옮긴다(히스토리도 해당 이용권만).
+        MemberProductHistory h = new MemberProductHistory();
+        h.setMemberProduct(mp);
+        h.setMember(member);
+        h.setTransactionDate(LocalDateTime.now());
+        h.setType(MemberProductHistory.TransactionType.ADJUST);
+        h.setChangeAmount(0);
+        h.setRemainingCountAfter(mp.getRemainingCount());
+        String desc = String.format("담당 코치 변경(%s): %s → %s", productLabel, oldName, newName);
+        if (desc.length() > 500) {
+            desc = desc.substring(0, 497) + "...";
+        }
+        h.setDescription(desc);
+        if (processedBy != null && !processedBy.isBlank()) {
+            String pb = processedBy.trim();
+            h.setProcessedBy(pb.length() > 50 ? pb.substring(0, 50) : pb);
+        }
+        memberProductHistoryRepository.save(h);
+        logger.info("이용권별 담당 코치 변경: memberId={}, memberProductId={}, {} → {}", memberId, memberProductId, oldName, newName);
+    }
+
+    private void syncAllMemberProductsCoachFromMemberCard(Member member, Coach coachBefore, Coach coachAfter, String processedBy) {
+        String oldName = coachBefore != null ? coachBefore.getName() : "(없음)";
+        String newName = coachAfter != null ? coachAfter.getName() : "(없음)";
+        List<MemberProduct> list = memberProductRepository.findByMemberId(member.getId());
+        for (MemberProduct mp : list) {
+            if (mp.getDeletedAt() != null) {
+                continue;
+            }
+            Long mpCoachId = mp.getCoach() != null ? mp.getCoach().getId() : null;
+            Long afterId = coachAfter != null ? coachAfter.getId() : null;
+            if (Objects.equals(mpCoachId, afterId)) {
+                continue;
+            }
+            mp.setCoach(coachAfter);
+            memberProductRepository.save(mp);
+            MemberProductHistory h = new MemberProductHistory();
+            h.setMemberProduct(mp);
+            h.setMember(member);
+            h.setTransactionDate(LocalDateTime.now());
+            h.setType(MemberProductHistory.TransactionType.ADJUST);
+            h.setChangeAmount(0);
+            h.setRemainingCountAfter(mp.getRemainingCount());
+            h.setDescription(String.format("담당 코치 변경(회원 카드 기준): %s → %s (이용권 동기화)", oldName, newName));
+            if (processedBy != null && !processedBy.isBlank()) {
+                String pb = processedBy.trim();
+                h.setProcessedBy(pb.length() > 50 ? pb.substring(0, 50) : pb);
+            }
+            memberProductHistoryRepository.save(h);
+        }
+        logger.info("회원 카드 코치 변경에 따른 이용권 동기화: memberId={}, {} → {}", member.getId(), oldName, newName);
     }
     
     // 회원번호 업데이트 (전화번호 변경 시)

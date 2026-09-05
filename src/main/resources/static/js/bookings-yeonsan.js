@@ -1,4 +1,5 @@
 // 예약/대관 관리 페이지 JavaScript
+// 참고: bookings-yeonsan.html 은 실제로 /js/bookings.js 를 로드함. 이 파일은 HTML에 연결되어 있지 않음 — 수정은 bookings.js·common.js 위주로 할 것.
 
 let currentDate = new Date();
 let currentView = 'calendar';
@@ -198,6 +199,13 @@ async function loadFilterFacilities() {
 }
 
 async function initializeBookings() {
+    if (App.currentUser && String(App.currentUser.role || '').toUpperCase() === 'COACH'
+            && typeof App.syncOperationalCoachViewFromServer === 'function') {
+        await App.syncOperationalCoachViewFromServer();
+    }
+    if (typeof App.refreshCoachBookingNameVisibilityCache === 'function') {
+        await App.refreshCoachBookingNameVisibilityCache();
+    }
     // 뷰 전환 이벤트
     document.querySelectorAll('[data-view]').forEach(btn => {
         btn.addEventListener('click', function() {
@@ -716,6 +724,9 @@ async function loadCoachesForBooking() {
         });
         
         App.log(`코치 ${activeCoaches.length}명 로드됨:`, activeCoaches.map(c => c.name));
+        if (typeof App.applyBookingCoachEditPolicy === 'function') {
+            App.applyBookingCoachEditPolicy();
+        }
     } catch (error) {
         App.err('코치 목록 로드 실패:', error);
     }
@@ -1116,11 +1127,19 @@ async function loadCoachLegend() {
         }
         
         const filterSet = window.calendarFilterCoachIds || new Set();
+        if (typeof App.normalizeCalendarFilterCoachIdsSet === 'function') {
+            App.normalizeCalendarFilterCoachIdsSet(filterSet);
+        }
         let legendHTML = '<div class="legend-title">담당 코치:</div>';
         activeCoaches.forEach(coach => {
             const color = App.CoachColors.getColor(coach);
             const coachKey = coach.id != null ? coach.id : 'unassigned';
-            const selectedClass = filterSet.has(coachKey) ? ' legend-item--selected' : '';
+            let selectedClass = '';
+            if (filterSet.size > 0 && typeof App.calendarCoachIdInFilterSet === 'function') {
+                if (App.calendarCoachIdInFilterSet(filterSet, coachKey)) {
+                    selectedClass = ' legend-item--selected';
+                }
+            }
             legendHTML += `
                 <div class="legend-item${selectedClass}" data-coach-id="${coachKey}" role="button" tabindex="0" title="클릭: 해당 코치만 보기, Ctrl+클릭: 다중 선택">
                     <span class="legend-color" style="background-color: ${color}"></span>
@@ -1136,14 +1155,32 @@ async function loadCoachLegend() {
                 const item = e.target.closest('.legend-item[data-coach-id]');
                 if (!item) return;
                 const rawId = item.getAttribute('data-coach-id');
-                const coachKey = rawId === 'unassigned' ? 'unassigned' : (parseInt(rawId, 10) || rawId);
+                const coachKey = typeof App.normalizeCalendarCoachFilterKey === 'function'
+                    ? App.normalizeCalendarCoachFilterKey(rawId)
+                    : (rawId === 'unassigned' ? 'unassigned' : (parseInt(rawId, 10) || rawId));
                 const set = window.calendarFilterCoachIds;
+                if (typeof App.normalizeCalendarFilterCoachIdsSet === 'function') {
+                    App.normalizeCalendarFilterCoachIdsSet(set);
+                }
                 if (e.ctrlKey || e.metaKey) {
-                    if (set.has(coachKey)) set.delete(coachKey);
-                    else set.add(coachKey);
+                    if (typeof App.calendarCoachIdInFilterSet === 'function' && App.calendarCoachIdInFilterSet(set, coachKey)) {
+                        Array.from(set).forEach(function(k) {
+                            if (k === 'unassigned' && coachKey === 'unassigned') {
+                                set.delete(k);
+                            } else if (k !== 'unassigned' && coachKey !== 'unassigned' && Number(k) === Number(coachKey)) {
+                                set.delete(k);
+                            }
+                        });
+                    } else {
+                        set.add(coachKey);
+                    }
                 } else {
-                    if (set.size === 1 && set.has(coachKey)) set.clear();
-                    else { set.clear(); set.add(coachKey); }
+                    if (set.size === 1 && typeof App.calendarCoachIdInFilterSet === 'function' && App.calendarCoachIdInFilterSet(set, coachKey)) {
+                        set.clear();
+                    } else {
+                        set.clear();
+                        set.add(coachKey);
+                    }
                 }
                 loadCoachLegend();
                 if (window.lastBookingStatsData) renderBookingStats(window.lastBookingStatsData);
@@ -1155,14 +1192,32 @@ async function loadCoachLegend() {
                 if (!item) return;
                 e.preventDefault();
                 const rawId = item.getAttribute('data-coach-id');
-                const coachKey = rawId === 'unassigned' ? 'unassigned' : (parseInt(rawId, 10) || rawId);
+                const coachKey = typeof App.normalizeCalendarCoachFilterKey === 'function'
+                    ? App.normalizeCalendarCoachFilterKey(rawId)
+                    : (rawId === 'unassigned' ? 'unassigned' : (parseInt(rawId, 10) || rawId));
                 const set = window.calendarFilterCoachIds;
+                if (typeof App.normalizeCalendarFilterCoachIdsSet === 'function') {
+                    App.normalizeCalendarFilterCoachIdsSet(set);
+                }
                 if (e.ctrlKey || e.metaKey) {
-                    if (set.has(coachKey)) set.delete(coachKey);
-                    else set.add(coachKey);
+                    if (typeof App.calendarCoachIdInFilterSet === 'function' && App.calendarCoachIdInFilterSet(set, coachKey)) {
+                        Array.from(set).forEach(function(k) {
+                            if (k === 'unassigned' && coachKey === 'unassigned') {
+                                set.delete(k);
+                            } else if (k !== 'unassigned' && coachKey !== 'unassigned' && Number(k) === Number(coachKey)) {
+                                set.delete(k);
+                            }
+                        });
+                    } else {
+                        set.add(coachKey);
+                    }
                 } else {
-                    if (set.size === 1 && set.has(coachKey)) set.clear();
-                    else { set.clear(); set.add(coachKey); }
+                    if (set.size === 1 && typeof App.calendarCoachIdInFilterSet === 'function' && App.calendarCoachIdInFilterSet(set, coachKey)) {
+                        set.clear();
+                    } else {
+                        set.clear();
+                        set.add(coachKey);
+                    }
                 }
                 loadCoachLegend();
                 if (window.lastBookingStatsData) renderBookingStats(window.lastBookingStatsData);
@@ -1275,25 +1330,31 @@ async function renderCalendar() {
         
         const response = await App.api.get(`/bookings?${params.toString()}`);
         bookings = response || [];
-        const skipLegendClientFilter = typeof App.isOperationalViewCoachFilterActive === 'function' && App.isOperationalViewCoachFilterActive();
         const filterSet = window.calendarFilterCoachIds || new Set();
-        if (!skipLegendClientFilter && filterSet && filterSet.size > 0) {
-            bookings = bookings.filter(b => {
-                const coach = typeof App.resolveCoachForCalendarDisplay === 'function'
-                    ? App.resolveCoachForCalendarDisplay(b)
-                    : (b.coach || (b.member && b.member.coach ? b.member.coach : null));
-                const cid = (coach && coach.id != null) ? coach.id : 'unassigned';
-                return typeof App.calendarCoachIdInFilterSet === 'function'
-                    ? App.calendarCoachIdInFilterSet(filterSet, cid)
-                    : filterSet.has(cid);
-            });
+        if (typeof App.normalizeCalendarFilterCoachIdsSet === 'function') {
+            App.normalizeCalendarFilterCoachIdsSet(filterSet);
+        }
+        if (filterSet && filterSet.size > 0) {
+            bookings = bookings.filter(b =>
+                typeof App.bookingMatchesLegendCoachFilterSet === 'function'
+                    ? App.bookingMatchesLegendCoachFilterSet(b, filterSet)
+                    : (function() {
+                        var stripeId = null;
+                        if (b.coach && b.coach.id != null) stripeId = b.coach.id;
+                        else if (b.member && b.member.coach && b.member.coach.id != null) stripeId = b.member.coach.id;
+                        var cid = stripeId != null ? stripeId : 'unassigned';
+                        return typeof App.calendarCoachIdInFilterSet === 'function'
+                            ? App.calendarCoachIdInFilterSet(filterSet, cid)
+                            : filterSet.has(cid);
+                    })()
+            );
             App.log(`캘린더 코치 필터 적용: ${bookings.length}건`);
         }
         App.log(`캘린더 로드 (${config.branch} - ${config.facilityType || config.lessonCategory || '전체'}): ${bookings.length}개의 예약 발견`, bookings);
         
-        const legendFilterActive = !skipLegendClientFilter && filterSet && filterSet.size > 0;
-        // 범례·운영 코치 서버 필터 적용 중에는 폴백 금지 (필터 밖 예약이 달력에 섞임)
-        if (bookings.length === 0 && !legendFilterActive && !skipLegendClientFilter) {
+        const legendFilterActive = filterSet && filterSet.size > 0;
+        // 범례 필터 적용 중에는 폴백 금지 (필터 밖 예약이 달력에 섞임)
+        if (bookings.length === 0 && !legendFilterActive) {
             App.log('날짜 범위 내 예약 없음, 전체 예약 확인 중...');
             try {
                 const allParams = new URLSearchParams({ branch: config.branch });
@@ -2742,6 +2803,9 @@ async function openBookingModal(id = null) {
     
     // 모달이 열린 후 레슨 종목 필터링 적용
     setTimeout(() => filterLessonCategoryOptions(), 200);
+    if (typeof App.applyBookingCoachEditPolicy === 'function') {
+        App.applyBookingCoachEditPolicy();
+    }
     
     // 모달 닫기 이벤트 리스너 추가
     setupBookingModalCloseHandler();
@@ -2941,6 +3005,9 @@ async function loadBookingData(id) {
         // 코치 선택 필드 설정 (비회원 예약 시에도 사용)
         if (document.getElementById('booking-coach')) {
             document.getElementById('booking-coach').value = booking.coach?.id || '';
+        }
+        if (typeof App.applyBookingCoachEditPolicy === 'function') {
+            App.applyBookingCoachEditPolicy();
         }
     } catch (error) {
         App.showNotification('예약 정보를 불러오는데 실패했습니다.', 'danger');
@@ -3550,18 +3617,23 @@ async function deleteSelectedBooking() {
 
 document.addEventListener('afbs-operational-coach-filter-changed', async function() {
     try {
+        const statsP = typeof loadBookingStats === 'function' ? loadBookingStats() : Promise.resolve();
+        let viewP;
         if (typeof currentView !== 'undefined' && currentView === 'calendar' && typeof renderCalendar === 'function') {
-            await renderCalendar();
+            viewP = renderCalendar();
         } else if (typeof currentView !== 'undefined' && currentView === 'list' && typeof loadBookingsList === 'function') {
-            loadBookingsList();
+            viewP = loadBookingsList();
         } else {
+            const parts = [];
             if (typeof renderCalendar === 'function') {
-                await renderCalendar();
+                parts.push(renderCalendar());
             }
             if (typeof loadBookingsList === 'function') {
-                loadBookingsList();
+                parts.push(loadBookingsList());
             }
+            viewP = parts.length ? Promise.all(parts) : Promise.resolve();
         }
+        await Promise.all([statsP, viewP]);
     } catch (e) {
         App.err('예약 뷰(운영 코치 필터) 새로고침:', e);
     }

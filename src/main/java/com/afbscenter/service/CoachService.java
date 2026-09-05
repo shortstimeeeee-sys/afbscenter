@@ -1,5 +1,6 @@
 package com.afbscenter.service;
 
+import com.afbscenter.constants.CoachColorPalette;
 import com.afbscenter.model.Coach;
 import com.afbscenter.model.Member;
 import com.afbscenter.model.Booking;
@@ -40,8 +41,12 @@ public class CoachService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    // 코치 생성
+    // 코치 생성 (활성 코치와 같은 계열·동일색이 아닌 고유색 자동 할당)
     public Coach createCoach(Coach coach) {
+        if (coach.getActive() == null) {
+            coach.setActive(true);
+        }
+        assignUniqueColorIfNeeded(coach, null, true);
         return coachRepository.save(coach);
     }
 
@@ -73,20 +78,97 @@ public class CoachService {
     public Coach updateCoach(Long id, Coach updatedCoach) {
         Coach coach = coachRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("코치를 찾을 수 없습니다."));
-        
+
+        boolean wasActive = coach.getActive() == null || Boolean.TRUE.equals(coach.getActive());
         coach.setName(updatedCoach.getName());
         coach.setPhoneNumber(updatedCoach.getPhoneNumber());
         coach.setEmail(updatedCoach.getEmail());
         coach.setProfile(updatedCoach.getProfile());
         coach.setSpecialties(updatedCoach.getSpecialties());
         coach.setAvailableTimes(updatedCoach.getAvailableTimes());
-        coach.setAvailableBranches(updatedCoach.getAvailableBranches()); // 배정 지점 업데이트 추가
+        coach.setAvailableBranches(updatedCoach.getAvailableBranches());
         if (updatedCoach.getActive() != null) {
             coach.setActive(updatedCoach.getActive());
         }
-        // userId는 별도 API(syncUserCoachLink)로만 변경. 부분 PUT 시 JSON에 userId가 없어 null로 오인되지 않도록 여기서는 건드리지 않음.
-
+        boolean nowActive = coach.getActive() == null || Boolean.TRUE.equals(coach.getActive());
+        if (updatedCoach.getColor() != null && !updatedCoach.getColor().trim().isEmpty()) {
+            coach.setColor(updatedCoach.getColor().trim());
+        }
+        // 활성 코치만 계열 충돌 검사. 신규·재활성화는 계열까지 엄격히, 일반 수정은 exact 충돌·비선호 계열만 조정
+        if (nowActive) {
+            boolean strictFamily = !wasActive
+                    || coach.getColor() == null
+                    || coach.getColor().trim().isEmpty();
+            assignUniqueColorIfNeeded(coach, id, strictFamily);
+        }
         return coachRepository.save(coach);
+    }
+
+    /**
+     * 활성 코치 기준으로 고유색을 보장한다.
+     * @param strictFamily true면 같은 색상 계열도 피함(신규·재활성화). false면 exact 충돌만 강제 재할당하고,
+     *                     계열 충돌은 선호색이 없을 때만 재할당.
+     */
+    void assignUniqueColorIfNeeded(Coach coach, Long excludeCoachId, boolean strictFamily) {
+        if (coach == null) {
+            return;
+        }
+        Set<String> used = collectActiveUsedColors(excludeCoachId);
+        String current = CoachColorPalette.normalizeHex(coach.getColor());
+        String preferred = CoachColorPalette.normalizeHex(
+                CoachColorPalette.preferredColorForName(coach.getName()));
+
+        if (current != null) {
+            boolean exactConflict = CoachColorPalette.exactUsed(current, used);
+            boolean familyConflict = CoachColorPalette.conflictsWithUsed(current, used);
+            if (!exactConflict) {
+                if (!familyConflict) {
+                    coach.setColor(current);
+                    return;
+                }
+                // 선호색(알려진 코치)은 계열 겹침을 허용 — 서정훈·공인욱 파랑 등
+                if (preferred != null && preferred.equalsIgnoreCase(current)) {
+                    coach.setColor(current);
+                    return;
+                }
+                if (!strictFamily) {
+                    coach.setColor(current);
+                    return;
+                }
+            }
+        }
+
+        if (preferred != null && !CoachColorPalette.exactUsed(preferred, used)) {
+            // 선호색은 exact만 유일하면 허용(계열 예외). 신규 자동색은 아래에서 계열까지 회피
+            coach.setColor(preferred);
+            return;
+        }
+
+        String picked = CoachColorPalette.pickUnused(used);
+        coach.setColor(picked);
+        logger.info("코치 고유색 할당: name={}, color={}, family={}",
+                coach.getName(), picked, CoachColorPalette.familyKey(picked));
+    }
+
+    /** 활성 코치의 색만 수집 — 삭제(비활성)된 코치 색/계열은 재사용 가능 */
+    private Set<String> collectActiveUsedColors(Long excludeCoachId) {
+        Set<String> used = new HashSet<>();
+        for (Coach c : coachRepository.findAll()) {
+            if (c == null || c.getColor() == null || c.getColor().trim().isEmpty()) {
+                continue;
+            }
+            if (c.getActive() != null && !c.getActive()) {
+                continue;
+            }
+            if (excludeCoachId != null && excludeCoachId.equals(c.getId())) {
+                continue;
+            }
+            String n = CoachColorPalette.normalizeHex(c.getColor());
+            if (n != null) {
+                used.add(n);
+            }
+        }
+        return used;
     }
 
     /**
@@ -112,13 +194,15 @@ public class CoachService {
         return Optional.of(coachRepository.save(target));
     }
 
-    // 코치 삭제 → 실제 삭제 대신 비활성(퇴사 처리)로 변경
+    // 코치 삭제 → 실제 삭제 대신 비활성(퇴사 처리). 색은 유지하되 활성 집합에서 제외되어
+    // 신규 코치가 같은 색/계열을 다시 쓸 수 있다. 재활성화 시 충돌하면 재할당.
     public void deleteCoach(Long id) {
         Coach coach = coachRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("코치를 찾을 수 없습니다."));
-        // 이미 비활성인 경우에도 에러 없이 한 번 더 호출 가능
         coach.setActive(false);
         coachRepository.save(coach);
+        logger.info("코치 비활성 처리(색상 계열 재사용 가능): id={}, name={}, color={}",
+                id, coach.getName(), coach.getColor());
     }
 
     // 코치별 수강 인원 수 조회 (getStudents 목록과 동일 기준: 해당 코치가 배정된 활성 이용권 보유 회원 수만)

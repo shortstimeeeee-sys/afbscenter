@@ -360,6 +360,12 @@ public class MemberProductController {
                     map.put("ledgerLines", Collections.emptyList());
                 }
 
+                // 회원 상세 이용권 탭: 화면 잔여(규칙 계산)와 DB 저장값 비교용
+                if (Boolean.TRUE.equals(forMemberDetailUi)) {
+                    map.put("dbStatus", mp.getStatus() != null ? mp.getStatus().name() : null);
+                    map.put("dbRemainingCount", mp.getRemainingCount());
+                }
+
                 return map;
             }).collect(Collectors.toList());
 
@@ -729,6 +735,21 @@ public class MemberProductController {
                     memberProduct.getId(), newTotalCount, memberProduct.getRemainingCount());
             
             MemberProduct saved = memberProductRepository.save(memberProduct);
+            final Long extendedFromSourceId = sourceMemberProductIdForHistory;
+
+            // 잔여 0·소진 등으로 신규 행(nu)을 발급한 경우, 구 행이 ACTIVE·잔여0으로 남으면 화면·DB가 "소진인데 ACTIVE"로 어긋남 → 구 행은 USED_UP으로 마감
+            if (extendedFromSourceId != null) {
+                memberProductRepository.findById(extendedFromSourceId).ifPresent(prevRow -> {
+                    if (prevRow.getStatus() == MemberProduct.Status.ACTIVE) {
+                        prevRow.setStatus(MemberProduct.Status.USED_UP);
+                        if (prevRow.getEndedAt() == null) {
+                            prevRow.setEndedAt(LocalDateTime.now());
+                        }
+                        memberProductRepository.save(prevRow);
+                        logger.info("연장 신규 행 발급: 이전 이용권 ID={} → USED_UP 처리", extendedFromSourceId);
+                    }
+                });
+            }
 
             // 연장 CHARGE 이력 (금액·횟수는 Payment·MemberProduct와 일치, member_product_history에 보존)
             try {
@@ -748,8 +769,8 @@ public class MemberProductController {
                     if (savedExtendPayment != null && savedExtendPayment.getAmount() != null) {
                         desc += ", 결제 " + savedExtendPayment.getAmount() + "원";
                     }
-                    if (sourceMemberProductIdForHistory != null) {
-                        desc += " [신규 이용권 발급, 이전 ID=" + sourceMemberProductIdForHistory + "]";
+                    if (extendedFromSourceId != null) {
+                        desc += " [신규 이용권 발급, 이전 ID=" + extendedFromSourceId + "]";
                     }
                     history.setDescription(desc);
                     memberProductHistoryRepository.save(history);

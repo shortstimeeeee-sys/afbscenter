@@ -215,6 +215,40 @@
                         <label class="form-label">학교/소속 <span class="required-asterisk">*</span></label>
                         <input type="text" class="form-control" id="member-school" placeholder="예: 서울고등학교, XX야구단" required>
                     </div>
+                    <div class="member-coach-reassign-card" id="member-coach-reassign-section" style="display: none;">
+                        <div class="member-coach-reassign-card__head">
+                            <span class="member-coach-reassign-card__title">담당 코치 변경</span>
+                            <span class="member-coach-reassign-card__badge">승인 후 반영</span>
+                        </div>
+                        <p class="member-coach-reassign-card__lead">마감·소진된 이용권은 목록에 나오지 않습니다. 상품 종목(야구·트레이닝 등)에 맞는 코치만 변경 후보에 표시됩니다.</p>
+                        <div id="member-coach-reassign-empty" class="member-coach-reassign-empty" style="display: none;">
+                            변경할 수 있는 <strong>활성 이용권</strong>이 없습니다.
+                        </div>
+                        <div id="member-coach-reassign-fields" class="member-coach-reassign-card__grid">
+                            <div class="member-coach-reassign-field">
+                                <label class="member-coach-reassign-label" for="member-coach-reassign-mp">대상 이용권</label>
+                                <select id="member-coach-reassign-mp" class="form-control"></select>
+                            </div>
+                            <div class="member-coach-reassign-field">
+                                <span class="member-coach-reassign-label">현재 담당</span>
+                                <div id="member-coach-reassign-current" class="member-coach-reassign-current-pill" title="선택한 이용권의 담당 코치">—</div>
+                            </div>
+                            <div class="member-coach-reassign-field member-coach-reassign-field--wide">
+                                <label class="member-coach-reassign-label" for="member-coach-reassign-target">변경할 코치</label>
+                                <select id="member-coach-reassign-target" class="form-control">
+                                    <option value="">먼저 이용권을 선택하세요</option>
+                                </select>
+                            </div>
+                            <div class="member-coach-reassign-field member-coach-reassign-field--wide">
+                                <label class="member-coach-reassign-label" for="member-coach-reassign-note">요청 사유 (선택)</label>
+                                <input type="text" class="form-control" id="member-coach-reassign-note" placeholder="관리자에게 전달할 메모" maxlength="500" autocomplete="off" />
+                            </div>
+                        </div>
+                        <div class="member-coach-reassign-card__actions">
+                            <button type="button" class="btn btn-primary" id="member-coach-reassign-submit-btn">관리자 승인 요청</button>
+                        </div>
+                        <p class="member-coach-reassign-card__foot">저장만으로는 담당이 바뀌지 않습니다. 대시보드에서 관리자·매니저가 승인하면 해당 이용권·회원 카드에 반영되고 히스토리에 남습니다.</p>
+                    </div>
                     
                     <!-- 투수 / 타자 기록 (신규 가입 시 기록이 있다면 작성) -->
                     <div class="form-group">
@@ -617,8 +651,20 @@
                         <div class="form-control" style="background: var(--bg-tertiary);" id="extend-purchase-price">-</div>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">담당 코치/강사</label>
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                            <label class="form-label" style="margin-bottom:0;">담당 코치/강사</label>
+                            <button type="button" class="btn btn-sm btn-secondary" id="extend-coach-admin-edit-btn" style="display:none;padding:4px 8px;" title="관리자 전용: 담당 코치 수정">✏️</button>
+                        </div>
                         <div class="form-control" style="background: var(--bg-tertiary);" id="extend-coach">-</div>
+                        <div id="extend-coach-admin-edit-wrap" style="display:none;margin-top:8px;">
+                            <select class="form-control" id="extend-coach-admin-select">
+                                <option value="">코치를 선택하세요...</option>
+                            </select>
+                            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+                                <button type="button" class="btn btn-sm btn-secondary" id="extend-coach-admin-cancel-btn">취소</button>
+                                <button type="button" class="btn btn-sm btn-primary" id="extend-coach-admin-save-btn">적용</button>
+                            </div>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">연장 횟수 *</label>

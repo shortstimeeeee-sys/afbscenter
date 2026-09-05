@@ -251,8 +251,9 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             
             try {
                 logger.info("애플리케이션 시작 시 시설 데이터 초기화 실행");
-                initializeFacilities();
-                logger.info("시설 데이터 초기화 완료");
+                if (initializeFacilities()) {
+                    logger.info("시설 데이터 초기화 완료");
+                }
             } catch (Exception e) {
                 logger.warn("시설 데이터 초기화 중 오류 (무시): {}", e.getMessage());
             }
@@ -442,6 +443,8 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                 logger.info("애플리케이션 시작 시 member_approval_requests 테이블 마이그레이션 실행");
                 migrateMemberApprovalRequestsTable();
                 migrateMemberApprovalExtensionColumns();
+                migrateMemberApprovalReassignmentColumn();
+                removeMemberApprovalRequestsCheckConstraints();
                 logger.info("member_approval_requests 테이블 마이그레이션 완료");
             } catch (Exception e) {
                 logger.warn("member_approval_requests 마이그레이션 중 오류 (무시): {}", e.getMessage());
@@ -470,6 +473,14 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             }
 
             try {
+                logger.info("연장으로 대체된 구 이용권 ACTIVE·잔여0 → USED_UP 백필 실행");
+                migrateReplacedActiveMemberProductsToUsedUp();
+                logger.info("구 이용권 USED_UP 백필 완료");
+            } catch (Exception e) {
+                logger.warn("구 이용권 USED_UP 백필 중 오류 (무시): {}", e.getMessage());
+            }
+
+            try {
                 logger.info("코치(COACH) 역할 기본 권한(예약·훈련 외 제한) 레거시 행 정렬 실행");
                 migrateCoachRoleMenuDefaultsIfLegacyFingerprint();
                 logger.info("코치 역할 권한 마이그레이션 완료");
@@ -482,12 +493,633 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             } catch (Exception e) {
                 logger.warn("코치 회원 목록(member_view) 1회 패치 실패 (무시): {}", e.getMessage());
             }
+
+            try {
+                logger.info("코치 고유색(color) 컬럼·백필 마이그레이션 실행");
+                migrateCoachColorColumnAndBackfill();
+                logger.info("코치 고유색 마이그레이션 완료");
+            } catch (Exception e) {
+                logger.warn("코치 고유색 마이그레이션 중 오류 (무시): {}", e.getMessage());
+            }
             
             migrationExecuted = true;
         }
     }
 
     private static final String PATCH_COACH_MEMBER_VIEW_V1 = "coach_member_view_v1";
+    private static final String PATCH_COACH_COLOR_V1 = "coach_color_v1";
+    private static final String PATCH_COACH_COLOR_SEOJUNGHOON_V1 = "coach_color_seojunghoon_v1";
+    private static final String PATCH_COACH_COLOR_SEOJUNGHOON_WHITE_V1 = "coach_color_seojunghoon_white_v1";
+    private static final String PATCH_COACH_COLOR_FAMILY_DEDUPE_V1 = "coach_color_family_dedupe_v1";
+    private static final String PATCH_COACH_COLOR_PARKGEUNYEOP_V1 = "coach_color_parkgeunyeop_v1";
+    private static final String PATCH_COACH_COLOR_PARKGEUNYEOP_V2 = "coach_color_parkgeunyeop_v2";
+
+    /**
+     * coaches.color 컬럼 추가 후 전체 코치에 고유색 백필.
+     * 공인욱·박근엽·이원준·이유진 등 겹침 신고 코치는 선호색으로 강제 구분.
+     */
+    private void migrateCoachColorColumnAndBackfill() {
+        List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'COACHES'");
+        if (tables == null || tables.isEmpty()) {
+            logger.debug("coaches 테이블이 없어 고유색 마이그레이션을 건너뜁니다.");
+            return;
+        }
+
+        List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                        + "WHERE UPPER(TABLE_NAME) = 'COACHES' AND UPPER(COLUMN_NAME) = 'COLOR'");
+        if (columns == null || columns.isEmpty()) {
+            try {
+                jdbcTemplate.execute("ALTER TABLE coaches ADD COLUMN color VARCHAR(20)");
+                logger.info("coaches.color 컬럼 추가 완료");
+            } catch (Exception e) {
+                logger.warn("coaches.color 컬럼 추가 실패: {}", e.getMessage());
+            }
+        }
+
+        try {
+            jdbcTemplate.execute(
+                    "CREATE TABLE IF NOT EXISTS schema_patches (patch_id VARCHAR(128) PRIMARY KEY, "
+                            + "applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+        } catch (Exception e) {
+            logger.warn("schema_patches 테이블 생성 실패: {}", e.getMessage());
+        }
+
+        // 컬럼이 생기면 null인 행은 매 기동마다 채움(이미 채워진 색은 유지).
+        // PATCH는 겹침 4명 강제 재할당을 1회만 수행하기 위함.
+        backfillCoachColors(false);
+
+        boolean forceOverlapFix = false;
+        try {
+            jdbcTemplate.update("INSERT INTO schema_patches (patch_id) VALUES (?)", PATCH_COACH_COLOR_V1);
+            forceOverlapFix = true;
+        } catch (DataIntegrityViolationException e) {
+            forceOverlapFix = false;
+        } catch (Exception e) {
+            String m = e.getMessage() != null ? e.getMessage() : "";
+            if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                forceOverlapFix = false;
+            } else {
+                logger.warn("coach_color 패치 선점 실패: {}", e.getMessage());
+            }
+        }
+        if (forceOverlapFix) {
+            try {
+                forceAssignOverlapCoachColors();
+                logger.info("코치 색상 겹침 교정 패치 적용 완료 ({})", PATCH_COACH_COLOR_V1);
+            } catch (Exception e) {
+                logger.error("코치 색상 겹침 교정 실패, 패치 행 제거: {}", e.getMessage());
+                try {
+                    jdbcTemplate.update("DELETE FROM schema_patches WHERE patch_id = ?", PATCH_COACH_COLOR_V1);
+                } catch (Exception e2) {
+                    logger.warn("schema_patches 롤백 실패: {}", e2.getMessage());
+                }
+            }
+        }
+
+        // 서정훈[운영/대관담당] → 기존 대관담당 고유색 #2196F3 (1회)
+        applySeoJungHoonPreviousColorPatch();
+
+        // 서정훈[운영/대관담당] → 흰색 #FFFFFF (1회)
+        applySeoJungHoonWhiteColorPatch();
+
+        // 박근엽[투수코치] → 빨강 #D32F2F (서정민 오렌지 계열과 구분, 1회)
+        applyParkGeunYeopColorPatch();
+
+        // 박근엽[투수코치] → 라임 #C0CA33 (이름용으로 부드러운 톤, 1회)
+        applyParkGeunYeopLimeColorPatch();
+
+        // 활성 코치끼리 같은 색상 계열 중복 제거 (1회)
+        applyCoachColorFamilyDedupePatch();
+    }
+
+    /** 서정훈을 기존 대관담당 색(#2196F3)으로 복원. 해당 색을 쓰던 다른 코치는 재배치. */
+    private void applySeoJungHoonPreviousColorPatch() {
+        boolean apply = false;
+        try {
+            jdbcTemplate.update("INSERT INTO schema_patches (patch_id) VALUES (?)", PATCH_COACH_COLOR_SEOJUNGHOON_V1);
+            apply = true;
+        } catch (DataIntegrityViolationException e) {
+            return;
+        } catch (Exception e) {
+            String m = e.getMessage() != null ? e.getMessage() : "";
+            if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                return;
+            }
+            logger.warn("서정훈 색상 복원 패치 선점 실패: {}", e.getMessage());
+            return;
+        }
+        if (!apply) {
+            return;
+        }
+        try {
+            forceAssignCoachPreferredColor("서정훈", "#2196F3");
+            dedupeCoachColors();
+            logger.info("서정훈 고유색 복원 패치 적용 (#2196F3)");
+        } catch (Exception e) {
+            logger.error("서정훈 색상 복원 실패, 패치 행 제거: {}", e.getMessage());
+            try {
+                jdbcTemplate.update("DELETE FROM schema_patches WHERE patch_id = ?", PATCH_COACH_COLOR_SEOJUNGHOON_V1);
+            } catch (Exception e2) {
+                logger.warn("schema_patches 롤백 실패: {}", e2.getMessage());
+            }
+        }
+    }
+
+    /** 박근엽을 빨강(#D32F2F)으로 변경 — 서정민 오렌지 등과 다른 계열. */
+    private void applyParkGeunYeopColorPatch() {
+        boolean apply = false;
+        try {
+            jdbcTemplate.update("INSERT INTO schema_patches (patch_id) VALUES (?)", PATCH_COACH_COLOR_PARKGEUNYEOP_V1);
+            apply = true;
+        } catch (DataIntegrityViolationException e) {
+            return;
+        } catch (Exception e) {
+            String m = e.getMessage() != null ? e.getMessage() : "";
+            if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                return;
+            }
+            logger.warn("박근엽 색상 패치 선점 실패: {}", e.getMessage());
+            return;
+        }
+        if (!apply) {
+            return;
+        }
+        try {
+            forceAssignCoachPreferredColor("박근엽", "#D32F2F");
+            dedupeCoachColors();
+            logger.info("박근엽 고유색 패치 적용 (#D32F2F)");
+        } catch (Exception e) {
+            logger.error("박근엽 색상 패치 실패, 패치 행 제거: {}", e.getMessage());
+            try {
+                jdbcTemplate.update("DELETE FROM schema_patches WHERE patch_id = ?", PATCH_COACH_COLOR_PARKGEUNYEOP_V1);
+            } catch (Exception e2) {
+                logger.warn("schema_patches 롤백 실패: {}", e2.getMessage());
+            }
+        }
+    }
+
+    /** 박근엽을 라임(#C0CA33)으로 변경 — 이름 표시에 부담 없는 톤. */
+    private void applyParkGeunYeopLimeColorPatch() {
+        boolean apply = false;
+        try {
+            jdbcTemplate.update("INSERT INTO schema_patches (patch_id) VALUES (?)", PATCH_COACH_COLOR_PARKGEUNYEOP_V2);
+            apply = true;
+        } catch (DataIntegrityViolationException e) {
+            return;
+        } catch (Exception e) {
+            String m = e.getMessage() != null ? e.getMessage() : "";
+            if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                return;
+            }
+            logger.warn("박근엽 라임 색상 패치 선점 실패: {}", e.getMessage());
+            return;
+        }
+        if (!apply) {
+            return;
+        }
+        try {
+            forceAssignCoachPreferredColor("박근엽", "#C0CA33");
+            dedupeCoachColors();
+            logger.info("박근엽 고유색 라임 패치 적용 (#C0CA33)");
+        } catch (Exception e) {
+            logger.error("박근엽 라임 색상 패치 실패, 패치 행 제거: {}", e.getMessage());
+            try {
+                jdbcTemplate.update("DELETE FROM schema_patches WHERE patch_id = ?", PATCH_COACH_COLOR_PARKGEUNYEOP_V2);
+            } catch (Exception e2) {
+                logger.warn("schema_patches 롤백 실패: {}", e2.getMessage());
+            }
+        }
+    }
+
+    /** 서정훈을 흰색(#FFFFFF)으로 변경. */
+    private void applySeoJungHoonWhiteColorPatch() {
+        boolean apply = false;
+        try {
+            jdbcTemplate.update("INSERT INTO schema_patches (patch_id) VALUES (?)", PATCH_COACH_COLOR_SEOJUNGHOON_WHITE_V1);
+            apply = true;
+        } catch (DataIntegrityViolationException e) {
+            return;
+        } catch (Exception e) {
+            String m = e.getMessage() != null ? e.getMessage() : "";
+            if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                return;
+            }
+            logger.warn("서정훈 흰색 패치 선점 실패: {}", e.getMessage());
+            return;
+        }
+        if (!apply) {
+            return;
+        }
+        try {
+            forceAssignCoachPreferredColor("서정훈", "#FFFFFF");
+            dedupeCoachColors();
+            logger.info("서정훈 고유색 흰색 패치 적용 (#FFFFFF)");
+        } catch (Exception e) {
+            logger.error("서정훈 흰색 패치 실패, 패치 행 제거: {}", e.getMessage());
+            try {
+                jdbcTemplate.update("DELETE FROM schema_patches WHERE patch_id = ?", PATCH_COACH_COLOR_SEOJUNGHOON_WHITE_V1);
+            } catch (Exception e2) {
+                logger.warn("schema_patches 롤백 실패: {}", e2.getMessage());
+            }
+        }
+    }
+
+    /** 특정 베이스명의 코치에 선호색을 강제하고, 동일 색을 쓰던 다른 코치는 미사용 색으로 옮긴다. */
+    private void forceAssignCoachPreferredColor(String baseName, String colorHex) {
+        String color = com.afbscenter.constants.CoachColorPalette.normalizeHex(colorHex);
+        if (baseName == null || color == null) {
+            return;
+        }
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("SELECT id, name, color FROM coaches");
+        if (rows == null) {
+            return;
+        }
+        Long targetId = null;
+        String targetName = null;
+        for (Map<String, Object> row : rows) {
+            Object nameObj = row.get("NAME");
+            if (nameObj == null) {
+                nameObj = row.get("name");
+            }
+            String name = nameObj != null ? nameObj.toString() : "";
+            String nb = com.afbscenter.constants.CoachColorPalette.normalizeBaseName(name);
+            if (baseName.equals(nb)) {
+                Object idObj = row.get("ID");
+                if (idObj == null) {
+                    idObj = row.get("id");
+                }
+                if (idObj instanceof Number) {
+                    targetId = ((Number) idObj).longValue();
+                    targetName = name;
+                    break;
+                }
+            }
+        }
+        if (targetId == null) {
+            logger.info("고유색 강제 대상 코치 없음(스킵): {}", baseName);
+            return;
+        }
+        for (Map<String, Object> row : rows) {
+            Object idObj = row.get("ID");
+            if (idObj == null) {
+                idObj = row.get("id");
+            }
+            if (!(idObj instanceof Number)) {
+                continue;
+            }
+            long id = ((Number) idObj).longValue();
+            if (id == targetId) {
+                continue;
+            }
+            Object colorObj = row.get("COLOR");
+            if (colorObj == null) {
+                colorObj = row.get("color");
+            }
+            String c = com.afbscenter.constants.CoachColorPalette.normalizeHex(
+                    colorObj != null ? colorObj.toString() : null);
+            if (c != null && c.equalsIgnoreCase(color)) {
+                java.util.Set<String> usedForPick = collectAllCoachColorsExcept(rows, id);
+                usedForPick.add(color);
+                String replacement = com.afbscenter.constants.CoachColorPalette.pickUnused(usedForPick);
+                jdbcTemplate.update("UPDATE coaches SET color = ? WHERE id = ?", replacement, id);
+                row.put("color", replacement);
+                row.put("COLOR", replacement);
+                logger.info("색 재배치(선호색 확보): coachId={} → {}", id, replacement);
+            }
+        }
+        jdbcTemplate.update("UPDATE coaches SET color = ? WHERE id = ?", color, targetId);
+        logger.info("고유색 강제 할당: {} ({}) → {}", targetName, baseName, color);
+    }
+
+    /** color가 비어 있는 코치에 선호색·미사용(다른 계열) 팔레트 색을 채운다. 활성 코치 색만 충돌 기준으로 본다. */
+    private void backfillCoachColors(boolean reassignAll) {
+        List<Map<String, Object>> rows;
+        try {
+            rows = jdbcTemplate.queryForList("SELECT id, name, color, active FROM coaches");
+        } catch (Exception e) {
+            try {
+                rows = jdbcTemplate.queryForList("SELECT id, name, color FROM coaches");
+            } catch (Exception e2) {
+                logger.warn("코치 색상 백필 조회 실패: {}", e2.getMessage());
+                return;
+            }
+        }
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+
+        java.util.Set<String> used = new java.util.HashSet<>();
+        if (!reassignAll) {
+            for (Map<String, Object> row : rows) {
+                if (!isCoachRowActive(row)) {
+                    continue;
+                }
+                Object colorObj = row.get("COLOR");
+                if (colorObj == null) {
+                    colorObj = row.get("color");
+                }
+                String c = com.afbscenter.constants.CoachColorPalette.normalizeHex(
+                        colorObj != null ? colorObj.toString() : null);
+                if (c != null) {
+                    used.add(c);
+                }
+            }
+        }
+
+        int updated = 0;
+        for (Map<String, Object> row : rows) {
+            Object idObj = row.get("ID");
+            if (idObj == null) {
+                idObj = row.get("id");
+            }
+            if (!(idObj instanceof Number)) {
+                continue;
+            }
+            long id = ((Number) idObj).longValue();
+            Object nameObj = row.get("NAME");
+            if (nameObj == null) {
+                nameObj = row.get("name");
+            }
+            String name = nameObj != null ? nameObj.toString() : "";
+
+            Object colorObj = row.get("COLOR");
+            if (colorObj == null) {
+                colorObj = row.get("color");
+            }
+            String existing = com.afbscenter.constants.CoachColorPalette.normalizeHex(
+                    colorObj != null ? colorObj.toString() : null);
+            if (!reassignAll && existing != null) {
+                continue;
+            }
+
+            String preferred = com.afbscenter.constants.CoachColorPalette.preferredColorForName(name);
+            preferred = com.afbscenter.constants.CoachColorPalette.normalizeHex(preferred);
+            String assign;
+            if (preferred != null && !com.afbscenter.constants.CoachColorPalette.exactUsed(preferred, used)) {
+                assign = preferred;
+            } else {
+                assign = com.afbscenter.constants.CoachColorPalette.pickUnused(used);
+            }
+            if (assign == null) {
+                continue;
+            }
+            jdbcTemplate.update("UPDATE coaches SET color = ? WHERE id = ?", assign, id);
+            if (isCoachRowActive(row)) {
+                used.add(assign);
+            }
+            updated++;
+        }
+        if (updated > 0) {
+            logger.info("코치 고유색 백필: {}명", updated);
+        }
+    }
+
+    private static boolean isCoachRowActive(Map<String, Object> row) {
+        Object activeObj = row.get("ACTIVE");
+        if (activeObj == null) {
+            activeObj = row.get("active");
+        }
+        if (activeObj == null) {
+            return true;
+        }
+        if (activeObj instanceof Boolean) {
+            return (Boolean) activeObj;
+        }
+        if (activeObj instanceof Number) {
+            return ((Number) activeObj).intValue() != 0;
+        }
+        String s = activeObj.toString().trim();
+        return !"false".equalsIgnoreCase(s) && !"0".equals(s);
+    }
+
+    /** 활성 코치끼리 같은 색상 계열을 1회 정리 */
+    private void applyCoachColorFamilyDedupePatch() {
+        boolean apply = false;
+        try {
+            jdbcTemplate.update("INSERT INTO schema_patches (patch_id) VALUES (?)", PATCH_COACH_COLOR_FAMILY_DEDUPE_V1);
+            apply = true;
+        } catch (DataIntegrityViolationException e) {
+            return;
+        } catch (Exception e) {
+            String m = e.getMessage() != null ? e.getMessage() : "";
+            if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                return;
+            }
+            logger.warn("코치 색상 계열 정리 패치 선점 실패: {}", e.getMessage());
+            return;
+        }
+        if (!apply) {
+            return;
+        }
+        try {
+            dedupeCoachColors();
+            logger.info("활성 코치 색상 계열 중복 정리 패치 적용 ({})", PATCH_COACH_COLOR_FAMILY_DEDUPE_V1);
+        } catch (Exception e) {
+            logger.error("코치 색상 계열 정리 실패, 패치 행 제거: {}", e.getMessage());
+            try {
+                jdbcTemplate.update("DELETE FROM schema_patches WHERE patch_id = ?", PATCH_COACH_COLOR_FAMILY_DEDUPE_V1);
+            } catch (Exception e2) {
+                logger.warn("schema_patches 롤백 실패: {}", e2.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 색 계열이 겹친다고 보고된 코치 4명에 서로 다른 선호색을 강제 할당.
+     * 해당 색을 다른 코치가 쓰고 있으면 다른 코치를 미사용 색으로 재배치.
+     */
+    private void forceAssignOverlapCoachColors() {
+        String[][] targets = {
+                {"공인욱", "#1976D2"},
+                {"박근엽", "#C0CA33"},
+                {"이원준", "#00897B"},
+                {"이유진", "#8E24AA"}
+        };
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("SELECT id, name, color FROM coaches");
+        if (rows == null) {
+            return;
+        }
+
+        for (String[] t : targets) {
+            String base = t[0];
+            String color = com.afbscenter.constants.CoachColorPalette.normalizeHex(t[1]);
+            Long targetId = null;
+            String targetName = null;
+            for (Map<String, Object> row : rows) {
+                Object nameObj = row.get("NAME");
+                if (nameObj == null) {
+                    nameObj = row.get("name");
+                }
+                String name = nameObj != null ? nameObj.toString() : "";
+                String nb = com.afbscenter.constants.CoachColorPalette.normalizeBaseName(name);
+                if (base.equals(nb)) {
+                    Object idObj = row.get("ID");
+                    if (idObj == null) {
+                        idObj = row.get("id");
+                    }
+                    if (idObj instanceof Number) {
+                        targetId = ((Number) idObj).longValue();
+                        targetName = name;
+                        break;
+                    }
+                }
+            }
+            if (targetId == null) {
+                logger.info("겹침 교정 대상 코치 없음(스킵): {}", base);
+                continue;
+            }
+
+            // 같은 색을 쓰는 다른 코치 → 재할당
+            java.util.Set<String> used = new java.util.HashSet<>();
+            for (Map<String, Object> row : rows) {
+                Object idObj = row.get("ID");
+                if (idObj == null) {
+                    idObj = row.get("id");
+                }
+                if (!(idObj instanceof Number)) {
+                    continue;
+                }
+                long id = ((Number) idObj).longValue();
+                if (id == targetId) {
+                    continue;
+                }
+                Object colorObj = row.get("COLOR");
+                if (colorObj == null) {
+                    colorObj = row.get("color");
+                }
+                String c = com.afbscenter.constants.CoachColorPalette.normalizeHex(
+                        colorObj != null ? colorObj.toString() : null);
+                if (c != null && c.equalsIgnoreCase(color)) {
+                    // 임시로 used에서 제외하고 새 색 배정
+                    java.util.Set<String> usedForPick = collectAllCoachColorsExcept(rows, id);
+                    usedForPick.add(color); // 대상 코치가 가져갈 색 예약
+                    String replacement = com.afbscenter.constants.CoachColorPalette.pickUnused(usedForPick);
+                    jdbcTemplate.update("UPDATE coaches SET color = ? WHERE id = ?", replacement, id);
+                    logger.info("겹침 색 재배치: coachId={} → {}", id, replacement);
+                    // rows 캐시 갱신
+                    row.put("color", replacement);
+                    row.put("COLOR", replacement);
+                } else if (c != null) {
+                    used.add(c);
+                }
+            }
+
+            jdbcTemplate.update("UPDATE coaches SET color = ? WHERE id = ?", color, targetId);
+            logger.info("겹침 교정 고유색 할당: {} ({}) → {}", targetName, base, color);
+
+            // rows 캐시 갱신
+            for (Map<String, Object> row : rows) {
+                Object idObj = row.get("ID");
+                if (idObj == null) {
+                    idObj = row.get("id");
+                }
+                if (idObj instanceof Number && ((Number) idObj).longValue() == targetId) {
+                    row.put("color", color);
+                    row.put("COLOR", color);
+                    break;
+                }
+            }
+        }
+
+        // 최종적으로 중복 색이 남아 있으면 한 번 더 정리
+        dedupeCoachColors();
+    }
+
+    private java.util.Set<String> collectAllCoachColorsExcept(List<Map<String, Object>> rows, long excludeId) {
+        java.util.Set<String> used = new java.util.HashSet<>();
+        for (Map<String, Object> row : rows) {
+            Object idObj = row.get("ID");
+            if (idObj == null) {
+                idObj = row.get("id");
+            }
+            if (!(idObj instanceof Number) || ((Number) idObj).longValue() == excludeId) {
+                continue;
+            }
+            Object colorObj = row.get("COLOR");
+            if (colorObj == null) {
+                colorObj = row.get("color");
+            }
+            String c = com.afbscenter.constants.CoachColorPalette.normalizeHex(
+                    colorObj != null ? colorObj.toString() : null);
+            if (c != null) {
+                used.add(c);
+            }
+        }
+        return used;
+    }
+
+    /**
+     * 활성 코치끼리 동일색·같은 색상 계열이 있으면 뒤쪽 코치부터 다른 계열 색으로 재할당.
+     * 선호색(알려진 코치)은 exact만 유일하면 계열 겹침을 허용한다.
+     */
+    private void dedupeCoachColors() {
+        List<Map<String, Object>> rows;
+        try {
+            rows = jdbcTemplate.queryForList("SELECT id, name, color, active FROM coaches ORDER BY id");
+        } catch (Exception e) {
+            rows = jdbcTemplate.queryForList("SELECT id, name, color FROM coaches ORDER BY id");
+        }
+        if (rows == null) {
+            return;
+        }
+        java.util.Set<String> used = new java.util.HashSet<>();
+        for (Map<String, Object> row : rows) {
+            if (!isCoachRowActive(row)) {
+                continue;
+            }
+            Object idObj = row.get("ID");
+            if (idObj == null) {
+                idObj = row.get("id");
+            }
+            if (!(idObj instanceof Number)) {
+                continue;
+            }
+            long id = ((Number) idObj).longValue();
+            Object nameObj = row.get("NAME");
+            if (nameObj == null) {
+                nameObj = row.get("name");
+            }
+            String name = nameObj != null ? nameObj.toString() : "";
+            Object colorObj = row.get("COLOR");
+            if (colorObj == null) {
+                colorObj = row.get("color");
+            }
+            String c = com.afbscenter.constants.CoachColorPalette.normalizeHex(
+                    colorObj != null ? colorObj.toString() : null);
+            String preferred = com.afbscenter.constants.CoachColorPalette.normalizeHex(
+                    com.afbscenter.constants.CoachColorPalette.preferredColorForName(name));
+
+            if (c == null) {
+                c = (preferred != null && !com.afbscenter.constants.CoachColorPalette.exactUsed(preferred, used))
+                        ? preferred
+                        : com.afbscenter.constants.CoachColorPalette.pickUnused(used);
+                jdbcTemplate.update("UPDATE coaches SET color = ? WHERE id = ?", c, id);
+                used.add(c);
+                continue;
+            }
+
+            boolean exactConflict = com.afbscenter.constants.CoachColorPalette.exactUsed(c, used);
+            boolean familyConflict = com.afbscenter.constants.CoachColorPalette.conflictsWithUsed(c, used);
+            boolean preferredKeep = preferred != null && preferred.equalsIgnoreCase(c) && !exactConflict;
+
+            if (exactConflict || (familyConflict && !preferredKeep)) {
+                String replacement;
+                if (preferred != null && !com.afbscenter.constants.CoachColorPalette.exactUsed(preferred, used)) {
+                    replacement = preferred; // 선호색은 exact만 유일하면 계열 예외 허용
+                } else {
+                    replacement = com.afbscenter.constants.CoachColorPalette.pickUnused(used);
+                }
+                jdbcTemplate.update("UPDATE coaches SET color = ? WHERE id = ?", replacement, id);
+                logger.info("색/계열 중복 제거: coachId={} {} → {} (family {})",
+                        id, c, replacement, com.afbscenter.constants.CoachColorPalette.familyKey(replacement));
+                used.add(replacement);
+            } else {
+                used.add(c);
+            }
+        }
+    }
 
     /**
      * COACH 역할에 회원 목록 조회(member_view)를 켠다. 기존 DB는 schema_patches로 1회만 적용.
@@ -809,8 +1441,9 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
     /**
      * 시설 데이터 초기화
      * 사하점을 ID 1번, 연산점을 ID 2번으로 설정
+     * @return true면 사하·연산 시설 생성/보정까지 끝남, false면 예약 NOT NULL 등으로 삭제·재생성만 생략함
      */
-    private void initializeFacilities() {
+    private boolean initializeFacilities() {
         try {
             // 기존 시설 데이터 확인
             List<Facility> existingFacilities = facilityRepository.findAll();
@@ -839,11 +1472,15 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                 // 외래키 제약 조건 일시적으로 비활성화
                 jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY FALSE");
                 try {
-                    // bookings 테이블의 facility_id를 NULL로 설정
-                    jdbcTemplate.update("UPDATE bookings SET facility_id = NULL");
-                    // 시설 삭제
+                    // bookings.facility_id 가 NOT NULL 이면 NULL 로 풀 수 없어 전체 삭제·재생성 불가
+                    try {
+                        jdbcTemplate.update("UPDATE bookings SET facility_id = NULL");
+                    } catch (DataIntegrityViolationException ex) {
+                        logger.warn(
+                                "bookings.facility_id 가 NOT NULL 이라 시설 전체 삭제·재생성을 건너뜁니다. (기존 시설 유지)");
+                        return false;
+                    }
                     facilityRepository.deleteAll();
-                    // ID 시퀀스 리셋
                     jdbcTemplate.execute("ALTER TABLE facilities ALTER COLUMN id RESTART WITH 1");
                 } finally {
                     jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY TRUE");
@@ -900,10 +1537,10 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                 }
                 logger.info("연산점 ID를 2번으로 수정 완료");
             }
-            
+            return true;
         } catch (Exception e) {
-            logger.error("시설 데이터 초기화 중 오류 발생", e);
-            throw e;
+            logger.warn("시설 데이터 초기화 중 오류: {}", e.getMessage(), e);
+            return false;
         }
     }
     
@@ -1246,7 +1883,7 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
 
     /**
      * 횟수권(COUNT_PASS) 이용권의 remaining_count를 '이미 종료된 예약 수' 기준으로 동기화.
-     * 같은 이용권(member_product_id) + 같은 회원·상품 기준 둘 다 반영해 사용 횟수를 세고, 잔여를 맞춤.
+     * 집계는 해당 이용권 ID에 매핑된 예약만 사용한다(같은 상품의 다른 이용권 행과 합산하지 않음).
      */
     @Transactional(readOnly = false)
     private void syncMemberProductRemainingCountFromEndedBookings() {
@@ -1260,13 +1897,9 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                     totalCount = mp.getProduct().getUsageCount();
                 }
                 if (totalCount == null || totalCount <= 0) continue;
-                long byMp = bookingRepository.countByMemberProductEndedBefore(mp.getId(), now);
-                long byMemberProduct = 0;
-                if (mp.getMember() != null && mp.getProduct() != null) {
-                    byMemberProduct = bookingRepository.countByMemberIdAndProductIdEndedBefore(
-                            mp.getMember().getId(), mp.getProduct().getId(), now);
-                }
-                long endedCount = Math.max(byMp, byMemberProduct);
+                // 이 이용권(member_product_id)에 연결된 종료 예약만 센다. 같은 회원·같은 상품의 '다른' 이용권 행 예약까지
+                // 합치면(Math.max) 신규 연장·재구매 행의 잔여가 0으로 덮어써진다.
+                long endedCount = bookingRepository.countByMemberProductEndedBefore(mp.getId(), now);
                 int usedCount = (int) Math.min(endedCount, totalCount);
                 int newRemaining = Math.max(0, totalCount - usedCount);
                 Integer currentRemaining = mp.getRemainingCount();
@@ -1279,8 +1912,8 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                     mp.setRemainingCount(newRemaining);
                     memberProductRepository.save(mp);
                     updated++;
-                    logger.info("remaining_count 동기화: MemberProduct ID={}, totalCount={}, 사용={}(byMp={}, byMemberProduct={}), remaining {} -> {}",
-                            mp.getId(), totalCount, usedCount, byMp, byMemberProduct, oldRemaining, newRemaining);
+                    logger.info("remaining_count 동기화: MemberProduct ID={}, totalCount={}, 사용={}(이용권별 종료 예약 수), remaining {} -> {}",
+                            mp.getId(), totalCount, usedCount, oldRemaining, newRemaining);
                 }
             } catch (Exception e) {
                 logger.debug("MemberProduct ID={} 동기화 중 오류 (무시): {}", mp.getId(), e.getMessage());
@@ -1288,6 +1921,37 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
         }
         if (updated > 0) {
             logger.info("횟수권 remaining_count 동기화: {}건 수정됨", updated);
+        }
+    }
+
+    /**
+     * 연장으로 신규 행이 생긴 뒤에도 구 행이 ACTIVE·잔여 0 이하로 남은 레거시를 USED_UP으로 정리한다.
+     * (remaining_count 동기화 이후 실행)
+     */
+    private void migrateReplacedActiveMemberProductsToUsedUp() {
+        try {
+            List<Long> parentIds = jdbcTemplate.queryForList(
+                    "SELECT DISTINCT extended_from_member_product_id FROM member_products "
+                            + "WHERE deleted_at IS NULL AND extended_from_member_product_id IS NOT NULL",
+                    Long.class);
+            int total = 0;
+            for (Long pid : parentIds) {
+                if (pid == null) {
+                    continue;
+                }
+                int u = jdbcTemplate.update(
+                        "UPDATE member_products SET status = 'USED_UP', "
+                                + "ended_at = COALESCE(ended_at, CURRENT_TIMESTAMP) "
+                                + "WHERE id = ? AND deleted_at IS NULL AND status = 'ACTIVE' "
+                                + "AND (remaining_count IS NULL OR remaining_count <= 0)",
+                        pid);
+                total += u;
+            }
+            if (total > 0) {
+                logger.info("연장으로 대체된 구 이용권 ACTIVE·잔여0 정리: {}건 → USED_UP", total);
+            }
+        } catch (Exception e) {
+            logger.warn("migrateReplacedActiveMemberProductsToUsedUp: {}", e.getMessage());
         }
     }
 
@@ -1655,6 +2319,76 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             }
         } catch (Exception e) {
             logger.warn("member_approval_requests 연장 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** member_approval_requests: 담당 코치 변경 승인용 컬럼 */
+    private void migrateMemberApprovalReassignmentColumn() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBER_APPROVAL_REQUESTS'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            List<Map<String, Object>> c = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'MEMBER_APPROVAL_REQUESTS' AND UPPER(COLUMN_NAME) = 'REASSIGNMENT_NEW_COACH_ID'");
+            if (c.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE member_approval_requests ADD COLUMN reassignment_new_coach_id BIGINT");
+                logger.info("member_approval_requests.reassignment_new_coach_id 컬럼 추가 완료");
+            }
+            List<Map<String, Object>> c2 = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_NAME) = 'MEMBER_APPROVAL_REQUESTS' AND UPPER(COLUMN_NAME) = 'REASSIGNMENT_MEMBER_PRODUCT_ID'");
+            if (c2.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE member_approval_requests ADD COLUMN reassignment_member_product_id BIGINT");
+                logger.info("member_approval_requests.reassignment_member_product_id 컬럼 추가 완료");
+            }
+        } catch (Exception e) {
+            logger.warn("member_approval_requests reassignment 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Hibernate ddl-auto 가 ENUM 컬럼에 건 CHECK 제약이, Java 에 {@code RequestType} 값이 추가된 뒤에도
+     * 갱신되지 않아 INSERT 시 23513 이 날 수 있다(예: COACH_REASSIGNMENT 거부 — CONSTRAINT_C9).
+     * announcements 와 동일하게 CHECK 만 제거한다(FK·PK·UNIQUE 는 유지).
+     */
+    private void removeMemberApprovalRequestsCheckConstraints() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'MEMBER_APPROVAL_REQUESTS'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            String[] possibleNames = {
+                    "CONSTRAINT_C9", "CONSTRAINT_C8", "CONSTRAINT_C7", "CONSTRAINT_C6", "CONSTRAINT_C5",
+                    "CONSTRAINT_C4", "CONSTRAINT_C3", "CONSTRAINT_C2", "CONSTRAINT_C1",
+                    "CONSTRAINT_B", "CONSTRAINT_A"
+            };
+            for (String name : possibleNames) {
+                try {
+                    jdbcTemplate.execute("ALTER TABLE member_approval_requests DROP CONSTRAINT IF EXISTS " + name);
+                } catch (Exception e) {
+                    logger.debug("member_approval_requests CHECK 제거 시도 무시: {} - {}", name, e.getMessage());
+                }
+            }
+            List<Map<String, Object>> checks = jdbcTemplate.queryForList(
+                    "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS "
+                            + "WHERE UPPER(TABLE_SCHEMA) = 'PUBLIC' AND UPPER(TABLE_NAME) = 'MEMBER_APPROVAL_REQUESTS' "
+                            + "AND CONSTRAINT_TYPE = 'CHECK'");
+            for (Map<String, Object> row : checks) {
+                String cn = (String) row.get("CONSTRAINT_NAME");
+                if (cn == null || cn.isBlank()) {
+                    continue;
+                }
+                try {
+                    jdbcTemplate.execute("ALTER TABLE member_approval_requests DROP CONSTRAINT " + cn);
+                    logger.info("member_approval_requests CHECK 제약 제거: {}", cn);
+                } catch (Exception e) {
+                    logger.debug("member_approval_requests CHECK 제거 실패 (무시): {} - {}", cn, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("member_approval_requests CHECK 제약 제거 중 오류: {}", e.getMessage());
         }
     }
 

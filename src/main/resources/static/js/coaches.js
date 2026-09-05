@@ -8,6 +8,9 @@ async function loadCoaches() {
     try {
         const allCoaches = await App.api.get('/coaches');
         App.log('코치 목록 로드:', allCoaches);
+        if (App.CoachColors && typeof App.CoachColors.registerFromCoaches === 'function') {
+            App.CoachColors.registerFromCoaches(allCoaches);
+        }
         // 기본: 활성 코치만 표시 (퇴사 처리한 코치는 목록에서 제외)
         const showInactive = document.getElementById('show-inactive-coaches') && document.getElementById('show-inactive-coaches').checked;
         const coaches = showInactive ? allCoaches : (allCoaches || []).filter(c => c.active !== false);
@@ -31,12 +34,13 @@ function classifyCoachCategories(coach) {
     const name = (coach.name || '').toLowerCase();
     const spec = (coach.specialties || '').toLowerCase();
     const combined = name + ' ' + spec;
+    const manager = /매니저|\[매니저\]/.test(combined);
     const baseball = /\[대표\]|\[코치\]|\[포수코치\]|\[투수코치\]|야구|타격|투구|수비|포수|투수|비야구인/.test(combined);
     const pilates = /\[강사\]|필라테스/.test(combined);
     const training = /\[트레이너\]|트레이닝/.test(combined);
     const youth = /유소년/.test(combined);
     const rental = /대관|\[대관담당\]/.test(combined);
-    return { baseball, pilates, training, youth, rental };
+    return { manager, baseball, pilates, training, youth, rental };
 }
 
 function renderCoachStats(coaches) {
@@ -44,9 +48,10 @@ function renderCoachStats(coaches) {
     if (!container) return;
     const list = Array.isArray(coaches) ? coaches : [];
     const total = list.length;
-    let baseball = 0, pilates = 0, training = 0, youth = 0, rental = 0;
+    let manager = 0, baseball = 0, pilates = 0, training = 0, youth = 0, rental = 0;
     list.forEach(c => {
         const cat = classifyCoachCategories(c);
+        if (cat.manager) manager++;
         if (cat.baseball) baseball++;
         if (cat.pilates) pilates++;
         if (cat.training) training++;
@@ -55,6 +60,7 @@ function renderCoachStats(coaches) {
     });
     const items = [
         { label: '총 코치 수', value: total + '명', itemClass: 'coaches-stats-item--total', isTotal: true, filterType: 'all' },
+        { label: '📋 매니저', value: manager + '명', itemClass: 'coaches-stats-item--manager', isTotal: false, filterType: 'manager' },
         { label: '⚾ 야구', value: baseball + '명', itemClass: 'coaches-stats-item--baseball', isTotal: false, filterType: 'baseball' },
         { label: '👶 유소년', value: youth + '명', itemClass: 'coaches-stats-item--youth', isTotal: false, filterType: 'youth' },
         { label: '💪 트레이닝', value: training + '명', itemClass: 'coaches-stats-item--training', isTotal: false, filterType: 'training' },
@@ -150,7 +156,8 @@ async function openStatsCoachModal(filterType, titleLabel) {
             var nameText = (name || '').toLowerCase();
             var combined = nameText + ' ' + specText;
             var cellClass = 'coach-specialty-cell';
-            if (/대관/.test(specText)) cellClass += ' coach-specialty--rental';
+            if (/매니저/.test(specText) || /매니저|\[매니저\]/.test(combined)) cellClass += ' coach-specialty--manager';
+            else if (/대관/.test(specText)) cellClass += ' coach-specialty--rental';
             else if (/필라테스|\[강사\]/.test(combined)) cellClass += ' coach-specialty--pilates';
             else if (/트레이닝|\[트레이너\]/.test(combined)) cellClass += ' coach-specialty--training';
             else if (/야구|유소년|\[대표\]|\[코치\]|\[포수코치\]|\[투수코치\]|타격|투구|수비|포수|투수|비야구인/.test(combined)) cellClass += ' coach-specialty--baseball';
@@ -158,7 +165,8 @@ async function openStatsCoachModal(filterType, titleLabel) {
                 var part = s.trim();
                 if (!part) return '';
                 var colorClass = '';
-                if (/^야구$/i.test(part)) colorClass = 'spec-color--baseball';
+                if (/^매니저$/i.test(part)) colorClass = 'spec-color--manager';
+                else if (/^야구$/i.test(part)) colorClass = 'spec-color--baseball';
                 else if (/^유소년$/i.test(part)) colorClass = 'spec-color--youth';
                 else if (/^트레이닝$/i.test(part)) colorClass = 'spec-color--training';
                 else if (/^필라테스$/i.test(part)) colorClass = 'spec-color--pilates';
@@ -346,7 +354,8 @@ async function renderCoachesTable(coaches) {
         const nameText = (coach.name || '').toLowerCase();
         const combined = nameText + ' ' + specText;
         let specialtyCellClass = 'coach-specialty-cell';
-        if (/대관/.test(specText)) specialtyCellClass += ' coach-specialty--rental';
+        if (/매니저/.test(specText) || /매니저|\[매니저\]/.test(combined)) specialtyCellClass += ' coach-specialty--manager';
+        else if (/대관/.test(specText)) specialtyCellClass += ' coach-specialty--rental';
         else if (/필라테스|\[강사\]/.test(combined)) specialtyCellClass += ' coach-specialty--pilates';
         else if (/트레이닝|\[트레이너\]/.test(combined)) specialtyCellClass += ' coach-specialty--training';
         else if (/야구|유소년|\[대표\]|\[코치\]|\[포수코치\]|\[투수코치\]|타격|투구|수비|포수|투수|비야구인/.test(combined)) specialtyCellClass += ' coach-specialty--baseball';
@@ -355,7 +364,8 @@ async function renderCoachesTable(coaches) {
                 const part = s.trim();
                 if (!part) return '';
                 var colorClass = '';
-                if (/^야구$/i.test(part)) colorClass = 'spec-color--baseball';
+                if (/^매니저$/i.test(part)) colorClass = 'spec-color--manager';
+                else if (/^야구$/i.test(part)) colorClass = 'spec-color--baseball';
                 else if (/^유소년$/i.test(part)) colorClass = 'spec-color--youth';
                 else if (/^트레이닝$/i.test(part)) colorClass = 'spec-color--training';
                 else if (/^필라테스$/i.test(part)) colorClass = 'spec-color--pilates';

@@ -112,16 +112,42 @@ public class MemberEndedGraceService {
         return false;
     }
 
+    /** 만료일이 오늘 이전(당일 포함)일 때만 만료일을 종료 시각으로 사용 — 미래 만료일만 있으면 횟수 소진 후에도 유예가 영원히 안 끝남 */
+    private boolean expiryOnOrBeforeToday(LocalDate expiry) {
+        return expiry != null && !expiry.isAfter(LocalDate.now());
+    }
+
     /** common.js resolveMemberProductEndedAtForGrace */
     public Optional<LocalDateTime> resolveEndedAtForGrace(Member member, MemberProduct mp) {
         if (mp.getEndedAt() != null) {
             return Optional.of(mp.getEndedAt());
         }
-        if (mp.getStatus() == MemberProduct.Status.EXPIRED && mp.getExpiryDate() != null) {
-            return Optional.of(mp.getExpiryDate().atStartOfDay());
+        if (mp.getStatus() == MemberProduct.Status.EXPIRED) {
+            if (expiryOnOrBeforeToday(mp.getExpiryDate())) {
+                return Optional.of(mp.getExpiryDate().atStartOfDay());
+            }
+            if (mp.getPurchaseDate() != null) {
+                return Optional.of(mp.getPurchaseDate());
+            }
+            if (mp.getExpiryDate() != null) {
+                return Optional.of(mp.getExpiryDate().atStartOfDay());
+            }
+            return Optional.empty();
+        }
+        if (mp.getStatus() == MemberProduct.Status.USED_UP) {
+            if (expiryOnOrBeforeToday(mp.getExpiryDate())) {
+                return Optional.of(mp.getExpiryDate().atStartOfDay());
+            }
+            if (mp.getPurchaseDate() != null) {
+                return Optional.of(mp.getPurchaseDate());
+            }
+            if (mp.getExpiryDate() != null) {
+                return Optional.of(mp.getExpiryDate().atStartOfDay());
+            }
+            return Optional.empty();
         }
         if (isActiveCountPassExhausted(member, mp)) {
-            if (mp.getExpiryDate() != null) {
+            if (expiryOnOrBeforeToday(mp.getExpiryDate())) {
                 return Optional.of(mp.getExpiryDate().atStartOfDay());
             }
             if (mp.getPurchaseDate() != null) {

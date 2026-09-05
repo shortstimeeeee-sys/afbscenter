@@ -58,18 +58,18 @@ public interface MemberProductRepository extends JpaRepository<MemberProduct, Lo
     @Query("SELECT mp FROM MemberProduct mp JOIN FETCH mp.product p JOIN FETCH mp.member m WHERE p.type = 'COUNT_PASS' AND mp.deletedAt IS NULL")
     List<MemberProduct> findAllCountPassWithProductAndMember();
 
-    /** 운영 코치 viewCoachIds: 이용권에 직접 배정된 코치가 목록에 포함되는 회원 ID */
-    @Query("SELECT DISTINCT mp.member.id FROM MemberProduct mp WHERE mp.deletedAt IS NULL AND mp.coach IS NOT NULL AND mp.coach.id IN :coachIds")
+    /** 운영 코치 viewCoachIds: ACTIVE 이용권에 직접 배정된 코치만 (종료·소진 행은 목록·화면 담당 표시와 불일치 방지) */
+    @Query("SELECT DISTINCT mp.member.id FROM MemberProduct mp WHERE mp.deletedAt IS NULL AND mp.status = 'ACTIVE' AND mp.coach IS NOT NULL AND mp.coach.id IN :coachIds")
     List<Long> findMemberIdsByMemberProductCoachIdIn(@Param("coachIds") List<Long> coachIds);
 
-    /** 운영 코치 viewCoachIds: 상품 기본 담당 코치가 목록에 포함되는 회원 ID */
-    @Query("SELECT DISTINCT mp.member.id FROM MemberProduct mp JOIN mp.product p WHERE mp.deletedAt IS NULL AND p.coach IS NOT NULL AND p.coach.id IN :coachIds")
+    /** 운영 코치 viewCoachIds: ACTIVE 이용권의 상품 기본 담당 코치만 */
+    @Query("SELECT DISTINCT mp.member.id FROM MemberProduct mp JOIN mp.product p WHERE mp.deletedAt IS NULL AND mp.status = 'ACTIVE' AND p.coach IS NOT NULL AND p.coach.id IN :coachIds")
     List<Long> findMemberIdsByProductCoachIdIn(@Param("coachIds") List<Long> coachIds);
 
-    @Query("SELECT CASE WHEN COUNT(mp) > 0 THEN true ELSE false END FROM MemberProduct mp WHERE mp.member.id = :memberId AND mp.deletedAt IS NULL AND mp.coach IS NOT NULL AND mp.coach.id = :coachId")
+    @Query("SELECT CASE WHEN COUNT(mp) > 0 THEN true ELSE false END FROM MemberProduct mp WHERE mp.member.id = :memberId AND mp.deletedAt IS NULL AND mp.status = 'ACTIVE' AND mp.coach IS NOT NULL AND mp.coach.id = :coachId")
     boolean existsActiveByMemberIdAndMemberProductCoachId(@Param("memberId") Long memberId, @Param("coachId") Long coachId);
 
-    @Query("SELECT CASE WHEN COUNT(mp) > 0 THEN true ELSE false END FROM MemberProduct mp JOIN mp.product p WHERE mp.member.id = :memberId AND mp.deletedAt IS NULL AND p.coach IS NOT NULL AND p.coach.id = :coachId")
+    @Query("SELECT CASE WHEN COUNT(mp) > 0 THEN true ELSE false END FROM MemberProduct mp JOIN mp.product p WHERE mp.member.id = :memberId AND mp.deletedAt IS NULL AND mp.status = 'ACTIVE' AND p.coach IS NOT NULL AND p.coach.id = :coachId")
     boolean existsActiveByMemberIdAndProductCoachId(@Param("memberId") Long memberId, @Param("coachId") Long coachId);
 
     @Query("SELECT mp.remainingCount FROM MemberProduct mp WHERE mp.id = :id AND mp.deletedAt IS NULL")

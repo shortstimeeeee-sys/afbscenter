@@ -597,6 +597,19 @@ public class MemberDetailQueryController {
                     logger.warn("Coach 로드 실패: Payment ID={}", payment.getId(), e);
                     map.put("coach", null);
                 }
+
+                // 결제 ↔ 이용권(MemberProduct) 연결 여부 — 결제만 있고 이용권 행이 없는 데이터 확인용
+                if (payment.getMemberProduct() != null) {
+                    MemberProduct mp = payment.getMemberProduct();
+                    Map<String, Object> mpMap = new HashMap<>();
+                    mpMap.put("id", mp.getId());
+                    if (mp.getDeletedAt() != null) {
+                        mpMap.put("deletedAt", mp.getDeletedAt().toString());
+                    }
+                    map.put("memberProduct", mpMap);
+                } else {
+                    map.put("memberProduct", null);
+                }
                 
                 return map;
             }).collect(Collectors.toList());

@@ -171,7 +171,8 @@ public class OperationalCoachViewService {
 
     /**
      * 운영 코치가 체크한 코치 ID에 해당하는 회원 ID 집합.
-     * 회원 카드 담당({@link Member#getCoach()}), 미삭제 이용권의 담당 코치, 상품 기본 담당 코치 중 하나라도 일치하면 포함.
+     * 회원 카드 담당({@link Member#getCoach()}), <strong>ACTIVE</strong> 이용권의 직접 배정 코치·상품 기본 담당 코치 중 하나라도 일치하면 포함.
+     * (종료·소진 이용권만 과거에 서정민이었던 경우는 제외 — 목록 담당 컬럼·이용권 화면과 맞춤)
      * (예약 목록 등은 별도 규칙 — {@link #bookingMatchesOperationalCoachIds})
      */
     public Set<Long> findMemberIdsMatchingViewCoachIds(List<Long> viewCoachIds) {
@@ -212,7 +213,9 @@ public class OperationalCoachViewService {
     }
 
     /**
-     * GET /bookings 와 동일: 회원 예약은 회원 카드 담당 코치, 비회원은 예약 배정 코치 기준.
+     * GET /bookings 운영·코치 뷰({@code viewCoachIds}): 캘린더 색(레슨 배정)과 목록이 어긋나지 않게
+     * <strong>예약에 레슨 코치가 있으면 그 id만</strong> 선택 목록과 비교한다.
+     * 레슨 미배정(예약 코치 없음)인 회원 예약만 회원 카드 담당으로 본다. 비회원은 예약 배정 코치만.
      */
     public boolean bookingMatchesOperationalCoachIds(Booking b, Collection<Long> coachIds) {
         if (b == null || coachIds == null || coachIds.isEmpty()) {
@@ -220,11 +223,15 @@ public class OperationalCoachViewService {
         }
         HashSet<Long> want = new HashSet<>(coachIds);
         try {
-            Member m = b.getMember();
-            if (m != null) {
-                return m.getCoach() != null && m.getCoach().getId() != null && want.contains(m.getCoach().getId());
+            Coach assigned = b.getCoach();
+            if (assigned != null && assigned.getId() != null) {
+                return want.contains(assigned.getId());
             }
-            return b.getCoach() != null && b.getCoach().getId() != null && want.contains(b.getCoach().getId());
+            Member m = b.getMember();
+            if (m != null && m.getCoach() != null && m.getCoach().getId() != null) {
+                return want.contains(m.getCoach().getId());
+            }
+            return false;
         } catch (Exception ignored) {
             return false;
         }

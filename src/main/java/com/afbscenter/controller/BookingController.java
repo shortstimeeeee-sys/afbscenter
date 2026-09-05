@@ -716,6 +716,12 @@ public class BookingController {
                     }
                 }
             }
+
+            // 일반 코치: 목록 API에서 회원 실명·연락처 비노출(캘린더는 시간·코치 중심). 운영형 코치는 유지.
+            final boolean redactMemberDetailsForCoachCalendarList = !publicMemberCalendarOccupancyMode
+                    && request != null
+                    && "COACH".equalsIgnoreCase((String) request.getAttribute("role"))
+                    && !operationalCoachViewService.isOperationalCoachViewer(request);
             
             // 예약별 출석 한 번에 조회 (루프 내 findByBookingId N+1 제거)
             java.util.Map<Long, com.afbscenter.model.Attendance> attendanceByBookingIdMap = new HashMap<>();
@@ -756,8 +762,13 @@ public class BookingController {
                     bookingMap.put("branch", booking.getBranch()); // 지점 정보 추가
                     bookingMap.put("paymentMethod", booking.getPaymentMethod());
                     bookingMap.put("memo", booking.getMemo());
-                    bookingMap.put("nonMemberName", booking.getNonMemberName());
-                    bookingMap.put("nonMemberPhone", booking.getNonMemberPhone());
+                    if (redactMemberDetailsForCoachCalendarList) {
+                        bookingMap.put("nonMemberName", null);
+                        bookingMap.put("nonMemberPhone", null);
+                    } else {
+                        bookingMap.put("nonMemberName", booking.getNonMemberName());
+                        bookingMap.put("nonMemberPhone", booking.getNonMemberPhone());
+                    }
                     putBookingSource(bookingMap, booking);
                     
                     // Facility 정보
@@ -788,13 +799,21 @@ public class BookingController {
                     if (booking.getMember() != null) {
                         Map<String, Object> memberMap = new HashMap<>();
                         memberMap.put("id", booking.getMember().getId());
-                        memberMap.put("memberNumber", booking.getMember().getMemberNumber());
-                        memberMap.put("name", booking.getMember().getName());
-                        memberMap.put("phoneNumber", booking.getMember().getPhoneNumber());
-                        memberMap.put("grade", booking.getMember().getGrade());
-                        memberMap.put("school", booking.getMember().getSchool());
-                        
-                        // Member의 Coach 정보
+                        if (redactMemberDetailsForCoachCalendarList) {
+                            memberMap.put("memberNumber", null);
+                            memberMap.put("name", "");
+                            memberMap.put("phoneNumber", null);
+                            memberMap.put("grade", null);
+                            memberMap.put("school", null);
+                            bookingMap.put("memberCalendarPrivacyMasked", true);
+                        } else {
+                            memberMap.put("memberNumber", booking.getMember().getMemberNumber());
+                            memberMap.put("name", booking.getMember().getName());
+                            memberMap.put("phoneNumber", booking.getMember().getPhoneNumber());
+                            memberMap.put("grade", booking.getMember().getGrade());
+                            memberMap.put("school", booking.getMember().getSchool());
+                        }
+                        // Member의 Coach 정보 (캘린더 색·담당 구분용)
                         if (booking.getMember().getCoach() != null) {
                             Map<String, Object> memberCoachMap = new HashMap<>();
                             memberCoachMap.put("id", booking.getMember().getCoach().getId());
@@ -2263,33 +2282,38 @@ public class BookingController {
                 }
             }
             
-            // Coach 업데이트 처리
+            // Coach 업데이트: 관리자만 변경 가능 (캘린더·데스크·코치 계정의 임의 변경 방지)
             if (requestData.containsKey("coach")) {
-                Object coachObj = requestData.get("coach");
-                if (coachObj == null) {
-                    // coach 필드가 null로 전달된 경우 코치 제거
-                    booking.setCoach(null);
-                } else if (coachObj instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> coachMap = (Map<String, Object>) coachObj;
-                    Object coachIdObj = coachMap.get("id");
-                    if (coachIdObj != null) {
-                        try {
-                            Long coachId;
-                            if (coachIdObj instanceof Number) {
-                                coachId = ((Number) coachIdObj).longValue();
-                            } else {
-                                coachId = Long.parseLong(coachIdObj.toString());
-                            }
-                            Coach coach = coachRepository.findById(coachId)
-                                    .orElseThrow(() -> new IllegalArgumentException("코치를 찾을 수 없습니다."));
-                            booking.setCoach(coach);
-                        } catch (Exception e) {
-                            logger.warn("코치 설정 실패: {}", coachIdObj, e);
-                        }
-                    } else {
-                        // ID가 null이면 코치 제거
+                String role = request != null ? (String) request.getAttribute("role") : null;
+                if (!"ADMIN".equalsIgnoreCase(role)) {
+                    logger.debug("예약 수정: 비관리자 요청 — 코치 필드 무시 (Booking ID={})", id);
+                } else {
+                    Object coachObj = requestData.get("coach");
+                    if (coachObj == null) {
+                        // coach 필드가 null로 전달된 경우 코치 제거
                         booking.setCoach(null);
+                    } else if (coachObj instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> coachMap = (Map<String, Object>) coachObj;
+                        Object coachIdObj = coachMap.get("id");
+                        if (coachIdObj != null) {
+                            try {
+                                Long coachId;
+                                if (coachIdObj instanceof Number) {
+                                    coachId = ((Number) coachIdObj).longValue();
+                                } else {
+                                    coachId = Long.parseLong(coachIdObj.toString());
+                                }
+                                Coach coach = coachRepository.findById(coachId)
+                                        .orElseThrow(() -> new IllegalArgumentException("코치를 찾을 수 없습니다."));
+                                booking.setCoach(coach);
+                            } catch (Exception e) {
+                                logger.warn("코치 설정 실패: {}", coachIdObj, e);
+                            }
+                        } else {
+                            // ID가 null이면 코치 제거
+                            booking.setCoach(null);
+                        }
                     }
                 }
             }
