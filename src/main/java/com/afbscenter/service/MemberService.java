@@ -49,6 +49,7 @@ public class MemberService {
     private final ProductRepository productRepository;
     private final JdbcTemplate jdbcTemplate;
     private final OperationalCoachViewService operationalCoachViewService;
+    private final MemberEndedGraceService memberEndedGraceService;
 
     // 생성자 주입 (Spring 4.3+에서는 @Autowired 불필요)
     public MemberService(MemberRepository memberRepository, 
@@ -60,7 +61,8 @@ public class MemberService {
                         MemberProductHistoryRepository memberProductHistoryRepository,
                         ProductRepository productRepository,
                         JdbcTemplate jdbcTemplate,
-                        OperationalCoachViewService operationalCoachViewService) {
+                        OperationalCoachViewService operationalCoachViewService,
+                        MemberEndedGraceService memberEndedGraceService) {
         this.memberRepository = memberRepository;
         this.coachRepository = coachRepository;
         this.paymentRepository = paymentRepository;
@@ -71,6 +73,7 @@ public class MemberService {
         this.productRepository = productRepository;
         this.jdbcTemplate = jdbcTemplate;
         this.operationalCoachViewService = operationalCoachViewService;
+        this.memberEndedGraceService = memberEndedGraceService;
     }
 
     /**
@@ -390,7 +393,7 @@ public class MemberService {
      */
     @Transactional(readOnly = true)
     public List<MemberResponseDTO> getAllMembersWithFilters(String productCategory, String grade, String status, String branch, Boolean endedTicket) {
-        return getAllMembersWithFilters(productCategory, grade, status, branch, endedTicket, null);
+        return getAllMembersWithFilters(productCategory, grade, status, branch, endedTicket, null, null);
     }
 
     /**
@@ -400,6 +403,21 @@ public class MemberService {
     @Transactional(readOnly = true)
     public List<MemberResponseDTO> getAllMembersWithFilters(String productCategory, String grade, String status, String branch, Boolean endedTicket,
             Long restrictToCoachId) {
+        return getAllMembersWithFilters(productCategory, grade, status, branch, endedTicket, restrictToCoachId, null);
+    }
+
+    /**
+     * @param allStatuses true면 승인 대기만 제외하고 활성·휴면·탈퇴를 모두 반환 (통계 총 회원 수)
+     */
+    @Transactional(readOnly = true)
+    public List<MemberResponseDTO> getAllMembersWithFilters(String productCategory, String grade, String status, String branch, Boolean endedTicket,
+            Long restrictToCoachId, Boolean allStatuses) {
+        return getAllMembersWithFilters(productCategory, grade, status, branch, endedTicket, restrictToCoachId, allStatuses, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<MemberResponseDTO> getAllMembersWithFilters(String productCategory, String grade, String status, String branch, Boolean endedTicket,
+            Long restrictToCoachId, Boolean allStatuses, Boolean unspecifiedCoach) {
         List<Member> members = memberRepository.findAllOrderByName();
 
         if (restrictToCoachId != null) {
@@ -410,21 +428,41 @@ public class MemberService {
             logger.info("회원 목록 코치 제한(카드·이용권·상품 담당): coachId={} → {}명", restrictToCoachId, members.size());
         }
 
-        // 승인 대기 회원은 목록에서 제외 (상태 필터로 PENDING_APPROVAL 요청 시에만 표시)
-        if (status == null || status.trim().isEmpty()) {
+        // 기본 목록은 활성만. 통계 상태 카드·검색은 별도 파라미터.
+        if (status != null && !status.trim().isEmpty()) {
+            try {
+                MemberStatus statusEnum = MemberStatus.valueOf(status.toUpperCase());
+                members = members.stream()
+                        .filter(member -> member.getStatus() == statusEnum)
+                        .collect(Collectors.toList());
+                logger.info("회원 목록 상태 필터링: {} - {}명", statusEnum, members.size());
+            } catch (IllegalArgumentException e) {
+                logger.warn("잘못된 상태 파라미터: {}", status);
+            }
+        } else if (Boolean.TRUE.equals(allStatuses)) {
             members = members.stream()
                     .filter(m -> m.getStatus() != MemberStatus.PENDING_APPROVAL)
                     .collect(Collectors.toList());
+        } else {
+            members = members.stream()
+                    .filter(m -> m.getStatus() == MemberStatus.ACTIVE)
+                    .collect(Collectors.toList());
         }
 
-        // 이용권 종료 기준 필터링 (목록 '종료' 배지와 동일 규칙)
+        // 이용권 종료: 잔여 횟수·기간이 남은 이용권이 있으면 제외. 0회 소진·만료만.
         if (Boolean.TRUE.equals(endedTicket)) {
-            Set<Long> onlyEndedIds = new java.util.HashSet<>(memberProductRepository.findMemberIdsWithOnlyEndedProducts());
-            Set<Long> partialEndedIds = new java.util.HashSet<>(memberProductRepository.findMemberIdsWithPartialEndedSince(LocalDateTime.now().minusDays(3)));
-            Set<Long> endedTicketMemberIds = new java.util.HashSet<>(onlyEndedIds);
-            endedTicketMemberIds.addAll(partialEndedIds);
-            members = members.stream().filter(m -> endedTicketMemberIds.contains(m.getId())).collect(Collectors.toList());
+            members = members.stream().filter(m -> {
+                List<MemberProduct> products = memberProductRepository.findByMemberIdWithProduct(m.getId());
+                return memberEndedGraceService.memberQualifiesAsEndedTicket(m, products);
+            }).collect(Collectors.toList());
             logger.info("회원 목록 이용권 종료 필터: {}명", members.size());
+        }
+
+        if (Boolean.TRUE.equals(unspecifiedCoach)) {
+            Set<Long> unspecifiedIds = new java.util.HashSet<>(memberProductRepository.findActiveMemberIdsUnspecifiedDueToResignedCoach());
+            unspecifiedIds.addAll(memberRepository.findActiveMemberIdsUnspecifiedDueToResignedMemberCoach());
+            members = members.stream().filter(m -> unspecifiedIds.contains(m.getId())).collect(Collectors.toList());
+            logger.info("회원 목록 코치 미지정(퇴사) 필터: {}명", members.size());
         }
         
         // 등급별 필터링
@@ -440,25 +478,11 @@ public class MemberService {
             }
         }
         
-        // 상태별 필터링
-        if (status != null && !status.trim().isEmpty()) {
-            try {
-                MemberStatus statusEnum = MemberStatus.valueOf(status.toUpperCase());
-                members = members.stream()
-                        .filter(member -> member.getStatus() == statusEnum)
-                        .collect(Collectors.toList());
-                logger.info("회원 목록 상태 필터링: {} - {}명", statusEnum, members.size());
-            } catch (IllegalArgumentException e) {
-                logger.warn("잘못된 상태 파라미터: {}", status);
-            }
-        }
-        
         // 각 회원을 DTO로 변환
         List<MemberResponseDTO> memberDTOs = new java.util.ArrayList<>();
         for (Member member : members) {
             try {
-                // 누적 결제 금액 계산
-                // 1. 먼저 Payment 테이블에서 계산
+                // 누적 결제: 결제 기록의 (금액 − 환불액). 기록 없으면 0 (이용권 가격으로 채우지 않음)
                 Integer totalPayment = null;
                 try {
                     totalPayment = paymentRepository.sumTotalAmountByMemberId(member.getId());
@@ -468,32 +492,6 @@ public class MemberService {
                 } catch (Exception e) {
                     logger.warn("결제 금액 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage(), e);
                     totalPayment = 0;
-                }
-                
-                // 2. Payment가 0이거나 없으면 MemberProduct를 기반으로 자동 계산
-                // (누락된 결제가 있는 경우를 대비)
-                if (totalPayment == null || totalPayment == 0) {
-                    try {
-                        List<MemberProduct> memberProducts = memberProductRepository.findByMemberIdWithProduct(member.getId());
-                        if (memberProducts != null && !memberProducts.isEmpty()) {
-                            int calculatedTotal = 0;
-                            for (MemberProduct mp : memberProducts) {
-                                if (mp.getProduct() != null && mp.getProduct().getPrice() != null) {
-                                    Integer price = mp.getProduct().getPrice();
-                                    if (price > 0) {
-                                        calculatedTotal += price;
-                                    }
-                                }
-                            }
-                            if (calculatedTotal > 0) {
-                                logger.debug("Payment가 없어 MemberProduct 기반으로 누적 결제 금액 계산: Member ID={}, 계산된 금액={}", 
-                                    member.getId(), calculatedTotal);
-                                totalPayment = calculatedTotal;
-                            }
-                        }
-                    } catch (Exception e) {
-                        logger.warn("MemberProduct 기반 결제 금액 계산 실패 (Member ID: {}): {}", member.getId(), e.getMessage());
-                    }
                 }
                 
                 logger.debug("회원 누적 결제 금액 계산 완료: Member ID={}, Total Payment={}", member.getId(), totalPayment);
@@ -587,7 +585,8 @@ public class MemberService {
                             .filter(mp -> {
                                 try {
                                     return mp.getProduct() != null && 
-                                           mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS &&
+                                           (mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS
+                                            || mp.getProduct().getType() == Product.ProductType.DAY_PASS) &&
                                            mp.getStatus() == MemberProduct.Status.ACTIVE && 
                                            mp.getExpiryDate() != null;
                                 } catch (Exception e) {
@@ -654,6 +653,23 @@ public class MemberService {
                                        "TRAINING".equals(productCategoryStr) ||
                                        "PILATES".equals(productCategoryStr);
                             }
+                            // 사하 분리 페이지: 구 합본(TRAINING_FITNESS) 이용권도 양쪽에서 선택 가능
+                            if (categoryEnum == Product.ProductCategory.TRAINING) {
+                                return "TRAINING".equals(productCategoryStr)
+                                        || "TRAINING_FITNESS".equals(productCategoryStr);
+                            }
+                            if (categoryEnum == Product.ProductCategory.PILATES) {
+                                return "PILATES".equals(productCategoryStr)
+                                        || "TRAINING_FITNESS".equals(productCategoryStr);
+                            }
+                            if (categoryEnum == Product.ProductCategory.BASEBALL) {
+                                return "BASEBALL".equals(productCategoryStr)
+                                        || "OUTDOOR_LESSON".equals(productCategoryStr);
+                            }
+                            if (categoryEnum == Product.ProductCategory.OUTDOOR_LESSON) {
+                                return "OUTDOOR_LESSON".equals(productCategoryStr)
+                                        || "BASEBALL".equals(productCategoryStr);
+                            }
                             
                             return false;
                         });
@@ -668,12 +684,13 @@ public class MemberService {
         
         // 지점별 필터링 (코치의 배정 지점 기준)
         // 야구(BASEBALL)는 모든 지점에서 가능하므로 필터링하지 않음
-        // 트레이닝+필라테스(TRAINING_FITNESS)는 지점 필터 미적용: 트레이닝/필라테스 이용권이 있는 회원은
-        // 사하·연산 어느 페이지에서든 선택 가능하도록 함 (예약 시 해당 지점 코치/시설만 선택하면 됨)
+        // 트레이닝+필라테스(TRAINING_FITNESS) 및 분리된 TRAINING/PILATES는 지점 필터 미적용
         if (branch != null && !branch.trim().isEmpty() && 
             productCategory != null && !productCategory.trim().isEmpty() &&
             !productCategory.toUpperCase().equals("BASEBALL") &&
-            !productCategory.toUpperCase().equals("TRAINING_FITNESS")) {
+            !productCategory.toUpperCase().equals("TRAINING_FITNESS") &&
+            !productCategory.toUpperCase().equals("TRAINING") &&
+            !productCategory.toUpperCase().equals("PILATES")) {
             try {
                 String branchUpper = branch.trim().toUpperCase();
                 memberDTOs = memberDTOs.stream()
@@ -960,17 +977,8 @@ public class MemberService {
         Member member = memberRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("회원을 찾을 수 없습니다."));
 
-        Coach coachBeforeCard = member.getCoach();
-        Long oldCoachId = coachBeforeCard != null ? coachBeforeCard.getId() : null;
-        Long newCoachId = null;
-        if (updatedMember.getCoach() != null && updatedMember.getCoach().getId() != null) {
-            newCoachId = updatedMember.getCoach().getId();
-        }
-        boolean coachCardChanged = !Objects.equals(oldCoachId, newCoachId);
-        if (coachCardChanged) {
-            throw new IllegalArgumentException(
-                    "담당 코치는 저장만으로 변경할 수 없습니다. 회원 관리 화면에서 「담당 코치 변경 승인 요청」으로 신청하면 관리자 승인 후 이용권·히스토리에 반영됩니다.");
-        }
+        // 담당 코치(카드)는 이 API로 바꾸지 않는다. 조회에서 퇴사 코치는 null로 내려가
+        // 클라이언트가 coach:null 을 보내도 '담당 해제'로 보지 않고 기존 값을 유지한다.
         
         // 기존 회원번호 저장 (소급 등록 시 불변 유지용)
         String originalMemberNumber = member.getMemberNumber();
@@ -1050,7 +1058,7 @@ public class MemberService {
         member.setCatcherBlocking(updatedMember.getCatcherBlocking());
         member.setCatcherThrowing(updatedMember.getCatcherThrowing());
         member.setCatcherFraming(updatedMember.getCatcherFraming());
-        // 담당 코치는 위에서 변경 요청 시 예외 처리 — 여기서는 유지(변경 없음)
+        // 담당 코치(Member.coach)는 요청 본문과 무관하게 유지. 변경은 승인 플로우만.
         
         // 소급 등록 시 회원번호는 절대 변경하지 않음 (불변)
         if (isBackdateOnly) {

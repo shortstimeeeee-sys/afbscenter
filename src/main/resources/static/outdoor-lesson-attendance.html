@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>야외 레슨 출석 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css?v=branch-off3">
+    <link rel="stylesheet" href="/css/outdoor-lesson-attendance.css?v=ol-mob1">
+</head>
+<body class="ol-att-page">
+    <header class="ol-att-top">
+        <div class="ol-att-top-main">
+            <h1 class="ol-att-title">야외 레슨 출석</h1>
+            <p class="ol-att-date" id="ol-att-date-label">-</p>
+        </div>
+        <div class="ol-att-top-actions">
+            <label class="ol-att-date-wrap">
+                <span>날짜</span>
+                <input type="date" class="form-control" id="ol-att-date">
+            </label>
+            <button type="button" class="btn btn-secondary" id="ol-att-reload">새로고침</button>
+            <button type="button" class="btn btn-secondary" id="ol-att-close">닫기</button>
+        </div>
+    </header>
+
+    <section class="ol-att-kpis" aria-label="출석 요약">
+        <div class="ol-att-kpi">
+            <span>최종 인원</span>
+            <strong id="ol-att-total">0명</strong>
+        </div>
+        <div class="ol-att-kpi is-present">
+            <span>출석</span>
+            <strong id="ol-att-present">0명</strong>
+        </div>
+        <div class="ol-att-kpi">
+            <span>미출석</span>
+            <strong id="ol-att-absent">0명</strong>
+        </div>
+        <div class="ol-att-kpi is-note">
+            <span>확인 필요</span>
+            <strong id="ol-att-notes">0명</strong>
+        </div>
+    </section>
+
+    <main class="ol-att-main">
+        <p class="ol-att-help">이름을 눌러도 출석이 바뀝니다. 입금·연락처가 빠진 사람은 비고에 바로 표시됩니다.</p>
+        <div id="ol-att-list" class="ol-att-list">불러오는 중...</div>
+    </main>
+
+    <script src="/js/common.js?v=branch-off3"></script>
+    <script src="/js/outdoor-lesson-attendance.js?v=ol-mob1"></script>
+</body>
+</html>

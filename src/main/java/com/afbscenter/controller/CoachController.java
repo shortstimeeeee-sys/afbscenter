@@ -2,6 +2,7 @@ package com.afbscenter.controller;
 
 import com.afbscenter.model.Coach;
 import com.afbscenter.service.CoachService;
+import com.afbscenter.util.CoachBranchMatch;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -28,23 +29,10 @@ public class CoachController {
             @RequestParam(required = false) String branch) {
         List<Coach> coaches = coachService.getAllCoaches();
         
-        // branch 파라미터가 있으면 해당 지점에 배정된 코치만 필터링 (쉼표 분리 후 정확 매칭)
+        // branch가 있으면 해당 지점 코치만. 필라테스 강사는 사하·연산 교차 배정 가능.
         if (branch != null && !branch.trim().isEmpty()) {
-            String branchUpper = branch.trim().toUpperCase();
             coaches = coaches.stream()
-                .filter(coach -> {
-                    String availableBranches = coach.getAvailableBranches();
-                    if (availableBranches == null || availableBranches.trim().isEmpty()) {
-                        return false; // 배정된 지점이 없으면 제외
-                    }
-                    String[] parts = availableBranches.split("[,，]");
-                    for (String part : parts) {
-                        if (part.trim().equalsIgnoreCase(branchUpper)) {
-                            return true;
-                        }
-                    }
-                    return false;
-                })
+                .filter(coach -> CoachBranchMatch.matchesRequestedBranch(coach, branch))
                 .collect(java.util.stream.Collectors.toList());
         }
         
@@ -84,16 +72,6 @@ public class CoachController {
         }
     }
 
-    @PutMapping("/{id}")
-    @Transactional
-    public ResponseEntity<Coach> updateCoach(@PathVariable Long id, @Valid @RequestBody Coach coach) {
-        try {
-            return ResponseEntity.ok(coachService.updateCoach(id, coach));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
     /**
      * 관리자: 사용자(코치 권한 등)를 코치 명단의 한 행과 연결하거나, 연결을 해제합니다.
      * 요청 본문: { "userId": number, "coachId": number | null }
@@ -123,6 +101,16 @@ public class CoachController {
                     });
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PutMapping("/{id}")
+    @Transactional
+    public ResponseEntity<Coach> updateCoach(@PathVariable Long id, @Valid @RequestBody Coach coach) {
+        try {
+            return ResponseEntity.ok(coachService.updateCoach(id, coach));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
         }
     }
 

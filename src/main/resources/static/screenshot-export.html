@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>스크린샷 발췌 - AFBS 센터</title>
-    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/common.css?v=miss-pass1">
 </head>
 <body>
     <div class="app-container">
@@ -31,13 +31,15 @@
                     <a href="/bookings-without-product.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
                     <div class="menu-section-title">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
-                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
-                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝</span></a>
+                    <a href="/bookings-saha-pilates.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧘</span><span>필라테스</span></a>
                     <div class="menu-section-title">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧘</span><span>필라테스</span></a>
+                    <div class="menu-section-title">비 야구파트</div>
+                    <a href="/staff-attendance.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">🕒</span><span>출근부</span></a>
                     <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
-                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
-                    <div class="menu-section-title">🏟️ 대관</div>
+                    <a href="/bookings-yeonsan-social.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧢</span><span>야구(사회인)</span></a>
                     <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
                 </div>
                 <div class="menu-section">
@@ -182,7 +184,7 @@
         }
     </style>
 
-    <script src="/js/common.js"></script>
+    <script src="/js/common.js?v=branch-off3"></script>
     <script>
         // 사이드바 순서와 각 페이지 내 섹션 순서 동일 (대시보드는 index.html 콘텐츠 순서: 공지 → KPI → 회원추이 → 월별매출 → 오늘일정)
         var SCREENSHOT_TARGETS = [
@@ -197,10 +199,13 @@
             { pageKey: 'bookings-without-product', pageName: '이용권 미연결 예약 관리', label: '본문', previewUrl: '/bookings-without-product.html' },
             { pageKey: 'bookings-saha', pageName: '사하점 야구', label: '본문', previewUrl: '/bookings.html' },
             { pageKey: 'bookings-saha-youth', pageName: '사하점 야구(유소년)', label: '본문', previewUrl: '/bookings-saha-youth.html' },
-            { pageKey: 'bookings-saha-training', pageName: '사하점 트레이닝+필라테스', label: '본문', previewUrl: '/bookings-saha-training.html' },
+            { pageKey: 'bookings-saha-social', pageName: '사하점 야구(사회인)', label: '본문', previewUrl: '/bookings-saha-social.html' },
+            { pageKey: 'bookings-saha-training', pageName: '사하점 트레이닝', label: '본문', previewUrl: '/bookings-saha-training.html' },
+            { pageKey: 'bookings-saha-pilates', pageName: '사하점 필라테스', label: '본문', previewUrl: '/bookings-saha-pilates.html' },
             { pageKey: 'bookings-yeonsan', pageName: '연산점 야구', label: '본문', previewUrl: '/bookings-yeonsan.html' },
             { pageKey: 'bookings-yeonsan-youth', pageName: '연산점 야구(유소년)', label: '본문', previewUrl: '/bookings-yeonsan-youth.html' },
-            { pageKey: 'bookings-yeonsan-training', pageName: '연산점 트레이닝+필라테스', label: '본문', previewUrl: '/bookings-yeonsan-training.html' },
+            { pageKey: 'bookings-yeonsan-social', pageName: '연산점 야구(사회인)', label: '본문', previewUrl: '/bookings-yeonsan-social.html' },
+            { pageKey: 'bookings-yeonsan-training', pageName: '연산점 필라테스', label: '본문', previewUrl: '/bookings-yeonsan-training.html' },
             { pageKey: 'rentals', pageName: '대관 관리', label: '본문', previewUrl: '/rentals.html' },
             { pageKey: 'training-logs', pageName: '훈련 기록', label: '본문', previewUrl: '/training-logs.html' },
             { pageKey: 'rankings', pageName: '훈련 랭킹', label: '본문', previewUrl: '/rankings.html' },

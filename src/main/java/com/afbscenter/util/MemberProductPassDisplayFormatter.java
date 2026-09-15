@@ -34,10 +34,11 @@ public final class MemberProductPassDisplayFormatter {
         }
         String productName = p.getName() != null ? p.getName() : "이용권";
 
-        if (p.getType() == Product.ProductType.MONTHLY_PASS) {
+        if (p.getType() == Product.ProductType.MONTHLY_PASS || p.getType() == Product.ProductType.DAY_PASS) {
             LocalDate exp = mp.getExpiryDate();
             if (exp == null && mp.getPurchaseDate() != null) {
-                int validDays = p.getValidDays() != null && p.getValidDays() > 0 ? p.getValidDays() : 30;
+                int validDays = p.getValidDays() != null && p.getValidDays() > 0
+                        ? p.getValidDays() : Product.defaultValidDays(p.getType());
                 exp = mp.getPurchaseDate().toLocalDate().plusDays(validDays);
             }
             if (exp != null) {

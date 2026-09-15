@@ -15,6 +15,7 @@ import com.afbscenter.service.MemberService;
 import com.afbscenter.service.MemberApprovalService;
 import com.afbscenter.service.MemberEndedGraceService;
 import com.afbscenter.service.MemberProductDisplayService;
+import com.afbscenter.util.DashboardBookingBreakdown;
 import com.afbscenter.util.LessonCategoryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -92,11 +93,11 @@ public class DashboardController {
             LocalDateTime startOfDay = today.atStartOfDay();
             LocalDateTime endOfDay = today.atTime(LocalTime.MAX);
 
-            // 총 회원 수 (JdbcTemplate으로 직접 조회하여 enum 변환 오류 방지)
+            // 총 회원 수: 대시보드 KPI는 활성 회원만
             long totalMembers = 0L;
             try {
                 Long totalMembersLong = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM members WHERE status <> 'PENDING_APPROVAL'", Long.class);
+                    "SELECT COUNT(*) FROM members WHERE status = 'ACTIVE'", Long.class);
                 totalMembers = totalMembersLong != null ? totalMembersLong : 0L;
             } catch (Exception e) {
                 logger.warn("총 회원 수 조회 실패: {}", e.getMessage());
@@ -259,7 +260,7 @@ public class DashboardController {
                 monthlyRevenue = 0;
             }
 
-            // 이번 달 총 예약 건수 (사하 + 연산 + 대관) 및 지점별 비회원 수
+            // 이번 달 총 예약 건수 (사하 + 연산 + 대관) 및 지점·종목별 건수
             long totalBookingsMonth = 0L;
             Map<String, Long> bookingsByBranch = new HashMap<>();
             bookingsByBranch.put("SAHA", 0L);
@@ -269,10 +270,12 @@ public class DashboardController {
             bookingsNonMemberByBranch.put("SAHA", 0L);
             bookingsNonMemberByBranch.put("YEONSAN", 0L);
             bookingsNonMemberByBranch.put("RENTAL", 0L);
+            Map<String, Map<String, Long>> bookingsByStudio = DashboardBookingBreakdown.emptyByStudio();
             try {
                 List<Booking> monthBookings = bookingRepository.findByDateRange(startOfMonth, endOfMonth);
                 totalBookingsMonth = monthBookings.size();
                 for (Booking b : monthBookings) {
+                    DashboardBookingBreakdown.add(bookingsByStudio, b);
                     if (b.getBranch() != null) {
                         String key = b.getBranch().name();
                         bookingsByBranch.merge(key, 1L, Long::sum);
@@ -286,7 +289,7 @@ public class DashboardController {
             }
 
             Map<String, Object> kpi = new HashMap<>();
-            kpi.put("totalMembers", totalMembers);       // 총 회원 수
+            kpi.put("totalMembers", totalMembers);       // 활성 회원 수
             kpi.put("monthlyNewMembers", monthlyNewMembers); // 월 가입자 수
             kpi.put("newMembers", todayNewMembers);      // 오늘 가입 수
             kpi.put("bookings", todayBookings);         // 오늘 예약 수
@@ -306,6 +309,7 @@ public class DashboardController {
             kpi.put("totalBookingsMonth", totalBookingsMonth);   // 이번 달 총 예약 건수 (사하+연산+대관)
             kpi.put("bookingsByBranch", bookingsByBranch);      // 지점별 예약 건수 (SAHA, YEONSAN, RENTAL)
             kpi.put("bookingsNonMemberByBranch", bookingsNonMemberByBranch); // 지점별 비회원 예약 건수
+            kpi.put("bookingsByStudio", bookingsByStudio);      // 사하/연산 엘리트·유소년·사회인·대관·비회원
             
             // 만료 임박 및 종료 회원 수: 60초 캐시로 새로고침 시 반복 계산 방지
             long expiringMembersCount;
@@ -354,7 +358,7 @@ public class DashboardController {
                                             break;
                                         }
                                     }
-                                    if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS
+                                    if (mp.getProduct() != null && Product.isPeriodPass(mp.getProduct().getType())
                                         && mp.getExpiryDate() != null && !mp.getExpiryDate().isAfter(expiryThreshold)
                                         && !mp.getExpiryDate().isBefore(today)) {
                                         isExpiring = true;

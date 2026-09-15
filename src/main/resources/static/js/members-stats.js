@@ -44,7 +44,11 @@ function getBranchLabelClass(facilityOrBranch, facilityName) {
 // 담당 코치 한 줄 표시 (공통 코치 색상)
 function renderCoachDisplay(member) {
     var name = (member.coach && member.coach.name) ? member.coach.name : (member.coachNames || '').split('\n')[0];
-    if (!name || !String(name).trim()) return '-';
+    if (!name || !String(name).trim()) {
+        return typeof formatUnspecifiedCoachHtml === 'function'
+            ? formatUnspecifiedCoachHtml()
+            : '<span style="color: var(--text-muted);">미지정</span>';
+    }
     return renderCoachNameWithColor(String(name).trim());
 }
 // 코치 이름 문자열에 공통 색상 적용 (회원/비회원 목록 공용)
@@ -96,16 +100,10 @@ function renderMembersStatsCard(stats) {
         YOUTH: '유소년',
         OTHER: '기타 종목'
     };
-    const statusLabels = {
-        ACTIVE: '활성',
-        INACTIVE: '휴면',
-        WITHDRAWN: '탈퇴'
-    };
     const gradeOrder = ['SOCIAL', 'ELITE_ELEMENTARY', 'ELITE_MIDDLE', 'ELITE_HIGH', 'YOUTH', 'OTHER'];
-    const statusOrder = ['INACTIVE', 'WITHDRAWN'];
     const inactiveCount = Number(byStatus.INACTIVE) || 0;
-    // 상단 '종료' 카드는 이용권 종료 기준(목록의 종료 배지와 동일), 회원 상태 WITHDRAWN이 아님
-    const endedTicketMemberCount = (stats.endedTicketMemberCount != null && stats.endedTicketMemberCount !== '') ? Number(stats.endedTicketMemberCount) : (Number(byStatus.WITHDRAWN) || 0);
+    const unspecifiedCoachCount = Number(stats.unspecifiedCoachCount) || 0;
+    const endedTicketMemberCount = Number(stats.endedTicketMemberCount) || 0;
     const nonMemberCount = Number(stats.nonMemberCount) || 0;
     const gradeItems = gradeOrder.filter(k => (byGrade[k] || 0) > 0).map(k => ({
         label: gradeLabels[k] || k,
@@ -114,20 +112,14 @@ function renderMembersStatsCard(stats) {
         filterType: 'grade',
         filterValue: k
     }));
-    const statusItems = statusOrder.filter(k => (byStatus[k] || 0) > 0).map(k => ({
-        label: statusLabels[k] || k,
-        count: byStatus[k],
-        filterType: 'status',
-        filterValue: k
-    }));
     const items = [
         { label: '총 회원 수', value: total + '명', accent: true, gradeClass: '', isTotal: true, filterType: 'all', filterValue: null },
         { label: '활성', value: activeCount + '명', accent: false, gradeClass: 'members-stats-item--active', isTotal: false, filterType: 'status', filterValue: 'ACTIVE' },
         { label: '휴면', value: inactiveCount + '명', accent: false, gradeClass: 'members-stats-item--inactive', isTotal: false, filterType: 'status', filterValue: 'INACTIVE' },
+        { label: '미지정', value: unspecifiedCoachCount + '명', accent: false, gradeClass: 'members-stats-item--unspecified', isTotal: false, filterType: 'unspecifiedCoach', filterValue: 'unspecifiedCoach' },
         { label: '종료', value: endedTicketMemberCount + '명', accent: false, gradeClass: 'members-stats-item--withdrawn', isTotal: false, filterType: 'endedTicket', filterValue: 'endedTicket' }
     ].concat(
         gradeItems.map(c => ({ label: c.label, value: c.count + '명', accent: false, gradeClass: 'members-stats-item--' + (c.gradeKey ? c.gradeKey.toLowerCase() : ''), filterType: 'grade', filterValue: c.gradeKey })),
-        statusItems.filter(s => s.label !== '휴면' && s.filterValue !== 'WITHDRAWN').map(c => ({ label: c.label, value: c.count + '명', accent: false, gradeClass: '', filterType: 'status', filterValue: c.filterValue })),
         [{ label: '비회원', value: nonMemberCount + '건', accent: false, gradeClass: 'members-stats-item--nonmember', isTotal: false, filterType: 'nonMember', filterValue: 'nonMember' }]
     ).flat();
     container.innerHTML = items.map(item => `
@@ -135,7 +127,7 @@ function renderMembersStatsCard(stats) {
              data-filter-type="${App.escapeHtml(item.filterType || '')}"
              data-filter-value="${App.escapeHtml(item.filterValue != null ? item.filterValue : '')}"
              data-label="${App.escapeHtml(item.label || '')}"
-             title="클릭하면 목록 보기">
+             title="${item.filterType === 'unspecifiedCoach' ? '코치 퇴사로 담당이 미지정인 회원 · 클릭하면 목록 보기' : '클릭하면 목록 보기'}">
             <div class="members-stats-item-label">${App.escapeHtml(item.label)}</div>
             <div class="members-stats-item-value${item.accent ? ' accent' : ''}">${App.escapeHtml(item.value)}</div>
         </div>
@@ -148,6 +140,75 @@ function renderMembersStatsCard(stats) {
             openStatsMemberModal(type, value, label);
         });
     });
+}
+
+function isEndedLikeMemberProduct(mp) {
+    if (!mp) {
+        return false;
+    }
+    var rem = mp.remainingCount;
+    if (rem != null && rem !== '' && Number(rem) > 0) {
+        return false;
+    }
+    var st = String(mp.status || '').toUpperCase();
+    if (st === 'USED_UP' || st === 'EXPIRED') {
+        return true;
+    }
+    return typeof App.isActiveCountPassExhaustedForGrace === 'function' && App.isActiveCountPassExhaustedForGrace(mp);
+}
+
+function endedMemberProductDateLabel(mp) {
+    var d = typeof App.resolveMemberProductEndedAtForGrace === 'function'
+        ? App.resolveMemberProductEndedAtForGrace(mp)
+        : null;
+    if (!d || isNaN(d.getTime())) {
+        return '종료';
+    }
+    return '종료(' + (d.getMonth() + 1) + '/' + d.getDate() + ')';
+}
+
+function collectEndedProductsForStatsList(member) {
+    var list = (member && Array.isArray(member.memberProducts)) ? member.memberProducts : [];
+    var ended = list.filter(isEndedLikeMemberProduct);
+    if (ended.length === 0) {
+        return [];
+    }
+    var graceMs = 3 * 24 * 60 * 60 * 1000;
+    var now = Date.now();
+    var recent = ended.filter(function(mp) {
+        var d = typeof App.resolveMemberProductEndedAtForGrace === 'function'
+            ? App.resolveMemberProductEndedAtForGrace(mp)
+            : null;
+        return d && !isNaN(d.getTime()) && (now - d.getTime()) >= 0 && (now - d.getTime()) <= graceMs;
+    });
+    var pick = recent.length > 0 ? recent : ended;
+    pick = pick.slice().sort(function(a, b) {
+        var da = typeof App.resolveMemberProductEndedAtForGrace === 'function' ? App.resolveMemberProductEndedAtForGrace(a) : null;
+        var db = typeof App.resolveMemberProductEndedAtForGrace === 'function' ? App.resolveMemberProductEndedAtForGrace(b) : null;
+        return ((db && db.getTime()) || 0) - ((da && da.getTime()) || 0);
+    });
+    return pick;
+}
+
+function formatEndedProductsHtmlForStats(member) {
+    var pick = collectEndedProductsForStatsList(member);
+    if (pick.length === 0) {
+        return '<span style="color: var(--text-muted);">-</span>';
+    }
+    var extra = 0;
+    if (pick.length > 4) {
+        extra = pick.length - 4;
+        pick = pick.slice(0, 4);
+    }
+    var parts = pick.map(function(mp) {
+        var name = App.escapeHtml((mp.product && mp.product.name) || '이용권');
+        var reason = App.escapeHtml(endedMemberProductDateLabel(mp));
+        return '<span style="font-weight: 600; color: var(--text-primary);">' + name + '</span> <span style="color: var(--danger, #E74C3C);">' + reason + '</span>';
+    });
+    if (extra > 0) {
+        parts.push('<span style="color: var(--text-muted);">외 ' + extra + '건</span>');
+    }
+    return '<span style="font-size: 12px;">' + parts.join('<span style="color: var(--text-muted);"> · </span>') + '</span>';
 }
 
 async function openStatsMemberModal(filterType, filterValue, titleLabel) {
@@ -206,9 +267,11 @@ async function openStatsMemberModal(filterType, filterValue, titleLabel) {
     }
 
     var params = new URLSearchParams();
+    if (filterType === 'all') params.set('allStatuses', 'true');
     if (filterType === 'status' && filterValue) params.set('status', filterValue);
     if (filterType === 'grade' && filterValue) params.set('grade', filterValue);
     if (filterType === 'endedTicket' && filterValue) params.set('endedTicket', 'true');
+    if (filterType === 'unspecifiedCoach') params.set('unspecifiedCoach', 'true');
     try {
         var list = await App.api.get('/members?' + params.toString());
         var members = Array.isArray(list) ? list : (list && list.content ? list.content : []);
@@ -216,21 +279,62 @@ async function openStatsMemberModal(filterType, filterValue, titleLabel) {
             bodyEl.innerHTML = '<p style="color: var(--text-muted); padding: 16px;">해당 조건의 회원이 없습니다.</p>';
             return;
         }
-        var tableHtml = '<div class="table-container" style="max-height: 60vh; overflow: auto;"><table class="table table-booking-list"><thead><tr><th>회원번호</th><th>이름</th><th>등급</th><th>담당 코치</th><th>전화번호</th><th>학교/소속</th><th>상태</th></tr></thead><tbody>';
+        var showActivate = filterType === 'status' && String(filterValue || '').toUpperCase() === 'INACTIVE';
+        var showEndedProducts = filterType === 'endedTicket';
+        var tableHtml = '<div class="table-container" style="max-height: 60vh; overflow: auto;"><table class="table table-booking-list"><thead><tr><th>회원번호</th><th>이름</th>'
+            + (showEndedProducts ? '<th>종료 이용권</th>' : '')
+            + '<th>등급</th><th>담당 코치</th><th>전화번호</th><th>학교/소속</th><th>상태</th>'
+            + (showActivate ? '<th>작업</th>' : '')
+            + '</tr></thead><tbody>';
         members.forEach(function(m) {
             var gradeClass = getGradeBadgeClass(m.grade);
             var gradeLabel = getGradeLabel(m.grade);
             var gradeBadge = '<span class="badge badge-' + gradeClass + '">' + App.escapeHtml(gradeLabel) + '</span>';
             var statusKey = (m.status || 'ACTIVE').toUpperCase();
             var statusBadge = '<span class="badge badge-' + getMemberStatusBadge(statusKey) + '">' + App.escapeHtml(getMemberStatusText(statusKey)) + '</span>';
-            var coachHtml = renderCoachDisplay(m);
+            var coachHtml = (typeof renderCoachNamesWithColors === 'function')
+                ? renderCoachNamesWithColors(m)
+                : renderCoachDisplay(m);
             var nameLink = '<span style="color: var(--accent-primary); text-decoration: underline; cursor: pointer;">' + App.escapeHtml(m.name || '') + '</span>';
-            tableHtml += '<tr class="stats-member-row" onclick="App.Modal.close(\'stats-members-modal\'); window.location.href=\'/members.html?openMember=' + (m.id || '') + '\'" style="cursor:pointer;"><td>' + App.escapeHtml(m.memberNumber || '-') + '</td><td>' + nameLink + '</td><td class="cell-grade">' + gradeBadge + '</td><td class="cell-coach">' + coachHtml + '</td><td>' + App.escapeHtml(m.phoneNumber || '-') + '</td><td>' + App.escapeHtml(m.school || '-') + '</td><td class="cell-status">' + statusBadge + '</td></tr>';
+            var actionCell = showActivate
+                ? '<td class="cell-actions"><button type="button" class="btn btn-sm btn-success" onclick="event.stopPropagation(); activateDormantMemberFromStats(' + (m.id || 0) + '); return false;">활성</button></td>'
+                : '';
+            var endedCell = showEndedProducts
+                ? '<td class="cell-ended-product" style="min-width: 180px;">' + formatEndedProductsHtmlForStats(m) + '</td>'
+                : '';
+            tableHtml += '<tr class="stats-member-row" onclick="App.Modal.close(\'stats-members-modal\'); window.location.href=\'/members.html?openMember=' + (m.id || '') + '\'" style="cursor:pointer;"><td>' + App.escapeHtml(m.memberNumber || '-') + '</td><td>' + nameLink + '</td>' + endedCell + '<td class="cell-grade">' + gradeBadge + '</td><td class="cell-coach">' + coachHtml + '</td><td>' + App.escapeHtml(m.phoneNumber || '-') + '</td><td>' + App.escapeHtml(m.school || '-') + '</td><td class="cell-status">' + statusBadge + '</td>' + actionCell + '</tr>';
         });
         tableHtml += '</tbody></table></div>';
         bodyEl.innerHTML = tableHtml;
     } catch (err) {
         App.err('통계 회원 목록 로드 실패:', err);
         bodyEl.innerHTML = '<p style="color: var(--danger); padding: 16px;">목록을 불러오는데 실패했습니다.</p>';
+    }
+}
+
+async function activateDormantMemberFromStats(memberId) {
+    if (!memberId) {
+        return;
+    }
+    if (!confirm('이 회원을 활성 처리하시겠습니까?')) {
+        return;
+    }
+    try {
+        await App.api.patch('/members/' + memberId + '/status', { status: 'ACTIVE' });
+        App.showNotification('활성 처리되었습니다.', 'success');
+        if (typeof loadMemberStats === 'function') {
+            loadMemberStats();
+        }
+        if (typeof loadMembers === 'function') {
+            loadMembers();
+        }
+        openStatsMemberModal('status', 'INACTIVE', '휴면');
+    } catch (error) {
+        App.err('휴면 해제 실패:', error);
+        if (typeof App.showApiError === 'function') {
+            App.showApiError(error);
+        } else {
+            App.showNotification('활성 처리에 실패했습니다.', 'danger');
+        }
     }
 }

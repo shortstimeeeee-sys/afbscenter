@@ -2,6 +2,7 @@ package com.afbscenter.service;
 
 import com.afbscenter.model.User;
 import com.afbscenter.model.UserAccessLog;
+import com.afbscenter.repository.CoachRepository;
 import com.afbscenter.repository.UserAccessLogRepository;
 import com.afbscenter.repository.UserRepository;
 import com.afbscenter.util.JwtUtil;
@@ -25,22 +26,28 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final UserAccessLogRepository userAccessLogRepository;
+    private final CoachRepository coachRepository;
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
     private final OperationalCoachViewService operationalCoachViewService;
+    private final CoachHomeOperatorService coachHomeOperatorService;
     
     @Value("${admin.init.password:admin123}")
     private String adminInitPassword;
 
     @Autowired
     public AuthService(UserRepository userRepository, UserAccessLogRepository userAccessLogRepository,
+                       CoachRepository coachRepository,
                        JwtUtil jwtUtil, PasswordEncoder passwordEncoder,
-                       OperationalCoachViewService operationalCoachViewService) {
+                       OperationalCoachViewService operationalCoachViewService,
+                       CoachHomeOperatorService coachHomeOperatorService) {
         this.userRepository = userRepository;
         this.userAccessLogRepository = userAccessLogRepository;
+        this.coachRepository = coachRepository;
         this.jwtUtil = jwtUtil;
         this.passwordEncoder = passwordEncoder;
         this.operationalCoachViewService = operationalCoachViewService;
+        this.coachHomeOperatorService = coachHomeOperatorService;
     }
 
     private String buildEmployeeCodeFromUserId(Long userId) {
@@ -145,6 +152,8 @@ public class AuthService {
         response.put("id", user.getId());
         response.put("employeeCode", user.getEmployeeCode());
         response.put("operationalCoachView", operationalCoachViewService.isOperationalCoachViewer(user));
+        response.put("coachHomeOperator", coachHomeOperatorService.isOperatorUsername(user.getUsername()));
+        putLinkedCoach(response, user);
 
         return response;
     }
@@ -206,7 +215,23 @@ public class AuthService {
         response.put("id", user.getId());
         response.put("employeeCode", user.getEmployeeCode());
         response.put("operationalCoachView", operationalCoachViewService.isOperationalCoachViewer(user));
+        response.put("coachHomeOperator", coachHomeOperatorService.isOperatorUsername(user.getUsername()));
+        putLinkedCoach(response, user);
         return Optional.of(response);
+    }
+
+    private void putLinkedCoach(Map<String, Object> response, User user) {
+        response.put("linkedCoachId", null);
+        response.put("linkedCoachName", null);
+        response.put("linkedCoachSpecialties", null);
+        if (user == null || user.getId() == null) {
+            return;
+        }
+        coachRepository.findByUserId(user.getId()).ifPresent(coach -> {
+            response.put("linkedCoachId", coach.getId());
+            response.put("linkedCoachName", coach.getName());
+            response.put("linkedCoachSpecialties", coach.getSpecialties());
+        });
     }
 
     public boolean validateToken(String token) {

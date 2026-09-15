@@ -75,4 +75,7 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     /** 특정 날짜에 체크인된 출석의 예약 ID 목록만 조회 (엔티티 로드 없이, N+1 방지) */
     @Query("SELECT DISTINCT a.booking.id FROM Attendance a WHERE a.date = :date AND a.checkInTime IS NOT NULL AND a.booking.id IS NOT NULL")
     List<Long> findCheckedInBookingIdsByDate(@Param("date") LocalDate date);
+
+    @Query("SELECT MAX(a.date) FROM Attendance a WHERE a.member.id = :memberId AND a.checkInTime IS NOT NULL")
+    LocalDate findLatestCheckedInDateByMemberId(@Param("memberId") Long memberId);
 }

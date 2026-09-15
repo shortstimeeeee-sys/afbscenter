@@ -100,8 +100,8 @@ public class MemberResponseDTO {
         dto.createdAt = member.getCreatedAt();
         dto.updatedAt = member.getUpdatedAt();
         
-        // 회원 카드 담당 코치(항목 유지 — 목록·필터 기준과 표시 일치)
-        if (member.getCoach() != null) {
+        // 회원 카드 담당 코치: 코치/레슨 관리에 있는 근무 중 코치만 (퇴사는 미지정)
+        if (MemberProductCoachResolver.isWorkingCoach(member.getCoach())) {
             dto.coach = new CoachInfo();
             dto.coach.id = member.getCoach().getId();
             dto.coach.name = member.getCoach().getName();
@@ -118,7 +118,7 @@ public class MemberResponseDTO {
                 this.coachName = coachName;
                 this.category = category;
                 // 정렬 우선순위: 야구(1) > 트레이닝(2) > 필라테스(3) > 기타(4)
-                if (category == Product.ProductCategory.BASEBALL) {
+                if (category == Product.ProductCategory.BASEBALL || category == Product.ProductCategory.OUTDOOR_LESSON) {
                     this.priority = 1;
                 } else if (category == Product.ProductCategory.TRAINING || 
                           category == Product.ProductCategory.TRAINING_FITNESS) {
@@ -134,12 +134,10 @@ public class MemberResponseDTO {
         List<CoachWithCategory> coachList = new ArrayList<>();
         java.util.function.BiConsumer<MemberProduct, List<CoachWithCategory>> addCoach = (mp, list) -> {
             try {
-                String tempCoachName = null;
+                String tempCoachName = MemberProductCoachResolver.resolveDisplayCoachName(mp);
                 Product.ProductCategory tempCategory = null;
-                if (mp.getCoach() != null) tempCoachName = mp.getCoach().getName();
-                if (tempCoachName == null && mp.getProduct() != null) {
-                    if (mp.getProduct().getCoach() != null) tempCoachName = mp.getProduct().getCoach().getName();
-                    if (mp.getProduct().getCategory() != null) tempCategory = mp.getProduct().getCategory();
+                if (mp.getProduct() != null && mp.getProduct().getCategory() != null) {
+                    tempCategory = mp.getProduct().getCategory();
                 }
                 final String coachName = tempCoachName;
                 Product.ProductCategory category = tempCategory;
@@ -233,8 +231,12 @@ public class MemberResponseDTO {
                         productInfo.usageCount = mp.getProduct().getUsageCount(); // 상품의 usageCount 추가
                         productInfo.validDays = mp.getProduct().getValidDays(); // 상품의 validDays 추가
                         
-                        // 상품의 담당 코치 정보 추가
-                        if (mp.getProduct().getCoach() != null) {
+                        // 상품의 담당 코치: 이용권에 직접 배정된 코치가 없을 때만 (퇴사 배정을 상품 기본 코치로 대체하지 않음)
+                        boolean hasDirectCoach = false;
+                        try {
+                            hasDirectCoach = mp.getCoach() != null;
+                        } catch (Exception ignored) { }
+                        if (!hasDirectCoach && MemberProductCoachResolver.isWorkingCoach(mp.getProduct().getCoach())) {
                             try {
                                 CoachInfo productCoachInfo = new CoachInfo();
                                 productCoachInfo.id = mp.getProduct().getCoach().getId();

@@ -20,6 +20,7 @@ import com.afbscenter.service.MemberService;
 import com.afbscenter.service.MemberApprovalService;
 import com.afbscenter.service.OperationalCoachViewService;
 import com.afbscenter.model.MemberApprovalRequest;
+import com.afbscenter.util.MemberProductCoachResolver;
 import com.afbscenter.util.MemberProductUiDedupe;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -111,6 +112,8 @@ public class MemberController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) Boolean endedTicket,
+            @RequestParam(required = false) Boolean allStatuses,
+            @RequestParam(required = false) Boolean unspecifiedCoach,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) String viewCoachIds,
@@ -138,7 +141,7 @@ public class MemberController {
             // Service에서 필터링 및 변환 (코치 본인: 카드·이용권·상품 담당과 동일 규칙)
             List<com.afbscenter.dto.MemberResponseDTO> memberDTOs = coachWithoutLink
                     ? new java.util.ArrayList<>()
-                    : memberService.getAllMembersWithFilters(productCategory, grade, status, branch, endedTicket, restrictCoachId);
+                    : memberService.getAllMembersWithFilters(productCategory, grade, status, branch, endedTicket, restrictCoachId, allStatuses, unspecifiedCoach);
 
             if ("COACH".equalsIgnoreCase(role)) {
                 List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
@@ -277,8 +280,8 @@ public class MemberController {
             memberMap.put("createdAt", member.getCreatedAt());
             memberMap.put("updatedAt", member.getUpdatedAt());
             
-            // 코치 정보 안전하게 로드
-            if (member.getCoach() != null) {
+            // 코치 정보: 근무 중인 코치만 (퇴사는 미지정)
+            if (MemberProductCoachResolver.isWorkingCoach(member.getCoach())) {
                 try {
                     Map<String, Object> coachMap = new HashMap<>();
                     coachMap.put("id", member.getCoach().getId());
@@ -334,27 +337,30 @@ public class MemberController {
                             mpMap.put("voucherNumber", mp.getVoucherNumber());
                             mpMap.put("extendedFromMemberProductId", mp.getExtendedFromMemberProductId());
                             
-                            // 코치 정보 유지 (종료된 이용권도 당시 배정 코치 표시)
+                            // 담당 코치: 코치/레슨 관리의 근무 중 코치만 이름 노출 (퇴사는 미지정)
                             Map<String, Object> coachMap = null;
                             try {
-                                if (mp.getCoach() != null) {
+                                if (MemberProductCoachResolver.isWorkingCoach(mp.getCoach())) {
                                     coachMap = new HashMap<>();
                                     coachMap.put("id", mp.getCoach().getId());
                                     coachMap.put("name", mp.getCoach().getName());
                                 }
                             } catch (Exception e) { }
-                            if (coachMap == null && mp.getProduct() != null) {
+                            if (coachMap == null && mp.getProduct() != null && mp.getCoach() == null) {
                                 try {
-                                    if (mp.getProduct().getCoach() != null) {
+                                    if (MemberProductCoachResolver.isWorkingCoach(mp.getProduct().getCoach())) {
                                         coachMap = new HashMap<>();
                                         coachMap.put("id", mp.getProduct().getCoach().getId());
                                         coachMap.put("name", mp.getProduct().getCoach().getName());
                                     }
                                 } catch (Exception e) { }
                             }
+                            String displayCoachName = MemberProductCoachResolver.resolveDisplayCoachName(mp);
                             if (coachMap != null) {
                                 mpMap.put("coach", coachMap);
-                                mpMap.put("coachName", coachMap.get("name"));
+                            }
+                            if (displayCoachName != null) {
+                                mpMap.put("coachName", displayCoachName);
                             }
                             
                             // Product 정보 안전하게 로드
@@ -893,8 +899,8 @@ public class MemberController {
             memberMap.put("createdAt", updatedMember.getCreatedAt());
             memberMap.put("updatedAt", updatedMember.getUpdatedAt());
             
-            // 코치 정보
-            if (updatedMember.getCoach() != null) {
+            // 코치 정보: 근무 중인 코치만
+            if (MemberProductCoachResolver.isWorkingCoach(updatedMember.getCoach())) {
                 try {
                     Map<String, Object> coachMap = new HashMap<>();
                     coachMap.put("id", updatedMember.getCoach().getId());
@@ -919,6 +925,47 @@ public class MemberController {
             return ResponseEntity.badRequest().body(err);
         } catch (Exception e) {
             logger.error("회원 수정 중 오류 발생. ID: {}", id, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /** 회원 상태만 활성/휴면으로 변경 (목록 작업 버튼용) */
+    @PatchMapping("/{id}/status")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updateMemberStatus(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+        try {
+            Object statusObj = body != null ? body.get("status") : null;
+            if (statusObj == null || statusObj.toString().isBlank()) {
+                Map<String, Object> err = new HashMap<>();
+                err.put("error", "상태가 필요합니다.");
+                return ResponseEntity.badRequest().body(err);
+            }
+            Member.MemberStatus status;
+            try {
+                status = Member.MemberStatus.valueOf(statusObj.toString().trim().toUpperCase());
+            } catch (Exception e) {
+                Map<String, Object> err = new HashMap<>();
+                err.put("error", "올바르지 않은 회원 상태입니다.");
+                return ResponseEntity.badRequest().body(err);
+            }
+            if (status != Member.MemberStatus.ACTIVE && status != Member.MemberStatus.INACTIVE) {
+                Map<String, Object> err = new HashMap<>();
+                err.put("error", "활성 또는 휴면만 변경할 수 있습니다.");
+                return ResponseEntity.badRequest().body(err);
+            }
+            Member member = memberRepository.findById(id).orElse(null);
+            if (member == null) {
+                return ResponseEntity.notFound().build();
+            }
+            member.setStatus(status);
+            memberRepository.save(member);
+            logger.info("회원 상태 변경: Member ID={}, status={}", id, status);
+            Map<String, Object> result = new HashMap<>();
+            result.put("id", member.getId());
+            result.put("status", member.getStatus());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            logger.error("회원 상태 변경 중 오류. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

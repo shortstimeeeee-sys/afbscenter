@@ -35,14 +35,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 
 import java.time.LocalDate;
+import com.afbscenter.util.BookingCalendarMemberGrade;
 import com.afbscenter.util.LessonCategoryUtil;
+import com.afbscenter.util.MemberBookingPassRules;
 import com.afbscenter.constants.CompanionBookingPolicy;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -112,14 +113,6 @@ public class BookingController {
         this.operationalCoachViewService = operationalCoachViewService;
     }
 
-    private Optional<Long> resolveCoachIdFromRequest(HttpServletRequest request) {
-        return operationalCoachViewService.resolveCoachIdFromLoggedInUser(request);
-    }
-
-    private boolean bookingMatchesOperationalCoachIds(Booking b, java.util.Collection<Long> coachIds) {
-        return operationalCoachViewService.bookingMatchesOperationalCoachIds(b, coachIds);
-    }
-
     /** 무제한 이용권 여부: totalCount 또는 product.usageCount가 null 또는 999 이상 */
     private boolean isUnlimitedPass(com.afbscenter.model.MemberProduct mp) {
         if (mp == null) return false;
@@ -134,6 +127,107 @@ public class BookingController {
             // ignore
         }
         return false;
+    }
+
+    private static ResponseEntity<Map<String, Object>> badRequestMessage(String message) {
+        Map<String, Object> err = new HashMap<>();
+        err.put("message", message);
+        return ResponseEntity.badRequest().body(err);
+    }
+
+    private PassResolve resolveOwnedMemberProduct(Member member, Object memberProductIdObj) {
+        if (memberProductIdObj == null) {
+            return new PassResolve(null, MemberBookingPassRules.MSG_CONFIRM_PASS);
+        }
+        String raw = memberProductIdObj.toString().trim();
+        if (raw.isEmpty() || "null".equalsIgnoreCase(raw)) {
+            return new PassResolve(null, MemberBookingPassRules.MSG_CONFIRM_PASS);
+        }
+        Long memberProductId;
+        try {
+            if (memberProductIdObj instanceof Number) {
+                memberProductId = ((Number) memberProductIdObj).longValue();
+            } else {
+                memberProductId = Long.parseLong(raw);
+            }
+        } catch (NumberFormatException e) {
+            return new PassResolve(null, MemberBookingPassRules.MSG_CONFIRM_PASS);
+        }
+        java.util.Optional<MemberProduct> memberProductOpt;
+        try {
+            memberProductOpt = memberProductRepository.findByIdWithMember(memberProductId);
+        } catch (org.springframework.dao.DataAccessException e) {
+            throw new IllegalArgumentException("상품 조회 중 데이터베이스 오류: " + e.getMessage(), e);
+        }
+        if (memberProductOpt.isEmpty()) {
+            return new PassResolve(null, MemberBookingPassRules.MSG_CONFIRM_PASS);
+        }
+        MemberProduct mp = memberProductOpt.get();
+        if (mp.getMember() == null || mp.getMember().getId() == null || !mp.getMember().getId().equals(member.getId())) {
+            return new PassResolve(null, MemberBookingPassRules.MSG_NOT_OWNED);
+        }
+        return new PassResolve(mp, null);
+    }
+
+    private int countUndeductedPassHolds(MemberProduct mp, Long excludeBookingId) {
+        if (mp == null || mp.getId() == null) {
+            return 0;
+        }
+        LocalDateTime from = MemberBookingPassRules.remainingHoldFrom();
+        if (excludeBookingId == null) {
+            return (int) bookingRepository.countUndeductedHoldByMemberProductId(mp.getId(), from);
+        }
+        return (int) bookingRepository.countUndeductedHoldByMemberProductIdExcluding(mp.getId(), excludeBookingId, from);
+    }
+
+    private boolean occupiesRemainingHold(Booking booking, java.util.Set<Long> deductedBookingIds) {
+        if (booking == null || booking.getStatus() == Booking.BookingStatus.CANCELLED
+                || booking.getStatus() == Booking.BookingStatus.NO_SHOW) {
+            return false;
+        }
+        if (booking.getStartTime() != null
+                && booking.getStartTime().isBefore(MemberBookingPassRules.remainingHoldFrom())) {
+            return false;
+        }
+        return deductedBookingIds == null || booking.getId() == null || !deductedBookingIds.contains(booking.getId());
+    }
+
+    private void putCountPassHoldFlag(Map<String, Object> bookingMap, Booking booking,
+                                      Map<Long, List<Long>> holdIdsByMpId, java.util.Set<Long> deductedBookingIds) {
+        boolean highlight = false;
+        if (booking != null && booking.getMemberProduct() != null && booking.getMemberProduct().getId() != null
+                && occupiesRemainingHold(booking, deductedBookingIds)) {
+            Long mpId = booking.getMemberProduct().getId();
+            List<Long> holdIds = holdIdsByMpId.computeIfAbsent(mpId,
+                    id -> bookingRepository.findUndeductedHoldIdsByMemberProductIdOrderByStart(
+                            id, MemberBookingPassRules.remainingHoldFrom()));
+            int holdIndex = indexOfHoldId(holdIds, booking.getId());
+            highlight = MemberBookingPassRules.highlightExcessHold(booking.getMemberProduct(), true, holdIndex);
+        }
+        bookingMap.put("countPassFullyHeld", highlight);
+    }
+
+    private static int indexOfHoldId(List<Long> holdIds, Long bookingId) {
+        if (holdIds == null || bookingId == null) {
+            return -1;
+        }
+        for (int i = 0; i < holdIds.size(); i++) {
+            Long holdId = holdIds.get(i);
+            if (holdId != null && holdId.longValue() == bookingId.longValue()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static final class PassResolve {
+        private final MemberProduct product;
+        private final String error;
+
+        private PassResolve(MemberProduct product, String error) {
+            this.product = product;
+            this.error = error;
+        }
     }
 
     /** 무제한권 레슨 예약은 체크인 없이 자동 출석 처리(자동 승인) */
@@ -412,6 +506,7 @@ public class BookingController {
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) String facilityType,
             @RequestParam(required = false) String lessonCategory,
+            @RequestParam(required = false) String memberGrade,
             @RequestParam(required = false, defaultValue = "false") boolean publicMemberCalendar,
             @RequestParam(required = false) String viewCoachIds,
             HttpServletRequest request) {
@@ -640,8 +735,9 @@ public class BookingController {
                                     }
                                     
                                     if (requestedType == Facility.FacilityType.BASEBALL) {
-                                        // BASEBALL 캘린더: lessonCategory가 BASEBALL인 예약만
-                                        return booking.getLessonCategory() == LessonCategory.BASEBALL;
+                                        // BASEBALL 캘린더: 야구 예약. 유소년 캘린더는 유소년 야구 종목도 포함
+                                        return BookingCalendarMemberGrade.includeAllFacilityOnBaseballCalendar(
+                                                booking.getLessonCategory(), memberGrade, lessonCategory);
                                     } else if (requestedType == Facility.FacilityType.TRAINING_FITNESS) {
                                         // TRAINING_FITNESS 캘린더: lessonCategory가 TRAINING 또는 PILATES인 예약만
                                         return booking.getLessonCategory() == LessonCategory.TRAINING || 
@@ -658,8 +754,9 @@ public class BookingController {
                 }
             }
             
-            // 레슨 카테고리별 필터링 (야구(유소년) 캘린더 등)
-            if (lessonCategory != null && !lessonCategory.trim().isEmpty()) {
+            // 레슨 카테고리별 필터링 (야구(유소년) 캘린더는 야구에 남은 유소년 예약도 발췌하므로 종목만으로 자르지 않음)
+            if (lessonCategory != null && !lessonCategory.trim().isEmpty()
+                    && !BookingCalendarMemberGrade.skipStrictLessonCategoryFilter(memberGrade, lessonCategory)) {
                 try {
                     LessonCategory categoryEnum = LessonCategory.valueOf(lessonCategory.toUpperCase());
                     final LessonCategory finalCategoryEnum = categoryEnum;
@@ -672,49 +769,19 @@ public class BookingController {
                 }
             }
 
+            if (!publicMemberCalendarOccupancyMode) {
+                bookings = bookings.stream()
+                        .filter(booking -> BookingCalendarMemberGrade.include(
+                                booking, memberGrade, branch, facilityType, lessonCategory))
+                        .collect(java.util.stream.Collectors.toList());
+            }
+
             // 코치 로그인: 본인에게 배정된 예약만 (공개 회원 점유 달력 모드는 제외)
+            // 필라테스 코치는 미지정 비회원 필라테스 예약도 본다.
             if (!publicMemberCalendarOccupancyMode && request != null
                     && "COACH".equalsIgnoreCase((String) request.getAttribute("role"))) {
-                List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
-                boolean operational = operationalCoachViewService.isOperationalCoachViewer(request);
-                if (operational) {
-                    if (!viewIds.isEmpty()) {
-                        bookings = bookings.stream()
-                                .filter(b -> bookingMatchesOperationalCoachIds(b, viewIds))
-                                .collect(java.util.stream.Collectors.toList());
-                        logger.info("운영 코치 담당 회원 예약만 표시(회원 카드 담당·비회원은 예약 코치): viewCoachIds={} → {}건", viewIds, bookings.size());
-                    } else {
-                        Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
-                        if (coachIdOpt.isEmpty()) {
-                            logger.warn("운영 코치인데 체크박스 미선택이고 계정 연결 코치 없음 → 예약 목록 비움");
-                            bookings = new java.util.ArrayList<>();
-                        } else {
-                            Long myCoachId = coachIdOpt.get();
-                            bookings = bookings.stream()
-                                    .filter(b -> bookingMatchesOperationalCoachIds(b, java.util.List.of(myCoachId)))
-                                    .collect(java.util.stream.Collectors.toList());
-                            logger.info("운영 코치 체크 미선택: 본인 계정 코치로만 제한 coachId={} → {}건", myCoachId, bookings.size());
-                        }
-                    }
-                } else if (!viewIds.isEmpty()) {
-                    // 운영 플래그 미인식이어도 프론트가 viewCoachIds를 붙이면 체크박스 필터와 동일하게 적용
-                    bookings = bookings.stream()
-                            .filter(b -> bookingMatchesOperationalCoachIds(b, viewIds))
-                            .collect(java.util.stream.Collectors.toList());
-                    logger.info("viewCoachIds 예약 필터(담당 회원·비회원 예약 코치): viewIds={} → {}건", viewIds, bookings.size());
-                } else {
-                    Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
-                    if (coachIdOpt.isEmpty()) {
-                        logger.warn("코치 계정에 연결된 coach 정보가 없어 예약 목록을 비웁니다.");
-                        bookings = new java.util.ArrayList<>();
-                    } else {
-                        Long myCoachId = coachIdOpt.get();
-                        bookings = bookings.stream()
-                                .filter(b -> bookingMatchesOperationalCoachIds(b, java.util.List.of(myCoachId)))
-                                .collect(java.util.stream.Collectors.toList());
-                        logger.info("코치 담당 회원 예약만 표시(회원 카드 담당·비회원은 예약 코치): coachId={} → {}건", myCoachId, bookings.size());
-                    }
-                }
+                bookings = operationalCoachViewService.filterBookingsForCoachCalendar(bookings, request, viewCoachIds);
+                logger.info("코치 예약 필터(담당 매칭·미지정 비회원 필라테스) → {}건", bookings.size());
             }
 
             // 일반 코치: 목록 API에서 회원 실명·연락처 비노출(캘린더는 시간·코치 중심). 운영형 코치는 유지.
@@ -744,6 +811,25 @@ public class BookingController {
             logger.info("[BOOKING_FLOW] starting response loop bookings.size()={}", bookings.size());
             List<Map<String, Object>> bookingMaps = new java.util.ArrayList<>();
             java.util.Map<Long, Boolean> rentalFirstCompletedByMpId = new HashMap<>();
+            java.util.Map<Long, List<Long>> holdIdsByMpId = new HashMap<>();
+            java.util.Set<Long> deductedBookingIds = new HashSet<>();
+            java.util.Set<Long> memberProductIds = new HashSet<>();
+            for (Booking b : bookings) {
+                if (b.getMemberProduct() != null && b.getMemberProduct().getId() != null) {
+                    memberProductIds.add(b.getMemberProduct().getId());
+                }
+            }
+            if (!memberProductIds.isEmpty()) {
+                deductedBookingIds.addAll(memberProductHistoryRepository.findDeductedBookingIdsByMemberProductIdIn(memberProductIds));
+                for (Object[] row : bookingRepository.findUndeductedHoldIdsByMemberProductIdInOrderByStart(
+                        memberProductIds, MemberBookingPassRules.remainingHoldFrom())) {
+                    Long mpId = row[0] instanceof Number ? ((Number) row[0]).longValue() : null;
+                    Long holdId = row[1] instanceof Number ? ((Number) row[1]).longValue() : null;
+                    if (mpId != null && holdId != null) {
+                        holdIdsByMpId.computeIfAbsent(mpId, id -> new java.util.ArrayList<>()).add(holdId);
+                    }
+                }
+            }
             for (Booking booking : bookings) {
                 try {
                     Map<String, Object> bookingMap = new HashMap<>();
@@ -785,15 +871,7 @@ public class BookingController {
                     }
                     
                     // Coach 정보
-                    if (booking.getCoach() != null) {
-                        Map<String, Object> coachMap = new HashMap<>();
-                        coachMap.put("id", booking.getCoach().getId());
-                        coachMap.put("name", booking.getCoach().getName());
-                        coachMap.put("specialties", booking.getCoach().getSpecialties());
-                        bookingMap.put("coach", coachMap);
-                    } else {
-                        bookingMap.put("coach", null);
-                    }
+                    bookingMap.put("coach", toCoachSummaryMap(booking.getCoach()));
                     
                     // Member 정보
                     if (booking.getMember() != null) {
@@ -814,15 +892,7 @@ public class BookingController {
                             memberMap.put("school", booking.getMember().getSchool());
                         }
                         // Member의 Coach 정보 (캘린더 색·담당 구분용)
-                        if (booking.getMember().getCoach() != null) {
-                            Map<String, Object> memberCoachMap = new HashMap<>();
-                            memberCoachMap.put("id", booking.getMember().getCoach().getId());
-                            memberCoachMap.put("name", booking.getMember().getCoach().getName());
-                            memberCoachMap.put("specialties", booking.getMember().getCoach().getSpecialties());
-                            memberMap.put("coach", memberCoachMap);
-                        } else {
-                            memberMap.put("coach", null);
-                        }
+                        memberMap.put("coach", toCoachSummaryMap(booking.getMember().getCoach()));
                         
                         bookingMap.put("member", memberMap);
                     } else {
@@ -968,18 +1038,7 @@ public class BookingController {
                             // 회차와 이용권 횟수 분리: 잔여(remainingCount)는 위에서 DEDUCT/ADJUST/countLater로만 계산. 회차로 역산해 덮지 않음.
                             totalCount = totalForSession != null ? totalForSession : totalCount;
                         } else {
-                            // ---- 대관 아님: endedBeforeNow 보정, 잔여 기반 회차 보정 ----
-                            if (totalCount != null && memId != null && prodId != null) {
-                                long endedBeforeNow = bookingRepository.countByMemberIdAndProductIdEndedBefore(memId, prodId, java.time.LocalDateTime.now());
-                                int usedSoFar = (int) Math.min(endedBeforeNow, totalCount);
-                                int computedRemaining = Math.max(0, totalCount - usedSoFar);
-                                if (remainingCount == null || computedRemaining < remainingCount) {
-                                    remainingCount = computedRemaining;
-                                    if (sessionNumber == 1 && usedSoFar > 0) {
-                                        sessionNumber = usedSoFar + 1;
-                                    }
-                                }
-                            }
+                            // 대관 아님: 저장된 잔여를 종료 예약 수로 낮추지 않음
                             if (remainingCount == null && totalCount != null && sessionNumber >= 1) {
                                 remainingCount = Math.max(0, Math.min(totalCount, totalCount - (int) sessionNumber + 1));
                             }
@@ -1016,6 +1075,9 @@ public class BookingController {
                         if (mpEntity.getProduct() != null) {
                             memberProductMap.put("productName", mpEntity.getProduct().getName());
                             memberProductMap.put("productType", mpEntity.getProduct().getType());
+                            if (mpEntity.getProduct().getCategory() != null) {
+                                memberProductMap.put("productCategory", mpEntity.getProduct().getCategory().name());
+                            }
                         }
                         Coach coachForCalendar = mpEntity.getCoach();
                         if (coachForCalendar == null && mpEntity.getProduct() != null) {
@@ -1037,6 +1099,7 @@ public class BookingController {
                     } else {
                         bookingMap.put("memberProduct", null);
                     }
+                    putCountPassHoldFlag(bookingMap, booking, holdIdsByMpId, deductedBookingIds);
 
                     if (publicMemberCalendarOccupancyMode && viewerMemberIdForPublic != null) {
                         Long viewerMid = booking.getMember() != null ? booking.getMember().getId() : null;
@@ -1110,30 +1173,9 @@ public class BookingController {
             }
 
             String role = request != null ? (String) request.getAttribute("role") : null;
-            if ("COACH".equalsIgnoreCase(role)) {
-                List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
-                boolean operational = operationalCoachViewService.isOperationalCoachViewer(request);
-                if (operational) {
-                    if (!viewIds.isEmpty()) {
-                        if (!bookingMatchesOperationalCoachIds(booking, viewIds)) {
-                            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-                        }
-                    } else {
-                        Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
-                        if (coachIdOpt.isEmpty() || !bookingMatchesOperationalCoachIds(booking, java.util.List.of(coachIdOpt.get()))) {
-                            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-                        }
-                    }
-                } else if (!viewIds.isEmpty()) {
-                    if (!bookingMatchesOperationalCoachIds(booking, viewIds)) {
-                        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-                    }
-                } else {
-                    Optional<Long> coachIdOpt = resolveCoachIdFromRequest(request);
-                    if (coachIdOpt.isEmpty() || !bookingMatchesOperationalCoachIds(booking, java.util.List.of(coachIdOpt.get()))) {
-                        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-                    }
-                }
+            if ("COACH".equalsIgnoreCase(role)
+                    && !operationalCoachViewService.coachCanAccessBookingDetail(booking, request, viewCoachIds)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             }
             
             // Booking을 Map으로 변환하여 JSON 직렬화 문제 방지
@@ -1167,12 +1209,7 @@ public class BookingController {
             }
             
             // Coach 정보
-            if (booking.getCoach() != null) {
-                Map<String, Object> coachMap = new HashMap<>();
-                coachMap.put("id", booking.getCoach().getId());
-                coachMap.put("name", booking.getCoach().getName());
-                bookingMap.put("coach", coachMap);
-            }
+            bookingMap.put("coach", toCoachSummaryMap(booking.getCoach()));
             
             // Member 정보
             if (booking.getMember() != null) {
@@ -1185,15 +1222,7 @@ public class BookingController {
                 memberMap.put("school", booking.getMember().getSchool());
                 
                 // Member의 Coach 정보
-                if (booking.getMember().getCoach() != null) {
-                    Map<String, Object> memberCoachMap = new HashMap<>();
-                    memberCoachMap.put("id", booking.getMember().getCoach().getId());
-                    memberCoachMap.put("name", booking.getMember().getCoach().getName());
-                    memberCoachMap.put("specialties", booking.getMember().getCoach().getSpecialties());
-                    memberMap.put("coach", memberCoachMap);
-                } else {
-                    memberMap.put("coach", null);
-                }
+                memberMap.put("coach", toCoachSummaryMap(booking.getMember().getCoach()));
                 
                 bookingMap.put("member", memberMap);
             } else {
@@ -1331,15 +1360,9 @@ public class BookingController {
                         } else if (totalForSession != null && orderByStartTime >= 1) {
                             sessionNumber = Math.min(totalForSession, orderByStartTime);
                         }
-                        // 회차와 이용권 횟수 분리: 잔여는 DEDUCT/ADJUST 기준(baseRemaining)으로만. 회차로 역산해 덮지 않음.
+                        // 회차와 이용권 횟수 분리: 잔여는 저장된 횟수. 회차로 역산해 덮지 않음.
                         if (baseRemaining != null) {
                             remainingCount = Integer.valueOf(Math.max(0, baseRemaining));
-                        }
-                        // 빠른 예약 수정 모달: 체크인 후에도 DEDUCT 기준으로 잔여 상한 (9회로 나오는 것 방지)
-                        if (totalCount != null && rentalDeductCount >= 0) {
-                            int fromHistory = Math.max(0, totalCount - rentalDeductCount);
-                            if (remainingCount == null || remainingCount > fromHistory)
-                                remainingCount = fromHistory;
                         }
                         if (displayTotal != null) {
                             memberProductMap.put("totalCount", displayTotal);
@@ -1352,23 +1375,10 @@ public class BookingController {
                     try {
                         com.afbscenter.model.MemberProduct mpForCount = memberProductRepository.findByIdAndDeletedAtIsNull(mpId).orElse(null);
                         if (mpForCount != null) {
-                            List<com.afbscenter.model.MemberProductHistory> histories =
-                                memberProductHistoryRepository.findByMemberProductIdOrderByTransactionDateDesc(mpId);
-                            int deductCount = 0;
-                            for (com.afbscenter.model.MemberProductHistory h : histories) {
-                                if (h.getType() == com.afbscenter.model.MemberProductHistory.TransactionType.DEDUCT && h.getChangeAmount() != null) {
-                                    deductCount += Math.abs(h.getChangeAmount().intValue());
-                                }
-                            }
-                            if (deductCount > 0) {
-                                int fromHistory = Math.max(0, totalCount - deductCount);
-                                remainingCount = fromHistory;
-                            }
-                            long countLater = bookingRepository.countByMemberProductAfterInOrder(mpId, booking.getStartTime(), booking.getId());
-                            remainingCount = (remainingCount != null ? remainingCount : 0) + (int) countLater;
+                            remainingCount = mpForCount.getRemainingCount();
                         }
                     } catch (Exception e) {
-                        logger.debug("예약 단건 잔여 보정 실패: bookingId={}", id, e);
+                        logger.debug("예약 단건 잔여 조회 실패: bookingId={}", id, e);
                     }
                 }
                 if (remainingCount == null) {
@@ -1389,6 +1399,13 @@ public class BookingController {
             } else {
                 bookingMap.put("memberProduct", null);
             }
+            java.util.Map<Long, List<Long>> holdIdsByMpId = new HashMap<>();
+            java.util.Set<Long> deductedBookingIds = new HashSet<>();
+            if (booking.getMemberProduct() != null && booking.getMemberProduct().getId() != null
+                    && memberProductHistoryRepository.countDeductByBookingId(booking.getId()) > 0) {
+                deductedBookingIds.add(booking.getId());
+            }
+            putCountPassHoldFlag(bookingMap, booking, holdIdsByMpId, deductedBookingIds);
             
             return ResponseEntity.ok(bookingMap);
         } catch (Exception e) {
@@ -1597,6 +1614,12 @@ public class BookingController {
                 err.put("message", "유소년 예약은 유소년 등급 회원만 가능합니다.");
                 return ResponseEntity.badRequest().body(err);
             }
+            if ("SOCIAL".equalsIgnoreCase(String.valueOf(requestData.get("memberGrade"))) && member != null
+                    && member.getGrade() != Member.MemberGrade.SOCIAL) {
+                Map<String, Object> err = new HashMap<>();
+                err.put("message", "사회인 예약은 사회인 등급 회원만 가능합니다.");
+                return ResponseEntity.badRequest().body(err);
+            }
             
             // 상태 설정: 새 예약 생성 시에는 항상 PENDING으로 시작
             // (수정은 updateBooking 메서드에서 처리)
@@ -1710,66 +1733,26 @@ public class BookingController {
                 booking.setCoach(null);
             }
             
-            // MemberProduct 설정 (상품/이용권 사용)
-            // 주의: 트랜잭션 롤백을 방지하기 위해 예외를 명시적으로 처리
-            if (requestData.get("memberProductId") != null && member != null) {
-                com.afbscenter.model.MemberProduct memberProductToSet = null;
-                try {
-                    Object memberProductIdObj = requestData.get("memberProductId");
-                    Long memberProductId;
-                    if (memberProductIdObj instanceof Number) {
-                        memberProductId = ((Number) memberProductIdObj).longValue();
-                    } else {
-                        memberProductId = Long.parseLong(memberProductIdObj.toString());
-                    }
-                    
-                    logger.info("MemberProduct 조회 시작: ID={}, Member ID={}", memberProductId, member.getId());
-                    
-                    // JOIN FETCH를 사용하여 member와 product를 함께 로드 (lazy loading 방지)
-                    java.util.Optional<com.afbscenter.model.MemberProduct> memberProductOpt = 
-                        memberProductRepository.findByIdWithMember(memberProductId);
-                    
-                    if (memberProductOpt.isPresent()) {
-                        com.afbscenter.model.MemberProduct memberProduct = memberProductOpt.get();
-                        
-                        // 회원의 상품인지 확인 (member는 이미 JOIN FETCH로 로드됨)
-                        if (memberProduct.getMember() != null) {
-                            Long memberProductMemberId = memberProduct.getMember().getId();
-                            if (memberProductMemberId != null && memberProductMemberId.equals(member.getId())) {
-                                memberProductToSet = memberProduct;
-                                logger.info("상품 설정 완료: MemberProduct ID={}, Member ID={}", memberProductId, member.getId());
-                            } else {
-                                logger.warn("상품이 해당 회원의 것이 아닙니다. MemberProduct Member ID: {}, 요청 회원 ID: {}", 
-                                    memberProductMemberId, member.getId());
-                                // 상품이 회원의 것이 아니면 null로 설정 (예약은 저장됨)
-                            }
-                        } else {
-                            logger.warn("MemberProduct의 Member가 null입니다: MemberProduct ID={}", memberProductId);
-                        }
-                    } else {
-                        logger.warn("상품을 찾을 수 없습니다: MemberProduct ID={}", memberProductId);
-                    }
-                } catch (NumberFormatException e) {
-                    logger.warn("MemberProduct ID 형식이 올바르지 않습니다: {}", requestData.get("memberProductId"), e);
-                } catch (org.springframework.dao.DataAccessException e) {
-                    logger.error("MemberProduct 조회 중 데이터베이스 오류: MemberProduct ID={}", 
-                        requestData.get("memberProductId"), e);
-                    // 트랜잭션이 이미 rollback-only로 표시되므로 예외를 다시 던져 UnexpectedRollbackException 방지
-                    throw new IllegalArgumentException("상품 조회 중 데이터베이스 오류: " + e.getMessage(), e);
-                } catch (Exception e) {
-                    logger.error("상품 설정 중 예상치 못한 오류: MemberProduct ID={}, 오류 타입: {}, 메시지: {}", 
-                        requestData.get("memberProductId"), e.getClass().getName(), e.getMessage(), e);
-                    // 트랜잭션이 이미 rollback-only로 표시될 수 있으므로 예외를 다시 던짐
-                    throw new IllegalArgumentException("상품 설정 중 오류: " + e.getMessage(), e);
+            // 회원 예약은 이용권 필수. 횟수권 잔여 0은 생성 불가, 복사는 잔여 2회 미만 불가.
+            if (member != null) {
+                PassResolve passResolve = resolveOwnedMemberProduct(member, requestData.get("memberProductId"));
+                if (passResolve.error != null) {
+                    return badRequestMessage(passResolve.error);
                 }
-                
-                booking.setMemberProduct(memberProductToSet);
+                int occupiedHolds = countUndeductedPassHolds(passResolve.product, null);
+                Optional<String> passErr = MemberBookingPassRules.validateCreate(
+                        member, passResolve.product, MemberBookingPassRules.isCopyRequest(requestData), occupiedHolds);
+                if (passErr.isPresent()) {
+                    return badRequestMessage(passErr.get());
+                }
+                booking.setMemberProduct(passResolve.product);
+                logger.info("상품 설정 완료: MemberProduct ID={}, Member ID={}",
+                        passResolve.product.getId(), member.getId());
             } else {
-                // memberProductId가 없거나 member가 null이면 null로 설정
                 booking.setMemberProduct(null);
-                if (requestData.get("memberProductId") != null && member == null) {
-                    logger.warn("MemberProduct ID가 제공되었지만 회원 정보가 없습니다: MemberProduct ID={}", 
-                        requestData.get("memberProductId"));
+                if (requestData.get("memberProductId") != null) {
+                    logger.warn("MemberProduct ID가 제공되었지만 회원 정보가 없습니다: MemberProduct ID={}",
+                            requestData.get("memberProductId"));
                 }
             }
 
@@ -1851,52 +1834,7 @@ public class BookingController {
                 result = saved;
             }
             
-            // 예약 등록(POST) 시 일반적으로는 차감 안 함. 단, 체크인된 예약을 복사한 경우에만 1회 차감 (sourceBookingId는 복사 시에만 전달됨, 빠른 예약 수정은 PUT이라 여기 미진입)
-            Object sourceIdObj = requestData.get("sourceBookingId");
-            if (sourceIdObj != null && result.getMemberProduct() != null && result.getMember() != null) {
-                try {
-                    Long sourceBookingId = sourceIdObj instanceof Number ? ((Number) sourceIdObj).longValue() : Long.parseLong(sourceIdObj.toString());
-                    boolean sourceWasCheckedIn = attendanceRepository.findByBookingId(sourceBookingId)
-                            .filter(a -> a.getCheckInTime() != null)
-                            .isPresent();
-                    if (sourceWasCheckedIn) {
-                        com.afbscenter.model.MemberProduct mp = memberProductRepository.findByIdWithMember(result.getMemberProduct().getId()).orElse(null);
-                        if (mp != null && mp.getProduct() != null && mp.getProduct().getType() == com.afbscenter.model.Product.ProductType.COUNT_PASS && mp.getStatus() == com.afbscenter.model.MemberProduct.Status.ACTIVE) {
-                            if (mp.getPackageItemsRemaining() != null && !mp.getPackageItemsRemaining().isEmpty()) {
-                                ObjectMapper mapper = new ObjectMapper();
-                                List<Map<String, Object>> items = mapper.readValue(mp.getPackageItemsRemaining(), new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
-                                String itemName = result.getPurpose() == Booking.BookingPurpose.RENTAL ? "대관" : convertLessonCategoryToName(result.getLessonCategory());
-                                boolean updated = false;
-                                for (Map<String, Object> item : items) {
-                                    if (itemName.equals(item.get("name"))) {
-                                        int remaining = ((Number) item.get("remaining")).intValue();
-                                        if (remaining > 0) {
-                                            item.put("remaining", remaining - 1);
-                                            updated = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (updated) {
-                                    mp.setPackageItemsRemaining(mapper.writeValueAsString(items));
-                                    if (items.stream().allMatch(item -> ((Number) item.get("remaining")).intValue() == 0)) {
-                                        mp.setStatus(com.afbscenter.model.MemberProduct.Status.USED_UP);
-                                    }
-                                    memberProductRepository.save(mp);
-                                    logger.info("체크인된 예약 복사 시 이용권 1회 차감: Booking ID={}, MemberProduct ID={}, 항목={}", saved.getId(), mp.getId(), itemName);
-                                }
-                            } else if (mp.getRemainingCount() != null && mp.getRemainingCount() > 0) {
-                                mp.setRemainingCount(mp.getRemainingCount() - 1);
-                                if (mp.getRemainingCount() == 0) mp.setStatus(com.afbscenter.model.MemberProduct.Status.USED_UP);
-                                memberProductRepository.save(mp);
-                                logger.info("체크인된 예약 복사 시 이용권 1회 차감: Booking ID={}, MemberProduct ID={}, 잔여={}회", saved.getId(), mp.getId(), mp.getRemainingCount());
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    logger.warn("체크인된 예약 복사 시 차감 처리 중 오류 (무시): {}", e.getMessage());
-                }
-            }
+            // 예약 등록(POST) 시 횟수 차감 안 함. 차감은 해당 수업 종료(체크아웃) 시 1회만.
             
             // 레슨 예약이 확정되거나 완료되면 회원의 최근 방문일 업데이트
             if (result.getMember() != null && 
@@ -1980,21 +1918,8 @@ public class BookingController {
                 bookingMap.put("member", null);
             }
             
-            // Coach 정보
-            if (result.getCoach() != null) {
-                try {
-                    Map<String, Object> coachMap = new HashMap<>();
-                    coachMap.put("id", result.getCoach().getId());
-                    coachMap.put("name", result.getCoach().getName());
-                    bookingMap.put("coach", coachMap);
-                } catch (Exception e) {
-                    logger.warn("Coach 로드 실패: Booking ID={}", result.getId(), e);
-                    bookingMap.put("coach", null);
-                }
-            } else {
-                bookingMap.put("coach", null);
-            }
-            
+            bookingMap.put("coach", toCoachSummaryMap(result.getCoach()));
+
             return ResponseEntity.status(HttpStatus.CREATED).body(bookingMap);
         } catch (IllegalArgumentException e) {
             logger.error("예약 저장 실패 (IllegalArgumentException): {}", e.getMessage(), e);
@@ -2038,6 +1963,10 @@ public class BookingController {
             Booking booking = bookingRepository.findByIdWithFacilityAndMember(id);
             if (booking == null) {
                 return ResponseEntity.notFound().build();
+            }
+            ResponseEntity<Map<String, Object>> pastLock = forbiddenIfPastMidnightLocked(booking, request);
+            if (pastLock != null) {
+                return pastLock;
             }
 
             // 부분 업데이트 지원: null이 아닌 필드만 업데이트
@@ -2200,6 +2129,13 @@ public class BookingController {
                 err.put("message", "유소년 예약은 유소년 등급 회원만 가능합니다.");
                 return ResponseEntity.badRequest().body(err);
             }
+            if ("SOCIAL".equalsIgnoreCase(String.valueOf(requestData.get("memberGrade")))
+                    && booking.getMember() != null
+                    && booking.getMember().getGrade() != Member.MemberGrade.SOCIAL) {
+                Map<String, Object> err = new HashMap<>();
+                err.put("message", "사회인 예약은 사회인 등급 회원만 가능합니다.");
+                return ResponseEntity.badRequest().body(err);
+            }
             
             if (requestData.get("status") != null) {
                 Booking.BookingStatus oldStatus = booking.getStatus();
@@ -2236,7 +2172,7 @@ public class BookingController {
                         }
                     }
                     
-                    // 주의: 횟수권 차감은 체크인 시에만 수행 (AttendanceController.processCheckin)
+                    // 주의: 횟수권 차감은 수업 종료(체크아웃/자동 체크아웃) 시 1회만 수행
                     // 예약 상태 변경 시에는 차감하지 않음 (중복 차감 방지)
                     
                     // 레슨 예약이 확정되거나 완료되면 회원의 최근 방문일 업데이트
@@ -2282,21 +2218,28 @@ public class BookingController {
                 }
             }
             
-            // Coach 업데이트: 관리자만 변경 가능 (캘린더·데스크·코치 계정의 임의 변경 방지)
+            // Coach 업데이트: 관리자만 변경 가능.
+            // 예외: 필라테스 코치·afsh는 트레이닝·필라테스 캘린더 비회원 예약의 담당을 지정/변경할 수 있다(비우기는 관리자만).
             if (requestData.containsKey("coach")) {
                 String role = request != null ? (String) request.getAttribute("role") : null;
-                if (!"ADMIN".equalsIgnoreCase(role)) {
-                    logger.debug("예약 수정: 비관리자 요청 — 코치 필드 무시 (Booking ID={})", id);
+                boolean admin = "ADMIN".equalsIgnoreCase(role);
+                boolean pilatesAssign = !admin
+                        && operationalCoachViewService.pilatesCoachMayAssignUnassignedCoach(booking, request);
+                if (!admin && !pilatesAssign) {
+                    logger.info("예약 수정: 비관리자 코치 변경 거부 Booking ID={} role={}", id, role);
                 } else {
                     Object coachObj = requestData.get("coach");
                     if (coachObj == null) {
-                        // coach 필드가 null로 전달된 경우 코치 제거
-                        booking.setCoach(null);
+                        if (admin) {
+                            booking.setCoach(null);
+                        } else {
+                            logger.debug("필라테스 코치: 미지정으로 되돌리기는 허용하지 않음 (Booking ID={})", id);
+                        }
                     } else if (coachObj instanceof Map) {
                         @SuppressWarnings("unchecked")
                         Map<String, Object> coachMap = (Map<String, Object>) coachObj;
                         Object coachIdObj = coachMap.get("id");
-                        if (coachIdObj != null) {
+                        if (coachIdObj != null && !coachIdObj.toString().trim().isEmpty()) {
                             try {
                                 Long coachId;
                                 if (coachIdObj instanceof Number) {
@@ -2310,9 +2253,10 @@ public class BookingController {
                             } catch (Exception e) {
                                 logger.warn("코치 설정 실패: {}", coachIdObj, e);
                             }
-                        } else {
-                            // ID가 null이면 코치 제거
+                        } else if (admin) {
                             booking.setCoach(null);
+                        } else {
+                            logger.debug("필라테스 코치: 미지정으로 되돌리기는 허용하지 않음 (Booking ID={})", id);
                         }
                     }
                 }
@@ -2402,40 +2346,33 @@ public class BookingController {
                 booking.setStatus(Booking.BookingStatus.CONFIRMED);
             }
 
-            // 수정 시 이용권(memberProductId) 반영 - 미연결 예약에서 이용권 연결 시 목록에서 제거되도록
-            if (requestData.containsKey("memberProductId")) {
-                Object memberProductIdObj = requestData.get("memberProductId");
-                Member member = booking.getMember();
-                if (memberProductIdObj != null && !memberProductIdObj.toString().trim().isEmpty() && member != null) {
-                    try {
-                        Long memberProductId;
-                        if (memberProductIdObj instanceof Number) {
-                            memberProductId = ((Number) memberProductIdObj).longValue();
-                        } else {
-                            memberProductId = Long.parseLong(memberProductIdObj.toString().trim());
-                        }
-                        java.util.Optional<com.afbscenter.model.MemberProduct> memberProductOpt =
-                                memberProductRepository.findByIdWithMember(memberProductId);
-                        if (memberProductOpt.isPresent()) {
-                            com.afbscenter.model.MemberProduct mp = memberProductOpt.get();
-                            if (mp.getMember() != null && mp.getMember().getId().equals(member.getId())) {
-                                booking.setMemberProduct(mp);
-                                logger.info("예약 수정 시 이용권 연결: Booking ID={}, MemberProduct ID={}", id, memberProductId);
-                            } else {
-                                logger.warn("예약 수정: 이용권이 해당 회원 소유가 아님. Booking ID={}, MemberProduct ID={}", id, memberProductId);
-                                booking.setMemberProduct(null);
-                            }
-                        } else {
-                            logger.warn("예약 수정: 이용권을 찾을 수 없음. MemberProduct ID={}", memberProductId);
-                            booking.setMemberProduct(null);
-                        }
-                    } catch (Exception e) {
-                        logger.warn("예약 수정 시 이용권 설정 실패: {}", memberProductIdObj, e);
-                        booking.setMemberProduct(null);
-                    }
-                } else {
+            // 수정 시 이용권: 회원 예약 폼에서 비어 있으면 저장하지 않는다. 승인 등 memberProductId 미전달은 기존 연결 유지.
+            if (booking.getMember() == null) {
+                if (requestData.containsKey("memberProductId")) {
                     booking.setMemberProduct(null);
                 }
+            } else if (requestData.containsKey("memberProductId")) {
+                PassResolve passResolve = resolveOwnedMemberProduct(booking.getMember(), requestData.get("memberProductId"));
+                if (passResolve.error != null) {
+                    return badRequestMessage(passResolve.error);
+                }
+                Optional<String> passErr = MemberBookingPassRules.validateUpdate(booking.getMember(), passResolve.product);
+                if (passErr.isPresent()) {
+                    return badRequestMessage(passErr.get());
+                }
+                MemberProduct previousPass = booking.getMemberProduct();
+                boolean switchingPass = previousPass == null || previousPass.getId() == null
+                        || !previousPass.getId().equals(passResolve.product.getId());
+                if (switchingPass) {
+                    int occupiedHolds = countUndeductedPassHolds(passResolve.product, null);
+                    Optional<String> remainingErr = MemberBookingPassRules.validateCreate(
+                            booking.getMember(), passResolve.product, false, occupiedHolds);
+                    if (remainingErr.isPresent()) {
+                        return badRequestMessage(remainingErr.get());
+                    }
+                }
+                booking.setMemberProduct(passResolve.product);
+                logger.info("예약 수정 시 이용권 연결: Booking ID={}, MemberProduct ID={}", id, passResolve.product.getId());
             }
 
             if (memberWebUpdate) {
@@ -2451,8 +2388,7 @@ public class BookingController {
             if (processedBy != null && !processedBy.isEmpty()) booking.setProcessedBy(processedBy);
             Booking saved = bookingRepository.save(booking);
             
-            // 주의: 횟수권 차감은 체크인 시에만 수행 (AttendanceController.processCheckin)
-            // 예약 확정/완료 시에는 차감하지 않음 (체크인 시에만 차감)
+            // 주의: 횟수권 차감은 수업 종료(체크아웃) 시 1회만 수행
             
             // 저장 후 다시 조회하여 관련 엔티티를 안전하게 로드
             Booking result = bookingRepository.findByIdWithFacilityAndMember(saved.getId());
@@ -2512,22 +2448,9 @@ public class BookingController {
             } else {
                 bookingMap.put("member", null);
             }
-            
-            // Coach 정보
-            if (result.getCoach() != null) {
-                try {
-                    Map<String, Object> coachMap = new HashMap<>();
-                    coachMap.put("id", result.getCoach().getId());
-                    coachMap.put("name", result.getCoach().getName());
-                    bookingMap.put("coach", coachMap);
-                } catch (Exception e) {
-                    logger.warn("Coach 로드 실패: Booking ID={}", result.getId(), e);
-                    bookingMap.put("coach", null);
-                }
-            } else {
-                bookingMap.put("coach", null);
-            }
-            
+
+            bookingMap.put("coach", toCoachSummaryMap(result.getCoach()));
+
             return ResponseEntity.ok(bookingMap);
         } catch (IllegalArgumentException e) {
             logger.warn("예약을 찾을 수 없습니다. ID: {}", id, e);
@@ -2548,13 +2471,17 @@ public class BookingController {
      */
     @DeleteMapping("/{id}")
     @Transactional
-    public ResponseEntity<Void> deleteBooking(@PathVariable Long id) {
+    public ResponseEntity<?> deleteBooking(@PathVariable Long id, HttpServletRequest request) {
         try {
             if (!bookingRepository.existsById(id)) {
                 return ResponseEntity.notFound().build();
             }
             // 삭제 전 예약 정보 로드 (체크인 없이 삭제 시 예약 등록 시 차감한 1회 복구용)
             Booking bookingToRestore = bookingRepository.findByIdWithAllRelations(id);
+            ResponseEntity<Map<String, Object>> pastLock = forbiddenIfPastMidnightLocked(bookingToRestore, request);
+            if (pastLock != null) {
+                return pastLock;
+            }
             boolean wasCheckedIn = false;
 
             // 예약과 연결된 출석 기록 확인 및 처리
@@ -2565,12 +2492,14 @@ public class BookingController {
                     com.afbscenter.model.Attendance attendance = attendanceOpt.get();
                     wasCheckedIn = (attendance.getCheckInTime() != null);
 
-                    // 체크인된 경우: 차감된 횟수 +1 복구
+                    // 체크인된 경우: 이 수업에 DEDUCT가 있을 때만 횟수 +1 복구 (아직 안 깎인 수업은 복구하지 않음)
                     if (attendance.getCheckInTime() != null) {
                         try {
                             // 출석 기록과 연결된 이용권 히스토리 찾기 (모두 찾기)
                             List<com.afbscenter.model.MemberProductHistory> historiesWithAttendance = 
                                 memberProductHistoryRepository.findAllByAttendanceId(attendance.getId());
+                            boolean hadDeduct = historiesWithAttendance.stream()
+                                .anyMatch(h -> h.getType() == com.afbscenter.model.MemberProductHistory.TransactionType.DEDUCT);
                             
                             com.afbscenter.model.MemberProduct memberProduct = null;
                             
@@ -2594,7 +2523,7 @@ public class BookingController {
                                 }
                             }
                             
-                            if (memberProduct != null) {
+                            if (hadDeduct && memberProduct != null) {
                                 try {
                                     // memberProduct를 다시 조회하여 최신 상태로 가져오기 (lazy loading 방지)
                                     com.afbscenter.model.MemberProduct refreshedProduct = 
@@ -2672,7 +2601,7 @@ public class BookingController {
                                     logger.error("MemberProduct 복구 처리 중 오류: Booking ID={}, MemberProduct ID={}, 오류: {}",
                                         id, memberProduct != null ? memberProduct.getId() : "unknown", e.getMessage(), e);
                                 }
-                            } else {
+                            } else if (hadDeduct) {
                                 logger.warn("예약 삭제 시 차감 복구 실패: MemberProduct를 찾을 수 없음. Booking ID={}, Attendance ID={}", 
                                     id, attendance.getId());
                             }
@@ -2839,6 +2768,29 @@ public class BookingController {
         }
     }
 
+    /**
+     * 자정이 지난(자동 체크인 대상) 예약은 관리자만 수정·삭제할 수 있다.
+     * 승인 대기(PENDING)는 아직 수업으로 처리되지 않았으므로 허용한다.
+     */
+    private ResponseEntity<Map<String, Object>> forbiddenIfPastMidnightLocked(Booking booking, HttpServletRequest request) {
+        if (booking == null) {
+            return null;
+        }
+        if (booking.getStatus() == Booking.BookingStatus.PENDING) {
+            return null;
+        }
+        String role = request != null ? (String) request.getAttribute("role") : null;
+        if (!AttendanceCheckController.isPastMidnightMutationLocked(
+                booking.getStartTime(), java.time.LocalDateTime.now(), role)) {
+            return null;
+        }
+        logger.info("지난 예약 수정/삭제 거부: bookingId={} role={}", booking.getId(), role);
+        Map<String, Object> err = new HashMap<>();
+        err.put("error", "지난 예약은 관리자만 수정·삭제할 수 있습니다.");
+        err.put("message", "자정이 지나 자동 체크인 대상이 된 예약은 관리자만 수정하거나 삭제할 수 있습니다.");
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(err);
+    }
+
     // 레슨 카테고리가 없는 예약들을 자동으로 업데이트 (내부 메서드)
     @Transactional
     private void updateMissingLessonCategories() {
@@ -2989,6 +2941,19 @@ public class BookingController {
         }
     }
     
+    private Map<String, Object> toCoachSummaryMap(Coach coach) {
+        if (coach == null) {
+            return null;
+        }
+        Map<String, Object> coachMap = new HashMap<>();
+        coachMap.put("id", coach.getId());
+        coachMap.put("name", coach.getName());
+        coachMap.put("specialties", coach.getSpecialties());
+        coachMap.put("color", coach.getColor());
+        coachMap.put("active", coach.getActive() == null || Boolean.TRUE.equals(coach.getActive()));
+        return coachMap;
+    }
+
     // LessonCategory enum을 패키지 레슨명으로 변환
     private String convertLessonCategoryToName(LessonCategory category) {
         if (category == null) return "";

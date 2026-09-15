@@ -4,12 +4,46 @@
 body.members-page .main-content { padding-top: 0; }
 body.members-page .topbar { margin-top: 0; }
 
+/*
+ * 사이드바는 position:fixed 라 본문이 100%면 오른쪽으로 260px 넘친다.
+ * 남은 폭만 쓰고, 표/버튼 때문에 페이지가 가로로 밀리지 않게 한다.
+ */
+body.members-page .main-content {
+    min-width: 0;
+    width: calc(100% - 260px);
+    max-width: calc(100% - 260px);
+    overflow-x: hidden;
+}
+body.members-page .content-area {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+body.members-page .content-area > .card {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+body.members-page .topbar {
+    min-width: 0;
+    max-width: 100%;
+}
+@media (max-width: 992px) {
+    body.members-page .main-content {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
 /* 회원 기본 통계 */
 .members-stats-card {
     margin-bottom: 16px;
+    padding: 0;
+    overflow: hidden;
 }
 .members-stats-card .card-header {
     padding: 12px 16px;
+    margin-bottom: 0;
 }
 .members-stats-card .card-title {
     margin: 0;
@@ -18,13 +52,15 @@ body.members-page .topbar { margin-top: 0; }
     color: var(--text-primary);
 }
 .members-stats-body {
-    padding: 18px 20px;
+    padding: 18px 10px;
     border-top: 1px solid var(--border-color);
     background: var(--bg-primary);
     display: flex;
     flex-wrap: nowrap;
-    gap: 16px;
+    align-items: stretch;
+    gap: 6px;
     overflow-x: auto;
+    max-width: 100%;
 }
 .members-stats-loading {
     margin: 0;
@@ -32,9 +68,10 @@ body.members-page .topbar { margin-top: 0; }
     font-size: 14px;
 }
 .members-stats-item {
-    flex: 0 0 auto;
-    min-width: 116px;
-    padding: 13px 18px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 13px 6px;
+    text-align: center;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
@@ -53,12 +90,16 @@ body.members-page .topbar { margin-top: 0; }
     margin-bottom: 6px;
     font-size: 14px;
     line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .members-stats-item-value {
     font-weight: 600;
     color: var(--text-primary);
     font-size: 16px;
     line-height: 1.35;
+    white-space: nowrap;
 }
 .members-stats-item-value.accent {
     color: var(--accent-primary);
@@ -116,6 +157,15 @@ body.members-page .topbar { margin-top: 0; }
 .members-stats-item--inactive .members-stats-item-value {
     color: #8b7b9e;
 }
+/* 미지정: 코치 퇴사로 담당이 비어 있는 회원 */
+.members-stats-item--unspecified {
+    border-left: 4px solid #888;
+    background: rgba(128, 128, 128, 0.14);
+}
+.members-stats-item--unspecified .members-stats-item-label,
+.members-stats-item--unspecified .members-stats-item-value {
+    color: var(--text-muted);
+}
 /* 종료: 빨간색 계열 */
 .members-stats-item--withdrawn {
     border-left: 4px solid #c0392b;
@@ -146,15 +196,32 @@ body.members-page .topbar { margin-top: 0; }
 }
 #stats-members-modal .table {
     font-size: 13px;
+    white-space: nowrap;
 }
 #stats-members-modal .table th {
     padding: 12px 16px;
     text-align: center;
+    white-space: nowrap;
 }
 #stats-members-modal .table td {
     padding: 12px 16px;
     text-align: center;
     vertical-align: middle;
+    white-space: nowrap;
+}
+#stats-members-modal .cell-ended-product {
+    text-align: left;
+}
+#stats-members-modal .cell-coach {
+    white-space: nowrap;
+}
+#stats-members-modal .cell-coach br {
+    display: none;
+}
+#stats-members-modal .cell-coach .coach-name:not(:first-of-type)::before {
+    content: ' · ';
+    color: var(--text-muted);
+    font-weight: 400;
 }
 #stats-members-modal .stats-member-row:hover {
     background-color: var(--bg-hover);
@@ -307,17 +374,96 @@ body.members-page .topbar { margin-top: 0; }
     background: rgba(94, 106, 210, 0.5) !important;
 }
 
-/* 상품/이용권 연장 컬럼 중앙 정렬 */
-#members-table-body ~ * .table thead th:nth-child(11),
-.table thead th:nth-child(11),
-.table tbody td:nth-child(11) {
-    text-align: center !important;
+/* 회원 목록: 전체 13px, 내용에 맞게 칸 정리. 작업 버튼은 칸 안에서 줄바꿈 */
+.card > .table-container:has(.members-list-table) {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
 }
-
-/* 회원 목록 테이블의 상품/이용권 연장 컬럼 중앙 정렬 (더 구체적인 선택자) */
-.card .table thead th:nth-child(11),
-.card .table tbody td:nth-child(11) {
-    text-align: center !important;
+.members-list-table {
+    table-layout: fixed;
+    width: 100%;
+    max-width: 100%;
+    font-size: 13px;
+}
+.members-list-table th,
+.members-list-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    padding: 8px 8px;
+    font-size: 13px;
+    letter-spacing: 0;
+    text-transform: none;
+}
+.members-list-table .coach-name {
+    font-size: 13px;
+    font-weight: 400;
+}
+.members-list-table tbody td,
+.members-list-table tbody td a,
+.members-list-table tbody td .coach-name,
+.members-list-table tbody td .members-table-stack,
+.members-list-table tbody td .members-table-stack span,
+.members-list-table tbody td .badge,
+.members-list-table tbody td .btn {
+    font-size: 13px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0;
+    text-transform: none;
+}
+.members-list-table th:nth-child(1),
+.members-list-table td:nth-child(1) { width: 8%; white-space: nowrap; } /* 회원번호 */
+.members-list-table th:nth-child(2),
+.members-list-table td:nth-child(2) { width: 7%; white-space: nowrap; } /* 이름 */
+.members-list-table th:nth-child(3),
+.members-list-table td:nth-child(3) { width: 7%; white-space: nowrap; } /* 등급 */
+.members-list-table th:nth-child(4),
+.members-list-table td:nth-child(4) { width: 0; padding: 0; border: 0; }
+.members-list-table th:nth-child(5),
+.members-list-table td:nth-child(5) { width: 11%; white-space: normal; } /* 학교/소속 */
+.members-list-table th:nth-child(6),
+.members-list-table td:nth-child(6) { width: 12%; white-space: normal; } /* 담당 코치 */
+.members-list-table th:nth-child(7),
+.members-list-table td:nth-child(7) { width: 18%; white-space: normal; } /* 상품/이용권 */
+.members-list-table th:nth-child(8),
+.members-list-table td:nth-child(8) { width: 5%; white-space: nowrap; } /* 상태 */
+.members-list-table th:nth-child(9),
+.members-list-table td:nth-child(9) { width: 7%; white-space: nowrap; } /* 최근 방문 */
+.members-list-table th:nth-child(10),
+.members-list-table td:nth-child(10) { width: 7%; white-space: nowrap; } /* 누적 결제 */
+.members-list-table th:nth-child(11),
+.members-list-table td:nth-child(11) {
+    width: 18%;
+    white-space: normal;
+    overflow: hidden;
+    text-overflow: clip;
+}
+@media (max-width: 768px) {
+    body.members-page .table-container table.members-list-table {
+        min-width: 0;
+    }
+}
+.members-list-table .members-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: center;
+    align-items: center;
+}
+.members-list-table .members-row-actions .btn {
+    white-space: nowrap;
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 4px 7px;
+    font-size: 13px;
+    font-weight: 400;
+}
+.members-list-table .members-table-stack {
+    white-space: nowrap;
+    line-height: 1.45;
+    overflow: hidden;
+    word-break: keep-all;
 }
 
 /* 만료 임박 배지: 노란색에 가까운 배경 */
@@ -565,6 +711,12 @@ body.light-mode .badge-expired {
     overflow: hidden;
     align-items: center;
     justify-content: center;
+    z-index: 2200;
+}
+#adjust-count-modal.modal-overlay,
+#edit-period-pass-modal.modal-overlay,
+#extend-product-modal.modal-overlay {
+    z-index: 2300;
 }
 .member-detail-modal-box {
     max-width: 95vw;

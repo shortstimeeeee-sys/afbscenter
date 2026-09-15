@@ -77,11 +77,13 @@ public final class CoachColorPalette {
         m.put("이원준", "#00897B");
         m.put("박준현", "#5E6AD2");
         m.put("공인욱", "#1976D2");
-        m.put("이소연", "#FFC107");
+        m.put("이소연", "#E0C05A");
         m.put("이서현", "#F06292");
         m.put("김가영", "#795548");
         m.put("김소연", "#009688");
-        m.put("조혜진", "#673AB7");
+        m.put("정영삼", "#673AB7");
+        m.put("정진환", "#455A64"); // 유소년 — 휴무 빨강·다른 코치 원색과 겹치지 않는 블루그레이
+        m.put("김유진", "#4ECDC4");
         m.put("박근엽", "#C0CA33"); // 라임 — 빨강보다 부드럽고 다른 코치와 다른 계열
         m.put("이유진", "#8E24AA");
         PREFERRED_BY_BASE_NAME = Collections.unmodifiableMap(m);

@@ -50,7 +50,18 @@ public interface MemberRepository extends JpaRepository<Member, Long> {
     long countByStatus(Member.MemberStatus status);
     long countByGrade(Member.MemberGrade grade);
 
+    /** 활성 이용권이 없고, 회원 기본 담당 코치가 퇴사(active=false)인 회원 */
+    @Query("SELECT m.id FROM Member m JOIN m.coach c WHERE m.status = 'ACTIVE' AND c.active = false " +
+           "AND NOT EXISTS (SELECT 1 FROM MemberProduct mp WHERE mp.member.id = m.id AND mp.deletedAt IS NULL AND mp.status = 'ACTIVE')")
+    List<Long> findActiveMemberIdsUnspecifiedDueToResignedMemberCoach();
+
     List<Member> findByGrade(Member.MemberGrade grade);
 
     List<Member> findByGradeAndStatus(Member.MemberGrade grade, Member.MemberStatus status);
+
+    /** 자동 휴면 후보: 활성 회원 중 최근 방문(없으면 가입일)이 cutoff 이전 */
+    @Query("SELECT m FROM Member m WHERE m.status = 'ACTIVE' AND (" +
+           "(m.lastVisitDate IS NOT NULL AND m.lastVisitDate <= :cutoff) OR " +
+           "(m.lastVisitDate IS NULL AND m.joinDate <= :cutoff))")
+    List<Member> findActiveMembersUnvisitedSince(@Param("cutoff") java.time.LocalDate cutoff);
 }

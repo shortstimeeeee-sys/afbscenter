@@ -12,6 +12,7 @@ import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.repository.FacilityRepository;
 import com.afbscenter.repository.MemberProductRepository;
 import com.afbscenter.repository.MemberRepository;
+import com.afbscenter.util.MemberBookingPassRules;
 import com.afbscenter.util.MemberProductCountPassHelper;
 import com.afbscenter.util.MemberProductPassDisplayFormatter;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -265,7 +266,7 @@ public class PublicMemberBookingController {
         if (t == Product.ProductType.TEAM_PACKAGE) {
             return teamPackageRemainingSum(mp) > 0;
         }
-        if (t == Product.ProductType.MONTHLY_PASS || t == Product.ProductType.TIME_PASS) {
+        if (t == Product.ProductType.MONTHLY_PASS || t == Product.ProductType.DAY_PASS || t == Product.ProductType.TIME_PASS) {
             return mp.getExpiryDate() == null || !mp.getExpiryDate().isBefore(today);
         }
         if (t == Product.ProductType.SINGLE_USE) {
@@ -338,7 +339,7 @@ public class PublicMemberBookingController {
                     ? LessonCategory.PILATES.name()
                     : LessonCategory.TRAINING.name();
             purpose = Booking.BookingPurpose.LESSON;
-        } else if (cat == Product.ProductCategory.BASEBALL || cat == Product.ProductCategory.GENERAL) {
+        } else if (cat == Product.ProductCategory.BASEBALL || cat == Product.ProductCategory.OUTDOOR_LESSON || cat == Product.ProductCategory.GENERAL) {
             facilityType = Facility.FacilityType.BASEBALL.name();
             lessonCategory = youth ? LessonCategory.YOUTH_BASEBALL.name() : LessonCategory.BASEBALL.name();
             purpose = Booking.BookingPurpose.LESSON;
@@ -413,7 +414,7 @@ public class PublicMemberBookingController {
             @RequestParam(required = false) String lessonCategory,
             @RequestParam(required = false) String memberNumber,
             HttpServletRequest request) {
-        return bookingController.getAllBookings(start, end, null, null, memberNumber, branch, facilityType, lessonCategory, true, null, request);
+        return bookingController.getAllBookings(start, end, null, null, memberNumber, branch, facilityType, lessonCategory, null, true, null, request);
     }
 
     /**
@@ -532,7 +533,8 @@ public class PublicMemberBookingController {
     @Transactional
     public ResponseEntity<?> deleteBookingForPublicMember(
             @PathVariable Long id,
-            @RequestParam String memberNumber) {
+            @RequestParam String memberNumber,
+            HttpServletRequest request) {
         if (memberNumber == null || memberNumber.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "회원번호가 필요합니다."));
         }
@@ -551,7 +553,7 @@ public class PublicMemberBookingController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "승인 대기 중인 예약만 회원 화면에서 취소할 수 있습니다. 확정된 예약은 데스크에 문의해 주세요."));
         }
-        return bookingController.deleteBooking(id);
+        return bookingController.deleteBooking(id, request);
     }
 
     @PostMapping("/bookings")
@@ -586,6 +588,12 @@ public class PublicMemberBookingController {
         }
         if (mp.getMember() == null || !mp.getMember().getId().equals(member.getId())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "해당 이용권은 본인 것이 아닙니다."));
+        }
+        int occupiedHolds = (int) bookingRepository.countUndeductedHoldByMemberProductId(
+                mp.getId(), MemberBookingPassRules.remainingHoldFrom());
+        Optional<String> remainingErr = MemberBookingPassRules.validateCreate(member, mp, false, occupiedHolds);
+        if (remainingErr.isPresent()) {
+            return ResponseEntity.badRequest().body(Map.of("error", remainingErr.get(), "message", remainingErr.get()));
         }
 
         Object facilityObj = requestData.get("facility");
@@ -657,7 +665,9 @@ public class PublicMemberBookingController {
 
         if (ft == Facility.FacilityType.BASEBALL || (ft == Facility.FacilityType.ALL && lc != null
                 && (lc == LessonCategory.BASEBALL || lc == LessonCategory.YOUTH_BASEBALL))) {
-            return cat == Product.ProductCategory.BASEBALL || cat == Product.ProductCategory.GENERAL;
+            return cat == Product.ProductCategory.BASEBALL
+                    || cat == Product.ProductCategory.OUTDOOR_LESSON
+                    || cat == Product.ProductCategory.GENERAL;
         }
         if (ft == Facility.FacilityType.TRAINING_FITNESS
                 || (ft == Facility.FacilityType.ALL && lc != null && (lc == LessonCategory.TRAINING || lc == LessonCategory.PILATES))) {

@@ -86,4 +86,21 @@ public interface MemberProductRepository extends JpaRepository<MemberProduct, Lo
 
     @Query("SELECT DISTINCT mp.member.id FROM MemberProduct mp WHERE mp.deletedAt IS NULL AND (mp.status = 'EXPIRED' OR mp.status = 'USED_UP') AND mp.endedAt >= :since AND EXISTS (SELECT 1 FROM MemberProduct mp2 WHERE mp2.member.id = mp.member.id AND mp2.deletedAt IS NULL AND mp2.status = 'ACTIVE')")
     List<Long> findMemberIdsWithPartialEndedSince(@Param("since") java.time.LocalDateTime since);
+
+    /** 활성 이용권 담당(직접 배정 또는 상품 기본)이 퇴사 코치이고, 근무 중 코치가 없는 회원 */
+    @Query("SELECT DISTINCT m.id FROM MemberProduct mp JOIN mp.member m " +
+           "LEFT JOIN mp.coach c LEFT JOIN mp.product p LEFT JOIN p.coach pc " +
+           "WHERE mp.deletedAt IS NULL AND mp.status = 'ACTIVE' AND m.status = 'ACTIVE' " +
+           "AND (" +
+           "  (c IS NOT NULL AND c.active = false) " +
+           "  OR (c IS NULL AND pc IS NOT NULL AND pc.active = false)" +
+           ") " +
+           "AND NOT EXISTS (" +
+           "  SELECT 1 FROM MemberProduct mp2 LEFT JOIN mp2.coach c2 LEFT JOIN mp2.product p2 LEFT JOIN p2.coach pc2 " +
+           "  WHERE mp2.member.id = m.id AND mp2.deletedAt IS NULL AND mp2.status = 'ACTIVE' AND (" +
+           "    (c2 IS NOT NULL AND (c2.active IS NULL OR c2.active = true)) " +
+           "    OR (c2 IS NULL AND pc2 IS NOT NULL AND (pc2.active IS NULL OR pc2.active = true))" +
+           "  )" +
+           ")")
+    List<Long> findActiveMemberIdsUnspecifiedDueToResignedCoach();
 }

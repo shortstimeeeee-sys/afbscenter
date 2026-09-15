@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>이용권 미연결 예약 관리 - AFBS 센터</title>
-    <link rel="stylesheet" href="/css/common.css">
-    <link rel="stylesheet" href="/css/bookings.css?v=filter-stats-border">
+    <link rel="stylesheet" href="/css/common.css?v=miss-pass1">
+    <link rel="stylesheet" href="/css/bookings.css?v=branch-off3">
 </head>
-<body class="booking-page">
+<body class="booking-page unlinked-pass-admin">
     <div class="app-container">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -32,13 +32,15 @@
                     <a href="/bookings-without-product.html" class="menu-item active" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
                     <div class="menu-section-title">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
-                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
-                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝</span></a>
+                    <a href="/bookings-saha-pilates.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧘</span><span>필라테스</span></a>
                     <div class="menu-section-title">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧘</span><span>필라테스</span></a>
+                    <div class="menu-section-title">비 야구파트</div>
+                    <a href="/staff-attendance.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">🕒</span><span>출근부</span></a>
                     <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
-                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
-                    <div class="menu-section-title">🏟️ 대관</div>
+                    <a href="/bookings-yeonsan-social.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧢</span><span>야구(사회인)</span></a>
                     <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
                 </div>
                 <div class="menu-section">
@@ -103,10 +105,13 @@
             </div>
         </main>
     </div>
-    <script src="/js/common.js"></script>
+    <script src="/js/common.js?v=branch-off3"></script>
     <script>
 (function() {
-    // 관리자(Admin)만 접근 가능
+    // 관리자만 접근. 스크립트가 DOMContentLoaded보다 먼저 돌므로 여기서 로그인 정보를 먼저 복원한다.
+    if (typeof App !== 'undefined' && typeof App.restoreAuth === 'function') {
+        App.restoreAuth();
+    }
     var role = (typeof App !== 'undefined' && App.currentRole) ? String(App.currentRole).toUpperCase() : '';
     if (role !== 'ADMIN') {
         var main = document.querySelector('.main-content');
@@ -166,12 +171,16 @@
             }
 
             // 지점(branch) + 시설타입(facilityType)에 맞는 예약 페이지로 연결 (해당 예약 내용이 그대로 로드되도록)
-            function getEditPage(branch, facilityType) {
+            function getEditPage(branch, facilityType, lessonCategory) {
                 const b = (branch || '').toUpperCase();
                 const t = (facilityType || '').toUpperCase();
+                const lc = (lessonCategory || '').toUpperCase();
                 if (t === 'RENTAL') return '/rentals.html';
                 if (b === 'SAHA') {
-                    if (t === 'TRAINING_FITNESS') return '/bookings-saha-training.html';
+                    if (t === 'TRAINING_FITNESS') {
+                        if (lc === 'PILATES') return '/bookings-saha-pilates.html';
+                        return '/bookings-saha-training.html';
+                    }
                     return '/bookings.html';
                 }
                 if (b === 'YEONSAN') {
@@ -185,8 +194,10 @@
                 const member = b.member || {};
                 const branch = facility.branch || 'SAHA';
                 const facilityType = facility.facilityType || '';
-                const editUrl = getEditPage(branch, facilityType) + '?edit=' + b.id;
+                const editUrl = getEditPage(branch, facilityType, b.lessonCategory) + '?edit=' + b.id;
                 const tr = document.createElement('tr');
+                tr.className = 'booking-missing-pass';
+                tr.title = '이용권이 삭제되었거나 전액 환불되어 연결이 해제된 예약입니다.';
                 tr.innerHTML =
                     '<td>' + escapeHtml(String(b.id)) + '</td>' +
                     '<td>' + escapeHtml(formatDate(b.startTime)) + '</td>' +

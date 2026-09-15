@@ -1,0 +1,307 @@
+.ol-att-page {
+    min-height: 100vh;
+    background: var(--bg-primary, #12151c);
+    color: var(--text-primary, #f3f4f6);
+}
+
+.ol-att-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px 24px 12px;
+    border-bottom: 1px solid var(--border-color, #2d3441);
+}
+
+.ol-att-title {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+}
+
+.ol-att-date {
+    margin: 4px 0 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-secondary, #c5cad3);
+}
+
+.ol-att-top-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.ol-att-date-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-muted, #9aa3b2);
+}
+
+.ol-att-date-wrap .form-control {
+    width: 160px;
+}
+
+.ol-att-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    padding: 16px 24px 8px;
+}
+
+.ol-att-kpi {
+    background: var(--bg-tertiary, #1a1f2b);
+    border: 1px solid var(--border-color, #2d3441);
+    border-radius: 12px;
+    padding: 14px 16px;
+}
+
+.ol-att-kpi span {
+    display: block;
+    font-size: 13px;
+    color: var(--text-secondary, #c5cad3);
+    margin-bottom: 4px;
+}
+
+.ol-att-kpi strong {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+}
+
+.ol-att-kpi.is-present strong {
+    color: var(--success, #198754);
+}
+
+.ol-att-kpi.is-note strong {
+    color: var(--warning, #d4a017);
+}
+
+.ol-att-main {
+    padding: 8px 24px 32px;
+}
+
+.ol-att-help {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: var(--text-muted, #9aa3b2);
+}
+
+.ol-att-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.ol-att-table th,
+.ol-att-table td {
+    padding: 14px 12px;
+    border-bottom: 1px solid var(--border-color, #2d3441);
+    text-align: left;
+    vertical-align: middle;
+}
+
+.ol-att-table th {
+    font-size: 13px;
+    color: var(--text-secondary, #c5cad3);
+    font-weight: 700;
+    position: sticky;
+    top: 0;
+    background: var(--bg-primary, #12151c);
+    z-index: 1;
+}
+
+.ol-att-table .ol-att-seq {
+    width: 64px;
+    text-align: center;
+    font-weight: 700;
+    color: var(--text-secondary, #c5cad3);
+}
+
+.ol-att-table .ol-att-name {
+    width: 18%;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+
+.ol-att-table .ol-att-team {
+    width: 16%;
+    font-size: 16px;
+}
+
+.ol-att-table .ol-att-phone {
+    width: 16%;
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+}
+
+.ol-att-table .ol-att-check {
+    width: 120px;
+    text-align: center;
+}
+
+.ol-att-row {
+    cursor: pointer;
+}
+
+.ol-att-row.is-attended {
+    background: rgba(25, 135, 84, 0.14);
+}
+
+.ol-att-row.is-note:not(.is-attended) {
+    background: rgba(212, 160, 23, 0.08);
+}
+
+.ol-att-toggle {
+    min-width: 92px;
+    min-height: 44px;
+    border-radius: 10px;
+    border: 2px solid var(--border-color, #2d3441);
+    background: transparent;
+    color: var(--text-secondary, #c5cad3);
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.ol-att-toggle.is-on {
+    border-color: var(--success, #198754);
+    background: var(--success, #198754);
+    color: #fff;
+}
+
+.ol-att-notes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.ol-att-note {
+    display: inline-block;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(212, 160, 23, 0.18);
+    color: var(--warning, #d4a017);
+    font-size: 14px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.ol-att-empty,
+.ol-att-error {
+    padding: 48px 16px;
+    text-align: center;
+    color: var(--text-muted, #9aa3b2);
+    font-size: 16px;
+}
+
+@media (max-width: 900px) {
+    .ol-att-page {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    .ol-att-top {
+        padding: 14px 14px 10px;
+        gap: 10px;
+    }
+    .ol-att-title {
+        font-size: 22px;
+    }
+    .ol-att-date {
+        font-size: 16px;
+    }
+    .ol-att-date-wrap .form-control {
+        width: 100%;
+        min-height: 44px;
+        font-size: 16px;
+    }
+    .ol-att-top-actions {
+        width: 100%;
+    }
+    .ol-att-top-actions .btn {
+        min-height: 44px;
+        flex: 1 1 auto;
+    }
+    .ol-att-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        padding: 12px 14px 4px;
+    }
+    .ol-att-kpi {
+        padding: 10px 12px;
+    }
+    .ol-att-kpi strong {
+        font-size: 22px;
+    }
+    .ol-att-main {
+        padding: 8px 14px 24px;
+    }
+    .ol-att-table {
+        table-layout: auto;
+        border: 0;
+    }
+    .ol-att-table thead {
+        display: none;
+    }
+    .ol-att-table tbody tr {
+        display: grid;
+        grid-template-columns: 32px minmax(0, 1fr) auto;
+        gap: 6px 10px;
+        padding: 12px;
+        margin-bottom: 10px;
+        border: 1px solid var(--border-color, #2d3441);
+        border-radius: 12px;
+        background: var(--bg-tertiary, #1a1f2b);
+    }
+    .ol-att-table th,
+    .ol-att-table td {
+        width: auto !important;
+        padding: 0;
+        border: 0;
+    }
+    .ol-att-table .ol-att-seq {
+        grid-column: 1;
+        grid-row: 1;
+        width: auto;
+    }
+    .ol-att-table .ol-att-name {
+        grid-column: 2;
+        grid-row: 1;
+        font-size: 20px;
+        width: auto;
+    }
+    .ol-att-table .ol-att-check {
+        grid-column: 3;
+        grid-row: 1 / 3;
+        width: auto;
+    }
+    .ol-att-table .ol-att-team,
+    .ol-att-table .ol-att-phone,
+    .ol-att-table .ol-att-note-cell {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 15px;
+    }
+    .ol-att-table td[data-label]::before {
+        content: attr(data-label);
+        flex: 0 0 52px;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text-muted, #9aa3b2);
+    }
+    .ol-att-table .ol-att-name[data-label]::before {
+        display: none;
+    }
+    .ol-att-toggle {
+        min-width: 76px;
+        min-height: 52px;
+        font-size: 15px;
+    }
+}

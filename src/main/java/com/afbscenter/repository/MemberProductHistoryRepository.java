@@ -13,6 +13,14 @@ public interface MemberProductHistoryRepository extends JpaRepository<MemberProd
     
     List<MemberProductHistory> findByMemberIdOrderByTransactionDateDesc(Long memberId);
 
+    @Query("SELECT h FROM MemberProductHistory h "
+            + "JOIN FETCH h.member m "
+            + "LEFT JOIN FETCH h.memberProduct mp LEFT JOIN FETCH mp.product "
+            + "LEFT JOIN FETCH h.attendance a "
+            + "WHERE m.id IN :memberIds AND h.type = 'DEDUCT' "
+            + "ORDER BY h.transactionDate ASC")
+    List<MemberProductHistory> findDeductsByMemberIdIn(@Param("memberIds") java.util.Collection<Long> memberIds);
+
     @Query("SELECT h FROM MemberProductHistory h JOIN FETCH h.memberProduct mp WHERE h.member.id = :memberId ORDER BY h.transactionDate ASC")
     List<MemberProductHistory> findByMemberIdFetchMemberProductOrderByTransactionDateAsc(@Param("memberId") Long memberId);
     
@@ -37,6 +45,13 @@ public interface MemberProductHistoryRepository extends JpaRepository<MemberProd
     /** 출석에 연결된 DEDUCT 1건 (회차 계산용). 타입 지정으로 잘못된 히스토리 반환 방지 */
     @Query("SELECT h FROM MemberProductHistory h WHERE h.attendance.id = :attendanceId AND h.type = 'DEDUCT'")
     java.util.Optional<MemberProductHistory> findDeductByAttendanceId(@Param("attendanceId") Long attendanceId);
+
+    @Query("SELECT COUNT(h) FROM MemberProductHistory h WHERE h.attendance.id = :attendanceId AND h.type = 'DEDUCT'")
+    long countDeductByAttendanceId(@Param("attendanceId") Long attendanceId);
+
+    /** 같은 예약(수업)에 이미 횟수 차감이 있으면 1 — 체크인/체크아웃/자동종료 중복 차감 방지 */
+    @Query("SELECT COUNT(h) FROM MemberProductHistory h WHERE h.type = 'DEDUCT' AND h.attendance.booking.id = :bookingId")
+    long countDeductByBookingId(@Param("bookingId") Long bookingId);
     
     @Query("SELECT h FROM MemberProductHistory h WHERE h.description LIKE :descriptionPattern")
     List<MemberProductHistory> findByDescriptionContaining(@Param("descriptionPattern") String descriptionPattern);
@@ -52,4 +67,8 @@ public interface MemberProductHistoryRepository extends JpaRepository<MemberProd
     long countDeductByMemberProductAndBookingBeforeInOrder(@Param("memberProductId") Long memberProductId,
                                                            @Param("startTime") java.time.LocalDateTime startTime,
                                                            @Param("bookingId") Long bookingId);
+
+    @Query("SELECT DISTINCT a.booking.id FROM MemberProductHistory h INNER JOIN h.attendance a "
+            + "WHERE h.type = 'DEDUCT' AND h.memberProduct.id IN :mpIds AND a.booking.id IS NOT NULL")
+    List<Long> findDeductedBookingIdsByMemberProductIdIn(@Param("mpIds") java.util.Collection<Long> mpIds);
 }

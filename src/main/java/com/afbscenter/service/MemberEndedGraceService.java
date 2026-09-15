@@ -101,11 +101,30 @@ public class MemberEndedGraceService {
                 if (!isActiveCountPassExhausted(member, mp)) {
                     return true;
                 }
-            } else if (t == Product.ProductType.MONTHLY_PASS || t == Product.ProductType.TIME_PASS) {
+            } else if (Product.isPeriodPass(t) || t == Product.ProductType.TIME_PASS) {
                 if (mp.getExpiryDate() == null || !mp.getExpiryDate().isBefore(today)) {
                     return true;
                 }
             } else {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 회원관리「종료」목록: 쓸 수 있는 잔여·기간이 없고, 횟수 0 또는 만료된 이용권이 있는 경우만.
+     * 연장·추가구매로 잔여가 남은 이용권이 있으면 제외.
+     */
+    public boolean memberQualifiesAsEndedTicket(Member member, List<MemberProduct> all) {
+        if (all == null || all.isEmpty()) {
+            return false;
+        }
+        if (hasUsableActivePass(member, all)) {
+            return false;
+        }
+        for (MemberProduct mp : all) {
+            if (isEndedMemberProductForGrace(member, mp)) {
                 return true;
             }
         }

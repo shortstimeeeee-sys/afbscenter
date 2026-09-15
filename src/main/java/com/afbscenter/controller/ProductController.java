@@ -188,7 +188,7 @@ public class ProductController {
             }
             
             // 기간제(MONTHLY_PASS)인 경우 validDays 필수 검증
-            if (product.getType() == Product.ProductType.MONTHLY_PASS) {
+            if (Product.isPeriodPass(product.getType())) {
                 if (product.getValidDays() == null || product.getValidDays() <= 0) {
                     logger.error("⚠️ 기간제 상품의 유효기간(validDays)은 필수이며 1 이상이어야 합니다. 상품명={}", product.getName());
                     Map<String, Object> errorResponse = new HashMap<>();
@@ -257,25 +257,27 @@ public class ProductController {
             }
             
             // 기간제인 경우 규칙 적용: VALID_DAYS 필수, USAGE_COUNT는 null
-            if (product.getType() == Product.ProductType.MONTHLY_PASS) {
+            if (Product.isPeriodPass(product.getType())) {
                 // USAGE_COUNT는 무조건 null로 설정 (기간제 규칙)
                 product.setUsageCount(null);
                 
                 // VALID_DAYS가 없으면 기본값 30으로 설정
                 if (product.getValidDays() == null || product.getValidDays() <= 0) {
-                    product.setValidDays(30);
-                    logger.info("기간제 상품의 validDays 기본값 설정: 상품명={}, validDays=30", product.getName());
+                    product.setValidDays(Product.defaultValidDays(product.getType()));
+                    logger.info("기간제 상품의 validDays 기본값 설정: 상품명={}, validDays={}",
+                            product.getName(), product.getValidDays());
                 }
             }
             
             // MONTHLY_PASS 상품인 경우 conditions의 날짜 형식을 "시작일로부터 X일" 형식으로 변환
-            if (product.getType() == Product.ProductType.MONTHLY_PASS && product.getConditions() != null && !product.getConditions().trim().isEmpty()) {
+            if (Product.isPeriodPass(product.getType()) && product.getConditions() != null && !product.getConditions().trim().isEmpty()) {
                 String conditions = product.getConditions().trim();
                 java.util.regex.Pattern datePattern = java.util.regex.Pattern.compile("~\\s*\\d{4}\\.\\s*\\d{2}\\.\\s*\\d{2}\\.");
                 java.util.regex.Matcher dateMatcher = datePattern.matcher(conditions);
                 if (dateMatcher.find() || conditions.startsWith("~")) {
                     // 날짜 형식이면 "시작일로부터 X일" 형식으로 변환
-                    Integer validDays = product.getValidDays() != null && product.getValidDays() > 0 ? product.getValidDays() : 30;
+                    Integer validDays = product.getValidDays() != null && product.getValidDays() > 0
+                            ? product.getValidDays() : Product.defaultValidDays(product.getType());
                     conditions = "시작일로부터 " + validDays + "일";
                     product.setConditions(conditions);
                     logger.info("MONTHLY_PASS 상품의 conditions 날짜 형식을 변환: 상품명={}, 변환된 값={}", product.getName(), conditions);
@@ -429,7 +431,7 @@ public class ProductController {
             
             // 기간제(MONTHLY_PASS)인 경우 규칙 적용: VALID_DAYS 필수, USAGE_COUNT는 null
             Product.ProductType finalType = updatedProduct.getType() != null ? updatedProduct.getType() : product.getType();
-            if (finalType == Product.ProductType.MONTHLY_PASS) {
+            if (Product.isPeriodPass(finalType)) {
                 // USAGE_COUNT는 무조건 null로 설정 (기간제 규칙)
                 if (product.getUsageCount() != null) {
                     logger.info("기간제 상품의 USAGE_COUNT를 null로 설정: ID={}, name={}, 기존 값={}", 
@@ -448,9 +450,9 @@ public class ProductController {
                     product.setValidDays(updatedProduct.getValidDays());
                 } else if (product.getValidDays() == null || product.getValidDays() <= 0) {
                     // 기존 값도 없으면 기본값 30으로 설정
-                    product.setValidDays(30);
-                    logger.info("기간제 상품의 validDays 기본값 설정: ID={}, name={}, validDays=30", 
-                            id, product.getName());
+                    product.setValidDays(Product.defaultValidDays(finalType));
+                    logger.info("기간제 상품의 validDays 기본값 설정: ID={}, name={}, validDays={}",
+                            id, product.getName(), product.getValidDays());
                 }
             } else {
                 // 기간제가 아닌 경우
@@ -553,7 +555,7 @@ public class ProductController {
             if (updatedProduct.getConditions() != null) {
                 String conditions = updatedProduct.getConditions().trim();
                 // MONTHLY_PASS 상품인 경우 날짜 형식을 "시작일로부터 X일" 형식으로 변환
-                if ((updatedProduct.getType() == Product.ProductType.MONTHLY_PASS || product.getType() == Product.ProductType.MONTHLY_PASS) 
+                if ((Product.isPeriodPass(updatedProduct.getType()) || Product.isPeriodPass(product.getType())) 
                     && !conditions.isEmpty()) {
                     java.util.regex.Pattern datePattern = java.util.regex.Pattern.compile("~\\s*\\d{4}\\.\\s*\\d{2}\\.\\s*\\d{2}\\.");
                     java.util.regex.Matcher dateMatcher = datePattern.matcher(conditions);
@@ -561,7 +563,7 @@ public class ProductController {
                         // 날짜 형식이면 "시작일로부터 X일" 형식으로 변환
                         Integer validDays = product.getValidDays();
                         if (validDays == null || validDays <= 0) {
-                            validDays = updatedProduct.getValidDays() != null ? updatedProduct.getValidDays() : 30;
+                            validDays = updatedProduct.getValidDays() != null ? updatedProduct.getValidDays() : Product.defaultValidDays(finalType);
                         }
                         conditions = "시작일로부터 " + validDays + "일";
                         logger.info("MONTHLY_PASS 상품의 conditions 날짜 형식을 변환: ID={}, 변환된 값={}", id, conditions);

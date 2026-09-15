@@ -309,6 +309,27 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
     pointer-events: none;
 }
 
+.calendar-day.calendar-day-branch-closed {
+    background-color: rgba(231, 76, 60, 0.22);
+    border-color: rgba(198, 40, 40, 0.42);
+}
+.calendar-day.calendar-day-branch-closed:hover {
+    background-color: rgba(231, 76, 60, 0.32);
+    border-color: rgba(198, 40, 40, 0.58);
+}
+.calendar-day.calendar-day-branch-closed.today {
+    background-color: rgba(231, 76, 60, 0.28);
+}
+.calendar-branch-closed-label {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    color: #c62828;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    margin-top: 2px;
+}
+
 .calendar-day-header-wrapper {
     display: flex;
     justify-content: space-between;
@@ -335,6 +356,13 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
     font-weight: 500;
     line-height: 1.4;
     user-select: none;
+    touch-action: manipulation;
+}
+
+.calendar-event.booking-missing-pass {
+    background-color: #E74C3C !important;
+    border-left-color: #c0392b !important;
+    color: #fff !important;
 }
 
 /* 회원 앱 예약(MEMBER_WEB) M 배지 — 운영 캘린더 기본(작게). 크게 보이게는 회원 예약 페이지에서만 덮어씀 */
@@ -425,14 +453,49 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
     background-color: var(--bg-hover);
 }
 
-/* 3.5 모바일/반응형: 캘린더·필터 */
+/* 3.5 모바일/반응형: 캘린더·필터 (데스크톱 레이아웃 유지, 터치·폭만 조정) */
 @media (max-width: 768px) {
     .calendar-container {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
+        padding: 12px;
+        overscroll-behavior-x: contain;
     }
     .calendar-grid {
-        min-width: 480px;
+        min-width: 560px;
+        gap: 6px;
+    }
+    .calendar-header {
+        margin-bottom: 12px;
+        gap: 8px;
+    }
+    .calendar-header h2 {
+        font-size: 16px;
+        text-align: center;
+        flex: 1;
+    }
+    .calendar-header .btn {
+        min-width: 40px;
+        min-height: 40px;
+        padding: 8px 10px;
+    }
+    .calendar-day-header {
+        padding: 8px 4px;
+        font-size: 11px;
+    }
+    .calendar-day {
+        min-height: 96px;
+        padding: 6px;
+    }
+    .calendar-event {
+        font-size: 12px;
+        padding: 8px 8px;
+        min-height: 32px;
+        touch-action: manipulation;
+    }
+    .form-row {
+        grid-template-columns: 1fr;
+        gap: 12px;
     }
     .filter-row {
         grid-template-columns: 1fr;
@@ -440,5 +503,31 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
     .filter-row-left {
         border-right: none;
         padding-right: 0;
+    }
+    .view-controls .btn {
+        min-height: 40px;
+    }
+    .day-schedule-icon {
+        font-size: 16px;
+        padding: 6px 8px;
+    }
+}
+
+@media (hover: none) and (pointer: coarse) {
+    .calendar-event,
+    .calendar-event:active {
+        cursor: pointer;
+    }
+    .calendar-event:hover {
+        transform: none;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    .calendar-day:hover {
+        background-color: var(--bg-tertiary);
+        border-color: var(--border-color);
+    }
+    .calendar-day.today:hover {
+        border-color: var(--accent-primary);
+        background-color: rgba(94, 106, 210, 0.1);
     }
 }

@@ -51,6 +51,27 @@
             });
     }
 
+    function mbLoadBranchClosuresSet(startYmd, endYmd) {
+        if (typeof App === 'undefined' || !App || typeof App.loadBranchClosuresSet !== 'function') {
+            return Promise.resolve({});
+        }
+        if (typeof aggregateCalendar !== 'undefined' && aggregateCalendar) {
+            return Promise.all(['SAHA', 'YEONSAN', 'NON_BASEBALL'].map(function (g) {
+                return App.loadBranchClosuresSet(g, startYmd, endYmd);
+            })).then(function (sets) {
+                return Object.assign({}, sets[0], sets[1], sets[2]);
+            });
+        }
+        var cfg = {
+            branch: branch,
+            facilityType: typeof getEffectiveFacilityType === 'function' ? getEffectiveFacilityType() : 'BASEBALL',
+            lessonCategory: typeof getEffectiveLessonCategoryForCalendar === 'function'
+                ? getEffectiveLessonCategoryForCalendar()
+                : null
+        };
+        return App.loadBranchClosuresSet(cfg, startYmd, endYmd);
+    }
+
     /** 이용권이 없을 때 달력 조회용 기본 필터 (사하 야구 캘린더와 동일) */
     var DEFAULT_PASS_VIEW = {
         facilityType: 'BASEBALL',
@@ -75,6 +96,7 @@
     var mbLastRawBookings = null;
     /** 설정(공휴일·메모) — 달력 셀에 반영 */
     var mbCalendarMarksMap = null;
+    var mbBranchClosuresSet = {};
     var mbLastStatsData = null;
     var mbCalGridState = null;
     var mbStatsEventsBound = false;
@@ -823,12 +845,16 @@
             select.innerHTML = '<option value="">상품 미선택 (일반 예약)</option>';
             (memberProducts || [])
                 .filter(function (mp) {
-                    return mp.status === 'ACTIVE';
+                    return typeof App.isSelectableMemberProductForBooking === 'function'
+                        ? App.isSelectableMemberProductForBooking(mp)
+                        : mp.status === 'ACTIVE';
                 })
                 .forEach(function (mp) {
                     var o = document.createElement('option');
                     o.value = String(mp.id);
-                    o.textContent = (mp.product && mp.product.name) ? mp.product.name : '이용권 #' + mp.id;
+                    o.textContent = typeof App.formatMemberProductOptionLabel === 'function'
+                        ? App.formatMemberProductOptionLabel(mp)
+                        : ((mp.product && mp.product.name) ? mp.product.name : '이용권 #' + mp.id);
                     if (mp.product && mp.product.type) o.dataset.productType = mp.product.type;
                     select.appendChild(o);
                 });
@@ -923,18 +949,25 @@
                             return o.value === pid;
                         });
                         if (!opt) {
-                            var o = document.createElement('option');
-                            o.value = pid;
-                            o.textContent =
-                                booking.memberProduct.product && booking.memberProduct.product.name
-                                    ? booking.memberProduct.product.name
-                                    : '이용권 #' + pid;
-                            if (booking.memberProduct.product && booking.memberProduct.product.type) {
-                                o.dataset.productType = booking.memberProduct.product.type;
+                            var selectable = typeof App.isSelectableMemberProductForBooking !== 'function'
+                                || App.isSelectableMemberProductForBooking(booking.memberProduct);
+                            if (selectable) {
+                                var o = document.createElement('option');
+                                o.value = pid;
+                                o.textContent = typeof App.formatMemberProductOptionLabel === 'function'
+                                    ? App.formatMemberProductOptionLabel(booking.memberProduct)
+                                    : (booking.memberProduct.product && booking.memberProduct.product.name
+                                        ? booking.memberProduct.product.name
+                                        : '이용권 #' + pid);
+                                if (booking.memberProduct.product && booking.memberProduct.product.type) {
+                                    o.dataset.productType = booking.memberProduct.product.type;
+                                }
+                                select.appendChild(o);
+                                select.value = pid;
                             }
-                            select.appendChild(o);
+                        } else {
+                            select.value = pid;
                         }
-                        select.value = pid;
                     }
                     if (
                         productInfo &&
@@ -1724,10 +1757,17 @@
                 return { id: a.id, name: mpC.name };
             }
         }
-        if (a) return a;
-        if (b) return b;
-        if (mpC) return mpC;
-        return passC || null;
+        function working(c) {
+            if (typeof App !== 'undefined' && typeof App.isWorkingCoach === 'function') {
+                return App.isWorkingCoach(c);
+            }
+            return !!(c && c.active !== false);
+        }
+        if (working(a)) return a;
+        if (working(b)) return b;
+        if (working(mpC)) return mpC;
+        if (working(passC)) return passC;
+        return null;
     }
 
     /** 캘린더 블록: 보유 이용권에 연결된 코치만 시간 옆에 표시 (다른 코치 슬롯은 이름 생략) */
@@ -1920,7 +1960,10 @@
                 : App.formatLocalYmd;
         mbLoadCalendarMarksMap(ymd(st.startDate), ymd(endD)).then(function (m) {
             mbCalendarMarksMap = m;
-            mbPaintCalendarCells(grid, filtered, st.startDate, st.month, st.totalCells, m);
+            return mbLoadBranchClosuresSet(ymd(st.startDate), ymd(endD)).then(function (c) {
+                mbBranchClosuresSet = c || {};
+                mbPaintCalendarCells(grid, filtered, st.startDate, st.month, st.totalCells, m, mbBranchClosuresSet);
+            });
         });
     }
 
@@ -2080,8 +2123,9 @@
         }
     }
 
-    function mbPaintCalendarCells(grid, bookings, startDate, month, totalCells, marksMap) {
+    function mbPaintCalendarCells(grid, bookings, startDate, month, totalCells, marksMap, closuresSet) {
         marksMap = marksMap || {};
+        closuresSet = closuresSet || mbBranchClosuresSet || {};
         var ymd =
             typeof App === 'undefined' || !App.formatLocalYmd
                 ? function (d) {
@@ -2153,6 +2197,10 @@
                 dayNumCol.style.alignItems = 'flex-start';
                 dayNumCol.style.minWidth = '0';
                 dayNumCol.appendChild(dayNumber);
+                if (typeof App !== 'undefined' && App && typeof App.markBranchClosedDay === 'function') {
+                    var closedLabel = App.markBranchClosedDay(dayCell, dk, closuresSet);
+                    if (closedLabel) dayNumCol.appendChild(closedLabel);
+                }
                 if (markMemo) {
                     var memoLine = document.createElement('div');
                     memoLine.className = 'mb-cal-mark-memo';
@@ -2339,7 +2387,15 @@
             return mbPassCoachBranchCodesIncludeRental(p);
         }
         if (ft === 'TRAINING_FITNESS') {
-            return pFt === 'TRAINING_FITNESS';
+            if (pFt !== 'TRAINING_FITNESS') return false;
+            var cat = (p.productCategory || '').toUpperCase();
+            if (lc === 'PILATES') {
+                return pLc === 'PILATES' || cat === 'PILATES' || cat === 'TRAINING_FITNESS';
+            }
+            if (lc === 'TRAINING') {
+                return pLc === 'TRAINING' || cat === 'TRAINING' || cat === 'TRAINING_FITNESS';
+            }
+            return true;
         }
         if (ft === 'BASEBALL') {
             if (pFt !== 'BASEBALL') return false;
@@ -2483,7 +2539,13 @@
             return;
         }
         if (ft === 'TRAINING_FITNESS') {
-            el.textContent = '📍 ' + branchLabel + ' - 💪 트레이닝+필라테스';
+            if (lc === 'PILATES') {
+                el.textContent = '📍 ' + branchLabel + ' - 🧘 필라테스';
+            } else if (lc === 'TRAINING') {
+                el.textContent = '📍 ' + branchLabel + ' - 💪 트레이닝';
+            } else {
+                el.textContent = '📍 ' + branchLabel + ' - 🧘 필라테스';
+            }
             return;
         }
         if (lc === 'YOUTH_BASEBALL') {
@@ -2691,7 +2753,10 @@
                 endD.setDate(endD.getDate() + totalCells - 1);
                 return mbLoadCalendarMarksMap(ymdForMarks(startDate), ymdForMarks(endD)).then(function (m) {
                     mbCalendarMarksMap = m;
-                    mbPaintCalendarCells(grid, filtered, startDate, month, totalCells, m);
+                    return mbLoadBranchClosuresSet(ymdForMarks(startDate), ymdForMarks(endD)).then(function (c) {
+                        mbBranchClosuresSet = c || {};
+                        mbPaintCalendarCells(grid, filtered, startDate, month, totalCells, m, mbBranchClosuresSet);
+                    });
                 });
             })
             .catch(function (err) {

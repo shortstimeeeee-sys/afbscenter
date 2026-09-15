@@ -55,8 +55,9 @@ public class ProductAdminController {
         try {
             logger.info("기간제 상품 conditions 일괄 업데이트 시작");
 
-            // MONTHLY_PASS 타입의 모든 상품 조회
-            List<Product> monthlyPassProducts = productRepository.findByType(Product.ProductType.MONTHLY_PASS);
+            List<Product> monthlyPassProducts = new java.util.ArrayList<>();
+            monthlyPassProducts.addAll(productRepository.findByType(Product.ProductType.MONTHLY_PASS));
+            monthlyPassProducts.addAll(productRepository.findByType(Product.ProductType.DAY_PASS));
 
             totalCount = monthlyPassProducts.size();
             logger.info("기간제 상품 총 {}개 발견", totalCount);
@@ -71,7 +72,7 @@ public class ProductAdminController {
                     // 모든 기간제 상품의 conditions를 "시작일로부터 X일" 형식으로 업데이트
                     Integer validDays = product.getValidDays() != null && product.getValidDays() > 0
                             ? product.getValidDays()
-                            : 30;
+                            : Product.defaultValidDays(product.getType());
                     String newConditions = "시작일로부터 " + validDays + "일";
 
                     // 업데이트 실행
@@ -125,7 +126,7 @@ public class ProductAdminController {
                         Product verifiedProduct = verified.get();
                         Integer validDays = verifiedProduct.getValidDays() != null && verifiedProduct.getValidDays() > 0
                                 ? verifiedProduct.getValidDays()
-                                : 30;
+                                : Product.defaultValidDays(verifiedProduct.getType());
                         String expectedConditions = "시작일로부터 " + validDays + "일";
                         if (expectedConditions.equals(verifiedProduct.getConditions())) {
                             verifiedCount++;
@@ -260,8 +261,8 @@ public class ProductAdminController {
                         }
                     }
 
-                    // 기간제(MONTHLY_PASS) 처리
-                    if (product.getType() == Product.ProductType.MONTHLY_PASS) {
+                    // 기간제(월정기·1일권) 처리
+                    if (Product.isPeriodPass(product.getType())) {
                         // 규칙: 기간제는 VALID_DAYS 필수, USAGE_COUNT는 null
 
                         // USAGE_COUNT가 null이 아니면 무조건 null로 설정 (기간제 규칙)
@@ -274,12 +275,13 @@ public class ProductAdminController {
                                     product.getId(), product.getName(), oldUsageCount);
                         }
 
-                        // VALID_DAYS가 null이거나 0 이하면 기본값 30으로 설정
+                        // VALID_DAYS가 null이거나 0 이하면 유형 기본값
                         if (product.getValidDays() == null || product.getValidDays() <= 0) {
                             Integer oldValidDays = product.getValidDays();
-                            product.setValidDays(30);
+                            int defaultDays = Product.defaultValidDays(product.getType());
+                            product.setValidDays(defaultDays);
                             needsUpdate = true;
-                            fixes.add("VALID_DAYS: " + (oldValidDays != null ? oldValidDays : "null") + " → 30 (기간제 기본값)");
+                            fixes.add("VALID_DAYS: " + (oldValidDays != null ? oldValidDays : "null") + " → " + defaultDays + " (기간제 기본값)");
                         }
 
                         // PACKAGE_ITEMS가 빈 문자열이면 null로 설정
@@ -292,7 +294,7 @@ public class ProductAdminController {
                         // 2단계: 기간제 상품의 conditions를 "시작일로부터 X일" 형식으로 업데이트
                         Integer validDays = product.getValidDays() != null && product.getValidDays() > 0
                                 ? product.getValidDays()
-                                : 30;
+                                : Product.defaultValidDays(product.getType());
                         String newConditions = "시작일로부터 " + validDays + "일";
                         String oldConditions = product.getConditions();
 
@@ -321,7 +323,7 @@ public class ProductAdminController {
                                 Product verifiedProduct = verified.get();
 
                                 // 기간제 상품의 경우 USAGE_COUNT가 null인지 확인
-                                if (product.getType() == Product.ProductType.MONTHLY_PASS) {
+                                if (Product.isPeriodPass(product.getType())) {
                                     if (verifiedProduct.getUsageCount() != null) {
                                         verificationPassed = false;
                                         logger.error("검증 실패: 기간제 상품의 USAGE_COUNT가 null이 아닙니다. ID={}, USAGE_COUNT={}",
@@ -488,8 +490,8 @@ public class ProductAdminController {
                         }
                     }
 
-                    // 기간제(MONTHLY_PASS) 처리
-                    if (product.getType() == Product.ProductType.MONTHLY_PASS) {
+                    // 기간제(월정기·1일권) 처리
+                    if (Product.isPeriodPass(product.getType())) {
                         // 규칙: 기간제는 VALID_DAYS 필수, USAGE_COUNT는 null
 
                         // USAGE_COUNT가 null이 아니면 무조건 null로 설정 (기간제 규칙)
@@ -502,12 +504,13 @@ public class ProductAdminController {
                                     product.getId(), product.getName(), oldUsageCount);
                         }
 
-                        // VALID_DAYS가 null이거나 0 이하면 기본값 30으로 설정
+                        // VALID_DAYS가 null이거나 0 이하면 유형 기본값
                         if (product.getValidDays() == null || product.getValidDays() <= 0) {
                             Integer oldValidDays = product.getValidDays();
-                            product.setValidDays(30);
+                            int defaultDays = Product.defaultValidDays(product.getType());
+                            product.setValidDays(defaultDays);
                             needsUpdate = true;
-                            fixes.add("VALID_DAYS: " + (oldValidDays != null ? oldValidDays : "null") + " → 30 (기간제 기본값)");
+                            fixes.add("VALID_DAYS: " + (oldValidDays != null ? oldValidDays : "null") + " → " + defaultDays + " (기간제 기본값)");
                         }
 
                         // PACKAGE_ITEMS가 빈 문자열이면 null로 설정

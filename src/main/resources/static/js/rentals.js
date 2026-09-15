@@ -80,7 +80,13 @@ function getCoachColors(bookings) {
     const colors = new Set();
     bookings.forEach(booking => {
         // 예약에 직접 할당된 코치 또는 회원의 코치
-        const coach = booking.coach || (booking.member && booking.member.coach ? booking.member.coach : null);
+        const coach = typeof App.coachForCalendarStripeColor === 'function'
+            ? App.coachForCalendarStripeColor(booking)
+            : (booking.coach && booking.coach.active !== false
+                ? booking.coach
+                : (booking.member && booking.member.coach && booking.member.coach.active !== false
+                    ? booking.member.coach
+                    : null));
         if (coach) {
             const color = getCoachColor(coach);
             if (color) colors.add(color);
@@ -1027,6 +1033,21 @@ async function renderCalendar() {
     } catch (error) {
         App.err('예약 데이터 로드 실패:', error);
     }
+
+    let branchClosuresSet = {};
+    try {
+        const ymd = (d) =>
+            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        if (typeof App.loadBranchClosuresSet === 'function') {
+            branchClosuresSet = await App.loadBranchClosuresSet(
+                window.BOOKING_PAGE_CONFIG || { branch: 'RENTAL', facilityType: 'RENTAL' },
+                ymd(startDate),
+                ymd(endDate)
+            );
+        }
+    } catch (e) {
+        App.warn('대관 휴무일 로드 생략:', e);
+    }
     
     // 날짜 셀
     const today = new Date();
@@ -1090,7 +1111,18 @@ async function renderCalendar() {
         const dayNumber = document.createElement('div');
         dayNumber.className = 'calendar-day-number';
         dayNumber.textContent = current.getDate();
-        dayHeader.appendChild(dayNumber);
+        const dk = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+        const dayNumCol = document.createElement('div');
+        dayNumCol.style.display = 'flex';
+        dayNumCol.style.flexDirection = 'column';
+        dayNumCol.style.alignItems = 'flex-start';
+        dayNumCol.style.minWidth = '0';
+        dayNumCol.appendChild(dayNumber);
+        if (typeof App.markBranchClosedDay === 'function') {
+            const closedLabel = App.markBranchClosedDay(dayCell, dk, branchClosuresSet);
+            if (closedLabel) dayNumCol.appendChild(closedLabel);
+        }
+        dayHeader.appendChild(dayNumCol);
         
         // 날짜별 스케줄 보기 아이콘 (예약이 있는 날짜에만 표시)
         if (dayBookings.length > 0) {
@@ -1171,6 +1203,9 @@ async function renderCalendar() {
                 
                 event.style.backgroundColor = eventColor;
                 event.style.borderLeft = `3px solid ${eventColor}`;
+                if (typeof App.applyMissingPassCalendarStyle === 'function') {
+                    App.applyMissingPassCalendarStyle(event, booking);
+                }
                 
                 // 상태에 따라 아이콘 표시 추가 (완료 동그라미는 COMPLETED일 때만 표시 — 삭제 후 재예약 시 종료시간만 지났다고 표시 안 함)
                 const status = booking.status || 'PENDING';
@@ -1198,8 +1233,8 @@ async function renderCalendar() {
                     event.innerHTML = `${timeStr}${namePart}`;
                 }
                 
-                // 드래그 앤 드롭 기능 추가
-                event.draggable = true;
+                // 드래그 앤 드롭 기능 추가 (터치 기기에서는 탭으로 열리도록 비활성)
+                event.draggable = !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
                 event.setAttribute('data-booking-id', booking.id);
                 
                 // 드래그 시작
@@ -1442,7 +1477,7 @@ function renderDaySchedule(bookings) {
         const statusText = App.Status.booking.getText(status);
         
         return `
-            <tr>
+            <tr${typeof App.bookingMissingPassRowAttr === 'function' ? App.bookingMissingPassRowAttr(booking) : ''}>
                 <td>${dateStr}</td>
                 <td>${timeStr}</td>
                 <td>${facilityName}</td>
@@ -1607,7 +1642,7 @@ function renderBookingsTable(bookings) {
         const status = booking.status || 'PENDING';
         
         return `
-        <tr>
+        <tr${typeof App.bookingMissingPassRowAttr === 'function' ? App.bookingMissingPassRowAttr(booking) : ''}>
             <td>${dateStr}</td>
             <td>${timeStr}</td>
             <td>${facilityName}</td>
@@ -1618,8 +1653,8 @@ function renderBookingsTable(bookings) {
                 ${status === 'PENDING' ? `<button class="btn btn-xs btn-success ml-2" onclick="approveBooking(${booking.id})" title="확인">✓</button>` : ''}
             </td>
             <td>
-                <button class="btn btn-sm btn-secondary" onclick="editBooking(${booking.id})">수정</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteBooking(${booking.id})">삭제</button>
+                <button class="btn btn-sm btn-secondary" onclick="editBooking(${booking.id})">${typeof App.isPastMidnightBookingLocked === 'function' && App.isPastMidnightBookingLocked(booking) ? '보기' : '수정'}</button>
+                ${typeof App.isPastMidnightBookingLocked === 'function' && App.isPastMidnightBookingLocked(booking) ? '' : `<button class="btn btn-sm btn-danger" onclick="deleteBooking(${booking.id})">삭제</button>`}
             </td>
         </tr>
         `;
@@ -1783,7 +1818,11 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
         document.getElementById('selected-member-number').value = memberNumber; // memberNumber 저장
         
         // 회원 정보 표시
-        document.getElementById('member-info-name').textContent = member.name || '-';
+        if (typeof App.setBookingModalMemberName === 'function') {
+            App.setBookingModalMemberName(member.name || '-', member.id);
+        } else {
+            document.getElementById('member-info-name').textContent = member.name || '-';
+        }
         document.getElementById('member-info-phone').textContent = member.phoneNumber || '-';
         document.getElementById('member-info-grade').textContent = getGradeText(member.grade) || '-';
         document.getElementById('member-info-school').textContent = member.school || '-';
@@ -2386,6 +2425,12 @@ async function openQuickBookingModalForEdit(id) {
         }
         
         App.Modal.open('quick-booking-modal');
+        if (typeof App.applyPastMidnightBookingLock === 'function') {
+            App.applyPastMidnightBookingLock(booking, {
+                modalId: 'quick-booking-modal',
+                deleteBtnId: 'quick-booking-delete-btn'
+            });
+        }
         
         App.log('[빠른 예약 수정] 데이터 로드 완료:', {
             name: booking.nonMemberName,
@@ -2407,6 +2452,13 @@ async function openQuickBookingModalForEdit(id) {
 async function saveQuickBooking() {
     const bookingId = document.getElementById('quick-booking-id')?.value?.trim();
     const isEditMode = !!bookingId;
+    if (isEditMode) {
+        var qLock = document.querySelector('#quick-booking-modal .past-midnight-booking-lock-note');
+        if (qLock && qLock.style.display !== 'none') {
+            App.showNotification(App.PAST_MIDNIGHT_BOOKING_LOCK_MSG, 'warning');
+            return;
+        }
+    }
     
     // 저장 시점에 폼에서 직접 읽어 반영
     const quickMemberId = (document.getElementById('quick-selected-member-id')?.value || '').trim();
@@ -2429,8 +2481,23 @@ async function saveQuickBooking() {
     
     // 필수 필드 검증: 회원 선택 시 이용권 필수, 비회원 시 이름 필수
     if (isMemberBooking) {
-        if (!memberProductId) {
-            App.showNotification('사용할 상품/이용권을 선택해주세요.', 'danger');
+        const quickPassSelect = document.getElementById('quick-booking-member-product');
+        const quickPassOption = quickPassSelect && quickPassSelect.selectedIndex >= 0
+            ? quickPassSelect.options[quickPassSelect.selectedIndex]
+            : null;
+        const quickPassErr = typeof App.assertMemberPassForSave === 'function'
+            ? App.assertMemberPassForSave({
+                isMember: true,
+                memberProductId: memberProductId,
+                productType: quickPassOption && quickPassOption.dataset ? quickPassOption.dataset.productType : null,
+                remainingCount: quickPassOption && quickPassOption.dataset ? quickPassOption.dataset.remainingCount : null,
+                totalCount: quickPassOption && quickPassOption.dataset ? quickPassOption.dataset.totalCount : null,
+                isNew: !isEditMode,
+                isCopy: false
+            })
+            : (!memberProductId ? '이용권을 확인해 주세요.' : null);
+        if (quickPassErr) {
+            App.showNotification(quickPassErr, 'danger');
             return;
         }
     } else {
@@ -2561,7 +2628,11 @@ async function openDetailBookingModal() {
         if (quickMemberId) {
             var mem = await App.api.get('/members/' + quickMemberId).catch(function() { return null; });
             if (mem) {
-                document.getElementById('member-info-name').textContent = mem.name || '-';
+                if (typeof App.setBookingModalMemberName === 'function') {
+                    App.setBookingModalMemberName(mem.name || '-', mem.id);
+                } else {
+                    document.getElementById('member-info-name').textContent = mem.name || '-';
+                }
                 document.getElementById('member-info-phone').textContent = mem.phoneNumber || '-';
                 document.getElementById('member-info-grade').textContent = getGradeText(mem.grade) || '-';
                 document.getElementById('member-info-school').textContent = mem.school || '-';
@@ -2689,6 +2760,9 @@ function openBookingModal(id = null) {
         if (deleteBtn) {
             deleteBtn.style.display = 'none';
             deleteBtn.removeAttribute('data-booking-id');
+        }
+        if (typeof App.applyPastMidnightBookingLock === 'function') {
+            App.applyPastMidnightBookingLock(null);
         }
         
         // 예약 등록 버튼에 active 클래스 추가
@@ -2875,7 +2949,11 @@ async function loadBookingData(id) {
         if (booking.member) {
             const showPriv = typeof App.shouldShowMemberNameOnBookingCalendar !== 'function' || App.shouldShowMemberNameOnBookingCalendar();
             window.__bookingPrivacySnapshot = null;
-            document.getElementById('member-info-name').textContent = showPriv ? (booking.member.name || '-') : '-';
+            if (typeof App.setBookingModalMemberName === 'function') {
+                App.setBookingModalMemberName(showPriv ? (booking.member.name || '-') : '-', showPriv ? booking.member.id : null);
+            } else {
+                document.getElementById('member-info-name').textContent = showPriv ? (booking.member.name || '-') : '-';
+            }
             document.getElementById('member-info-phone').textContent = showPriv ? (booking.member.phoneNumber || '-') : '-';
             document.getElementById('member-info-grade').textContent = showPriv ? (getGradeText(booking.member.grade) || '-') : '-';
             document.getElementById('member-info-school').textContent = showPriv ? (booking.member.school || '-') : '-';
@@ -3036,6 +3114,9 @@ async function loadBookingData(id) {
         if (typeof App.applyBookingCoachEditPolicy === 'function') {
             App.applyBookingCoachEditPolicy();
         }
+        if (typeof App.applyPastMidnightBookingLock === 'function') {
+            App.applyPastMidnightBookingLock(booking);
+        }
     } catch (error) {
         App.showNotification('예약 정보를 불러오는데 실패했습니다.', 'danger');
     }
@@ -3047,6 +3128,14 @@ function editBooking(id) {
 }
 
 async function saveBooking() {
+    var existingIdEl = document.getElementById('booking-id');
+    if (existingIdEl && existingIdEl.value) {
+        var lockNote = document.querySelector('#booking-modal .past-midnight-booking-lock-note');
+        if (lockNote && lockNote.style.display !== 'none') {
+            App.showNotification(App.PAST_MIDNIGHT_BOOKING_LOCK_MSG, 'warning');
+            return;
+        }
+    }
     const date = document.getElementById('booking-date').value;
     const startTime = document.getElementById('booking-start-time').value;
     const endTime = document.getElementById('booking-end-time').value;
@@ -3129,23 +3218,27 @@ async function saveBooking() {
         return;
     }
     
-    // 회원 예약인 경우 상품/이용권 선택 필수
-    if ((memberNumber || memberId) && !memberProductId) {
-        App.showNotification('사용할 상품/이용권을 선택해주세요.', 'danger');
+    // 회원 예약인 경우 이용권 필수. 횟수권 잔여 0은 신규만 차단(수정은 이용권만 있으면 저장)
+    const bookingIdForPass = document.getElementById('booking-id') ? document.getElementById('booking-id').value.trim() : '';
+    const isNewBookingForPass = !bookingIdForPass;
+    const productSelectForPass = document.getElementById('booking-member-product');
+    const selectedPassOption = productSelectForPass && productSelectForPass.selectedIndex >= 0
+        ? productSelectForPass.options[productSelectForPass.selectedIndex]
+        : null;
+    const passErr = typeof App.assertMemberPassForSave === 'function'
+        ? App.assertMemberPassForSave({
+            isMember: !!(memberNumber || memberId),
+            memberProductId: memberProductId,
+            productType: selectedPassOption && selectedPassOption.dataset ? selectedPassOption.dataset.productType : null,
+            remainingCount: selectedPassOption && selectedPassOption.dataset ? selectedPassOption.dataset.remainingCount : null,
+            totalCount: selectedPassOption && selectedPassOption.dataset ? selectedPassOption.dataset.totalCount : null,
+            isNew: isNewBookingForPass,
+            isCopy: false
+        })
+        : ((memberNumber || memberId) && !memberProductId ? '이용권을 확인해 주세요.' : null);
+    if (passErr) {
+        App.showNotification(passErr, 'danger');
         return;
-    }
-    
-    // 상품 선택 시 횟수권 잔여 횟수 확인
-    if (memberProductId) {
-        const productSelect = document.getElementById('booking-member-product');
-        const selectedOption = productSelect.options[productSelect.selectedIndex];
-        const productType = selectedOption.dataset.productType;
-        const remainingCount = parseInt(selectedOption.dataset.remainingCount) || 0;
-        
-        if (productType === 'COUNT_PASS' && remainingCount <= 0) {
-            App.showNotification('선택한 횟수권의 잔여 횟수가 없습니다.', 'danger');
-            return;
-        }
     }
     
     // 날짜와 시간 결합 (ISO 8601 형식)
@@ -3280,7 +3373,9 @@ async function saveBooking() {
         }
     } catch (error) {
         App.err('예약 저장 실패:', error);
-        App.showNotification('저장에 실패했습니다. 필수 정보를 확인해주세요.', 'danger');
+        App.showNotification(typeof App.getApiErrorMessage === 'function'
+            ? App.getApiErrorMessage(error)
+            : '저장에 실패했습니다. 필수 정보를 확인해주세요.', 'danger');
     }
 }
 
@@ -3419,7 +3514,11 @@ async function deleteBooking(id) {
         }
     } catch (error) {
         App.err('예약 삭제 실패:', error);
-        App.showNotification('삭제에 실패했습니다.', 'danger');
+        if (typeof App.showApiError === 'function') {
+            App.showApiError(error);
+        } else {
+            App.showNotification('삭제에 실패했습니다.', 'danger');
+        }
     }
 }
 

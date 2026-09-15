@@ -3,6 +3,7 @@
 document.addEventListener('DOMContentLoaded', function() {
     loadSettings();
     initCalendarDayMarksAdminSection();
+    initBranchClosuresAdminSection();
 });
 
 async function loadSettings() {
@@ -120,8 +121,9 @@ async function refreshCalendarMarksList() {
             var btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'btn btn-secondary';
-            btn.style.padding = '4px 10px';
+            btn.style.padding = '4px 12px';
             btn.style.fontSize = '12px';
+            btn.style.whiteSpace = 'nowrap';
             btn.textContent = '불러오기';
             btn.addEventListener('click', function () {
                 document.getElementById('calendar-mark-date').value = k;
@@ -190,5 +192,164 @@ async function deleteCalendarDayMark() {
     } catch (error) {
         App.err('달력 표시 삭제 실패:', error);
         App.showNotification('삭제에 실패했습니다.', 'danger');
+    }
+}
+
+function selectedBranchClosureTarget() {
+    var el = document.getElementById('branch-closures-branch');
+    var v = el && el.value ? String(el.value).toUpperCase() : 'SAHA';
+    if (v !== 'YEONSAN' && v !== 'NON_BASEBALL') v = 'SAHA';
+    return { group: v };
+}
+
+function branchClosureTargetLabel(target) {
+    var g = (target && target.group) || selectedBranchClosureTarget().group;
+    if (g === 'YEONSAN') return '연산';
+    if (g === 'NON_BASEBALL') return '비 야구파트';
+    return '사하';
+}
+
+function initBranchClosuresAdminSection() {
+    var card = document.getElementById('branch-closures-card');
+    if (!card) return;
+    var role = App.currentUser ? String(App.currentUser.role || '').toUpperCase() : '';
+    if (role !== 'ADMIN' && role !== 'MANAGER') {
+        return;
+    }
+    card.style.display = '';
+    var monthInput = document.getElementById('branch-closures-month');
+    if (monthInput && !monthInput.value) {
+        var d = new Date();
+        monthInput.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    }
+    if (monthInput) {
+        monthInput.addEventListener('change', function () {
+            refreshBranchClosuresList();
+        });
+    }
+    var branchEl = document.getElementById('branch-closures-branch');
+    if (branchEl) {
+        branchEl.addEventListener('change', function () {
+            refreshBranchClosuresList();
+        });
+    }
+    refreshBranchClosuresList();
+}
+
+async function refreshBranchClosuresList() {
+    var tbody = document.getElementById('branch-closures-list-body');
+    var monthEl = document.getElementById('branch-closures-month');
+    if (!tbody || !monthEl) return;
+    var ym = monthEl.value;
+    if (!ym) {
+        tbody.innerHTML =
+            '<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 12px;">월을 선택하세요.</td></tr>';
+        return;
+    }
+    tbody.innerHTML =
+        '<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 12px;">불러오는 중…</td></tr>';
+    var y = parseInt(ym.slice(0, 4), 10);
+    var mo = parseInt(ym.slice(5, 7), 10);
+    var start = ym + '-01';
+    var lastDay = new Date(y, mo, 0).getDate();
+    var end = ym + '-' + String(lastDay).padStart(2, '0');
+    var target = selectedBranchClosureTarget();
+    try {
+        var list = await App.api.get(
+            '/branch-closures?group=' + encodeURIComponent(target.group) +
+            '&startDate=' + encodeURIComponent(start) +
+            '&endDate=' + encodeURIComponent(end)
+        );
+        tbody.innerHTML = '';
+        if (!list || list.length === 0) {
+            tbody.innerHTML =
+                '<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 12px;">지정된 휴무일이 없습니다.</td></tr>';
+            return;
+        }
+        list.forEach(function (row) {
+            var k = row && row.closureDate ? String(row.closureDate) : '';
+            if (!k) return;
+            var tr = document.createElement('tr');
+            var tdDate = document.createElement('td');
+            tdDate.textContent = k;
+            var tdMark = document.createElement('td');
+            tdMark.textContent = '휴무';
+            var tdAct = document.createElement('td');
+            var loadBtn = document.createElement('button');
+            loadBtn.type = 'button';
+            loadBtn.className = 'btn btn-secondary';
+            loadBtn.style.padding = '4px 12px';
+            loadBtn.style.fontSize = '12px';
+            loadBtn.style.whiteSpace = 'nowrap';
+            loadBtn.style.marginRight = '6px';
+            loadBtn.textContent = '불러오기';
+            loadBtn.addEventListener('click', function () {
+                document.getElementById('branch-closure-date').value = k;
+            });
+            var delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'btn btn-danger';
+            delBtn.style.padding = '4px 12px';
+            delBtn.style.fontSize = '12px';
+            delBtn.style.whiteSpace = 'nowrap';
+            delBtn.textContent = '해제';
+            delBtn.addEventListener('click', function () {
+                document.getElementById('branch-closure-date').value = k;
+                deleteBranchClosure();
+            });
+            tdAct.appendChild(loadBtn);
+            tdAct.appendChild(delBtn);
+            tr.appendChild(tdDate);
+            tr.appendChild(tdMark);
+            tr.appendChild(tdAct);
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        App.err('지점 휴무 목록 로드 실패:', e);
+        tbody.innerHTML =
+            '<tr><td colspan="3" style="text-align: center; color: var(--danger); padding: 12px;">목록을 불러오지 못했습니다.</td></tr>';
+    }
+}
+
+async function saveBranchClosure() {
+    var dateStr = document.getElementById('branch-closure-date') && document.getElementById('branch-closure-date').value;
+    if (!dateStr) {
+        App.showNotification('날짜를 선택하세요.', 'warning');
+        return;
+    }
+    try {
+        var target = selectedBranchClosureTarget();
+        await App.api.put('/branch-closures', {
+            group: target.group,
+            closureDate: dateStr
+        });
+        App.showNotification('휴무로 지정했습니다.', 'success');
+        await refreshBranchClosuresList();
+    } catch (error) {
+        App.err('지점 휴무 저장 실패:', error);
+        var msg = '저장에 실패했습니다.';
+        if (error.response && error.response.data && error.response.data.error) msg = error.response.data.error;
+        App.showNotification(msg, 'danger');
+    }
+}
+
+async function deleteBranchClosure() {
+    var dateStr = document.getElementById('branch-closure-date') && document.getElementById('branch-closure-date').value;
+    if (!dateStr) {
+        App.showNotification('해제할 날짜를 선택하세요.', 'warning');
+        return;
+    }
+    var target = selectedBranchClosureTarget();
+    if (!confirm(branchClosureTargetLabel(target) + ' ' + dateStr + ' 휴무를 해제할까요?')) return;
+    try {
+        await App.api.delete(
+            '/branch-closures/' + encodeURIComponent(target.group) +
+            '/' + encodeURIComponent(dateStr)
+        );
+        App.showNotification('휴무를 해제했습니다.', 'success');
+        await refreshBranchClosuresList();
+    } catch (error) {
+        App.err('지점 휴무 삭제 실패:', error);
+        App.showNotification('해제에 실패했습니다.', 'danger');
     }
 }

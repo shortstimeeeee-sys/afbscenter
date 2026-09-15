@@ -1,0 +1,306 @@
+/*
+ * 사이드바는 position:fixed 라 본문이 넘치면 오른쪽으로 밀린다.
+ * 다른 페이지와 같이 남은 폭만 쓰고, 표는 구역 안에서만 가로 스크롤한다.
+ */
+body.staff-attendance-page .main-content {
+    min-width: 0;
+    width: calc(100% - 260px);
+    max-width: calc(100% - 260px);
+    overflow-x: hidden;
+}
+body.staff-attendance-page .content-area {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+body.staff-attendance-page .topbar {
+    min-width: 0;
+    max-width: 100%;
+}
+@media (max-width: 992px) {
+    body.staff-attendance-page .main-content {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
+.staff-att-hint {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin: 0 0 16px;
+}
+.staff-att-card {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+}
+.staff-att-kpis {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.staff-att-kpi {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+}
+.staff-att-kpi-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+.staff-att-kpi-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.staff-att-kpi.is-work .staff-att-kpi-value { color: var(--success); }
+.staff-att-kpi.is-out .staff-att-kpi-value { color: var(--info); }
+.staff-att-kpi.is-off .staff-att-kpi-value { color: var(--warning); }
+.staff-att-kpi.is-empty .staff-att-kpi-value { color: var(--text-muted); }
+.staff-att-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.staff-att-month {
+    min-width: 120px;
+    text-align: center;
+    font-weight: 600;
+}
+.staff-att-search {
+    width: 200px;
+    max-width: 100%;
+}
+.staff-att-table-wrap {
+    overflow: auto;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    max-height: calc(100vh - 280px);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-secondary);
+}
+.staff-att-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    min-width: 100%;
+    font-size: 12px;
+    background: var(--bg-secondary);
+}
+.staff-att-gap td {
+    height: 14px;
+    padding: 0 !important;
+    border: none !important;
+    background: var(--bg-tertiary);
+    pointer-events: none;
+}
+.staff-att-gap .staff-att-name {
+    background: var(--bg-tertiary);
+}
+.staff-att-table th,
+.staff-att-table td {
+    border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+    padding: 6px 4px;
+    text-align: center;
+    white-space: nowrap;
+}
+.staff-att-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--bg-tertiary);
+    font-weight: 600;
+    color: var(--text-secondary);
+    line-height: 1.2;
+}
+.staff-att-day-mark {
+    display: block;
+    width: fit-content;
+    margin: 3px auto 0;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.3;
+    color: #80cbc4;
+    background: rgba(0, 150, 136, 0.32);
+}
+.staff-att-day-mark.is-off-mark {
+    color: #ef9a9a;
+    background: rgba(211, 47, 47, 0.38);
+}
+.staff-att-day-memo {
+    display: block;
+    width: fit-content;
+    max-width: 62px;
+    margin: 3px auto 0;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #ef9a9a;
+    background: rgba(211, 47, 47, 0.38);
+}
+.staff-att-table th.is-sun,
+.staff-att-table td.is-sun,
+.staff-att-table th.is-holiday,
+.staff-att-table td.is-holiday { color: #d32f2f; }
+.staff-att-table th.is-sat,
+.staff-att-table td.is-sat { color: #1976d2; }
+.staff-att-table th.is-today {
+    color: var(--accent-primary);
+    box-shadow: inset 0 -2px 0 var(--accent-primary);
+}
+.staff-att-table th.staff-att-day {
+    cursor: pointer;
+    user-select: none;
+}
+.staff-att-table th.staff-att-day:hover {
+    background: var(--bg-hover);
+}
+.staff-att-table th.staff-att-day.is-all-off,
+.staff-att-table td.is-all-off {
+    background: rgba(211, 47, 47, 0.28);
+    color: #ef9a9a;
+}
+.staff-att-table th.staff-att-day.is-all-off:hover,
+.staff-att-table td.is-all-off:hover {
+    background: rgba(211, 47, 47, 0.4);
+}
+.staff-att-table th.is-sun .staff-att-day-mark,
+.staff-att-table th.is-holiday .staff-att-day-mark,
+.staff-att-table th.is-sat .staff-att-day-mark,
+.staff-att-table th.is-today .staff-att-day-mark {
+    color: #80cbc4;
+    background: rgba(0, 150, 136, 0.32);
+}
+.staff-att-table th.is-sun .staff-att-day-mark.is-off-mark,
+.staff-att-table th.is-holiday .staff-att-day-mark.is-off-mark,
+.staff-att-table th.is-sat .staff-att-day-mark.is-off-mark,
+.staff-att-table th.is-today .staff-att-day-mark.is-off-mark,
+.staff-att-table th.is-all-off .staff-att-day-mark.is-off-mark,
+.staff-att-table th.is-sun .staff-att-day-memo,
+.staff-att-table th.is-holiday .staff-att-day-memo,
+.staff-att-table th.is-sat .staff-att-day-memo,
+.staff-att-table th.is-today .staff-att-day-memo,
+.staff-att-table th.is-all-off .staff-att-day-memo {
+    color: #ef9a9a;
+    background: rgba(211, 47, 47, 0.38);
+}
+.staff-att-mark-choices {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.staff-att-mark-btn {
+    padding: 16px 12px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.staff-att-mark-btn.is-off {
+    background: rgba(211, 47, 47, 0.18);
+    border-color: rgba(211, 47, 47, 0.45);
+    color: #ef9a9a;
+}
+.staff-att-mark-btn.is-outdoor {
+    background: rgba(0, 150, 136, 0.18);
+    border-color: rgba(0, 150, 136, 0.45);
+    color: #80cbc4;
+}
+.staff-att-mark-btn.is-current {
+    box-shadow: inset 0 0 0 2px var(--accent-primary);
+}
+#staff-att-edit-modal .modal,
+#staff-att-day-mark-modal .modal {
+    height: auto;
+    max-height: none;
+    min-height: 0;
+}
+.staff-att-name {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    text-align: left !important;
+    min-width: 148px;
+    max-width: 180px;
+    padding: 8px 12px !important;
+    background: var(--bg-secondary);
+    font-weight: 600;
+}
+.staff-att-table thead .staff-att-name {
+    z-index: 4;
+    background: var(--bg-tertiary);
+}
+.staff-att-name-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+.staff-att-name-sub {
+    display: block;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+.staff-att-month-sum {
+    color: var(--text-muted);
+    font-size: 11px;
+    min-width: 72px;
+}
+.staff-att-cell {
+    min-width: 64px;
+    cursor: pointer;
+    background: var(--bg-secondary);
+}
+.staff-att-cell:hover {
+    background: var(--bg-hover);
+}
+.staff-att-cell.is-work {
+    background: color-mix(in srgb, var(--staff-color, #5E6AD2) 22%, transparent);
+}
+.staff-att-cell.is-working {
+    background: color-mix(in srgb, var(--staff-color, #5E6AD2) 32%, transparent);
+}
+.staff-att-cell.is-work:hover,
+.staff-att-cell.is-working:hover {
+    background: color-mix(in srgb, var(--staff-color, #5E6AD2) 42%, transparent);
+}
+.staff-att-cell.is-off { background: rgba(211, 47, 47, 0.22); }
+.staff-att-cell.is-sick { background: rgba(231, 76, 60, 0.14); }
+.staff-att-cell.is-today { outline: 1px solid var(--accent-primary); }
+.staff-att-time {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.staff-att-empty {
+    color: var(--text-muted);
+}
+.staff-att-modal-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+@media (max-width: 900px) {
+    .staff-att-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .staff-att-modal-row { grid-template-columns: 1fr; }
+    .staff-att-table-wrap { max-height: none; }
+}

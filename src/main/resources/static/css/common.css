@@ -1262,6 +1262,17 @@ body.green-gold-white-theme .btn-primary:hover {
     color: white;
 }
 
+.btn-warning {
+    background-color: rgba(241, 196, 15, 0.2);
+    color: var(--warning);
+    border: 1px solid rgba(241, 196, 15, 0.45);
+}
+
+.btn-warning:hover {
+    background-color: rgba(241, 196, 15, 0.35);
+    color: var(--warning);
+}
+
 .btn-danger {
     background-color: var(--danger);
     color: white;
@@ -1452,6 +1463,26 @@ body.green-gold-white-theme .table tbody tr:hover {
 
 .table tbody tr:hover {
     background-color: var(--bg-tertiary);
+}
+
+.table tbody tr.booking-missing-pass td {
+    background-color: #E74C3C !important;
+    color: #fff;
+}
+
+.table tbody tr.booking-missing-pass:hover td {
+    background-color: #c0392b !important;
+    color: #fff;
+}
+
+body.unlinked-pass-admin .table tbody tr.booking-missing-pass td {
+    background-color: transparent !important;
+    color: var(--text-primary) !important;
+}
+
+body.unlinked-pass-admin .table tbody tr.booking-missing-pass:hover td {
+    background-color: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
 }
 
 .table tbody tr:last-child td {
@@ -1688,9 +1719,174 @@ body.green-gold-white-theme .kpi-card:hover {
     color: var(--danger);
 }
 
-/* 연산점 야구(유소년) 메뉴 숨김 */
-a[href="/bookings-yeonsan-youth.html"] {
-    display: none !important;
+#kpi-bookings-by-branch {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    margin-top: 2px;
+    color: var(--success);
+    font-size: 11px;
+    line-height: 1.35;
+    white-space: normal;
+}
+
+.kpi-studio-line b {
+    font-weight: 800;
+    color: var(--success);
+}
+
+.kpi-studio-sep {
+    margin: 0 7px;
+    font-weight: 400;
+    color: var(--success);
+    opacity: 0.45;
+}
+
+.kpi-studio-detail {
+    font-weight: 400;
+    color: var(--success);
+    font-variant-numeric: tabular-nums;
+}
+
+.kpi-studio-row {
+    width: 100%;
+    min-width: 0;
+    padding: 8px 10px 9px;
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-left-width: 3px;
+    border-left-style: solid;
+}
+
+.kpi-studio-row--saha {
+    border-left-color: #2FA36B;
+    background: linear-gradient(90deg, rgba(47, 163, 107, 0.12) 0%, var(--bg-tertiary) 42%);
+}
+
+.kpi-studio-row--yeonsan {
+    border-left-color: #D4A017;
+    background: linear-gradient(90deg, rgba(212, 160, 23, 0.12) 0%, var(--bg-tertiary) 42%);
+}
+
+.kpi-studio-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    padding-bottom: 6px;
+    margin-bottom: 7px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+body.light-mode .kpi-studio-head,
+body.green-gold-white-theme .kpi-studio-head {
+    border-bottom-color: var(--border-color);
+}
+
+.kpi-studio-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+    text-transform: none;
+}
+
+.kpi-studio-total,
+.kpi-studio-name strong,
+.kpi-studio-modal-title strong {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+
+.kpi-studio-stats {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 2px 6px;
+}
+
+.kpi-studio-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 0;
+    gap: 1px;
+}
+
+.kpi-studio-stat em {
+    font-style: normal;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+}
+
+.kpi-studio-stat b {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.kpi-studio-stat.is-zero em,
+.kpi-studio-stat.is-zero b {
+    opacity: 0.42;
+}
+
+.kpi-studio-modal-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.kpi-studio-modal-card {
+    flex: 1 1 280px;
+    padding: 12px 14px 14px;
+}
+
+.kpi-studio-modal-title {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    text-decoration: none;
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 13px;
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+body.light-mode .kpi-studio-modal-title,
+body.green-gold-white-theme .kpi-studio-modal-title {
+    border-bottom-color: var(--border-color);
+}
+
+.kpi-studio-modal-card .kpi-studio-stats {
+    margin-top: 0;
+}
+
+.kpi-studio-modal-card .kpi-studio-stat em {
+    font-size: 11px;
+}
+
+.kpi-studio-modal-card .kpi-studio-stat b {
+    font-size: 13px;
+}
+
+.kpi-studio-modal-card .non-member-link {
+    cursor: pointer;
+}
+
+.kpi-studio-modal-card .non-member-link em {
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
 /* ========================================
@@ -1764,12 +1960,32 @@ a[href="/bookings-yeonsan-youth.html"] {
     align-items: center;
     justify-content: center;
     overflow: hidden; /* 오버레이 자체는 스크롤 없음 */
-    /* 터치 제스처 방지 - 오버레이 부분만 */
-    touch-action: pan-y pinch-zoom; /* 수직 스크롤과 핀치 줌만 허용 */
+    /* 배경 가로 스와이프는 JS에서 처리. 본문 스크롤은 .modal에 맡김 */
+    touch-action: auto;
 }
 
 .modal-overlay.active {
     display: flex;
+}
+
+#member-info-modal {
+    z-index: 2100;
+}
+
+.booking-member-name-link {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    font-weight: 600;
+    color: var(--accent-primary);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+.booking-member-name-link:hover {
+    opacity: 0.85;
 }
 
 .modal {
@@ -1779,14 +1995,16 @@ a[href="/bookings-yeonsan-youth.html"] {
     width: 92%;
     max-width: 720px;
     height: 88vh;
+    height: 88dvh;
     max-height: 88vh;
+    max-height: 88dvh;
     min-height: 200px;
     display: flex;
     flex-direction: column;
     overflow: hidden !important;
     overflow-x: hidden !important;
     overflow-y: hidden !important;
-    touch-action: pan-y;
+    touch-action: auto;
     flex-shrink: 0; /* 오버레이 안에서 모달이 줄어들지 않게 */
 }
 
@@ -1850,6 +2068,8 @@ body.green-gold-white-theme .modal-title {
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: pan-y pan-x;
 }
 
 /* 본문 안에 .table-container가 있으면 테이블 영역만 스크롤 (모달 전체 스크롤 방지) */
@@ -2230,6 +2450,7 @@ body.green-gold-white-theme ::-webkit-scrollbar-track {
     .table-container {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
+        touch-action: pan-x pan-y;
     }
     .table-container table {
         min-width: 600px;
@@ -2239,6 +2460,45 @@ body.green-gold-white-theme ::-webkit-scrollbar-track {
     }
     .card {
         padding: 12px;
+    }
+    .modal:not(.modal-compact) {
+        width: calc(100% - 16px);
+        max-width: 100%;
+        height: min(92dvh, 92vh);
+        max-height: min(92dvh, 92vh);
+        margin: max(8px, env(safe-area-inset-top, 0px)) 8px max(8px, env(safe-area-inset-bottom, 0px));
+    }
+    .modal-header {
+        padding: 16px;
+    }
+    .modal-body {
+        padding: 16px;
+    }
+    .modal-footer {
+        flex-wrap: wrap;
+        padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    }
+    .modal-footer .btn {
+        min-height: 44px;
+    }
+    #member-select-modal .modal {
+        width: calc(100% - 16px) !important;
+        max-width: none !important;
+        max-height: min(92dvh, 92vh);
+    }
+    #member-select-modal .table-container {
+        max-height: min(52dvh, 52vh) !important;
+    }
+    body.booking-page #booking-modal .modal,
+    body.rentals-page #booking-modal .modal,
+    body.rentals-page #quick-booking-modal .modal {
+        width: calc(100% - 16px);
+        max-width: 100%;
+    }
+    body.booking-page .form-control,
+    body.rentals-page .form-control {
+        font-size: 16px;
+        min-height: 44px;
     }
 }
 

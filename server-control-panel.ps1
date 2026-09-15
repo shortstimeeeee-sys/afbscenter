@@ -108,11 +108,12 @@ try {
 # Main form creation
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "AFBS Center Server Control Panel"
-$form.Size = New-Object System.Drawing.Size(350, 365)
+$form.Size = New-Object System.Drawing.Size(350, 410)
 $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
-$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedSingle
 $form.MaximizeBox = $false
-$form.MinimizeBox = $false
+$form.MinimizeBox = $true
+$form.ShowInTaskbar = $true
 $form.TopMost = $true
 
 # Title label
@@ -211,6 +212,18 @@ $btnNgrok.ForeColor = [System.Drawing.Color]::White
 $btnNgrok.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnNgrok.FlatAppearance.BorderSize = 0
 $form.Controls.Add($btnNgrok)
+
+# Minimize to Windows taskbar
+$btnMinimize = New-Object System.Windows.Forms.Button
+$btnMinimize.Text = "Minimize to taskbar"
+$btnMinimize.Size = New-Object System.Drawing.Size(300, 32)
+$btnMinimize.Location = New-Object System.Drawing.Point(20, 264)
+$btnMinimize.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+$btnMinimize.BackColor = [System.Drawing.Color]::FromArgb(52, 73, 94)
+$btnMinimize.ForeColor = [System.Drawing.Color]::White
+$btnMinimize.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnMinimize.FlatAppearance.BorderSize = 0
+$form.Controls.Add($btnMinimize)
 
 # Java process check function
 function Get-JavaProcess {
@@ -682,6 +695,19 @@ $btnNgrok.Add_Click({
     } catch {
         $errorMsg = "Cannot open browser.`n`n$($_.Exception.Message)"
         [System.Windows.Forms.MessageBox]::Show($errorMsg, "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    }
+})
+
+$btnMinimize.Add_Click({
+    $form.TopMost = $false
+    $form.WindowState = [System.Windows.Forms.FormWindowState]::Minimized
+})
+
+$form.Add_Resize({
+    if ($form.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
+        $form.TopMost = $false
+    } elseif ($form.WindowState -eq [System.Windows.Forms.FormWindowState]::Normal) {
+        $form.TopMost = $true
     }
 })
 

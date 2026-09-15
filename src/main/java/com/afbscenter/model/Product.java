@@ -81,6 +81,7 @@ public class Product {
         TIME_PASS,      // 시간권
         COUNT_PASS,     // 횟수권 (10회권 등)
         MONTHLY_PASS,   // 월정기
+        DAY_PASS,       // 1일권
         TEAM_PACKAGE    // 팀 대관 패키지
     }
 
@@ -90,6 +91,15 @@ public class Product {
         TRAINING,           // 트레이닝
         PILATES,            // 필라테스
         GENERAL,            // 일반/공통
-        RENTAL              // 대관
+        RENTAL,             // 대관
+        OUTDOOR_LESSON      // 야외레슨
+    }
+
+    public static boolean isPeriodPass(ProductType type) {
+        return type == ProductType.MONTHLY_PASS || type == ProductType.DAY_PASS;
+    }
+
+    public static int defaultValidDays(ProductType type) {
+        return type == ProductType.DAY_PASS ? 1 : 30;
     }
 }

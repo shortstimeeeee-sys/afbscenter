@@ -12,9 +12,9 @@ import java.time.LocalDate;
  * 횟수권(COUNT_PASS) 총·잔여 표시 규칙.
  * <ul>
  *   <li>총 횟수: 회원 구매 건 {@code totalCount} 우선, 없을 때만 상품 {@code usageCount}.</li>
- *   <li>잔여(조회): DB {@code remainingCount}가 있으면 그대로 사용 — 상품/총횟수만 바꿔도 잔여가 자동 조정되지 않음.</li>
+ *   <li>잔여(조회): DB {@code remainingCount}가 있으면 그대로 사용한다. 출석·예약 건수로 덮어쓰지 않는다.</li>
  *   <li>잔여가 null인 구 데이터만 출석·예약 기준으로 추정.</li>
- *   <li>명시적 재계산 API({@code /recalculate} 등)는 별도로 DB를 갱신함.</li>
+ *   <li>잔여 변경은 수동 조정과 수업 차감만 한다.</li>
  * </ul>
  */
 public final class MemberProductCountPassHelper {
@@ -40,22 +40,12 @@ public final class MemberProductCountPassHelper {
     }
 
     /**
-     * 목록·상세·이용권 API 조회용 잔여. 저장값 우선.
+     * 목록·상세·이용권 API 조회용 잔여. 저장된 remainingCount가 있으면 그대로 사용한다.
+     * 종료 예약 수·출석 건수로 잔여를 다시 맞추지 않는다.
      */
     public static int resolveRemainingForRead(MemberProduct mp, long memberId,
                                               AttendanceRepository attendanceRepository,
                                               BookingRepository bookingRepository) {
-        LocalDate today = LocalDate.now();
-        MemberProduct.Status st = mp.getStatus();
-        if (st == MemberProduct.Status.USED_UP) {
-            return 0;
-        }
-        if (st == MemberProduct.Status.EXPIRED) {
-            return 0;
-        }
-        if (mp.getExpiryDate() != null && mp.getExpiryDate().isBefore(today)) {
-            return 0;
-        }
         if (mp.getProduct() == null || mp.getProduct().getType() != Product.ProductType.COUNT_PASS) {
             Integer r = mp.getRemainingCount();
             return r != null ? Math.max(0, r) : 0;
@@ -63,6 +53,14 @@ public final class MemberProductCountPassHelper {
         Integer stored = mp.getRemainingCount();
         if (stored != null) {
             return Math.max(0, stored);
+        }
+        MemberProduct.Status st = mp.getStatus();
+        if (st == MemberProduct.Status.USED_UP || st == MemberProduct.Status.EXPIRED) {
+            return 0;
+        }
+        LocalDate today = LocalDate.now();
+        if (mp.getExpiryDate() != null && mp.getExpiryDate().isBefore(today)) {
+            return 0;
         }
         int totalCount = resolveTotalCount(mp);
         Long u1 = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(memberId, mp.getId());

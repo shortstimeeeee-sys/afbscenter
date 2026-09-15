@@ -894,7 +894,7 @@ public class MemberDetailController {
             logger.error("❌ 결제 생성 중 오류 발생: 회원 ID={}, 상품 ID={}, 오류: {}", 
                 memberId, productIdLong, e.getMessage(), e);
             // 결제 생성 실패해도 상품 할당은 계속 진행
-            // 누적 결제 금액은 MemberService에서 MemberProduct 기반으로 자동 계산됨
+            // 누적 결제 금액은 결제 기록의 (금액 − 환불액) 합계
             // 예외를 다시 던지지 않음 (상품 할당이 성공하도록 보장)
         }
     }

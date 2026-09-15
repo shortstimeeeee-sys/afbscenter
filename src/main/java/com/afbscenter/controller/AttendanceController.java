@@ -130,6 +130,7 @@ public class AttendanceController {
                     map.put("checkOutTime", attendance.getCheckOutTime());
                     map.put("status", attendance.getStatus() != null ? attendance.getStatus().name() : null);
                     map.put("memo", attendance.getMemo());
+                    map.put("midnightAutoCheckIn", AttendanceCheckController.isMidnightAutoCheckInMemo(attendance.getMemo()));
                     map.put("penaltyApplied", attendance.getPenaltyApplied());
                     // 레슨 카테고리·코치 필터용 (예약이 있을 때만)
                     if (attendance.getBooking() != null) {
@@ -321,6 +322,64 @@ public class AttendanceController {
         }
     }
 
+    /**
+     * 자정 경과 자동 체크인 취소. 출석 삭제 + (차감된 경우) 횟수 복구 + 예약을 노쇼로 바꿔 재자동체크인 방지.
+     * 관리자만 가능.
+     */
+    @PostMapping("/{id}/cancel-auto-checkin")
+    @Transactional
+    public ResponseEntity<java.util.Map<String, Object>> cancelMidnightAutoCheckIn(
+            @PathVariable Long id, HttpServletRequest request) {
+        String role = (String) request.getAttribute("role");
+        if (role == null || !"ADMIN".equals(role)) {
+            java.util.Map<String, Object> err = new java.util.HashMap<>();
+            err.put("error", "자정 자동 체크인 취소는 관리자만 사용할 수 있습니다.");
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(err);
+        }
+        Attendance attendance = attendanceRepository.findById(id).orElse(null);
+        if (attendance == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (!AttendanceCheckController.isMidnightAutoCheckInMemo(attendance.getMemo())) {
+            java.util.Map<String, Object> err = new java.util.HashMap<>();
+            err.put("error", "자정 경과 후 자동 체크인된 기록만 취소할 수 있습니다.");
+            return ResponseEntity.badRequest().body(err);
+        }
+        Long bookingId = attendance.getBooking() != null ? attendance.getBooking().getId() : null;
+        boolean restored;
+        try {
+            restored = restoreDeductionAndDeleteAttendance(attendance);
+        } catch (Exception e) {
+            logger.error("자정 자동 체크인 취소 중 출석 삭제 실패. ID: {}", id, e);
+            java.util.Map<String, Object> err = new java.util.HashMap<>();
+            err.put("error", "자동 체크인 취소 중 오류가 발생했습니다.");
+            return ResponseEntity.badRequest().body(err);
+        }
+        if (bookingId != null) {
+            markBookingNoShowForAutoCheckInCancel(bookingId);
+        }
+        String username = (String) request.getAttribute("username");
+        try {
+            java.util.Map<String, Object> detailsMap = new java.util.HashMap<>();
+            detailsMap.put("attendanceId", id);
+            detailsMap.put("bookingId", bookingId);
+            detailsMap.put("restoredCount", restored);
+            actionAuditLogRepository.save(ActionAuditLog.of(username, "CANCEL_MIDNIGHT_AUTO_CHECKIN",
+                    new ObjectMapper().writeValueAsString(detailsMap)));
+        } catch (Exception logEx) {
+            logger.warn("자정 자동 체크인 취소 감사 로그 저장 실패: {}", logEx.getMessage());
+        }
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        result.put("restoredCount", restored);
+        result.put("bookingId", bookingId);
+        result.put("message", restored
+                ? "자동 체크인을 취소했습니다. 이용권 1회를 복구했고, 예약은 노쇼로 바꿨습니다."
+                : "자동 체크인을 취소했습니다. 예약은 노쇼로 바꿨습니다.");
+        logger.info("자정 자동 체크인 취소: attendanceId={}, bookingId={}, restored={}, by={}",
+                id, bookingId, restored, username);
+        return ResponseEntity.ok(result);
+    }
+
     @DeleteMapping("/{id}")
     @Transactional
     public ResponseEntity<Void> deleteAttendance(@PathVariable Long id) {
@@ -329,11 +388,47 @@ public class AttendanceController {
             if (attendance == null) {
                 return ResponseEntity.notFound().build();
             }
-            // 체크인된 출석 삭제 시: 이용권 1회 복구 + 해당 DEDUCT 히스토리 삭제 (회원 상세 출석 내역에서 삭제해도 롤백되도록)
+            restoreDeductionAndDeleteAttendance(attendance);
+            return ResponseEntity.noContent().build();
+        } catch (Exception e) {
+            logger.error("출석 기록 삭제 중 오류 발생. ID: {}", id, e);
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    private void markBookingNoShowForAutoCheckInCancel(Long bookingId) {
+        if (bookingId == null) {
+            return;
+        }
+        com.afbscenter.model.Booking booking = bookingRepository.findById(bookingId).orElse(null);
+        if (booking == null) {
+            return;
+        }
+        if (booking.getStatus() != com.afbscenter.model.Booking.BookingStatus.CANCELLED) {
+            booking.setStatus(com.afbscenter.model.Booking.BookingStatus.NO_SHOW);
+        }
+        String note = "자정 자동 체크인 취소";
+        String memo = booking.getMemo();
+        if (memo == null || memo.isBlank()) {
+            booking.setMemo(note);
+        } else if (!memo.contains(note)) {
+            String merged = memo.trim() + " / " + note;
+            booking.setMemo(merged.length() <= 1000 ? merged : memo);
+        }
+        bookingRepository.save(booking);
+    }
+
+    /** @return 이용권 1회를 복구했으면 true */
+    private boolean restoreDeductionAndDeleteAttendance(Attendance attendance) {
+        Long id = attendance.getId();
+        boolean restored = false;
+            // 체크인된 출석 삭제 시: 이 수업에 DEDUCT가 있을 때만 이용권 1회 복구 (체크인만 하고 아직 안 깎인 수업은 복구하지 않음)
             if (attendance.getCheckInTime() != null) {
                 try {
                     List<MemberProductHistory> historiesWithAttendance =
                         memberProductHistoryRepository.findAllByAttendanceId(id);
+                    boolean hadDeduct = historiesWithAttendance.stream()
+                        .anyMatch(h -> h.getType() == MemberProductHistory.TransactionType.DEDUCT);
                     MemberProduct memberProduct = null;
                     if (!historiesWithAttendance.isEmpty()) {
                         try {
@@ -349,7 +444,7 @@ public class AttendanceController {
                             logger.warn("Booking에서 MemberProduct 로드 실패: {}", e.getMessage());
                         }
                     }
-                    if (memberProduct != null) {
+                    if (hadDeduct && memberProduct != null) {
                         MemberProduct refreshed = memberProductRepository.findByIdWithMember(memberProduct.getId()).orElse(null);
                         if (refreshed != null) memberProduct = refreshed;
                         Integer totalCount = memberProduct.getTotalCount();
@@ -412,6 +507,7 @@ public class AttendanceController {
                             memberProduct.setStatus(MemberProduct.Status.ACTIVE);
                         }
                         memberProductRepository.save(memberProduct);
+                        restored = true;
                         logger.info("출석 삭제 시 이용권 1회 복구: Attendance ID={}, MemberProduct ID={}, 복구 후 잔여={}회", id, memberProduct.getId(), memberProduct.getRemainingCount());
                     }
                     for (MemberProductHistory h : historiesWithAttendance) {
@@ -426,11 +522,7 @@ public class AttendanceController {
                 }
             }
             attendanceRepository.deleteById(id);
-            return ResponseEntity.noContent().build();
-        } catch (Exception e) {
-            logger.error("출석 기록 삭제 중 오류 발생. ID: {}", id, e);
-            return ResponseEntity.badRequest().build();
-        }
+            return restored;
     }
     
     // 체크인만 있고 체크아웃이 없는 출석 기록 일괄 삭제 (관리자만 가능, DB 로그 저장)

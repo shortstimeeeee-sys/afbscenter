@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -54,7 +55,7 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     @Query("SELECT b FROM Booking b WHERE b.purpose = 'LESSON' AND b.lessonCategory = :category")
     List<Booking> findByLessonCategory(@Param("category") com.afbscenter.model.LessonCategory category);
     
-    @Query("SELECT b FROM Booking b WHERE b.member.id = :memberId AND b.purpose = 'LESSON' AND b.status = 'CONFIRMED' ORDER BY b.startTime DESC")
+    @Query("SELECT b FROM Booking b WHERE b.member.id = :memberId AND b.purpose = 'LESSON' AND b.status IN ('CONFIRMED', 'COMPLETED') ORDER BY b.startTime DESC")
     List<Booking> findLatestLessonByMemberId(@Param("memberId") Long memberId);
 
     /** 같은 회원의 시간 겹침 예약 수 (취소 건 제외) */
@@ -168,4 +169,84 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
                                                           @Param("end") LocalDateTime end,
                                                           @Param("excludeId") Long excludeId,
                                                           @Param("cancelled") Booking.BookingStatus cancelled);
+
+    @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.member LEFT JOIN FETCH b.facility LEFT JOIN FETCH b.memberProduct " +
+           "WHERE b.coach.id = :coachId AND b.startTime >= :start AND b.startTime < :end ORDER BY b.startTime ASC")
+    List<Booking> findByCoachIdAndStartTimeRange(@Param("coachId") Long coachId,
+                                                 @Param("start") LocalDateTime start,
+                                                 @Param("end") LocalDateTime end);
+
+    @Query("SELECT DISTINCT b.member.id FROM Booking b "
+            + "WHERE b.coach.id = :coachId AND b.member.id IS NOT NULL AND b.status <> 'CANCELLED'")
+    List<Long> findMemberIdsTaughtByCoach(@Param("coachId") Long coachId);
+
+    @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.memberProduct mp LEFT JOIN FETCH mp.product "
+            + "WHERE b.coach.id = :coachId AND b.member.id IS NOT NULL AND b.status <> 'CANCELLED' "
+            + "ORDER BY b.startTime ASC")
+    List<Booking> findTaughtBookingsByCoach(@Param("coachId") Long coachId);
+
+    @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.memberProduct mp LEFT JOIN FETCH mp.product "
+            + "WHERE b.coach.id = :coachId AND b.member.id = :memberId AND b.status <> 'CANCELLED' "
+            + "ORDER BY b.startTime ASC")
+    List<Booking> findTaughtBookingsByCoachAndMember(@Param("coachId") Long coachId, @Param("memberId") Long memberId);
+
+    @Query("SELECT CASE WHEN COUNT(b) > 0 THEN true ELSE false END FROM Booking b "
+            + "WHERE b.coach.id = :coachId AND b.member.id = :memberId AND b.status <> 'CANCELLED'")
+    boolean existsTaughtByCoach(@Param("coachId") Long coachId, @Param("memberId") Long memberId);
+
+    /**
+     * 회원 예약 중 당일 자정이 지났는데 체크인이 없는 건.
+     * 확정·완료만 (취소·노쇼 제외). 비회원은 member 없어서 제외.
+     */
+    @Query("SELECT DISTINCT b FROM Booking b LEFT JOIN FETCH b.member LEFT JOIN FETCH b.facility "
+            + "WHERE b.member IS NOT NULL AND b.facility IS NOT NULL "
+            + "AND b.status IN ('CONFIRMED', 'COMPLETED') "
+            + "AND b.startTime >= :from AND b.startTime < :until "
+            + "AND NOT EXISTS (SELECT 1 FROM Attendance a WHERE a.booking.id = b.id AND a.checkInTime IS NOT NULL) "
+            + "ORDER BY b.startTime ASC")
+    List<Booking> findMemberBookingsPastMidnightWithoutCheckIn(
+            @Param("from") LocalDateTime from,
+            @Param("until") LocalDateTime until);
+
+    /**
+     * 횟수권 잔여를 아직 쓰지 않은 예약 수. 취소·노쇼는 제외.
+     * 차감(DEDUCT)된 수업은 잔여에서 이미 빠졌으므로 세지 않는다.
+     * 이미 지난 수업은 잔여 홀드에서 제외한다(당일 0시 이후만).
+     */
+    @Query("SELECT COUNT(b) FROM Booking b WHERE b.memberProduct.id = :memberProductId "
+            + "AND b.status <> 'CANCELLED' AND b.status <> 'NO_SHOW' "
+            + "AND b.startTime >= :from "
+            + "AND NOT EXISTS (SELECT 1 FROM MemberProductHistory h WHERE h.type = 'DEDUCT' "
+            + "AND h.attendance IS NOT NULL AND h.attendance.booking.id = b.id)")
+    long countUndeductedHoldByMemberProductId(@Param("memberProductId") Long memberProductId,
+                                              @Param("from") LocalDateTime from);
+
+    @Query("SELECT COUNT(b) FROM Booking b WHERE b.memberProduct.id = :memberProductId "
+            + "AND b.id <> :excludeBookingId "
+            + "AND b.status <> 'CANCELLED' AND b.status <> 'NO_SHOW' "
+            + "AND b.startTime >= :from "
+            + "AND NOT EXISTS (SELECT 1 FROM MemberProductHistory h WHERE h.type = 'DEDUCT' "
+            + "AND h.attendance IS NOT NULL AND h.attendance.booking.id = b.id)")
+    long countUndeductedHoldByMemberProductIdExcluding(@Param("memberProductId") Long memberProductId,
+                                                       @Param("excludeBookingId") Long excludeBookingId,
+                                                       @Param("from") LocalDateTime from);
+
+    @Query("SELECT b.id FROM Booking b WHERE b.memberProduct.id = :memberProductId "
+            + "AND b.status <> 'CANCELLED' AND b.status <> 'NO_SHOW' "
+            + "AND b.startTime >= :from "
+            + "AND NOT EXISTS (SELECT 1 FROM MemberProductHistory h WHERE h.type = 'DEDUCT' "
+            + "AND h.attendance IS NOT NULL AND h.attendance.booking.id = b.id) "
+            + "ORDER BY b.startTime ASC, b.id ASC")
+    List<Long> findUndeductedHoldIdsByMemberProductIdOrderByStart(@Param("memberProductId") Long memberProductId,
+                                                                  @Param("from") LocalDateTime from);
+
+    @Query("SELECT b.memberProduct.id, b.id FROM Booking b WHERE b.memberProduct.id IN :memberProductIds "
+            + "AND b.status <> 'CANCELLED' AND b.status <> 'NO_SHOW' "
+            + "AND b.startTime >= :from "
+            + "AND NOT EXISTS (SELECT 1 FROM MemberProductHistory h WHERE h.type = 'DEDUCT' "
+            + "AND h.attendance IS NOT NULL AND h.attendance.booking.id = b.id) "
+            + "ORDER BY b.memberProduct.id ASC, b.startTime ASC, b.id ASC")
+    List<Object[]> findUndeductedHoldIdsByMemberProductIdInOrderByStart(
+            @Param("memberProductIds") Collection<Long> memberProductIds,
+            @Param("from") LocalDateTime from);
 }

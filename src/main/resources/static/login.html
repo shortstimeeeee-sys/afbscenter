@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>로그인 - AF BASEBALL CLUB</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/common.css?v=miss-pass1">
     <style>
         :root {
             /* 엠블럼 배경 이미지의 색상 (진한 녹색) */
@@ -382,7 +382,7 @@
         </div>
     </div>
     
-    <script src="/js/common.js"></script>
+    <script src="/js/common.js?v=branch-off3"></script>
     <script>
         // 테마 관리
         function initTheme() {
@@ -424,9 +424,11 @@
             const errorMessage = document.getElementById('error-message');
             const loginBtn = document.getElementById('login-btn');
 
-            // 이미 로그인되어 있으면 대시보드로 리다이렉트
+            // 이미 로그인되어 있으면 대시보드 또는 코치 홈으로
             if (App.isAuthenticated()) {
-                window.location.href = '/';
+                var u = App.currentUser || {};
+                window.location.href = (String(u.role || '').toUpperCase() === 'COACH' && u.linkedCoachId)
+                    ? '/coach-home.html' : '/';
                 return;
             }
 
@@ -458,15 +460,21 @@
                         role: response.role,
                         name: response.name,
                         id: response.id,
-                        operationalCoachView: response.operationalCoachView === true
+                        operationalCoachView: response.operationalCoachView === true,
+                        coachHomeOperator: response.coachHomeOperator === true,
+                        linkedCoachId: response.linkedCoachId || null,
+                        linkedCoachName: response.linkedCoachName || null
                     };
                     App.currentRole = response.role;
                     
                     // 사용자 정보를 localStorage에 저장
                     localStorage.setItem('currentUser', JSON.stringify(App.currentUser));
 
-                    // 대시보드로 리다이렉트
-                    window.location.href = '/';
+                    if (String(response.role || '').toUpperCase() === 'COACH' && response.linkedCoachId) {
+                        window.location.href = '/coach-home.html';
+                    } else {
+                        window.location.href = '/';
+                    }
                 } catch (error) {
                     console.error('로그인 실패:', error);
                     let errorMsg = '로그인에 실패했습니다.';

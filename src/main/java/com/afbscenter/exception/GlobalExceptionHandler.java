@@ -175,6 +175,25 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * ResponseStatusException은 의도한 HTTP 상태(400/403 등)를 그대로 반환한다.
+     * 일반 Exception 핸들러가 가로채면 403이 500으로 바뀐다.
+     */
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> handleResponseStatusException(
+            org.springframework.web.server.ResponseStatusException e) {
+        HttpStatus status = HttpStatus.resolve(e.getStatusCode().value());
+        if (status == null) {
+            status = HttpStatus.BAD_REQUEST;
+        }
+        logger.warn("요청 거부: {} {}", status.value(), e.getReason());
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("error", status.getReasonPhrase());
+        errorResponse.put("message", e.getReason() != null ? e.getReason() : status.getReasonPhrase());
+        errorResponse.put("status", status.value());
+        return ResponseEntity.status(status).body(errorResponse);
+    }
+
+    /**
      * 기타 예외 처리
      */
     @ExceptionHandler(Exception.class)
@@ -183,6 +202,15 @@ public class GlobalExceptionHandler {
         // NoResourceFoundException은 이미 위에서 처리했으므로 여기서는 제외
         if (e instanceof org.springframework.web.servlet.resource.NoResourceFoundException) {
             return handleNoResourceFoundException((org.springframework.web.servlet.resource.NoResourceFoundException) e);
+        }
+        Throwable cur = e;
+        int unwrapDepth = 0;
+        while (cur != null && unwrapDepth < 8) {
+            if (cur instanceof org.springframework.web.server.ResponseStatusException rse) {
+                return handleResponseStatusException(rse);
+            }
+            cur = cur.getCause();
+            unwrapDepth++;
         }
         
         logger.error("예상치 못한 오류 발생", e);

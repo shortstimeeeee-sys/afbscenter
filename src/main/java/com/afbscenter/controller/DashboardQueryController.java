@@ -143,7 +143,7 @@ public class DashboardQueryController {
                                     }
                                 }
                             }
-                            if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS && mp.getExpiryDate() != null) {
+                            if (mp.getProduct() != null && Product.isPeriodPass(mp.getProduct().getType()) && mp.getExpiryDate() != null) {
                                 if (!mp.getExpiryDate().isBefore(today) && !mp.getExpiryDate().isAfter(expiryThreshold)) {
                                     productExpiring = true;
                                     long daysUntilExpiry = java.time.temporal.ChronoUnit.DAYS.between(today, mp.getExpiryDate());
@@ -192,7 +192,7 @@ public class DashboardQueryController {
                                     if (!memberEndedGraceService.memberProductPassesEndedListGraceFilter(member, mp)) continue;
                                     Map<String, Object> productInfo = new HashMap<>();
                                     String expiryReason = mp.getProduct().getType() == Product.ProductType.COUNT_PASS ? "횟수 소진" : "만료됨";
-                                    if (mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS && mp.getExpiryDate() != null) {
+                                    if (Product.isPeriodPass(mp.getProduct().getType()) && mp.getExpiryDate() != null) {
                                         long d = java.time.temporal.ChronoUnit.DAYS.between(mp.getExpiryDate(), today);
                                         expiryReason = d == 0 ? "오늘 만료됨" : (d > 0 ? d + "일 전 만료됨" : "만료됨");
                                     }
@@ -244,7 +244,7 @@ public class DashboardQueryController {
                                         if (!memberEndedGraceService.memberProductPassesEndedListGraceFilter(member, mp)) continue;
                                         Map<String, Object> productInfo = new HashMap<>();
                                         String expiryReason = mp.getProduct().getType() == Product.ProductType.COUNT_PASS ? "횟수 소진" : "만료됨";
-                                        if (mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS && mp.getExpiryDate() != null) {
+                                        if (Product.isPeriodPass(mp.getProduct().getType()) && mp.getExpiryDate() != null) {
                                             long d = java.time.temporal.ChronoUnit.DAYS.between(mp.getExpiryDate(), today);
                                             expiryReason = d == 0 ? "오늘 만료됨" : (d > 0 ? d + "일 전 만료됨" : "만료됨");
                                         }

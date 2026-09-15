@@ -109,6 +109,82 @@ App.loadCalendarMarksMap = async function(startYmd, endYmd) {
 };
 
 /**
+ * 휴무 그룹 — 사이드바와 동일.
+ * 사하: 야구·트레이닝·필라테스 / 연산: 야구·필라테스 / 비 야구파트: 유소년·사회인·대관
+ */
+App.studioBranchCode = function(branch) {
+    var b = String(branch || '').trim().toUpperCase();
+    if (b === 'SAHA' || b === 'YEONSAN') return b;
+    return '';
+};
+
+App.closureGroupFromConfig = function(config) {
+    config = config || {};
+    var ft = String(config.facilityType || '').trim().toUpperCase();
+    var lc = String(config.lessonCategory || '').trim().toUpperCase();
+    var grade = String(config.memberGrade || '').trim().toUpperCase();
+    var b = String(config.branch || '').trim().toUpperCase();
+    if (ft === 'RENTAL' || b === 'RENTAL' || lc === 'YOUTH_BASEBALL' || lc === 'YOUTH'
+            || grade === 'SOCIAL' || lc === 'SOCIAL') {
+        return 'NON_BASEBALL';
+    }
+    if (b === 'YEONSAN') return 'YEONSAN';
+    return 'SAHA';
+};
+
+App.loadAllBranchClosuresSet = async function(startYmd, endYmd) {
+    var groups = ['SAHA', 'YEONSAN', 'NON_BASEBALL'];
+    var sets = await Promise.all(groups.map(function (g) {
+        return App.loadBranchClosuresSet(g, startYmd, endYmd);
+    }));
+    return Object.assign({}, sets[0] || {}, sets[1] || {}, sets[2] || {});
+};
+
+App.loadBranchClosuresSet = async function(groupOrConfig, startYmd, endYmd) {
+    var set = {};
+    var group = groupOrConfig;
+    if (groupOrConfig && typeof groupOrConfig === 'object') {
+        group = typeof App.closureGroupFromConfig === 'function'
+            ? App.closureGroupFromConfig(groupOrConfig)
+            : 'SAHA';
+    }
+    group = String(group || 'SAHA').trim().toUpperCase();
+    if (group !== 'YEONSAN' && group !== 'NON_BASEBALL') group = 'SAHA';
+    if (!startYmd || !endYmd) return set;
+    try {
+        var base = App.apiBase || '/api';
+        var qs =
+            'group=' +
+            encodeURIComponent(group) +
+            '&startDate=' +
+            encodeURIComponent(startYmd) +
+            '&endDate=' +
+            encodeURIComponent(endYmd);
+        var res = await fetch(base + '/public/branch-closures?' + qs, {
+            headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        if (!res.ok) return set;
+        var arr = await res.json();
+        (arr || []).forEach(function (m) {
+            if (m && m.closureDate) set[String(m.closureDate)] = true;
+        });
+    } catch (e) {
+        App.err('지점 휴무일 로드 실패:', e);
+    }
+    return set;
+};
+
+App.markBranchClosedDay = function(dayCell, ymd, closuresSet) {
+    if (!dayCell || !ymd || !closuresSet || !closuresSet[ymd]) return null;
+    dayCell.classList.add('calendar-day-branch-closed');
+    var label = document.createElement('span');
+    label.className = 'calendar-branch-closed-label';
+    label.textContent = '휴무';
+    label.title = '지점 휴무';
+    return label;
+};
+
+/**
  * 이용권 잔여 "표시용" 숫자 — 회원목록·상세·대시보드·예약 등 동일 규칙.
  * - USED_UP → 0
  * - remainingCount가 null/undefined가 아니면 그대로(0 포함)
@@ -125,10 +201,10 @@ App.resolveDisplayRemainingCount = function(mp, opt) {
         if (whenAll === 'zero') return 0;
         return null;
     }
-    const st = mp.status || 'ACTIVE';
-    if (st === 'USED_UP') return 0;
     const rc = mp.remainingCount;
-    if (rc !== null && rc !== undefined) return Number(rc);
+    if (rc !== null && rc !== undefined && rc !== '') return Number(rc);
+    const st = mp.status || 'ACTIVE';
+    if (st === 'USED_UP' || st === 'EXPIRED') return 0;
     const product = mp.product || {};
     const uc = product.usageCount;
     if (uc !== null && uc !== undefined) return Number(uc);
@@ -137,6 +213,76 @@ App.resolveDisplayRemainingCount = function(mp, opt) {
     if (whenAll === 'ten') return 10;
     if (whenAll === 'zero') return 0;
     return null;
+};
+
+App.assertMemberPassForSave = function(opts) {
+    opts = opts || {};
+    if (!opts.isMember) return null;
+    var id = opts.memberProductId;
+    if (id == null || String(id).trim() === '' || String(id).trim().toLowerCase() === 'null') {
+        return '이용권을 확인해 주세요.';
+    }
+    var total = parseInt(opts.totalCount, 10);
+    if (!isNaN(total) && total >= 999) return null;
+    var type = opts.productType;
+    var rem = parseInt(opts.remainingCount, 10);
+    if (isNaN(rem)) rem = 0;
+    if (type === 'COUNT_PASS') {
+        if (opts.isCopy && rem < 2) {
+            return '복사는 이용권 잔여 횟수가 2회 이상이어야 합니다.';
+        }
+            if (opts.isNew && rem <= 0) {
+                return '선택한 횟수권의 잔여 횟수가 없습니다.';
+            }
+            var occupied = parseInt(opts.occupiedHoldCount, 10);
+            if (!isNaN(occupied) && rem < occupied + 1) {
+                return '이미 잡혀 있는 예약을 포함하면 횟수권 잔여 횟수를 초과합니다.';
+            }
+    }
+    return null;
+};
+
+App.bookingMissingMemberProduct = function(booking) {
+    if (!booking) return false;
+    var hasMember = booking.member && (booking.member.id != null || booking.member.memberNumber);
+    if (!hasMember) return false;
+    var mp = booking.memberProduct;
+    if (!mp || mp.id == null) return true;
+    if (mp.deletedAt) return true;
+    return false;
+};
+
+App.bookingNeedsPassAlert = function(booking) {
+    if (typeof App.bookingMissingMemberProduct === 'function' && App.bookingMissingMemberProduct(booking)) {
+        return 'missing';
+    }
+    if (booking && booking.countPassFullyHeld) {
+        return 'held';
+    }
+    return null;
+};
+
+App.bookingMissingPassRowAttr = function(booking) {
+    var kind = typeof App.bookingNeedsPassAlert === 'function' ? App.bookingNeedsPassAlert(booking) : null;
+    if (!kind) return '';
+    var title = kind === 'held'
+        ? '횟수권 잔여가 부족합니다. 가까운 날짜부터 잔여가 채워집니다.'
+        : '이용권이 삭제되었거나 전액 환불되어 연결이 해제된 예약입니다.';
+    return ' class="booking-missing-pass" title="' + title + '"';
+};
+
+App.applyMissingPassCalendarStyle = function(eventEl, booking) {
+    if (!eventEl || typeof App.bookingNeedsPassAlert !== 'function') return;
+    var kind = App.bookingNeedsPassAlert(booking);
+    if (!kind) return;
+    eventEl.classList.add('booking-missing-pass');
+    eventEl.style.backgroundColor = '#E74C3C';
+    eventEl.style.borderLeft = '3px solid #c0392b';
+    eventEl.style.color = '#fff';
+    var hint = kind === 'held'
+        ? '횟수권 잔여가 부족합니다. 가까운 날짜부터 잔여가 채워집니다.'
+        : '이용권이 삭제되었거나 전액 환불되어 연결이 해제된 예약입니다.';
+    eventEl.title = eventEl.title ? (eventEl.title + ' · ' + hint) : hint;
 };
 
 // 인증 토큰 관리
@@ -335,9 +481,12 @@ const menuPermissionMap = {
     '/coaches.html': 'coachView',
     '/bookings.html': 'bookingView',           // 야구 (사하/연산 각각 별도 페이지)
     '/bookings-saha-youth.html': 'bookingView', // 야구(유소년) 사하점 - 별도 메뉴
+    '/bookings-saha-social.html': 'bookingView', // 야구(사회인) 사하점 - 별도 메뉴
     '/bookings-saha-training.html': 'bookingView',
+    '/bookings-saha-pilates.html': 'bookingView',
     '/bookings-yeonsan.html': 'bookingView',   // 야구 연산점
     '/bookings-yeonsan-youth.html': 'bookingView', // 야구(유소년) 연산점 - 별도 메뉴
+    '/bookings-yeonsan-social.html': 'bookingView', // 야구(사회인) 연산점 - 별도 메뉴
     '/bookings-yeonsan-training.html': 'bookingView',
     '/rentals.html': 'bookingView',
     '/attendance.html': 'attendanceView',
@@ -351,7 +500,8 @@ const menuPermissionMap = {
     '/announcements.html': 'announcementView',
     '/users.html': 'userView',
     '/permissions.html': 'userView', // 권한 관리도 사용자 관리 권한 필요
-    '/settings.html': 'settingsView'
+    '/settings.html': 'settingsView',
+    '/coach-home.html': 'memberView'
 };
 
 /** 코치: 현재 예약 페이지(BOOKING_PAGE_CONFIG)에서 회원 실명을 표시할지 — 소속 캘린더만 true */
@@ -381,23 +531,177 @@ App.shouldShowMemberNameOnBookingCalendar = function() {
     return App._coachCalendarNameVisible === true;
 };
 
+App.PAST_MIDNIGHT_BOOKING_LOCK_MSG = '자정이 지난 예약은 관리자만 수정하거나 삭제할 수 있습니다.';
+
+App.isAdminRole = function() {
+    return String(App.currentRole || (App.currentUser && App.currentUser.role) || '').toUpperCase() === 'ADMIN';
+};
+
+App.bookingDayHasPassedMidnight = function(startTime) {
+    if (!startTime) return false;
+    var d = startTime instanceof Date ? startTime : new Date(startTime);
+    if (isNaN(d.getTime())) return false;
+    var now = new Date();
+    var startDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    return startDay < today;
+};
+
+App.isPastMidnightBookingLocked = function(booking) {
+    if (App.isAdminRole()) return false;
+    if (!booking) return false;
+    if (String(booking.status || '').toUpperCase() === 'PENDING') return false;
+    return App.bookingDayHasPassedMidnight(booking.startTime);
+};
+
+App.applyPastMidnightBookingLock = function(booking, options) {
+    options = options || {};
+    var modal = document.getElementById(options.modalId || 'booking-modal');
+    if (!modal) return false;
+    var locked = !!(booking && App.isPastMidnightBookingLocked(booking));
+    var note = modal.querySelector('.past-midnight-booking-lock-note');
+    if (!note) {
+        note = document.createElement('div');
+        note.className = 'past-midnight-booking-lock-note';
+        note.style.cssText = 'margin:0 0 12px;padding:10px 12px;border-radius:8px;background:rgba(231,76,60,0.12);color:var(--text-primary);font-size:13px;line-height:1.4;';
+        var body = modal.querySelector('.modal-body');
+        if (body) {
+            body.insertBefore(note, body.firstChild);
+        } else {
+            modal.appendChild(note);
+        }
+    }
+    note.textContent = App.PAST_MIDNIGHT_BOOKING_LOCK_MSG;
+    note.style.display = locked ? 'block' : 'none';
+    var deleteBtn = document.getElementById(options.deleteBtnId || 'booking-delete-btn');
+    var saveBtn = modal.querySelector('.modal-footer .btn-primary');
+    if (deleteBtn) {
+        if (locked) {
+            deleteBtn.style.display = 'none';
+        } else if (booking && (booking.id != null || deleteBtn.getAttribute('data-booking-id'))) {
+            deleteBtn.style.display = 'block';
+        }
+    }
+    if (saveBtn) {
+        saveBtn.style.display = locked ? 'none' : '';
+    }
+    return locked;
+};
+
 /**
- * 캘린더 예약 모달의 담당 코치 선택: 관리자(ADMIN)만 변경 가능. 그 외 역할은 값만 표시.
+ * 캘린더 예약 모달의 담당 코치 선택.
+ * 관리자(ADMIN)는 항상 변경 가능.
+ * 필라테스 코치는 트레이닝·필라테스 캘린더에서 미지정 비회원 필라테스 예약의 담당만 지정할 수 있다.
  */
-App.applyBookingCoachEditPolicy = function() {
-    var isAdmin = (App.currentRole || '').toUpperCase() === 'ADMIN';
+App._bookingModalCoachPolicyBooking = null;
+
+App.isCurrentUserPilatesCoach = function() {
+    var u = App.currentUser || {};
+    var fake = {
+        name: u.linkedCoachName || u.name || '',
+        specialties: u.linkedCoachSpecialties || ''
+    };
+    return typeof App.categorizeCoachBySubject === 'function'
+        && App.categorizeCoachBySubject(fake) === 'PILATES';
+};
+
+/** 운영 계정 afsh: 대소문자 무시. JWT sub 도 확인. */
+App.getLoginUsername = function() {
+    var u = App.currentUser || {};
+    var fromUser = String(u.username || u.userName || u.loginId || '').trim();
+    if (fromUser) {
+        return fromUser;
+    }
+    try {
+        var token = typeof App.getAuthToken === 'function' ? App.getAuthToken() : '';
+        if (!token) {
+            return '';
+        }
+        var payload = token.split('.')[1];
+        if (!payload) {
+            return '';
+        }
+        var json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+        return String(json.sub || json.username || '').trim();
+    } catch (e) {
+        return '';
+    }
+};
+
+App.isAfshUser = function() {
+    return App.getLoginUsername().toLowerCase() === 'afsh';
+};
+
+/** 관리자처럼 상단 코치 홈 버튼을 쓰는 운영 아이디 */
+App.isCoachHomeOperator = function() {
+    var u = App.currentUser || {};
+    if (u.coachHomeOperator === true) {
+        return true;
+    }
+    return App.getLoginUsername().toLowerCase() === 'xorhko12';
+};
+
+App.canPilatesCoachAssignUnassignedCoach = function(booking) {
+    if ((App.currentRole || (App.currentUser && App.currentUser.role) || '').toUpperCase() === 'ADMIN') {
+        return false;
+    }
+    var cfg = window.BOOKING_PAGE_CONFIG || {};
+    if (cfg.facilityType !== 'TRAINING_FITNESS') {
+        return false;
+    }
+    var pilatesCoach = typeof App.isCurrentUserPilatesCoach === 'function' && App.isCurrentUserPilatesCoach();
+    var afsh = typeof App.isAfshUser === 'function' && App.isAfshUser();
+    var operational = typeof App.isOperationalCoachViewer === 'function' && App.isOperationalCoachViewer();
+    if (!pilatesCoach && !afsh && !operational) {
+        return false;
+    }
+    if (booking && booking.member && booking.member.id) {
+        return false;
+    }
+    var cat = booking ? booking.lessonCategory : '';
+    if (cat && typeof cat === 'object') {
+        cat = cat.name || cat;
+    }
+    cat = String(cat || '').toUpperCase();
+    if (cat === 'BASEBALL' || cat === 'YOUTH_BASEBALL') {
+        return false;
+    }
+    return true;
+};
+
+App.applyBookingCoachEditPolicy = function(booking) {
+    if (arguments.length > 0) {
+        App._bookingModalCoachPolicyBooking = booking || null;
+    } else {
+        booking = App._bookingModalCoachPolicyBooking || null;
+    }
+    var role = String(App.currentRole || (App.currentUser && App.currentUser.role) || '').toUpperCase();
+    var isAdmin = role === 'ADMIN';
+    var pilatesAssign = !isAdmin && typeof App.canPilatesCoachAssignUnassignedCoach === 'function'
+        && App.canPilatesCoachAssignUnassignedCoach(booking);
+    var canEdit = isAdmin || pilatesAssign;
     var hint = '담당 코치 변경은 관리자만 가능합니다.';
+    if (pilatesAssign) {
+        hint = '비회원 예약의 담당 코치를 지정할 수 있습니다.';
+    } else if (isAdmin) {
+        hint = '';
+    }
     ['booking-coach', 'booking-coach-nonmember'].forEach(function(id) {
         var el = document.getElementById(id);
         if (!el) {
             return;
         }
-        el.disabled = !isAdmin;
-        el.title = isAdmin ? '' : hint;
+        if (canEdit) {
+            el.disabled = false;
+            el.removeAttribute('disabled');
+        } else {
+            el.disabled = true;
+        }
+        el.title = hint;
     });
     var grp = document.getElementById('coach-group');
     if (grp) {
-        grp.classList.toggle('booking-coach-readonly', !isAdmin);
+        grp.classList.toggle('booking-coach-readonly', !canEdit);
     }
 };
 
@@ -413,8 +717,13 @@ App.formatBookingMemberDisplayName = function(booking) {
     return raw;
 };
 
-/** 코치: 담당 회원 목록·예약·훈련 중 허용된 첫 화면 */
+/** 코치: 연동된 계정이면 전용 홈, 아니면 담당 회원·예약·훈련 중 허용된 첫 화면 */
+App.coachHomePath = '/coach-home.html';
+App.hasLinkedCoach = function() {
+    return !!(App.currentUser && App.currentUser.linkedCoachId);
+};
 App.coachAccessibleFallbackPath = function() {
+    if (App.hasLinkedCoach()) return App.coachHomePath;
     if (App.hasDetailPermission('memberView')) return '/members.html';
     if (App.hasDetailPermission('bookingView')) return '/bookings.html';
     if (App.hasDetailPermission('trainingLogView')) return '/training-logs.html';
@@ -428,6 +737,9 @@ App.enforceCoachPageAccess = async function() {
     if ((App.currentRole || '').toUpperCase() !== 'COACH') return;
     var p = window.location.pathname || '';
     var norm = p.endsWith('/') && p.length > 1 ? p.slice(0, -1) : p;
+    if (norm === '/coach-home.html' || p.endsWith('/coach-home.html')) {
+        return;
+    }
     if (norm === '/bookings-without-product.html' || p.endsWith('/bookings-without-product.html')) {
         window.location.replace(App.coachAccessibleFallbackPath());
         return;
@@ -484,7 +796,7 @@ App.filterMenuByRole = async function() {
                 hasPermission = App.hasPermission(requiredRole, permissionKey);
             } 
             // 스크린샷 발췌: 관리자(Admin)만 노출
-            else if (path === '/screenshot-export.html') {
+            else if (path === '/screenshot-export.html' || path === '/staff-attendance.html') {
                 hasPermission = (App.currentRole || '').toUpperCase() === 'ADMIN';
             }
             // href 기반으로 권한 매핑 확인 (정규화된 path 사용)
@@ -517,6 +829,24 @@ App.filterMenuByRole = async function() {
     });
     
     App.log('메뉴 필터링 완료');
+    if (typeof App.ensureCoachHomeMenuItem === 'function') {
+        App.ensureCoachHomeMenuItem();
+    }
+};
+
+App.ensureCoachHomeMenuItem = function() {
+    if ((App.currentRole || '').toUpperCase() !== 'COACH' || !App.hasLinkedCoach()) return;
+    var path = window.location.pathname || '';
+    if (path === '/coach-home.html' || path.endsWith('/coach-home.html')) return;
+    var nav = document.querySelector('.sidebar-menu');
+    if (!nav || document.getElementById('coach-home-menu-item')) return;
+    var section = document.createElement('div');
+    section.className = 'menu-section';
+    section.id = 'coach-home-menu-section';
+    section.innerHTML = '<div class="menu-section-title">코치 전용</div>'
+        + '<a href="/coach-home.html" class="menu-item" id="coach-home-menu-item">'
+        + '<span class="menu-item-icon">🏠</span><span>코치 홈</span></a>';
+    nav.insertBefore(section, nav.firstChild);
 };
 
 // API 호출 헬퍼
@@ -554,6 +884,16 @@ App.syncOperationalCoachViewFromServer = async function() {
             return;
         }
         App.currentUser.operationalCoachView = data.operationalCoachView === true;
+        App.currentUser.coachHomeOperator = data.coachHomeOperator === true;
+        if (data.linkedCoachId) {
+            App.currentUser.linkedCoachId = data.linkedCoachId;
+            App.currentUser.linkedCoachName = data.linkedCoachName || null;
+            App.currentUser.linkedCoachSpecialties = data.linkedCoachSpecialties || null;
+        } else {
+            App.currentUser.linkedCoachId = null;
+            App.currentUser.linkedCoachName = null;
+            App.currentUser.linkedCoachSpecialties = null;
+        }
         try {
             localStorage.setItem('currentUser', JSON.stringify(App.currentUser));
         } catch (e) {}
@@ -678,8 +1018,58 @@ App.getBookingRelatedCoachIds = function(booking) {
     return out;
 };
 
+App.isWorkingCoach = function(coach) {
+    if (!coach || typeof coach !== 'object') {
+        return false;
+    }
+    if (coach.active === false) {
+        return false;
+    }
+    if (App.CoachColors && typeof App.CoachColors.isRetiredId === 'function' && App.CoachColors.isRetiredId(coach.id)) {
+        return false;
+    }
+    return true;
+};
+
+/** 근무 중이거나, 퇴사여도 현직 코치 색과 안 비슷한 고유색이면 칸 색으로 쓴다. */
+App.coachOkForCalendarColor = function(coach) {
+    if (!coach || typeof coach !== 'object') {
+        return false;
+    }
+    if (typeof App.isWorkingCoach === 'function' && App.isWorkingCoach(coach)) {
+        return true;
+    }
+    return !!(App.CoachColors && typeof App.CoachColors.retiredColorDistinctFromWorking === 'function'
+        && App.CoachColors.retiredColorDistinctFromWorking(coach));
+};
+
+/** 캘린더 칸 색: 배정 코치 → 없으면 회원 카드 담당. 퇴사 색은 현직과 안 비슷할 때만. */
+App.coachForCalendarStripeColor = function(booking) {
+    if (!booking) {
+        return null;
+    }
+    if (typeof App.coachOkForCalendarColor === 'function') {
+        if (App.coachOkForCalendarColor(booking.coach)) {
+            return booking.coach;
+        }
+        if (booking.member && App.coachOkForCalendarColor(booking.member.coach)) {
+            return booking.member.coach;
+        }
+        return null;
+    }
+    if (typeof App.isWorkingCoach === 'function' && App.isWorkingCoach(booking.coach)) {
+        return booking.coach;
+    }
+    if (booking.member && typeof App.isWorkingCoach === 'function' && App.isWorkingCoach(booking.member.coach)) {
+        return booking.member.coach;
+    }
+    return booking.coach || (booking.member && booking.member.coach) || null;
+};
+
 /**
  * 캘린더·목록 색/라벨: 기본은 예약 배정 코치 우선, 없으면 회원 카드 담당.
+ * 퇴사 코치는 현직과 비슷한 색이면 미지정(또는 근무 중 카드 담당)으로 본다.
+ * 현직과 안 비슷한 퇴사 고유색은 그대로 쓴다.
  * 운영 모달(viewCoachIds) 사용 시 서버는 "카드 담당 OR 예약 배정"으로 걸러 주므로,
  * 표시도 선택한 코치 id와 맞는 쪽을 우선한다. 예전에는 항상 카드 담당만 써서
  * "공인욱만 선택했는데 칸에는 다른 담당 코치"처럼 보이는 불일치가 났다.
@@ -690,6 +1080,13 @@ App.resolveCoachForCalendarDisplay = function(booking) {
     }
     var bCoach = booking.coach || null;
     var mCoach = booking.member && booking.member.coach ? booking.member.coach : null;
+    if (typeof App.coachOkForCalendarColor === 'function') {
+        if (!App.coachOkForCalendarColor(bCoach)) bCoach = null;
+        if (!App.coachOkForCalendarColor(mCoach)) mCoach = null;
+    } else if (typeof App.isWorkingCoach === 'function') {
+        if (!App.isWorkingCoach(bCoach)) bCoach = null;
+        if (!App.isWorkingCoach(mCoach)) mCoach = null;
+    }
     if (typeof App.isOperationalViewCoachFilterActive === 'function' && App.isOperationalViewCoachFilterActive()) {
         var viewList = typeof App.getOperationalViewCoachIdsNormalized === 'function'
             ? App.getOperationalViewCoachIdsNormalized()
@@ -760,12 +1157,14 @@ App.bookingMatchesLegendCoachFilterSet = function(booking, filterSet) {
     if (!booking) {
         return false;
     }
-    var stripeId = null;
-    if (booking.coach && booking.coach.id != null) {
-        stripeId = booking.coach.id;
-    } else if (booking.member && booking.member.coach && booking.member.coach.id != null) {
-        stripeId = booking.member.coach.id;
-    }
+    var stripe = typeof App.coachForCalendarStripeColor === 'function'
+        ? App.coachForCalendarStripeColor(booking)
+        : (booking.coach && booking.coach.active !== false
+            ? booking.coach
+            : (booking.member && booking.member.coach && booking.member.coach.active !== false
+                ? booking.member.coach
+                : null));
+    var stripeId = stripe && stripe.id != null ? stripe.id : null;
     if (stripeId == null) {
         return typeof App.calendarCoachIdInFilterSet === 'function'
             ? App.calendarCoachIdInFilterSet(filterSet, 'unassigned')
@@ -820,7 +1219,8 @@ App.refreshOperationalCoachDependentViews = function() {
  * 코치 "그룹"이 코드에 여러 층으로 나뉘어 있음 (필터가 헷갈리지 않게 한곳에서 정리):
  *
  * 1) DB(코치/레슨 관리): availableBranches = 어느 지점 예약·캘린더에 올릴지. specialties + 이름 접미사([코치] 등).
- * 2) API: GET /coaches?branch=SAHA|YEONSAN|RENTAL → 지점 배정만 서버에서 걸러짐.
+ * 2) API: GET /coaches?branch=SAHA|YEONSAN|RENTAL → 지점 배정 필터.
+ *    필라테스 강사(`[강사]`/필라테스)는 사하·연산 중 한 곳에만 있어도 양쪽에서 선택 가능.
  * 3) 예약 페이지 범례·예약 모달: `App.filterCoachesForBookingCalendar` 로 페이지 종목(야구/유소년/트레이닝)에 맞게 한 번 더 필터.
  * 4) 운영(서정훈) 계정 모달: `App.categorizeCoachBySubject` 로 종목별 섹션(야구/필라테스…) 표시 — 표시용 그룹.
  * 5) BOOKING_PAGE_CONFIG.allowedCoaches: 레거시. 실명 표시는 운영형 코치 여부(`App.isOperationalCoachViewer`·서버 플래그)로 통일됨.
@@ -892,6 +1292,8 @@ App.filterCoachesForBookingCalendar = function(coaches, config) {
     if (facilityType === 'TRAINING_FITNESS') {
         return list.filter(function(c) {
             var cat = typeof App.categorizeCoachBySubject === 'function' ? App.categorizeCoachBySubject(c) : 'OTHER';
+            if (lessonCategory === 'TRAINING') return cat === 'TRAINING';
+            if (lessonCategory === 'PILATES') return cat === 'PILATES';
             return cat === 'TRAINING' || cat === 'PILATES';
         });
     }
@@ -1247,7 +1649,15 @@ App.api = {
                 error.response = { status: response.status, data: responseData };
                 throw error;
             }
-            return response.status === 204 ? null : await response.json();
+            return response.status === 204 || response.status === 205 ? null : (async function() {
+                const text = await response.text();
+                if (!text || !text.trim()) return null;
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    return { message: text };
+                }
+            })();
         } catch (error) {
             App.err('API DELETE Error:', error);
             throw error;
@@ -1365,9 +1775,10 @@ App.Modal = {
         if (modal) {
             modal.classList.remove('active');
             modal.style.display = 'none';
-            document.body.style.overflow = '';
-            // 이벤트 리스너 제거
             this.removeDragPrevention(modal);
+            if (!document.querySelector('.modal-overlay.active')) {
+                document.body.style.overflow = '';
+            }
         }
     },
     
@@ -1387,6 +1798,7 @@ App.Modal = {
         let startX = 0;
         let startY = 0;
         let isDragging = false;
+        const isInsideModalBox = (target) => !!(target && target.closest && target.closest('.modal'));
         
         // 터치 시작
         const touchStart = (e) => {
@@ -1395,17 +1807,18 @@ App.Modal = {
             isDragging = false;
         };
         
-        // 터치 이동
+        // 터치 이동 — 모달 본문 스크롤은 허용, 배경 가로 스와이프만 차단
         const touchMove = (e) => {
             if (!startX || !startY) return;
             
             const deltaX = Math.abs(e.touches[0].clientX - startX);
             const deltaY = Math.abs(e.touches[0].clientY - startY);
             
-            // 수평 이동이 수직 이동보다 크면 드래그로 판단
             if (deltaX > 10 && deltaX > deltaY) {
                 isDragging = true;
-                e.preventDefault(); // 기본 동작 방지 (뒤로가기 포함)
+                if (!isInsideModalBox(e.target)) {
+                    e.preventDefault();
+                }
             }
         };
         
@@ -1422,31 +1835,28 @@ App.Modal = {
             const deltaX = Math.abs(e.clientX - startX);
             const deltaY = Math.abs(e.clientY - startY);
             
-            // 수평 이동이 수직 이동보다 크면 드래그로 판단
             if (deltaX > 10 && deltaX > deltaY) {
                 isDragging = true;
-                e.preventDefault();
+                if (!isInsideModalBox(e.target)) {
+                    e.preventDefault();
+                }
             }
         };
-        
-        // 모달 오버레이에서만 이벤트 처리
+
         modal.addEventListener('touchstart', touchStart, { passive: false });
         modal.addEventListener('touchmove', touchMove, { passive: false });
         modal.addEventListener('mousedown', mouseDown);
         modal.addEventListener('mousemove', mouseMove);
         
-        // 전역 터치 이벤트 차단 (모달이 열려있을 때)
+        // 전역 터치 이벤트 차단 (모달 배경만 — 본문 스크롤은 허용)
         const preventGlobalTouch = (e) => {
-            // 모달이 열려있고, 모달 외부에서 시작된 터치면 차단
-            if (document.querySelector('.modal-overlay.active')) {
-                e.preventDefault();
-            }
+            if (!document.querySelector('.modal-overlay.active')) return;
+            if (isInsideModalBox(e.target)) return;
+            e.preventDefault();
         };
         
-        // 모달이 열려있을 때만 전역 이벤트 차단
         document.addEventListener('touchmove', preventGlobalTouch, { passive: false });
         
-        // 이벤트 리스너를 모달 객체에 저장 (나중에 제거하기 위해)
         modal._dragPreventionAdded = true;
         modal._touchStart = touchStart;
         modal._touchMove = touchMove;
@@ -1511,6 +1921,21 @@ App.formatCurrency = function(amount) {
     }).format(amount);
 };
 
+/** 예약 이용권 선택에 넣을 수 있는지. 소진·만료·잔여 0·상품 없는 이용권은 제외. */
+App.isSelectableMemberProductForBooking = function(mp) {
+    if (!mp || mp.deletedAt) return false;
+    if (!mp.product || mp.product.id == null) return false;
+    var st = String(mp.status || 'ACTIVE').toUpperCase();
+    if (st !== 'ACTIVE') return false;
+    if (mp.product.type === 'COUNT_PASS') {
+        var rem = typeof App.resolveDisplayRemainingCount === 'function'
+            ? App.resolveDisplayRemainingCount(mp, { whenAllUnknown: 'zero' })
+            : Number(mp.remainingCount);
+        if (!(rem > 0)) return false;
+    }
+    return true;
+};
+
 /** 회원 예약 등: 이용권 드롭다운 옵션 한 줄 라벨 (상품명·가격·잔여·코치·만료) */
 App.formatMemberProductOptionLabel = function(mp) {
     if (!mp) return '';
@@ -1527,6 +1952,8 @@ App.formatMemberProductOptionLabel = function(mp) {
         text += ' · 잔여 ' + remaining + '회';
     } else if (type === 'MONTHLY_PASS') {
         text += ' · 월정액';
+    } else if (type === 'DAY_PASS') {
+        text += ' · 1일권';
     } else if (type === 'TIME_PASS') {
         text += ' · 기간권';
     }
@@ -1751,7 +2178,7 @@ App.sortMemberProductsRemainingFirst = function(rows) {
                 : 0;
             return rem > 0;
         }
-        if (pt === 'MONTHLY_PASS' || pt === 'TIME_PASS') {
+        if (pt === 'MONTHLY_PASS' || pt === 'DAY_PASS' || pt === 'TIME_PASS') {
             return st === 'ACTIVE';
         }
         return st === 'ACTIVE';
@@ -2184,10 +2611,47 @@ App.renderMemberInfoPanelHtml = function(member) {
     );
 };
 
+/** 예약 수정 모달 등에도 회원 정보 레이어가 없으면 삽입 */
+App.ensureMemberInfoModal = function() {
+    if (document.getElementById('member-info-modal')) return;
+    var wrap = document.createElement('div');
+    wrap.className = 'modal-overlay';
+    wrap.id = 'member-info-modal';
+    wrap.innerHTML =
+        '<div class="modal member-info-modal-box">' +
+        '<div class="modal-header member-info-modal-header">' +
+        '<h2 class="modal-title">회원 이용권 및 코치 정보</h2>' +
+        '<button type="button" class="modal-close" onclick="App.Modal.close(\'member-info-modal\')">×</button>' +
+        '</div>' +
+        '<div class="modal-body member-info-modal-body">' +
+        '<div id="member-info-content"></div>' +
+        '</div>' +
+        '<div class="modal-footer member-info-modal-footer">' +
+        '<button type="button" class="btn btn-secondary" onclick="App.Modal.close(\'member-info-modal\')">닫기</button>' +
+        '</div></div>';
+    document.body.appendChild(wrap);
+};
+
+/** 예약 모달 이름칸: 회원 ID가 있으면 클릭해서 회원 정보 모달 */
+App.setBookingModalMemberName = function(name, memberId) {
+    var el = document.getElementById('member-info-name');
+    if (!el) return;
+    var text = name || '-';
+    var id = memberId != null && memberId !== '' ? parseInt(memberId, 10) : NaN;
+    if (!isNaN(id) && id > 0 && text !== '-') {
+        el.innerHTML = '<button type="button" class="booking-member-name-link" data-member-id="' +
+            id + '" title="회원 상세 보기">' + App.escapeHtml(text) + '</button>';
+    } else {
+        el.textContent = text;
+    }
+};
+
 /**
- * 결제·출석 등 회원명 클릭 시 (#member-info-content, #member-info-modal)
+ * 결제·출석·예약 모달 등 회원명 클릭 시 (#member-info-content, #member-info-modal)
  */
 App.openMemberInfoModal = async function(memberId) {
+    if (memberId == null || memberId === '') return;
+    App.ensureMemberInfoModal();
     const contentEl = document.getElementById('member-info-content');
     if (!contentEl) return;
     contentEl.innerHTML = '<p class="member-info-loading text-muted">불러오는 중...</p>';
@@ -2283,16 +2747,24 @@ App.CoachColors = {
         '공인욱[코치]': '#1976D2',
         '공인욱 [코치]': '#1976D2',
         '공인욱[대관담당]': '#1976D2',
-        '이소연 [강사]': '#FFC107',
-        '이소연': '#FFC107',
+        '이소연 [강사]': '#E0C05A',
+        '이소연  [강사]': '#E0C05A',
+        '이소연': '#E0C05A',
+        '김유진[강사]': '#4ECDC4',
+        '김유진 [강사]': '#4ECDC4',
+        '김유진': '#4ECDC4',
         '이서현 [강사]': '#F06292',
         '이서현': '#F06292',
         '김가영 [강사]': '#795548',
         '김가영': '#795548',
         '김소연 [강사]': '#009688',
         '김소연': '#009688',
-        '조혜진 [강사]': '#673AB7',
-        '조혜진': '#673AB7',
+        '정영삼': '#673AB7',
+        '정영삼 [트레이너 센터장]': '#673AB7',
+        '정영삼[트레이너 센터장]': '#673AB7',
+        '정진환': '#455A64',
+        '정진환 [유소년]': '#455A64',
+        '정진환[유소년]': '#455A64',
         '박근엽': '#C0CA33',
         '박근엽[투수코치]': '#C0CA33',
         '박근엽 [투수코치]': '#C0CA33',
@@ -2304,33 +2776,146 @@ App.CoachColors = {
     // 코치별 색상 캐시 (ID / 이름 → 색상). DB color 등록 시 채워짐
     colorCache: {},
     nameColorCache: {},
+    retiredIds: {},
 
-    /** API에서 받은 코치 목록의 color를 캐시에 반영 (DB 고유색 우선) */
+    isRetiredId: function(id) {
+        if (id == null || id === '') return false;
+        return !!this.retiredIds[String(id)];
+    },
+
+    _normalizeHex: function(hex) {
+        if (!hex) return '';
+        var n = String(hex).trim().toUpperCase();
+        if (!n) return '';
+        if (n.charAt(0) !== '#') n = '#' + n;
+        return /^#[0-9A-F]{6}$/.test(n) ? n : '';
+    },
+
+    /** Java CoachColorPalette.familyKey 와 맞춤: 비슷한 hue는 같은 키 */
+    familyKey: function(hex) {
+        var n = this._normalizeHex(hex);
+        if (!n) return 'UNKNOWN';
+        var r = parseInt(n.slice(1, 3), 16) / 255;
+        var g = parseInt(n.slice(3, 5), 16) / 255;
+        var b = parseInt(n.slice(5, 7), 16) / 255;
+        var max = Math.max(r, g, b);
+        var min = Math.min(r, g, b);
+        var l = (max + min) / 2;
+        var h = 0;
+        var s = 0;
+        if (max !== min) {
+            var d = max - min;
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+            else if (max === g) h = ((b - r) / d + 2) / 6;
+            else h = ((r - g) / d + 4) / 6;
+        }
+        h = h * 360;
+        if (s < 0.18 || (s < 0.28 && l < 0.35)) {
+            return 'NEUTRAL_' + Math.min(4, Math.max(0, Math.floor(l * 5)));
+        }
+        var bucket = Math.floor(h / 30) % 12;
+        if (bucket < 0) bucket += 12;
+        return 'HUE_' + bucket;
+    },
+
+    conflictsWithWorkingColors: function(hex) {
+        var n = this._normalizeHex(hex);
+        if (!n) return true;
+        var key = this.familyKey(n);
+        var id;
+        for (id in this.colorCache) {
+            if (!Object.prototype.hasOwnProperty.call(this.colorCache, id)) continue;
+            if (this.retiredIds[id]) continue;
+            var other = this._normalizeHex(this.colorCache[id]);
+            if (!other) continue;
+            if (other === n || this.familyKey(other) === key) return true;
+        }
+        return false;
+    },
+
+    /** 퇴사 강사 색이 현직 코치 색과 안 비슷하면 칸에 써도 된다. */
+    retiredColorDistinctFromWorking: function(coach) {
+        if (!coach || typeof coach !== 'object') return false;
+        if (coach.active !== false && !this.isRetiredId(coach.id)) return false;
+        var hex = coach.color ? String(coach.color).trim() : '';
+        if (!hex && coach.id != null) hex = this.colorCache[String(coach.id)] || '';
+        if (!hex) return false;
+        return !this.conflictsWithWorkingColors(hex);
+    },
+
+    /** 근무 중 고유색만 ID/이름 캐시에 넣는다. 퇴사 색은 현직과 안 비슷할 때만 화면에 쓴다. */
     registerFromCoaches: function(coaches) {
         if (!Array.isArray(coaches)) return;
         var self = this;
+        var working = [];
         coaches.forEach(function(c) {
             if (!c) return;
+            if (c.active === false) {
+                if (c.id != null) {
+                    self.retiredIds[String(c.id)] = true;
+                    delete self.colorCache[String(c.id)];
+                }
+                return;
+            }
             var color = c.color ? String(c.color).trim() : '';
             if (!color) return;
             if (c.id != null) {
                 self.colorCache[String(c.id)] = color;
             }
-            if (c.name) {
-                self.nameColorCache[String(c.name).replace(/\s+/g, ' ').trim()] = color;
-                var base = String(c.name).replace(/\s+/g, ' ').trim()
-                    .replace(/\s*[\[\(].*?[\]\)]\s*$/, '').trim();
-                if (base) self.nameColorCache[base] = color;
+            working.push(c);
+        });
+        working.forEach(function(c) {
+            var color = String(c.color).trim();
+            var full = String(c.name || '').replace(/\s+/g, ' ').trim();
+            if (!full) return;
+            self.nameColorCache[full] = color;
+            self.nameColorCache[full.replace(/\s+/g, '')] = color;
+            var base = full.replace(/\s*[\[\(].*?[\]\)]\s*$/, '').trim();
+            if (base) {
+                self.nameColorCache[base] = color;
+                self.nameColorCache[base.replace(/\s+/g, '')] = color;
             }
         });
+        if (typeof document !== 'undefined' && typeof CustomEvent === 'function') {
+            try {
+                document.dispatchEvent(new CustomEvent('afbs-coach-colors-ready'));
+            } catch (e) { /* ignore */ }
+        }
     },
 
-    // 코치별 색상 가져오기 (DB color → 캐시 → 고정색 → 폴백)
+    /** 숫자 코치 ID만 ID 캐시 키로 쓴다. 이름 문자열을 ID처럼 넣으면 고정색이 DB 고유색을 가린다. */
+    _cacheKeyFromId: function(rawId) {
+        if (rawId == null || rawId === '') return '';
+        var s = String(rawId).trim();
+        return /^\d+$/.test(s) ? s : '';
+    },
+
+    // 코치별 색상 가져오기 (DB color → ID 캐시 → 이름 캐시 → 고정색 → 폴백)
     getColor: function(coach) {
         if (!coach) return null;
-        const coachId = coach.id ?? coach.name ?? coach;
-        const coachCacheKey = coachId !== undefined && coachId !== null ? String(coachId) : '';
-        let coachName = coach.name || '';
+        var rawId = null;
+        var coachName = '';
+        var objectColor = '';
+        if (typeof coach === 'object') {
+            rawId = coach.id;
+            coachName = coach.name || '';
+            objectColor = coach.color ? String(coach.color).trim() : '';
+        } else if (typeof coach === 'number') {
+            rawId = coach;
+        } else if (typeof coach === 'string') {
+            var s = coach.trim();
+            if (/^\d+$/.test(s)) rawId = s;
+            else coachName = s;
+        }
+        const coachCacheKey = this._cacheKeyFromId(rawId);
+        var retired = (typeof coach === 'object' && coach.active === false) || this.isRetiredId(rawId);
+        if (retired) {
+            if (objectColor && !this.conflictsWithWorkingColors(objectColor)) {
+                return objectColor;
+            }
+            return null;
+        }
         const normalizeName = (name) => {
             if (!name) return '';
             let normalized = String(name).replace(/\s+/g, ' ').trim();
@@ -2350,11 +2935,10 @@ App.CoachColors = {
         }
 
         // 1) API 객체에 color가 있으면 최우선 (DB 고유색)
-        if (coach.color && String(coach.color).trim()) {
-            const dbColor = String(coach.color).trim();
-            if (coachCacheKey) this.colorCache[coachCacheKey] = dbColor;
-            nameCandidates.forEach((n) => { if (n) this.nameColorCache[n] = dbColor; });
-            return dbColor;
+        if (objectColor) {
+            if (coachCacheKey) this.colorCache[coachCacheKey] = objectColor;
+            nameCandidates.forEach((n) => { if (n) this.nameColorCache[n] = objectColor; });
+            return objectColor;
         }
 
         // 2) ID 캐시 (registerFromCoaches)
@@ -2387,7 +2971,7 @@ App.CoachColors = {
         const availablePalette = this.default.filter(c => !fixedValues.includes(c));
         const palette = availablePalette.length > 0 ? availablePalette : this.default;
         let seed = 0;
-        let idForSeed = coach.id;
+        let idForSeed = rawId;
         if (typeof idForSeed === 'string' && idForSeed.trim() !== '' && !isNaN(Number(idForSeed))) {
             idForSeed = Number(idForSeed);
         }
@@ -2419,6 +3003,27 @@ App.CoachColors = {
     resetCache: function() {
         this.colorCache = {};
         this.nameColorCache = {};
+        this.retiredIds = {};
+        this._loadPromise = null;
+    },
+
+    /** DB 코치 고유색을 한 번 불러 캐시에 넣는다. 회원 관리 등 이름만 있는 화면에서 목록 그리기 전에 호출. */
+    ensureLoaded: function() {
+        if (this._loadPromise) return this._loadPromise;
+        if (typeof isLoginPagePath === 'function' && isLoginPagePath()) {
+            return Promise.resolve();
+        }
+        if (!(App.isAuthenticated && App.isAuthenticated() && App.api && typeof App.api.get === 'function')) {
+            return Promise.resolve();
+        }
+        var self = this;
+        this._loadPromise = App.api.get('/coaches').then(function(list) {
+            self.registerFromCoaches(list);
+            return list;
+        }).catch(function() {
+            self._loadPromise = null;
+        });
+        return this._loadPromise;
     },
 
     // 고정 색상 강제 적용 (캐시 무시)
@@ -2429,18 +3034,19 @@ App.CoachColors = {
     }
 };
 
-// 코치 표시 순서: 매니저 → 대표 → 대관 담당 → 메인 코치 → 야구 관련 코치 → 트레이닝 강사 → 필라테스 강사
+// 코치 표시 순서: 대표 → 이사 → 센터장 → 지점장 → 투수 → 유소년 → 재활 → 트레이너 → 강사
 App.CoachSortOrder = function(coach) {
     var name = (coach.name || '') + ' ' + (coach.specialties || '');
-    var n = name.toLowerCase();
-    if (/매니저|\[매니저\]/.test(name)) return 0;
-    if (/대표/.test(name)) return 1;
-    if (/대관\s*담당|대관담당/.test(name)) return 2;
-    if ((/\[코치\]|코치/.test(name)) && !/투수코치|포수코치/.test(name)) return 3;
-    if (/투수코치|포수코치|야구|타격|투구|수비|포수|투수/.test(name)) return 4;
-    if (/트레이너|트레이닝/.test(name)) return 5;
-    if (/필라테스|강사/.test(name)) return 6;
-    return 7;
+    if (/대표/.test(name)) return 0;
+    if (/이사/.test(name)) return 1;
+    if (/센터장/.test(name)) return 2;
+    if (/지점장/.test(name)) return 3;
+    if (/투수/.test(name)) return 4;
+    if (/유소년/.test(name)) return 5;
+    if (/재활/.test(name)) return 6;
+    if (/트레이너|트레이닝/.test(name)) return 7;
+    if (/강사|필라테스/.test(name)) return 8;
+    return 9;
 };
 
 // 페이지 로드 시 색상 캐시 초기화 후 DB 코치 고유색 프리로드 (인증된 페이지만)
@@ -2452,10 +3058,9 @@ if (typeof document !== 'undefined') {
                 return;
             }
             if (App.isAuthenticated && App.isAuthenticated()
-                    && App.api && typeof App.api.get === 'function') {
-                App.api.get('/coaches').then(function(list) {
-                    App.CoachColors.registerFromCoaches(list);
-                }).catch(function() { /* 무시 */ });
+                    && App.api && typeof App.api.get === 'function'
+                    && typeof App.CoachColors.ensureLoaded === 'function') {
+                App.CoachColors.ensureLoaded();
             }
         }
     });
@@ -2642,6 +3247,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 App.Modal.close(modal.id);
             }
         }
+        var nameBtn = e.target.closest && e.target.closest('.booking-member-name-link');
+        if (nameBtn) {
+            var mid = parseInt(nameBtn.getAttribute('data-member-id'), 10);
+            if (!isNaN(mid)) {
+                e.preventDefault();
+                if (typeof window.openMemberDetail === 'function') {
+                    window.openMemberDetail(mid);
+                } else {
+                    App.openMemberInfoModal(mid);
+                }
+            }
+        }
     });
     
     // 모달 내부에서의 드래그로 인한 뒤로가기 방지 (추가 보호)
@@ -2663,7 +3280,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const deltaY = Math.abs(touch.clientY - activeModal._touchStartY);
             
             // 수평 스와이프가 수직 스와이프보다 크면 차단 (뒤로가기 방지)
+            // 모달 본문·표 스크롤은 허용
             if (deltaX > 30 && deltaX > deltaY * 2) {
+                if (e.target && e.target.closest && e.target.closest('.modal')) return;
                 e.preventDefault();
             }
         }
@@ -3346,6 +3965,8 @@ App.addDarkModeToggle = function() {
     App.log('테마 토글 버튼 추가 완료');
     App.addAdminMemoButton();
     App.addOrgChartButton();
+    App.addAdminCoachHomeButton();
+    App.addCoachHomeDashboardButton();
 };
 
 /** 관리자 전용 메모 버튼 (대시보드 제목 표시줄, 테마 왼쪽) - 관리자만 표시 */
@@ -3410,6 +4031,94 @@ App.addOrgChartButton = function() {
         else topbarRight.prepend(orgContainer);
     }
     orgBtn.addEventListener('click', function() { App.openOrgChartModal(); });
+};
+
+/** 관리자 전용: 운영 관리 화면 상단에 출근부(코치 홈)로 이동 */
+App.addAdminCoachHomeButton = function() {
+    const path = (window.location.pathname || '').replace(/\/$/, '') || '/';
+    if (path === '/login.html' || path === '/login') return;
+    if (path.indexOf('member-booking') !== -1) return;
+    if (path === '/coach-home.html' || path.endsWith('/coach-home.html')) return;
+    var subtitle = document.querySelector('.sidebar-subtitle');
+    var isOps = subtitle && String(subtitle.textContent || '').indexOf('운영 관리') !== -1;
+    if (!isOps) return;
+    var role = String((App.currentUser && App.currentUser.role) || App.currentRole || '').toUpperCase();
+    var operator = typeof App.isCoachHomeOperator === 'function' && App.isCoachHomeOperator();
+    if (role !== 'ADMIN' && !operator) return;
+    if (document.getElementById('admin-coach-home-btn')) return;
+    const topbarRight = document.querySelector('.topbar-right');
+    if (!topbarRight) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'admin-memo-container admin-coach-home-container';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'admin-memo-btn';
+    btn.id = 'admin-coach-home-btn';
+    btn.title = '코치 홈';
+    btn.innerHTML = '&#127968;';
+    btn.setAttribute('aria-label', '코치 홈');
+    const label = document.createElement('span');
+    label.className = 'admin-memo-label';
+    label.textContent = '코치 홈';
+    wrap.appendChild(btn);
+    wrap.appendChild(label);
+    const orgContainer = document.querySelector('.org-chart-container');
+    const memoContainer = document.querySelector('.admin-memo-container:not(.org-chart-container):not(.admin-coach-home-container)');
+    if (orgContainer && orgContainer.parentNode === topbarRight) {
+        topbarRight.insertBefore(wrap, orgContainer);
+    } else if (memoContainer && memoContainer.parentNode === topbarRight) {
+        topbarRight.insertBefore(wrap, memoContainer);
+    } else {
+        const themeContainer = document.querySelector('.theme-toggle-container');
+        if (themeContainer && themeContainer.parentNode === topbarRight) {
+            topbarRight.insertBefore(wrap, themeContainer);
+        } else {
+            topbarRight.prepend(wrap);
+        }
+    }
+    btn.addEventListener('click', function() {
+        window.location.href = '/coach-home.html';
+    });
+};
+
+/** 코치 홈: 대시보드로 돌아가기 (대시보드의 코치 홈 아이콘과 대칭) */
+App.addCoachHomeDashboardButton = function() {
+    const path = (window.location.pathname || '').replace(/\/$/, '') || '/';
+    if (path !== '/coach-home.html' && !path.endsWith('/coach-home.html')) return;
+    const role = String((App.currentUser && App.currentUser.role) || App.currentRole || '').toUpperCase();
+    var operator = typeof App.isCoachHomeOperator === 'function' && App.isCoachHomeOperator();
+    if (role !== 'ADMIN' && role !== 'MANAGER' && !operator) return;
+    if (document.getElementById('coach-home-dashboard-btn')) return;
+    const topbarRight = document.querySelector('.topbar-right');
+    if (!topbarRight) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'admin-memo-container coach-home-dashboard-container';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'admin-memo-btn';
+    btn.id = 'coach-home-dashboard-btn';
+    btn.title = '대시보드';
+    btn.innerHTML = '&#128202;';
+    btn.setAttribute('aria-label', '대시보드');
+    const label = document.createElement('span');
+    label.className = 'admin-memo-label';
+    label.textContent = '대시보드';
+    wrap.appendChild(btn);
+    wrap.appendChild(label);
+    const themeContainer = document.querySelector('.theme-toggle-container');
+    if (themeContainer && themeContainer.parentNode === topbarRight) {
+        topbarRight.insertBefore(wrap, themeContainer);
+    } else {
+        const notificationBtn = document.querySelector('.notification-btn');
+        if (notificationBtn && notificationBtn.parentNode === topbarRight) {
+            topbarRight.insertBefore(wrap, notificationBtn);
+        } else {
+            topbarRight.prepend(wrap);
+        }
+    }
+    btn.addEventListener('click', function() {
+        window.location.href = '/';
+    });
 };
 
 var _adminMemoSaveTimeout = null;
@@ -4387,6 +5096,28 @@ style.textContent = `
     .theme-toggle-btn:hover {
         background: var(--bg-tertiary);
     }
+
+    .calendar-event.booking-missing-pass {
+        background-color: #E74C3C !important;
+        border-left-color: #c0392b !important;
+        color: #fff !important;
+    }
+    .table tbody tr.booking-missing-pass td {
+        background-color: #E74C3C !important;
+        color: #fff;
+    }
+    .table tbody tr.booking-missing-pass:hover td {
+        background-color: #c0392b !important;
+        color: #fff;
+    }
+    body.unlinked-pass-admin .table tbody tr.booking-missing-pass td {
+        background-color: transparent !important;
+        color: var(--text-primary) !important;
+    }
+    body.unlinked-pass-admin .table tbody tr.booking-missing-pass:hover td {
+        background-color: var(--bg-tertiary) !important;
+        color: var(--text-primary) !important;
+    }
 `;
 
 // ========================================
@@ -4405,6 +5136,33 @@ window.copyBookingToDate = async function(sourceBookingId, sourceBooking, target
     try {
         // 원본 예약 데이터 로드
         const booking = await App.api.get(`/bookings/${sourceBookingId}`);
+        
+        const memberProductId = booking.memberProductId != null ? booking.memberProductId : (booking.memberProduct && booking.memberProduct.id != null ? booking.memberProduct.id : null);
+        if (booking.member && booking.member.id) {
+            let mp = booking.memberProduct || {};
+            if (memberProductId) {
+                try {
+                    const fetched = await App.api.get('/member-products/' + memberProductId);
+                    if (fetched) mp = fetched;
+                } catch (e) {
+                    /* 원본 예약의 이용권 정보로 검사 */
+                }
+            }
+            const productType = (mp.product && mp.product.type) || mp.productType || null;
+            const passErr = App.assertMemberPassForSave({
+                isMember: true,
+                memberProductId: memberProductId,
+                productType: productType,
+                remainingCount: mp.remainingCount,
+                totalCount: mp.totalCount != null ? mp.totalCount : (mp.product && mp.product.usageCount),
+                isNew: true,
+                isCopy: true
+            });
+            if (passErr) {
+                App.showNotification(passErr, 'danger');
+                return;
+            }
+        }
         
         // 새 날짜로 시간 계산
         const targetDate = new Date(targetDateStr + 'T00:00:00');
@@ -4440,7 +5198,6 @@ window.copyBookingToDate = async function(sourceBookingId, sourceBooking, target
         };
         
         // 새 예약 데이터 생성 (이용권은 memberProduct.id 또는 memberProductId로 전달해 복사본도 같은 회차 표시)
-        const memberProductId = booking.memberProductId != null ? booking.memberProductId : (booking.memberProduct && booking.memberProduct.id != null ? booking.memberProduct.id : null);
         // 대관 페이지에서 복사 시 purpose는 반드시 RENTAL
         const purpose = (branch === 'RENTAL' ? 'RENTAL' : (booking.purpose || null));
         const newBooking = {
@@ -4475,7 +5232,9 @@ window.copyBookingToDate = async function(sourceBookingId, sourceBooking, target
         return saved;
     } catch (error) {
         App.err('예약 복사 실패:', error);
-        App.showNotification('예약 복사에 실패했습니다.', 'danger');
+        App.showNotification(typeof App.getApiErrorMessage === 'function'
+            ? App.getApiErrorMessage(error)
+            : '예약 복사에 실패했습니다.', 'danger');
         throw error;
     }
 };
@@ -4594,8 +5353,11 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
 
-    // 스크린샷 발췌 페이지는 관리자(Admin)만 접근 가능
-    if (window.location.pathname === '/screenshot-export.html' && (App.currentRole || '').toUpperCase() !== 'ADMIN') {
+    // 스크린샷 발췌·직원 출퇴근은 관리자(Admin)만 접근 가능
+    var pathNow = window.location.pathname || '';
+    if ((pathNow === '/screenshot-export.html' || pathNow === '/staff-attendance.html'
+            || pathNow.endsWith('/screenshot-export.html') || pathNow.endsWith('/staff-attendance.html'))
+            && (App.currentRole || '').toUpperCase() !== 'ADMIN') {
         var scrRole = (App.currentRole || '').toUpperCase();
         window.location.href = scrRole === 'COACH' ? '/bookings.html' : '/';
         return;

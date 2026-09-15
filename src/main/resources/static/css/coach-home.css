@@ -1,0 +1,397 @@
+.coach-home-page .topbar-left {
+    flex: 1;
+    min-width: 0;
+    flex-wrap: nowrap;
+}
+.coach-home-page .page-title {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.coach-home-page #admin-coach-select {
+    flex-shrink: 1;
+    min-width: 140px;
+    max-width: 240px;
+}
+.coach-home-page .coach-tab {
+    display: none;
+}
+.coach-home-page .coach-tab.active {
+    display: block;
+}
+.coach-home-hint {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin: 0 0 8px;
+    padding: 0 4px 12px;
+}
+.coach-month-label {
+    min-width: 110px;
+    text-align: center;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.coach-calendar {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    padding: 8px 4px 16px;
+}
+.coach-cal-head {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    padding: 8px 4px;
+    background-color: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+}
+.coach-cal-head.is-sun {
+    color: #d32f2f;
+    background-color: rgba(211, 47, 47, 0.12);
+}
+.coach-cal-head.is-sat {
+    color: #1976d2;
+    background-color: rgba(25, 118, 210, 0.12);
+}
+.coach-cal-day {
+    min-height: 72px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-tertiary);
+    padding: 8px;
+    cursor: pointer;
+    text-align: left;
+}
+.coach-cal-day:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-hover);
+}
+.coach-cal-day.is-empty {
+    visibility: hidden;
+    cursor: default;
+}
+.coach-cal-day.is-today {
+    border-color: var(--accent-primary);
+}
+.coach-cal-day.is-work {
+    border-left: 3px solid var(--success);
+}
+.coach-cal-day.is-off {
+    border-left: 3px solid var(--warning);
+    background: rgba(241, 196, 15, 0.08);
+}
+.coach-cal-day.is-sick {
+    border-left: 3px solid var(--danger);
+    background: rgba(231, 76, 60, 0.08);
+}
+.coach-cal-num {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+.coach-cal-day.is-sun .coach-cal-num {
+    color: #d32f2f;
+}
+.coach-cal-day.is-sat .coach-cal-num {
+    color: #1976d2;
+}
+.coach-cal-meta {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.35;
+}
+.coach-cal-times {
+    white-space: nowrap;
+    display: block;
+}
+.coach-cal-revenue {
+    display: block;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+.coach-cal-revenue.is-clickable {
+    cursor: pointer;
+    color: var(--accent-primary);
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+}
+.coach-cal-revenue.is-clickable:hover {
+    text-decoration: underline;
+}
+.coach-cal-memo {
+    display: block;
+}
+.coach-members-count {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    vertical-align: middle;
+    color: var(--accent-primary);
+    background: rgba(46, 204, 113, 0.15);
+}
+.coach-members-table-wrap {
+    overflow-x: auto;
+    padding: 0 12px 12px;
+}
+.coach-members-head,
+.coach-member-card {
+    display: grid;
+    grid-template-columns: minmax(6.5rem, 11%) minmax(6.5rem, 10%) 12rem 6.2rem minmax(24rem, 1fr) 4.2rem;
+    min-width: 920px;
+    align-items: stretch;
+}
+.coach-members-head {
+    padding: 0 0 8px;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+}
+.coach-members-head .col-name,
+.coach-members-head .col-dates,
+.coach-members-head .col-pass,
+.coach-members-head .col-status {
+    text-align: left;
+    padding-left: 14px;
+}
+.coach-members-empty {
+    padding: 24px 12px;
+    text-align: center;
+    color: var(--text-muted);
+}
+.coach-members-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.coach-member-block {
+    display: flex;
+    flex-direction: column;
+}
+.coach-member-card {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--bg-secondary);
+    overflow: hidden;
+    cursor: pointer;
+}
+.coach-member-card:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-hover);
+}
+.coach-member-card.is-selected {
+    border-color: var(--accent-primary);
+    box-shadow: inset 3px 0 0 var(--accent-primary);
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+.coach-member-visits {
+    border: 1px solid var(--accent-primary);
+    border-top: 1px solid var(--border-color);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    background: var(--bg-primary);
+    min-width: 920px;
+    box-shadow: inset 3px 0 0 var(--accent-primary);
+}
+.coach-member-visits-head {
+    padding: 12px 16px 4px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+.coach-member-visits .table-container {
+    padding: 4px 8px 12px;
+}
+.coach-member-visits .table th,
+.coach-member-visits .table td {
+    text-align: left;
+}
+.coach-member-card-name {
+    grid-column: 1;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border-right: none;
+    background: var(--bg-tertiary);
+}
+.coach-member-card > .col-purchase,
+.coach-member-card > .col-pass,
+.coach-member-card > .col-status,
+.coach-member-card > .col-dates,
+.coach-member-card > .col-remain {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px;
+    min-height: 48px;
+}
+.coach-member-card > .col-purchase {
+    justify-content: center;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.coach-member-card > .col-pass {
+    justify-content: flex-start;
+    text-align: left;
+    font-weight: 700;
+    font-size: 15px;
+    line-height: 1.35;
+    word-break: keep-all;
+    padding-right: 6px;
+}
+.coach-member-card > .col-status {
+    justify-content: flex-start;
+    padding-left: 4px;
+    padding-right: 8px;
+}
+.coach-member-card > .col-dates {
+    justify-content: flex-start;
+    text-align: left;
+    padding-left: 8px;
+}
+.coach-member-card > .col-remain {
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.coach-member-card > .is-follow {
+    border-top: 1px solid var(--border-color);
+}
+.coach-member-summary-card {
+    grid-template-columns: minmax(6.5rem, 10%) 12rem 6.2rem minmax(24rem, 1fr) 4.2rem;
+    cursor: default;
+}
+.coach-members-summary-head {
+    min-width: 780px;
+    grid-template-columns: minmax(6.5rem, 10%) 12rem 6.2rem minmax(24rem, 1fr) 4.2rem;
+}
+#coach-members-body .coach-member-card.is-selected {
+    background: var(--bg-hover);
+}
+.coach-member-name {
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.coach-member-secondary {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 2px;
+}
+.coach-member-usage-hero {
+    margin: 0 12px 12px;
+    overflow-x: auto;
+}
+.coach-home-page .badge {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+.coach-member-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+.coach-member-remain {
+    color: var(--text-primary);
+    font-weight: 700;
+    white-space: nowrap;
+}
+.coach-member-remain.is-zero {
+    color: var(--danger);
+}
+.coach-usage-dates {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+}
+.coach-usage-date {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: var(--radius-md);
+    background: var(--bg-tertiary);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+.coach-home-page .kpi-grid {
+    margin-bottom: 16px;
+}
+.coach-home-page .card-header .search-box {
+    min-width: 220px;
+}
+.coach-home-page .filter-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* 출근부 캘린더 수익 내역: 한 행이 줄바꿈 없이 보이도록 모달을 넓히고 셀은 nowrap */
+#work-revenue-modal .modal.work-revenue-modal-dialog {
+    width: min(96vw, 860px);
+    max-width: min(96vw, 860px);
+    height: auto;
+    max-height: 88vh;
+    min-height: 0;
+    overflow-x: auto !important;
+    overflow-y: auto !important;
+}
+#work-revenue-modal .modal-header {
+    padding: 16px 20px;
+}
+#work-revenue-modal .modal-title {
+    font-size: 18px;
+}
+#work-revenue-modal .modal-body {
+    flex: 0 1 auto;
+    padding: 12px 20px 20px;
+    overflow-x: auto;
+    overflow-y: auto;
+}
+#work-revenue-modal .modal-body:has(> .table-container) {
+    overflow-y: auto;
+}
+#work-revenue-modal .modal-body:has(> .table-container) > .table-container {
+    flex: 0 1 auto;
+    overflow-x: auto;
+    overflow-y: visible;
+}
+#work-revenue-modal #work-revenue-modal-sum {
+    white-space: nowrap;
+    margin-bottom: 10px;
+    padding-bottom: 0;
+}
+#work-revenue-modal .table {
+    width: max-content;
+    min-width: 100%;
+    font-size: 13px;
+}
+.coach-home-page .kpi-card--profit {
+    border-left: 3px solid var(--success);
+}
+.coach-home-page .settle-received-input {
+    width: 110px;
+    max-width: 100%;
+    text-align: right;
+    padding: 6px 8px;
+    font-size: 13px;
+}
+.coach-home-page .settle-received-cell {
+    white-space: nowrap;
+}
+.coach-home-page .settle-received-input.is-saving {
+    opacity: 0.7;
+}
+.coach-home-page .settle-received-input.is-saved {
+    border-color: var(--success);
+}

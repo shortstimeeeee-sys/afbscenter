@@ -1,6 +1,7 @@
 package com.afbscenter.service;
 
 import com.afbscenter.model.User;
+import com.afbscenter.repository.UserAccessLogRepository;
 import com.afbscenter.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,11 +22,17 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final CoachService coachService;
+    private final UserAccessLogRepository userAccessLogRepository;
 
     @Autowired
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder,
+                       CoachService coachService,
+                       UserAccessLogRepository userAccessLogRepository) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.coachService = coachService;
+        this.userAccessLogRepository = userAccessLogRepository;
     }
 
     private String buildEmployeeCodeFromUserId(Long userId) {
@@ -182,17 +189,43 @@ public class UserService {
         return userRepository.save(saved);
     }
 
-    // 사용자 삭제 (소프트 삭제 - active를 false로)
+    // 사용자 완전 삭제. 코치 명단은 남기고 계정 연결만 해제한다.
     public void deleteUser(Long id) {
+        deleteUser(id, null);
+    }
+
+    public void deleteUser(Long id, String currentUsername) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + id));
-        
-        // 자기 자신은 삭제 불가
-        // (이 체크는 컨트롤러에서 현재 로그인한 사용자와 비교하여 처리)
-        
-        user.setActive(false);
-        user.setUpdatedAt(LocalDateTime.now());
-        userRepository.save(user);
+
+        if (currentUsername != null && currentUsername.equalsIgnoreCase(user.getUsername())) {
+            throw new RuntimeException("로그인한 계정은 삭제할 수 없습니다.");
+        }
+        if ("admin".equalsIgnoreCase(user.getUsername())) {
+            throw new RuntimeException("기본 관리자 계정은 삭제할 수 없습니다.");
+        }
+        if (user.getRole() == User.Role.ADMIN) {
+            long otherAdmins = userRepository.findAll().stream()
+                    .filter(u -> u.getRole() == User.Role.ADMIN && u.getId() != null && !u.getId().equals(id))
+                    .count();
+            if (otherAdmins == 0) {
+                throw new RuntimeException("마지막 관리자 계정은 삭제할 수 없습니다.");
+            }
+        }
+
+        try {
+            coachService.syncUserCoachLink(id, null);
+        } catch (Exception e) {
+            logger.warn("사용자 삭제 시 코치 연결 해제 실패 userId={}: {}", id, e.getMessage());
+        }
+        try {
+            userAccessLogRepository.deleteByUserId(id);
+        } catch (Exception e) {
+            logger.warn("사용자 삭제 시 접속 로그 삭제 실패 userId={}: {}", id, e.getMessage());
+        }
+
+        userRepository.delete(user);
+        logger.info("사용자 삭제: id={}, username={}", id, user.getUsername());
     }
 
     // 비밀번호 변경

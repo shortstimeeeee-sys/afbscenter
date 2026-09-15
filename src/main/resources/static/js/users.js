@@ -8,16 +8,14 @@ let allCoaches = [];
 document.addEventListener('DOMContentLoaded', function() {
     loadUsers();
     loadCoaches();
-    
-    // 검색 기능
+
     const searchInput = document.getElementById('user-search');
     if (searchInput) {
         searchInput.addEventListener('input', function() {
             applyFilters();
         });
     }
-    
-    // 필터 변경 시 자동 적용
+
     const roleFilter = document.getElementById('filter-role');
     const activeFilter = document.getElementById('filter-active');
     if (roleFilter) {
@@ -25,6 +23,29 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     if (activeFilter) {
         activeFilter.addEventListener('change', applyFilters);
+    }
+
+    const tbody = document.getElementById('users-table-body');
+    if (tbody) {
+        tbody.addEventListener('click', function(e) {
+            const btn = e.target.closest('button[data-user-action]');
+            if (!btn) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const userId = btn.getAttribute('data-user-id');
+            const action = btn.getAttribute('data-user-action');
+            if (action === 'delete') {
+                deleteUser(userId);
+            } else if (action === 'edit') {
+                editUser(userId);
+            } else if (action === 'password') {
+                openPasswordModal(userId);
+            } else if (action === 'approve') {
+                approveUser(userId);
+            } else if (action === 'reject') {
+                rejectUser(userId);
+            }
+        });
     }
 });
 
@@ -198,33 +219,18 @@ function renderUsersTable() {
                 <td>
                     <div class="action-buttons">
                         ${user.approved === false && user.active === true ? `
-                            <button class="btn btn-sm btn-success" onclick="approveUser(${user.id})" type="button">승인</button>
-                            <button class="btn btn-sm btn-danger" onclick="rejectUser(${user.id})" type="button">거부</button>
+                            <button class="btn btn-sm btn-success" data-user-action="approve" data-user-id="${user.id}" type="button">승인</button>
+                            <button class="btn btn-sm btn-danger" data-user-action="reject" data-user-id="${user.id}" type="button">거부</button>
                         ` : `
-                            <button class="btn btn-sm btn-primary" onclick="editUser(${user.id})" data-user-id="${user.id}" type="button">수정</button>
-                            <button class="btn btn-sm btn-secondary" onclick="openPasswordModal(${user.id})" type="button">비밀번호</button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteUser(${user.id})" ${!user.active ? 'disabled' : ''} type="button">삭제</button>
+                            <button class="btn btn-sm btn-primary" data-user-action="edit" data-user-id="${user.id}" type="button">수정</button>
+                            <button class="btn btn-sm btn-secondary" data-user-action="password" data-user-id="${user.id}" type="button">비밀번호</button>
+                            <button class="btn btn-sm btn-danger" data-user-action="delete" data-user-id="${user.id}" type="button">삭제</button>
                         `}
                     </div>
                 </td>
             </tr>
         `;
     }).join('');
-    
-    // 이벤트 리스너 재등록 (동적으로 생성된 버튼에 대해)
-    setTimeout(() => {
-        const editButtons = document.querySelectorAll('.action-buttons .btn-primary[data-user-id]');
-        editButtons.forEach(btn => {
-            const userId = btn.getAttribute('data-user-id');
-            // 기존 onclick이 있으면 제거하고 새로 등록
-            btn.onclick = function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                App.log('수정 버튼 클릭 (이벤트 리스너):', userId);
-                editUser(parseInt(userId));
-            };
-        });
-    }, 100);
 }
 
 // 코치 선택 UI 업데이트
@@ -446,26 +452,30 @@ async function rejectUser(userId) {
 
 // 사용자 삭제
 async function deleteUser(userId) {
-    const user = allUsers.find(u => u.id === userId);
-    if (!user) {
-        App.showNotification('사용자를 찾을 수 없습니다.', 'error');
+    const id = parseInt(userId, 10);
+    if (!id) {
+        App.showNotification('사용자 ID가 없습니다.', 'error');
         return;
     }
-    
-    if (!confirm(`정말로 "${user.username}" 사용자를 비활성화하시겠습니까?`)) {
+    const user = allUsers.find(u => u.id == id);
+    const label = user ? (user.username || user.name || String(id)) : String(id);
+    if (!confirm('"' + label + '" 사용자를 완전히 삭제할까요?\n목록에서 사라지고, 코치 명단 연결만 해제됩니다. 이 작업은 되돌릴 수 없습니다.')) {
         return;
     }
-    
+
     try {
-        await App.api.delete(`/users/${userId}`);
-        App.showNotification('사용자가 비활성화되었습니다.', 'success');
-        loadUsers();
+        await App.api.delete('/users/' + id);
+        App.showNotification('사용자가 삭제되었습니다.', 'success');
+        await loadUsers();
     } catch (error) {
         App.err('사용자 삭제 실패:', error);
-        const errorMsg = error.response?.data?.error || '사용자 삭제에 실패했습니다.';
+        const data = error && error.response && error.response.data;
+        const errorMsg = (data && (data.error || data.message)) || '사용자 삭제에 실패했습니다.';
         App.showNotification(errorMsg, 'error');
+        try { await loadUsers(); } catch (e) {}
     }
 }
+window.deleteUser = deleteUser;
 
 // 비밀번호 변경 모달 열기
 function openPasswordModal(userId) {

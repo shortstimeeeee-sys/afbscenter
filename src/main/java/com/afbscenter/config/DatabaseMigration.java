@@ -34,9 +34,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -225,6 +226,16 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             } catch (Exception e) {
                 logger.warn("payments.member_product_id 마이그레이션 실행 중 오류 (무시): {}", e.getMessage());
             }
+            try {
+                ensureCoachPaymentReceiptsTable();
+            } catch (Exception e) {
+                logger.warn("coach_payment_receipts 테이블 생성 중 오류 (무시): {}", e.getMessage());
+            }
+            try {
+                ensurePassSettlementsTable();
+            } catch (Exception e) {
+                logger.warn("pass_settlements 테이블 생성 중 오류 (무시): {}", e.getMessage());
+            }
             
             // 초기 관리자 계정 생성
             try {
@@ -261,6 +272,11 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
                 ensureFacilitySlots();
             } catch (Exception e) {
                 logger.warn("시설 슬롯 기본값 생성 중 오류 (무시): {}", e.getMessage());
+            }
+            try {
+                ensureBpaBaseballFacility();
+            } catch (Exception e) {
+                logger.warn("BPA 야구장 시설 생성 중 오류 (무시): {}", e.getMessage());
             }
             
             try {
@@ -459,17 +475,21 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             try {
                 logger.info("애플리케이션 시작 시 calendar_day_marks 테이블 마이그레이션 실행");
                 migrateCalendarDayMarksTable();
+                seedChuseok2026CalendarMarks();
                 logger.info("calendar_day_marks 테이블 마이그레이션 완료");
             } catch (Exception e) {
                 logger.warn("calendar_day_marks 마이그레이션 중 오류 (무시): {}", e.getMessage());
             }
 
             try {
-                logger.info("애플리케이션 시작 시 횟수권(COUNT_PASS) remaining_count 동기화 실행");
-                syncMemberProductRemainingCountFromEndedBookings();
-                logger.info("횟수권 remaining_count 동기화 완료");
+                logger.info("애플리케이션 시작 시 branch_closures 테이블 마이그레이션 실행");
+                migrateBranchClosuresTable();
+                migrateBranchClosuresCalendarPart();
+                removeBranchClosuresCheckConstraints();
+                migrateBranchClosuresThreeGroups();
+                logger.info("branch_closures 테이블 마이그레이션 완료");
             } catch (Exception e) {
-                logger.warn("횟수권 remaining_count 동기화 중 오류 (무시): {}", e.getMessage());
+                logger.warn("branch_closures 마이그레이션 중 오류 (무시): {}", e.getMessage());
             }
 
             try {
@@ -501,18 +521,105 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             } catch (Exception e) {
                 logger.warn("코치 고유색 마이그레이션 중 오류 (무시): {}", e.getMessage());
             }
+
+            try {
+                applyInactiveCoachUnassignPatchV1();
+            } catch (Exception e) {
+                logger.warn("퇴사 코치 담당 미지정 패치 실패 (무시): {}", e.getMessage());
+            }
+
+            try {
+                removeCoachWorkRecordsCheckConstraints();
+            } catch (Exception e) {
+                logger.warn("coach_work_records CHECK 제약 제거 실패 (무시): {}", e.getMessage());
+            }
+
+            try {
+                migrateOutdoorLessonAttendedColumn();
+            } catch (Exception e) {
+                logger.warn("야외 레슨 출석 컬럼 마이그레이션 실패 (무시): {}", e.getMessage());
+            }
             
             migrationExecuted = true;
         }
     }
 
     private static final String PATCH_COACH_MEMBER_VIEW_V1 = "coach_member_view_v1";
+    private static final String PATCH_INACTIVE_COACH_UNASSIGN_V1 = "inactive_coach_unassign_v1";
     private static final String PATCH_COACH_COLOR_V1 = "coach_color_v1";
     private static final String PATCH_COACH_COLOR_SEOJUNGHOON_V1 = "coach_color_seojunghoon_v1";
     private static final String PATCH_COACH_COLOR_SEOJUNGHOON_WHITE_V1 = "coach_color_seojunghoon_white_v1";
     private static final String PATCH_COACH_COLOR_FAMILY_DEDUPE_V1 = "coach_color_family_dedupe_v1";
+    private static final String PATCH_COACH_COLOR_NO_REUSE_INACTIVE_V1 = "coach_color_no_reuse_inactive_v1";
+    private static final String PATCH_COACH_COLOR_JEONGYEONGSAM_PURPLE_V1 = "coach_color_jeongyeongsam_purple_v1";
+    private static final String PATCH_COACH_COLOR_JEONGJINHWAN_RED_V1 = "coach_color_jeongjinhwan_red_v1";
+    private static final String PATCH_COACH_COLOR_JEONGJINHWAN_BLUEGRAY_V1 = "coach_color_jeongjinhwan_bluegray_v1";
     private static final String PATCH_COACH_COLOR_PARKGEUNYEOP_V1 = "coach_color_parkgeunyeop_v1";
     private static final String PATCH_COACH_COLOR_PARKGEUNYEOP_V2 = "coach_color_parkgeunyeop_v2";
+
+    /**
+     * 퇴사(active=false) 코치가 회원 카드·이용권·상품 기본 담당에 남아 있으면 미지정(NULL)으로 바꾼다.
+     * 화면만 미지정으로 보이던 상태와 DB를 맞춘다. 과거 예약은 그대로 둔다.
+     */
+    private void applyInactiveCoachUnassignPatchV1() {
+        try {
+            jdbcTemplate.execute(
+                    "CREATE TABLE IF NOT EXISTS schema_patches (patch_id VARCHAR(128) PRIMARY KEY, "
+                            + "applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+        } catch (Exception e) {
+            logger.warn("schema_patches 테이블 생성 실패: {}", e.getMessage());
+            return;
+        }
+        try {
+            jdbcTemplate.update("INSERT INTO schema_patches (patch_id) VALUES (?)", PATCH_INACTIVE_COACH_UNASSIGN_V1);
+        } catch (DataIntegrityViolationException e) {
+            return;
+        } catch (Exception e) {
+            String m = e.getMessage() != null ? e.getMessage() : "";
+            if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                return;
+            }
+            logger.warn("퇴사 코치 미지정 패치 선점 실패: {}", e.getMessage());
+            return;
+        }
+        try {
+            int members = jdbcTemplate.update(
+                    "UPDATE members SET coach_id = NULL WHERE coach_id IN "
+                            + "(SELECT id FROM coaches WHERE active = FALSE)");
+            int products = jdbcTemplate.update(
+                    "UPDATE member_products SET coach_id = NULL WHERE coach_id IN "
+                            + "(SELECT id FROM coaches WHERE active = FALSE)");
+            int catalog = jdbcTemplate.update(
+                    "UPDATE products SET coach_id = NULL WHERE coach_id IN "
+                            + "(SELECT id FROM coaches WHERE active = FALSE)");
+            logger.info("퇴사 코치 담당 미지정 패치: 회원 {}명, 이용권 {}건, 상품 {}건", members, products, catalog);
+        } catch (Exception e) {
+            logger.error("퇴사 코치 미지정 UPDATE 실패, 다음 기동 시 재시도하도록 patch 행 제거: {}", e.getMessage());
+            try {
+                jdbcTemplate.update("DELETE FROM schema_patches WHERE patch_id = ?", PATCH_INACTIVE_COACH_UNASSIGN_V1);
+            } catch (Exception e2) {
+                logger.warn("schema_patches 롤백 삭제 실패: {}", e2.getMessage());
+            }
+        }
+    }
+
+    private void migrateOutdoorLessonAttendedColumn() {
+        List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'OUTDOOR_LESSON_PARTICIPANTS'");
+        if (tables == null || tables.isEmpty()) {
+            return;
+        }
+        List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                        + "WHERE UPPER(TABLE_NAME) = 'OUTDOOR_LESSON_PARTICIPANTS' AND UPPER(COLUMN_NAME) = 'ATTENDED'");
+        if (columns != null && !columns.isEmpty()) {
+            jdbcTemplate.update("UPDATE outdoor_lesson_participants SET attended = FALSE WHERE attended IS NULL");
+            return;
+        }
+        jdbcTemplate.execute(
+                "ALTER TABLE outdoor_lesson_participants ADD COLUMN attended BOOLEAN DEFAULT FALSE NOT NULL");
+        logger.info("outdoor_lesson_participants.attended 컬럼 추가 완료");
+    }
 
     /**
      * coaches.color 컬럼 추가 후 전체 코치에 고유색 백필.
@@ -592,6 +699,18 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
 
         // 활성 코치끼리 같은 색상 계열 중복 제거 (1회)
         applyCoachColorFamilyDedupePatch();
+
+        // 퇴사 코치 고유색을 근무 중 코치가 물려받지 않게 재할당 (1회)
+        applyNoReuseInactiveCoachColorPatch();
+
+        // 정영삼 트레이너 고유색 보라 복원. 퇴사 조혜진과 hex가 같아도 현직 색은 유지한다.
+        applyJeongYeongSamPurpleRestorePatch();
+
+        // 정진환[유소년] → 빨강 #D32F2F (핑크·보라 계열과 구분)
+        applyJeongJinHwanRedColorPatch();
+
+        // 정진환[유소년] → 블루그레이 #455A64 (휴무 빨강과 구분)
+        applyJeongJinHwanBlueGrayColorPatch();
     }
 
     /** 서정훈을 기존 대관담당 색(#2196F3)으로 복원. 해당 색을 쓰던 다른 코치는 재배치. */
@@ -892,6 +1011,198 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
         }
         String s = activeObj.toString().trim();
         return !"false".equalsIgnoreCase(s) && !"0".equals(s);
+    }
+
+    /**
+     * 퇴사 코치와 같은 고유색을 쓰는 근무 중 코치를 다른 색으로 옮긴다.
+     * 조혜진 보라(#673AB7)가 정영삼 등 현직 코치 칸에 다시 나오는 것을 막는다.
+     */
+    private void applyNoReuseInactiveCoachColorPatch() {
+        boolean apply = false;
+        try {
+            jdbcTemplate.update("INSERT INTO schema_patches (patch_id) VALUES (?)", PATCH_COACH_COLOR_NO_REUSE_INACTIVE_V1);
+            apply = true;
+        } catch (DataIntegrityViolationException e) {
+            return;
+        } catch (Exception e) {
+            String m = e.getMessage() != null ? e.getMessage() : "";
+            if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                return;
+            }
+            logger.warn("퇴사 코치 색 재사용 금지 패치 선점 실패: {}", e.getMessage());
+            return;
+        }
+        if (!apply) {
+            return;
+        }
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList("SELECT id, name, color, active FROM coaches");
+            if (rows == null || rows.isEmpty()) {
+                return;
+            }
+            java.util.Set<String> inactiveColors = new java.util.HashSet<>();
+            for (Map<String, Object> row : rows) {
+                if (isCoachRowActive(row)) {
+                    continue;
+                }
+                Object colorObj = row.get("COLOR");
+                if (colorObj == null) {
+                    colorObj = row.get("color");
+                }
+                String c = com.afbscenter.constants.CoachColorPalette.normalizeHex(
+                        colorObj != null ? colorObj.toString() : null);
+                if (c != null) {
+                    inactiveColors.add(c);
+                }
+            }
+            for (Map<String, Object> row : rows) {
+                if (!isCoachRowActive(row)) {
+                    continue;
+                }
+                Object idObj = row.get("ID");
+                if (idObj == null) {
+                    idObj = row.get("id");
+                }
+                if (!(idObj instanceof Number)) {
+                    continue;
+                }
+                long id = ((Number) idObj).longValue();
+                Object colorObj = row.get("COLOR");
+                if (colorObj == null) {
+                    colorObj = row.get("color");
+                }
+                String c = com.afbscenter.constants.CoachColorPalette.normalizeHex(
+                        colorObj != null ? colorObj.toString() : null);
+                if (c == null || !inactiveColors.contains(c)) {
+                    continue;
+                }
+                java.util.Set<String> usedForPick = collectAllCoachColorsExcept(rows, id);
+                String replacement = com.afbscenter.constants.CoachColorPalette.pickUnused(usedForPick);
+                jdbcTemplate.update("UPDATE coaches SET color = ? WHERE id = ?", replacement, id);
+                row.put("color", replacement);
+                row.put("COLOR", replacement);
+                logger.info("퇴사 코치 고유색 재사용 해제: coachId={} {} → {}", id, c, replacement);
+            }
+            logger.info("퇴사 코치 고유색 재사용 금지 패치 적용 ({})", PATCH_COACH_COLOR_NO_REUSE_INACTIVE_V1);
+        } catch (Exception e) {
+            logger.error("퇴사 코치 고유색 재사용 금지 실패, 패치 행 제거: {}", e.getMessage());
+            try {
+                jdbcTemplate.update("DELETE FROM schema_patches WHERE patch_id = ?", PATCH_COACH_COLOR_NO_REUSE_INACTIVE_V1);
+            } catch (Exception e2) {
+                logger.warn("schema_patches 롤백 실패: {}", e2.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 정영삼[트레이너 센터장] 고유색을 보라(#673AB7)로 되돌린다.
+     * 퇴사 조혜진과 같은 hex여도 현직 트레이너 색은 노랑으로 바꾸지 않는다.
+     */
+    private void applyJeongYeongSamPurpleRestorePatch() {
+        boolean apply = false;
+        try {
+            jdbcTemplate.update("INSERT INTO schema_patches (patch_id) VALUES (?)", PATCH_COACH_COLOR_JEONGYEONGSAM_PURPLE_V1);
+            apply = true;
+        } catch (DataIntegrityViolationException e) {
+            return;
+        } catch (Exception e) {
+            String m = e.getMessage() != null ? e.getMessage() : "";
+            if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                return;
+            }
+            logger.warn("정영삼 보라 복원 패치 선점 실패: {}", e.getMessage());
+            return;
+        }
+        if (!apply) {
+            return;
+        }
+        try {
+            int updated = jdbcTemplate.update(
+                    "UPDATE coaches SET color = ? WHERE (active = TRUE OR active IS NULL) "
+                            + "AND name LIKE ? AND name LIKE ?",
+                    "#673AB7", "%정영삼%", "%트레이너%");
+            logger.info("정영삼 트레이너 고유색 보라 복원 ({}명, {})", updated, PATCH_COACH_COLOR_JEONGYEONGSAM_PURPLE_V1);
+        } catch (Exception e) {
+            logger.error("정영삼 보라 복원 실패, 패치 행 제거: {}", e.getMessage());
+            try {
+                jdbcTemplate.update("DELETE FROM schema_patches WHERE patch_id = ?", PATCH_COACH_COLOR_JEONGYEONGSAM_PURPLE_V1);
+            } catch (Exception e2) {
+                logger.warn("schema_patches 롤백 실패: {}", e2.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 정진환[유소년] 고유색을 빨강(#D32F2F)으로 둔다.
+     * 기존 딥핑크(#880E4F)는 최성훈 핑크·정영삼 보라와 가까워 칸이 겹쳐 보였다.
+     */
+    private void applyJeongJinHwanRedColorPatch() {
+        boolean apply = false;
+        try {
+            jdbcTemplate.update("INSERT INTO schema_patches (patch_id) VALUES (?)", PATCH_COACH_COLOR_JEONGJINHWAN_RED_V1);
+            apply = true;
+        } catch (DataIntegrityViolationException e) {
+            return;
+        } catch (Exception e) {
+            String m = e.getMessage() != null ? e.getMessage() : "";
+            if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                return;
+            }
+            logger.warn("정진환 빨강 패치 선점 실패: {}", e.getMessage());
+            return;
+        }
+        if (!apply) {
+            return;
+        }
+        try {
+            int updated = jdbcTemplate.update(
+                    "UPDATE coaches SET color = ? WHERE name LIKE ?",
+                    "#D32F2F", "%정진환%");
+            logger.info("정진환 고유색 빨강 적용 ({}명, {})", updated, PATCH_COACH_COLOR_JEONGJINHWAN_RED_V1);
+        } catch (Exception e) {
+            logger.error("정진환 빨강 적용 실패, 패치 행 제거: {}", e.getMessage());
+            try {
+                jdbcTemplate.update("DELETE FROM schema_patches WHERE patch_id = ?", PATCH_COACH_COLOR_JEONGJINHWAN_RED_V1);
+            } catch (Exception e2) {
+                logger.warn("schema_patches 롤백 실패: {}", e2.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 정진환[유소년] 고유색을 블루그레이(#455A64)로 둔다.
+     * 빨강(#D32F2F)은 출근부 휴무 칸과 같아 구분이 어려웠다.
+     */
+    private void applyJeongJinHwanBlueGrayColorPatch() {
+        boolean apply = false;
+        try {
+            jdbcTemplate.update("INSERT INTO schema_patches (patch_id) VALUES (?)", PATCH_COACH_COLOR_JEONGJINHWAN_BLUEGRAY_V1);
+            apply = true;
+        } catch (DataIntegrityViolationException e) {
+            return;
+        } catch (Exception e) {
+            String m = e.getMessage() != null ? e.getMessage() : "";
+            if (m.contains("unique") || m.contains("Unique") || m.contains("Duplicate")) {
+                return;
+            }
+            logger.warn("정진환 블루그레이 패치 선점 실패: {}", e.getMessage());
+            return;
+        }
+        if (!apply) {
+            return;
+        }
+        try {
+            forceAssignCoachPreferredColor("정진환", "#455A64");
+            dedupeCoachColors();
+            logger.info("정진환 고유색 블루그레이 패치 적용 (#455A64)");
+        } catch (Exception e) {
+            logger.error("정진환 블루그레이 패치 실패, 패치 행 제거: {}", e.getMessage());
+            try {
+                jdbcTemplate.update("DELETE FROM schema_patches WHERE patch_id = ?", PATCH_COACH_COLOR_JEONGJINHWAN_BLUEGRAY_V1);
+            } catch (Exception e2) {
+                logger.warn("schema_patches 롤백 실패: {}", e2.getMessage());
+            }
+        }
     }
 
     /** 활성 코치끼리 같은 색상 계열을 1회 정리 */
@@ -1544,6 +1855,81 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
         }
     }
     
+    /** 사회인 예약 모달용 BPA 야구장. RENTAL 지점이라 사하/연산 일반 야구·대관 드롭다운에는 안 나옴. */
+    private void ensureBpaBaseballFacility() {
+        deactivatePlainBpaFacility();
+        ensureNamedBpaFacility("BPA 야구장(사회인)", "social");
+        ensureNamedBpaFacility("BPA 야구장(유소년)", "youth");
+    }
+
+    private void deactivatePlainBpaFacility() {
+        for (Facility f : facilityRepository.findAll()) {
+            if (!matchesBpaFacilityKind(f.getName(), "plain")) {
+                continue;
+            }
+            if (!Boolean.FALSE.equals(f.getActive())) {
+                f.setActive(false);
+                facilityRepository.save(f);
+                logger.info("일반 BPA 야구장 비활성화: ID={}", f.getId());
+            }
+        }
+    }
+
+    private void ensureNamedBpaFacility(String displayName, String kind) {
+        Facility saved = null;
+        List<Facility> existing = facilityRepository.findAll();
+        for (Facility f : existing) {
+            if (matchesBpaFacilityKind(f.getName(), kind)) {
+                saved = f;
+                logger.info("{} 시설 이미 존재: ID={}", displayName, f.getId());
+                break;
+            }
+        }
+        if (saved == null) {
+            Facility bpa = new Facility();
+            bpa.setName(displayName);
+            bpa.setLocation("BPA");
+            bpa.setBranch(Facility.Branch.RENTAL);
+            bpa.setFacilityType(Facility.FacilityType.BASEBALL);
+            bpa.setHourlyRate(0);
+            bpa.setOpenTime(LocalTime.of(9, 0));
+            bpa.setCloseTime(LocalTime.of(22, 0));
+            bpa.setActive(true);
+            saved = facilityRepository.save(bpa);
+            logger.info("{} 시설 생성: ID={}", displayName, saved.getId());
+        }
+        Integer slotCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM facility_slots WHERE facility_id = ?", Integer.class, saved.getId());
+        if (slotCount != null && slotCount > 0) {
+            return;
+        }
+        String[] days = {"MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"};
+        LocalTime open = saved.getOpenTime() != null ? saved.getOpenTime() : LocalTime.of(9, 0);
+        LocalTime close = saved.getCloseTime() != null ? saved.getCloseTime() : LocalTime.of(22, 0);
+        for (String day : days) {
+            jdbcTemplate.update(
+                    "INSERT INTO facility_slots (facility_id, day_of_week, start_time, end_time, is_open, available) VALUES (?,?,?,?,?,?)",
+                    saved.getId(), day, java.sql.Time.valueOf(open), java.sql.Time.valueOf(close), true, true);
+        }
+        logger.info("{} 기본 슬롯 7건 생성 ({}~{})", displayName, open, close);
+    }
+
+    private static boolean matchesBpaFacilityKind(String rawName, String kind) {
+        String n = rawName == null ? "" : rawName.replaceAll("\\s+", "");
+        if (!n.contains("BPA") || !n.contains("야구장")) {
+            return false;
+        }
+        boolean social = n.contains("사회인");
+        boolean youth = n.contains("유소년");
+        if ("social".equals(kind)) {
+            return social && !youth;
+        }
+        if ("youth".equals(kind)) {
+            return youth && !social;
+        }
+        return !social && !youth;
+    }
+
     /** 슬롯이 하나도 없는 시설에 대해 기본 운영시간으로 요일별 슬롯 7건 생성 */
     @Transactional
     public void ensureFacilitySlots() {
@@ -1882,51 +2268,8 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
     }
 
     /**
-     * 횟수권(COUNT_PASS) 이용권의 remaining_count를 '이미 종료된 예약 수' 기준으로 동기화.
-     * 집계는 해당 이용권 ID에 매핑된 예약만 사용한다(같은 상품의 다른 이용권 행과 합산하지 않음).
-     */
-    @Transactional(readOnly = false)
-    private void syncMemberProductRemainingCountFromEndedBookings() {
-        List<MemberProduct> list = memberProductRepository.findAllCountPassWithProductAndMember();
-        LocalDateTime now = LocalDateTime.now();
-        int updated = 0;
-        for (MemberProduct mp : list) {
-            try {
-                Integer totalCount = mp.getTotalCount();
-                if (totalCount == null && mp.getProduct() != null && mp.getProduct().getUsageCount() != null) {
-                    totalCount = mp.getProduct().getUsageCount();
-                }
-                if (totalCount == null || totalCount <= 0) continue;
-                // 이 이용권(member_product_id)에 연결된 종료 예약만 센다. 같은 회원·같은 상품의 '다른' 이용권 행 예약까지
-                // 합치면(Math.max) 신규 연장·재구매 행의 잔여가 0으로 덮어써진다.
-                long endedCount = bookingRepository.countByMemberProductEndedBefore(mp.getId(), now);
-                int usedCount = (int) Math.min(endedCount, totalCount);
-                int newRemaining = Math.max(0, totalCount - usedCount);
-                Integer currentRemaining = mp.getRemainingCount();
-                // 이미 더 적게 남은 값(수동 보정 등)이 있으면 덮어쓰지 않음. 사용만 늘어난 경우에만 감소 반영
-                if (currentRemaining != null && newRemaining > currentRemaining) {
-                    continue; // 이력 없이 N회부터 쓴 경우 등 수동 설정 유지
-                }
-                if (!Objects.equals(currentRemaining, newRemaining)) {
-                    int oldRemaining = currentRemaining != null ? currentRemaining : -1;
-                    mp.setRemainingCount(newRemaining);
-                    memberProductRepository.save(mp);
-                    updated++;
-                    logger.info("remaining_count 동기화: MemberProduct ID={}, totalCount={}, 사용={}(이용권별 종료 예약 수), remaining {} -> {}",
-                            mp.getId(), totalCount, usedCount, oldRemaining, newRemaining);
-                }
-            } catch (Exception e) {
-                logger.debug("MemberProduct ID={} 동기화 중 오류 (무시): {}", mp.getId(), e.getMessage());
-            }
-        }
-        if (updated > 0) {
-            logger.info("횟수권 remaining_count 동기화: {}건 수정됨", updated);
-        }
-    }
-
-    /**
      * 연장으로 신규 행이 생긴 뒤에도 구 행이 ACTIVE·잔여 0 이하로 남은 레거시를 USED_UP으로 정리한다.
-     * (remaining_count 동기화 이후 실행)
+     * 잔여 횟수는 건드리지 않는다.
      */
     private void migrateReplacedActiveMemberProductsToUsedUp() {
         try {
@@ -2237,6 +2580,189 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
         }
     }
 
+    /** 사하·연산 지점 휴무일 */
+    private void migrateBranchClosuresTable() {
+        try {
+            List<Map<String, Object>> t = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'BRANCH_CLOSURES'");
+            if (!t.isEmpty()) {
+                return;
+            }
+            jdbcTemplate.execute(
+                    "CREATE TABLE branch_closures ("
+                            + "id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+                            + "branch VARCHAR(20) NOT NULL, "
+                            + "calendar_part VARCHAR(20) DEFAULT 'BASEBALL' NOT NULL, "
+                            + "closure_date DATE NOT NULL, "
+                            + "updated_at TIMESTAMP, "
+                            + "CONSTRAINT uk_branch_closures_branch_part_date UNIQUE (branch, calendar_part, closure_date))");
+            logger.info("branch_closures 테이블 생성 완료");
+        } catch (Exception e) {
+            logger.warn("branch_closures 테이블 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** 기존 지점 휴무에 야구/트레이닝/필라테스 파트 컬럼 추가 */
+    private void migrateBranchClosuresCalendarPart() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'BRANCH_CLOSURES'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            List<Map<String, Object>> cols = jdbcTemplate.queryForList(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                            + "WHERE UPPER(TABLE_NAME) = 'BRANCH_CLOSURES' AND UPPER(COLUMN_NAME) = 'CALENDAR_PART'");
+            if (cols.isEmpty()) {
+                jdbcTemplate.execute(
+                        "ALTER TABLE branch_closures ADD COLUMN calendar_part VARCHAR(20) DEFAULT 'BASEBALL' NOT NULL");
+                logger.info("branch_closures.calendar_part 컬럼 추가");
+            } else {
+                jdbcTemplate.update(
+                        "UPDATE branch_closures SET calendar_part = 'BASEBALL' "
+                                + "WHERE calendar_part IS NULL OR TRIM(calendar_part) = ''");
+            }
+            List<Map<String, Object>> uniques = jdbcTemplate.queryForList(
+                    "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS "
+                            + "WHERE UPPER(TABLE_NAME) = 'BRANCH_CLOSURES' AND CONSTRAINT_TYPE = 'UNIQUE'");
+            for (Map<String, Object> row : uniques) {
+                String name = row.get("CONSTRAINT_NAME") != null ? row.get("CONSTRAINT_NAME").toString() : "";
+                if (name.isEmpty() || "uk_branch_closures_branch_part_date".equalsIgnoreCase(name)) {
+                    continue;
+                }
+                List<Map<String, Object>> keyCols = jdbcTemplate.queryForList(
+                        "SELECT UPPER(COLUMN_NAME) AS COL FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE "
+                                + "WHERE UPPER(TABLE_NAME) = 'BRANCH_CLOSURES' AND UPPER(CONSTRAINT_NAME) = ?",
+                        name.toUpperCase());
+                boolean hasPart = keyCols.stream().anyMatch(c -> "CALENDAR_PART".equals(String.valueOf(c.get("COL"))));
+                if (!hasPart) {
+                    jdbcTemplate.execute("ALTER TABLE branch_closures DROP CONSTRAINT " + name);
+                    logger.info("branch_closures 구 유니크 제약 제거: {}", name);
+                }
+            }
+            List<Map<String, Object>> newUk = jdbcTemplate.queryForList(
+                    "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS "
+                            + "WHERE UPPER(TABLE_NAME) = 'BRANCH_CLOSURES' AND CONSTRAINT_TYPE = 'UNIQUE' "
+                            + "AND UPPER(CONSTRAINT_NAME) = 'UK_BRANCH_CLOSURES_BRANCH_PART_DATE'");
+            if (newUk.isEmpty()) {
+                jdbcTemplate.execute(
+                        "ALTER TABLE branch_closures ADD CONSTRAINT uk_branch_closures_branch_part_date "
+                                + "UNIQUE (branch, calendar_part, closure_date)");
+                logger.info("branch_closures 파트별 유니크 제약 추가");
+            }
+        } catch (Exception e) {
+            logger.warn("branch_closures calendar_part 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** 트레이닝·필라테스 휴무를 해당 지점(사하/연산) 그룹으로 합친다 */
+    private void migrateBranchClosuresThreeGroups() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'BRANCH_CLOSURES'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "SELECT id, branch, calendar_part, closure_date FROM branch_closures ORDER BY id");
+            Set<Long> keepIds = new HashSet<>();
+            Set<String> seen = new HashSet<>();
+            for (Map<String, Object> row : rows) {
+                Long id = ((Number) row.get("id")).longValue();
+                String part = String.valueOf(row.get("calendar_part")).toUpperCase();
+                String branch = String.valueOf(row.get("branch")).toUpperCase();
+                String date = String.valueOf(row.get("closure_date"));
+                String groupKey;
+                if ("NON_BASEBALL".equals(part) || "RENTAL".equals(branch)) {
+                    groupKey = "NON_BASEBALL|" + date;
+                } else {
+                    groupKey = ("YEONSAN".equals(branch) ? "YEONSAN" : "SAHA") + "|" + date;
+                }
+                if (seen.add(groupKey)) {
+                    keepIds.add(id);
+                }
+            }
+            for (Map<String, Object> row : rows) {
+                Long id = ((Number) row.get("id")).longValue();
+                if (!keepIds.contains(id)) {
+                    jdbcTemplate.update("DELETE FROM branch_closures WHERE id = ?", id);
+                }
+            }
+            jdbcTemplate.update(
+                    "UPDATE branch_closures SET calendar_part = 'BASEBALL' "
+                            + "WHERE UPPER(calendar_part) IN ('TRAINING', 'PILATES')");
+            jdbcTemplate.update(
+                    "UPDATE branch_closures SET branch = 'RENTAL', calendar_part = 'BASEBALL' "
+                            + "WHERE UPPER(calendar_part) = 'NON_BASEBALL'");
+            logger.info("branch_closures 사하·연산·비야구 파트 그룹 정리 완료");
+        } catch (Exception e) {
+            logger.warn("branch_closures 세 그룹 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** Hibernate ENUM CHECK 가 calendar_part·branch 값 추가를 막지 않도록 제거한다 */
+    private void removeBranchClosuresCheckConstraints() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'BRANCH_CLOSURES'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            try {
+                jdbcTemplate.execute("ALTER TABLE branch_closures ALTER COLUMN calendar_part VARCHAR(20)");
+            } catch (Exception e) {
+                logger.debug("branch_closures.calendar_part VARCHAR 변환 무시: {}", e.getMessage());
+            }
+            try {
+                jdbcTemplate.execute("ALTER TABLE branch_closures ALTER COLUMN branch VARCHAR(20)");
+            } catch (Exception e) {
+                logger.debug("branch_closures.branch VARCHAR 변환 무시: {}", e.getMessage());
+            }
+            List<Map<String, Object>> checks = jdbcTemplate.queryForList(
+                    "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS "
+                            + "WHERE UPPER(TABLE_SCHEMA) = 'PUBLIC' AND UPPER(TABLE_NAME) = 'BRANCH_CLOSURES' "
+                            + "AND CONSTRAINT_TYPE = 'CHECK'");
+            for (Map<String, Object> row : checks) {
+                String cn = (String) row.get("CONSTRAINT_NAME");
+                if (cn == null || cn.isBlank()) {
+                    continue;
+                }
+                try {
+                    jdbcTemplate.execute("ALTER TABLE branch_closures DROP CONSTRAINT " + cn);
+                    logger.info("branch_closures CHECK 제약 제거: {}", cn);
+                } catch (Exception e) {
+                    logger.debug("branch_closures CHECK 제거 실패 (무시): {} - {}", cn, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("branch_closures CHECK 제약 제거 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /** 2026 추석 연휴 — 예약 달력 빨간날만 표시(출퇴근 기록은 바꾸지 않음) */
+    private void seedChuseok2026CalendarMarks() {
+        String[] dates = { "2026-09-24", "2026-09-25", "2026-09-26" };
+        String[] memos = { "추석 연휴", "추석", "추석 연휴" };
+        for (int i = 0; i < dates.length; i++) {
+            try {
+                Integer n = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM calendar_day_marks WHERE mark_date = ?",
+                        Integer.class,
+                        java.sql.Date.valueOf(dates[i]));
+                if (n != null && n > 0) {
+                    continue;
+                }
+                jdbcTemplate.update(
+                        "INSERT INTO calendar_day_marks (mark_date, memo, red_day, updated_at) VALUES (?, ?, TRUE, CURRENT_TIMESTAMP)",
+                        java.sql.Date.valueOf(dates[i]),
+                        memos[i]);
+                logger.info("calendar_day_marks 추석 표시 추가: {}", dates[i]);
+            } catch (Exception e) {
+                logger.warn("calendar_day_marks 추석 표시 {} 추가 중 오류: {}", dates[i], e.getMessage());
+            }
+        }
+    }
+
     /** 회원 ↔ 데스크 쪽지 스레드 */
     private void migrateMemberDeskMessagesTable() {
         try {
@@ -2393,6 +2919,37 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
     }
 
     /**
+     * Hibernate 가 day_type ENUM 에 건 CHECK 가 WORK/OFF/SICK 만 허용해 두면,
+     * OUTDOOR(야외레슨) 추가 후 INSERT 가 23513 으로 거부된다.
+     */
+    private void removeCoachWorkRecordsCheckConstraints() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = 'COACH_WORK_RECORDS'");
+            if (tables.isEmpty()) {
+                return;
+            }
+            List<Map<String, Object>> checks = jdbcTemplate.queryForList(
+                    "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS "
+                            + "WHERE UPPER(TABLE_NAME) = 'COACH_WORK_RECORDS' AND CONSTRAINT_TYPE = 'CHECK'");
+            for (Map<String, Object> row : checks) {
+                String cn = (String) row.get("CONSTRAINT_NAME");
+                if (cn == null || cn.isBlank()) {
+                    continue;
+                }
+                try {
+                    jdbcTemplate.execute("ALTER TABLE coach_work_records DROP CONSTRAINT IF EXISTS " + cn);
+                    logger.info("coach_work_records CHECK 제약 제거: {}", cn);
+                } catch (Exception e) {
+                    logger.debug("coach_work_records CHECK 제거 실패 (무시): {} - {}", cn, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("coach_work_records CHECK 제약 제거 중 오류: {}", e.getMessage());
+        }
+    }
+
+    /**
      * 승인 정책 도입 시점(afbscenter.member.approval-policy-effective-at) 이전에 생성된 회원은 DB상 이미 승인된 것으로 간주한다.
      * PENDING_APPROVAL+created_at 기준 미만은 ACTIVE로, NEW_MEMBER 승인 대기는 APPROVED로 정리한다.
      * EXTENSION·RE_REGISTER 대기 건은 건드리지 않는다.
@@ -2497,6 +3054,51 @@ public class DatabaseMigration implements ApplicationListener<ApplicationReadyEv
             }
         } catch (Exception e) {
             logger.warn("settings 회비 입금 컬럼 마이그레이션 중 오류: {}", e.getMessage());
+        }
+    }
+
+    private void ensureCoachPaymentReceiptsTable() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
+                            + "WHERE UPPER(TABLE_SCHEMA) = 'PUBLIC' AND UPPER(TABLE_NAME) = 'COACH_PAYMENT_RECEIPTS'");
+            if (!tables.isEmpty()) {
+                return;
+            }
+            jdbcTemplate.execute(
+                    "CREATE TABLE IF NOT EXISTS coach_payment_receipts ("
+                            + "id BIGINT AUTO_INCREMENT PRIMARY KEY, "
+                            + "coach_id BIGINT NOT NULL, "
+                            + "payment_id BIGINT NOT NULL, "
+                            + "received_amount INT NOT NULL, "
+                            + "updated_at TIMESTAMP NOT NULL, "
+                            + "CONSTRAINT uk_coach_payment_receipt UNIQUE (coach_id, payment_id)"
+                            + ")");
+            logger.info("coach_payment_receipts 테이블 생성 완료");
+        } catch (Exception e) {
+            logger.warn("coach_payment_receipts 테이블 생성 실패: {}", e.getMessage());
+        }
+    }
+
+    private void ensurePassSettlementsTable() {
+        try {
+            List<Map<String, Object>> tables = jdbcTemplate.queryForList(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
+                            + "WHERE UPPER(TABLE_SCHEMA) = 'PUBLIC' AND UPPER(TABLE_NAME) = 'PASS_SETTLEMENTS'");
+            if (!tables.isEmpty()) {
+                return;
+            }
+            jdbcTemplate.execute(
+                    "CREATE TABLE IF NOT EXISTS pass_settlements ("
+                            + "id BIGINT AUTO_INCREMENT PRIMARY KEY, "
+                            + "settled_through TIMESTAMP NOT NULL, "
+                            + "settled_at TIMESTAMP NOT NULL, "
+                            + "note VARCHAR(80), "
+                            + "CONSTRAINT uk_pass_settled_through UNIQUE (settled_through)"
+                            + ")");
+            logger.info("pass_settlements 테이블 생성 완료");
+        } catch (Exception e) {
+            logger.warn("pass_settlements 테이블 생성 실패: {}", e.getMessage());
         }
     }
 

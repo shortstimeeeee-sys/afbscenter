@@ -88,11 +88,14 @@ function toggleRepeatOptions() {
     }
 }
 
-/** 캘린더 칸 색(스트라이프): 코치 고유색은 그 코치 칸에만 — 레슨 배정 우선, 없으면 회원 카드 담당 */
+/** 캘린더 칸 색(스트라이프): 근무 중 배정 코치 → 없으면 근무 중 카드 담당 → 없으면 미지정 */
 function getCoachForCalendarStripeColor(booking) {
+    if (typeof App !== 'undefined' && typeof App.coachForCalendarStripeColor === 'function') {
+        return App.coachForCalendarStripeColor(booking);
+    }
     if (!booking) return null;
-    if (booking.coach && booking.coach.id != null) return booking.coach;
-    if (booking.member && booking.member.coach) return booking.member.coach;
+    if (booking.coach && booking.coach.id != null && booking.coach.active !== false) return booking.coach;
+    if (booking.member && booking.member.coach && booking.member.coach.active !== false) return booking.member.coach;
     return null;
 }
 
@@ -227,12 +230,13 @@ function filterLessonCategoryOptions() {
     
     // facilityType 또는 lessonCategory에 따라 필터링
     const lessonCategoryFilter = config.lessonCategory || (facilityType === 'YOUTH_BASEBALL' ? 'YOUTH_BASEBALL' : null);
-    if (lessonCategoryFilter === 'YOUTH_BASEBALL') {
-        // 유소년 야구만 표시하고 고정
+    if (lessonCategoryFilter === 'YOUTH_BASEBALL' || lessonCategoryFilter === 'TRAINING' || lessonCategoryFilter === 'PILATES') {
+        const labels = { YOUTH_BASEBALL: '유소년 야구', TRAINING: '트레이닝', PILATES: '필라테스' };
+        const originalOption = originalLessonCategoryOptions.find(opt => opt.value === lessonCategoryFilter);
         lessonCategorySelect.innerHTML = '';
         const option = document.createElement('option');
-        option.value = 'YOUTH_BASEBALL';
-        option.textContent = '유소년 야구';
+        option.value = lessonCategoryFilter;
+        option.textContent = originalOption ? originalOption.text : labels[lessonCategoryFilter];
         option.selected = true;
         lessonCategorySelect.appendChild(option);
         lessonCategorySelect.disabled = true;
@@ -429,6 +433,103 @@ function computeBookingStatsDisplayForCoachFilter(data, filterSet) {
     };
 }
 
+function bookingPageUsesAllBranches(config) {
+    return !!(config && config.allBranches);
+}
+
+function isSocialBookingPage(config) {
+    config = config || window.BOOKING_PAGE_CONFIG || {};
+    return String(config.memberGrade || '').toUpperCase() === 'SOCIAL';
+}
+
+function isBpaBaseballFacility(facility) {
+    var name = String((facility && facility.name) || '').replace(/\s+/g, '');
+    if (name.indexOf('BPA') === -1 || name.indexOf('야구장') === -1) return false;
+    return name.indexOf('사회인') !== -1 || name.indexOf('유소년') !== -1;
+}
+
+function isSocialStudioFacility(facility) {
+    var b = String((facility && facility.branch) || '').toUpperCase();
+    return b === 'SAHA' || b === 'YEONSAN';
+}
+
+function isSocialExtraFacility(facility) {
+    return isSocialStudioFacility(facility) || isBpaBaseballFacility(facility);
+}
+
+function socialFacilitySortRank(facility) {
+    var name = String((facility && facility.name) || '').replace(/\s+/g, '');
+    var b = String((facility && facility.branch) || '').toUpperCase();
+    if (name.indexOf('BPA') !== -1) {
+        if (name.indexOf('사회인') !== -1) return 3;
+        if (name.indexOf('유소년') !== -1) return 4;
+        return 9;
+    }
+    if (b === 'SAHA') return 1;
+    if (b === 'YEONSAN') return 2;
+    return 6;
+}
+
+function socialCalendarFacilityLabel(booking) {
+    if (!isSocialBookingPage()) return '';
+    var name = String((booking && booking.facility && booking.facility.name) || '').replace(/\s+/g, '');
+    if (name.indexOf('BPA') !== -1) return 'BPA';
+    if (name.indexOf('사하') !== -1) return '사하';
+    if (name.indexOf('연산') !== -1) return '연산';
+    var br = String((booking && (booking.branch || (booking.facility && booking.facility.branch))) || '').toUpperCase();
+    if (br === 'SAHA') return '사하';
+    if (br === 'YEONSAN') return '연산';
+    if (br === 'RENTAL') return 'BPA';
+    return '';
+}
+
+function setBookingFacilityLocked(select, locked) {
+    if (!select) return;
+    if (isSocialBookingPage()) locked = false;
+    select.disabled = !!locked;
+    if (locked) {
+        select.classList.add('facility-fixed');
+    } else {
+        select.classList.remove('facility-fixed');
+        var displayDiv = document.getElementById('facility-selected-display');
+        if (displayDiv) displayDiv.style.display = 'none';
+    }
+}
+
+async function appendSocialExtraFacilities(config, facilitiesToUse) {
+    var list = Array.isArray(facilitiesToUse) ? facilitiesToUse.slice() : [];
+    if (!isSocialBookingPage(config)) return list;
+    try {
+        var all = await App.api.get('/facilities');
+        var extras = [];
+        (all || []).forEach(function (f) {
+            if (!f || f.active === false || !f.id) return;
+            if (!isSocialExtraFacility(f)) return;
+            if (list.some(function (x) { return Number(x.id) === Number(f.id); })) return;
+            extras.push(f);
+        });
+        extras.sort(function (a, b) { return socialFacilitySortRank(a) - socialFacilitySortRank(b); });
+        extras.forEach(function (f) { list.push(f); });
+        list.sort(function (a, b) { return socialFacilitySortRank(a) - socialFacilitySortRank(b); });
+    } catch (e) {
+        App.warn('사회인 추가 시설 로드 실패:', e);
+    }
+    return list;
+}
+
+function appendBookingPageFilters(params, config) {
+    if (!params || !config) return;
+    if (config.facilityType) params.append('facilityType', config.facilityType);
+    if (config.lessonCategory) params.append('lessonCategory', config.lessonCategory);
+    if (config.memberGrade) params.append('memberGrade', config.memberGrade);
+}
+
+function appendBookingBranchParam(params, config) {
+    if (!params || !config) return;
+    if (bookingPageUsesAllBranches(config)) return;
+    if (config.branch) params.append('branch', config.branch);
+}
+
 // 예약 통계 로드 (기간 내 총 예약 + 코치별 예약)
 async function loadBookingStats() {
     const container = document.getElementById('bookings-stats-container');
@@ -450,9 +551,8 @@ async function loadBookingStats() {
             endParam = last.getFullYear() + '-' + String(last.getMonth() + 1).padStart(2, '0') + '-' + String(last.getDate()).padStart(2, '0');
         }
         const params = new URLSearchParams({ start: startParam, end: endParam });
-        if (config.branch) params.append('branch', config.branch);
-        if (config.facilityType) params.append('facilityType', config.facilityType);
-        if (config.lessonCategory) params.append('lessonCategory', config.lessonCategory);
+        appendBookingBranchParam(params, config);
+        appendBookingPageFilters(params, config);
         const data = await App.api.get(`/bookings/stats?${params.toString()}`);
         renderBookingStats(data);
     } catch (error) {
@@ -656,7 +756,7 @@ async function loadFacilities() {
         }
         
         // 해당 지점의 모든 시설만 필터링 (타입 무관)
-        const filteredFacilities = facilities.filter(facility => {
+        const branchFacilities = facilities.filter(facility => {
             if (!facility) {
                 App.warn('[시설 로드] null 또는 undefined 시설 발견');
                 return false;
@@ -681,10 +781,12 @@ async function loadFacilities() {
             return branchMatch;
         });
         
-        App.log(`[시설 로드] 최종 필터링된 시설 ${filteredFacilities.length}개:`, filteredFacilities.map(f => ({ id: f.id, name: f.name, branch: f.branch, type: f.facilityType })));
+        App.log(`[시설 로드] 최종 필터링된 시설 ${branchFacilities.length}개:`, branchFacilities.map(f => ({ id: f.id, name: f.name, branch: f.branch, type: f.facilityType })));
+        const filteredFacilities = await appendSocialExtraFacilities(config, branchFacilities);
         
-        // 필터링 후에도 잘못된 지점의 시설이 있는지 확인
+        // 필터링 후에도 잘못된 지점의 시설이 있는지 확인 (사회인 BPA 추가는 제외)
         const wrongBranchFacilities = filteredFacilities.filter(f => {
+            if (isSocialBookingPage(config) && isSocialExtraFacility(f)) return false;
             const fb = f.branch?.toString()?.toUpperCase();
             return fb !== expectedBranch;
         });
@@ -766,7 +868,13 @@ async function loadFacilities() {
             // 새 예약 등록 모드일 때만 자동 선택 및 비활성화
             if (!bookingId || bookingId === '') {
                 // 필터링된 시설 중에서 올바른 지점의 시설만 다시 필터링 (이중 검증)
-                const verifiedFacilities = facilitiesToUse.filter(f => {
+                const verifiedFacilities = isSocialBookingPage(config)
+                    ? facilitiesToUse.slice()
+                    : facilitiesToUse.filter(f => {
+                    if (isSocialBookingPage(config) && isSocialExtraFacility(f)
+                            && String(f.branch || '').toUpperCase() !== expectedBranch) {
+                        return false;
+                    }
                     const fb = f.branch?.toString()?.toUpperCase();
                     const match = fb === expectedBranch;
                     if (!match) {
@@ -809,7 +917,7 @@ async function loadFacilities() {
                     const expectedBranchUpper = expectedBranch?.toUpperCase();
                     
                     // 지점 불일치 검증 - 절대 허용하지 않음
-                    if (selectedFacilityBranch !== expectedBranchUpper) {
+                    if (selectedFacilityBranch !== expectedBranchUpper && !isSocialExtraFacility(selectedFacility)) {
                         App.err(`[시설 로드] ❌❌❌ 심각한 오류: 선택된 시설의 지점이 페이지 설정과 불일치!`);
                         App.err(`[시설 로드] 시설: ${selectedFacility.name}`);
                         App.err(`[시설 로드] 시설 지점: ${selectedFacilityBranch}`);
@@ -847,14 +955,13 @@ async function loadFacilities() {
                             const updatedText = select.options[select.selectedIndex]?.textContent || updatedFacility.name;
                             
                             // 시설 자동 선택 및 고정 (비활성화)
-                            select.disabled = true;
-                            select.classList.add('facility-fixed');
+                            setBookingFacilityLocked(select, true);
                             // 오버레이에 선택된 시설명 표시
                             const displayDiv = document.getElementById('facility-selected-display');
                             const nameSpan = document.getElementById('facility-selected-name');
                             if (displayDiv && nameSpan) {
                                 nameSpan.textContent = updatedText;
-                                displayDiv.style.display = 'flex';
+                                displayDiv.style.display = isSocialBookingPage() ? 'none' : 'flex';
                             }
                             // 시설의 지점 정보로 booking-branch 업데이트
                             const branchInput = document.getElementById('booking-branch');
@@ -881,16 +988,14 @@ async function loadFacilities() {
                     
                     // 지점이 일치하는 경우 정상 처리
                     // 시설 자동 선택 및 고정 (비활성화)
-                    select.disabled = true;
-                    // CSS 클래스 추가로 스타일 적용
-                    select.classList.add('facility-fixed');
+                    setBookingFacilityLocked(select, true);
                     const selectedText = select.options[select.selectedIndex]?.textContent || selectedFacility.name;
                     // 오버레이에 선택된 시설명 표시
                     const displayDiv = document.getElementById('facility-selected-display');
                     const nameSpan = document.getElementById('facility-selected-name');
                     if (displayDiv && nameSpan) {
                         nameSpan.textContent = selectedText;
-                        displayDiv.style.display = 'flex';
+                        displayDiv.style.display = isSocialBookingPage() ? 'none' : 'flex';
                     }
                     // 시설의 지점 정보로 booking-branch 업데이트
                     const branchInput = document.getElementById('booking-branch');
@@ -947,9 +1052,10 @@ async function loadAndSelectFacility() {
         const facilities = await App.api.get(`/facilities?${params.toString()}`);
         
         const expectedBranch = config.branch?.toUpperCase();
-        const filteredFacilities = facilities.filter(f => {
+        const branchFacilities = facilities.filter(f => {
             return f.branch?.toUpperCase() === expectedBranch;
         });
+        const filteredFacilities = await appendSocialExtraFacilities(config, branchFacilities);
         
         App.log(`[시설 로드] ${expectedBranch} 지점 시설 ${filteredFacilities.length}개 로드됨 (모든 타입):`, filteredFacilities.map(f => f.name));
         
@@ -985,8 +1091,7 @@ async function loadAndSelectFacility() {
             }
             
             // 시설 자동 선택 및 고정 (비활성화)
-            facilitySelect.disabled = true;
-            facilitySelect.classList.add('facility-fixed');
+            setBookingFacilityLocked(facilitySelect, true);
             // 최종 확인
             const selectedText = facilitySelect.options[facilitySelect.selectedIndex]?.textContent || firstFacility.name;
             // 오버레이에 선택된 시설명 표시
@@ -994,7 +1099,7 @@ async function loadAndSelectFacility() {
             const nameSpan = document.getElementById('facility-selected-name');
             if (displayDiv && nameSpan) {
                 nameSpan.textContent = selectedText;
-                displayDiv.style.display = 'flex';
+                displayDiv.style.display = isSocialBookingPage() ? 'none' : 'flex';
             }
             // 시설의 지점 정보로 booking-branch 업데이트
             const branchInput = document.getElementById('booking-branch');
@@ -1080,11 +1185,17 @@ async function loadMemberProducts(memberId) {
         if (facilityType === 'BASEBALL') {
             productCategory = 'BASEBALL';
         } else if (facilityType === 'TRAINING_FITNESS') {
-            productCategory = 'TRAINING_FITNESS';
+            if (config.lessonCategory === 'PILATES') productCategory = 'PILATES';
+            else if (config.lessonCategory === 'TRAINING') productCategory = 'TRAINING';
+            else productCategory = 'TRAINING_FITNESS';
         }
         
-        // 활성 상태인 상품만 필터링
-        let activeProducts = memberProducts.filter(mp => mp.status === 'ACTIVE');
+        // 사용 중인 이용권만 (소진·잔여 0·상품 없음 제외)
+        let activeProducts = memberProducts.filter(mp =>
+            typeof App.isSelectableMemberProductForBooking === 'function'
+                ? App.isSelectableMemberProductForBooking(mp)
+                : mp.status === 'ACTIVE'
+        );
         
         // 지점별 필터링: 선택된 지점에 배정된 코치의 이용권만 표시
         const facilitySelect = document.getElementById('booking-facility');
@@ -1145,9 +1256,18 @@ async function loadMemberProducts(memberId) {
                 
                 // TRAINING_FITNESS 요청 시: TRAINING_FITNESS, TRAINING, PILATES 모두 포함
                 if (productCategory === 'TRAINING_FITNESS') {
-                    return category === 'TRAINING_FITNESS' || 
-                           category === 'TRAINING' || 
+                    return category === 'TRAINING_FITNESS' ||
+                           category === 'TRAINING' ||
                            category === 'PILATES';
+                }
+                if (productCategory === 'TRAINING') {
+                    return category === 'TRAINING' || category === 'TRAINING_FITNESS';
+                }
+                if (productCategory === 'PILATES') {
+                    return category === 'PILATES' || category === 'TRAINING_FITNESS';
+                }
+                if (productCategory === 'BASEBALL') {
+                    return category === 'BASEBALL' || category === 'OUTDOOR_LESSON';
                 }
                 
                 return false;
@@ -1157,7 +1277,7 @@ async function loadMemberProducts(memberId) {
         const paymentMethodSelect = document.getElementById('booking-payment-method');
         const eligibleProducts = activeProducts.filter(mp => {
             const type = mp.product?.type;
-            return type === 'COUNT_PASS' || type === 'MONTHLY_PASS' || type === 'TIME_PASS';
+            return type === 'COUNT_PASS' || type === 'MONTHLY_PASS' || type === 'DAY_PASS' || type === 'TIME_PASS';
         });
         if (paymentMethodSelect && eligibleProducts.length > 0 && !paymentMethodSelect.value) {
             paymentMethodSelect.value = 'PREPAID';
@@ -1902,9 +2022,9 @@ async function renderCalendar() {
         App.log(`조회 범위: ${queryStart.toLocaleDateString()} ~ ${queryEnd.toLocaleDateString()}`);
         
         // branch, facilityType, lessonCategory 파라미터 추가
-        const params = new URLSearchParams({ start: startISO, end: endISO, branch: config.branch });
-        if (config.facilityType) params.append('facilityType', config.facilityType);
-        if (config.lessonCategory) params.append('lessonCategory', config.lessonCategory);
+        const params = new URLSearchParams({ start: startISO, end: endISO });
+        appendBookingBranchParam(params, config);
+        appendBookingPageFilters(params, config);
         
         const response = await App.api.get(`/bookings?${params.toString()}`);
         bookings = response || [];
@@ -1939,9 +2059,9 @@ async function renderCalendar() {
         if (bookings.length === 0 && !legendFilterActive) {
             App.log('날짜 범위 내 예약 없음, 전체 예약 확인 중...');
             try {
-                const allParams = new URLSearchParams({ branch: config.branch });
-                if (config.facilityType) allParams.append('facilityType', config.facilityType);
-                if (config.lessonCategory) allParams.append('lessonCategory', config.lessonCategory);
+                const allParams = new URLSearchParams();
+                appendBookingBranchParam(allParams, config);
+                appendBookingPageFilters(allParams, config);
                 const allBookings = await App.api.get(`/bookings?${allParams.toString()}`);
                 App.log(`전체 예약 (사하점): ${allBookings ? allBookings.length : 0}개`, allBookings);
                 // 전체 예약 중 현재 월에 해당하는 예약 찾기
@@ -1992,14 +2112,21 @@ async function renderCalendar() {
     }
 
     let calendarMarksMap = {};
+    let branchClosuresSet = {};
     try {
         const ymd = (d) =>
             `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const markStart = ymd(queryStart);
+        const markEnd = ymd(queryEnd);
         if (typeof App.loadCalendarMarksMap === 'function') {
-            calendarMarksMap = await App.loadCalendarMarksMap(ymd(queryStart), ymd(queryEnd));
+            calendarMarksMap = await App.loadCalendarMarksMap(markStart, markEnd);
+        }
+        const pageCfg = window.BOOKING_PAGE_CONFIG || {};
+        if (typeof App.loadBranchClosuresSet === 'function') {
+            branchClosuresSet = await App.loadBranchClosuresSet(pageCfg, markStart, markEnd);
         }
     } catch (e) {
-        App.warn('달력 표시(공휴일) 로드 생략:', e);
+        App.warn('달력 표시(공휴일·휴무) 로드 생략:', e);
     }
     
     // 코치 필터 시 예약 없음 안내: 달력 그리기 전에 메시지 박스 먼저 표시 (범례 필터만; 운영 코치 서버 필터만 켠 경우는 제외)
@@ -2097,6 +2224,10 @@ async function renderCalendar() {
         dayNumCol.style.alignItems = 'flex-start';
         dayNumCol.style.minWidth = '0';
         dayNumCol.appendChild(dayNumber);
+        if (typeof App.markBranchClosedDay === 'function') {
+            const closedLabel = App.markBranchClosedDay(dayCell, dk, branchClosuresSet);
+            if (closedLabel) dayNumCol.appendChild(closedLabel);
+        }
         if (markMemo) {
             const memoLine = document.createElement('div');
             memoLine.className = 'calendar-mark-memo';
@@ -2149,6 +2280,8 @@ async function renderCalendar() {
                     ? App.formatBookingMemberDisplayName(booking)
                     : (booking.member ? booking.member.name : (booking.nonMemberName || '비회원'));
                 const namePart = memberNameRaw ? ` / ${App.escapeHtml(memberNameRaw)}` : '';
+                const facilityLabel = socialCalendarFacilityLabel(booking);
+                const facilityPart = facilityLabel ? ` / ${App.escapeHtml(facilityLabel)}` : '';
                 
                 const stripeCoach = getCoachForCalendarStripeColor(booking);
                 
@@ -2162,6 +2295,9 @@ async function renderCalendar() {
                     event.style.borderLeft = '3px solid #3d4152';
                     event.style.color = '#e8e8e8';
                     event.classList.add('booking-event--unassigned');
+                }
+                if (typeof App.applyMissingPassCalendarStyle === 'function') {
+                    App.applyMissingPassCalendarStyle(event, booking);
                 }
                 
                 // 상태에 따라 아이콘 표시 추가 (완료/체크인 = 초록, 확정 = 파란 ✓)
@@ -2186,16 +2322,16 @@ async function renderCalendar() {
                     : '';
                 if (statusIcon || statusIconStyle) {
                     if (showAsCompleted) {
-                        event.innerHTML = `<span style="${statusIconStyle}"></span>${mBadgeHtml}${timeStr}${namePart}`;
+                        event.innerHTML = `<span style="${statusIconStyle}"></span>${mBadgeHtml}${timeStr}${facilityPart}${namePart}`;
                     } else {
-                        event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${mBadgeHtml}${timeStr}${namePart}`;
+                        event.innerHTML = `<span style="${statusIconStyle}">${statusIcon}</span>${mBadgeHtml}${timeStr}${facilityPart}${namePart}`;
                     }
                 } else {
-                    event.innerHTML = `${mBadgeHtml}${timeStr}${namePart}`;
+                    event.innerHTML = `${mBadgeHtml}${timeStr}${facilityPart}${namePart}`;
                 }
                 
-                // 드래그 앤 드롭 기능 추가
-                event.draggable = true;
+                // 드래그 앤 드롭 기능 추가 (터치 기기에서는 탭으로 열리도록 비활성)
+                event.draggable = !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
                 event.setAttribute('data-booking-id', booking.id);
                 
                 // 드래그 시작
@@ -2347,9 +2483,8 @@ async function openDayScheduleModal(dateStr) {
         const params = new URLSearchParams();
         params.append('start', startISO);
         params.append('end', endISO);
-        params.append('branch', branch);
-        if (facilityType) params.append('facilityType', facilityType);
-        if (config.lessonCategory) params.append('lessonCategory', config.lessonCategory);
+        appendBookingBranchParam(params, config);
+        appendBookingPageFilters(params, config);
         
         const bookings = await App.api.get(`/bookings?${params.toString()}`);
         App.log(`날짜별 스케줄 로드 (${branch}, ${facilityType || config.lessonCategory || '전체'}):`, bookings?.length || 0, '건');
@@ -2472,7 +2607,7 @@ function renderDaySchedule(bookings) {
         const statusText = App.Status.booking.getText(booking.status);
         
         return `
-            <tr>
+            <tr${typeof App.bookingMissingPassRowAttr === 'function' ? App.bookingMissingPassRowAttr(booking) : ''}>
                 <td>${timeStr}</td>
                 <td>${booking.facility ? booking.facility.name : '-'}</td>
                 <td>${App.escapeHtml(memberName)}</td>
@@ -2521,9 +2656,8 @@ async function loadBookingsList() {
         
         // API 파라미터 구성
         const params = new URLSearchParams();
-        params.append('branch', branch);
-        if (facilityType) params.append('facilityType', facilityType);
-        if (config.lessonCategory) params.append('lessonCategory', config.lessonCategory);
+        appendBookingBranchParam(params, config);
+        appendBookingPageFilters(params, config);
         
         let bookings = await App.api.get(`/bookings?${params.toString()}`);
         const filterSet = window.calendarFilterCoachIds;
@@ -2584,7 +2718,7 @@ function renderBookingsTable(bookings) {
             : App.escapeHtml(coachNameRaw);
         
         return `
-        <tr>
+        <tr${typeof App.bookingMissingPassRowAttr === 'function' ? App.bookingMissingPassRowAttr(booking) : ''}>
             <td>${booking.id}</td>
             <td>${facilityName}</td>
             <td>${startTime}</td>
@@ -2599,8 +2733,8 @@ function renderBookingsTable(bookings) {
             </td>
             <td>${getBookingPaymentMethodText(booking.paymentMethod)}</td>
             <td>
-                <button class="btn btn-sm btn-secondary" onclick="editBooking(${booking.id})">수정</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteBooking(${booking.id})">삭제</button>
+                <button class="btn btn-sm btn-secondary" onclick="editBooking(${booking.id})">${typeof App.isPastMidnightBookingLocked === 'function' && App.isPastMidnightBookingLocked(booking) ? '보기' : '수정'}</button>
+                ${typeof App.isPastMidnightBookingLocked === 'function' && App.isPastMidnightBookingLocked(booking) ? '' : `<button class="btn btn-sm btn-danger" onclick="deleteBooking(${booking.id})">삭제</button>`}
             </td>
         </tr>
         `;
@@ -2672,29 +2806,40 @@ async function loadMembersForSelect() {
         if (facilityType === 'BASEBALL') {
             productCategory = 'BASEBALL';
         } else if (facilityType === 'TRAINING_FITNESS') {
-            productCategory = 'TRAINING_FITNESS';
+            if (config.lessonCategory === 'PILATES') productCategory = 'PILATES';
+            else if (config.lessonCategory === 'TRAINING') productCategory = 'TRAINING';
+            else productCategory = 'TRAINING_FITNESS';
         }
         
         // API 파라미터 구성
         // 야구는 모든 지점에서 가능하므로 branch 파라미터 전달 안 함
-        // 트레이닝+필라테스만 지점별 필터링
+        // 트레이닝/필라테스는 지점 파라미터를 보내되, 서버는 해당 카테고리에서 지점 필터를 건너뛴다
         const params = new URLSearchParams();
         if (productCategory) {
             params.append('productCategory', productCategory);
         }
-        // 트레이닝+필라테스만 지점 필터링 적용
-        if (branch && productCategory === 'TRAINING_FITNESS') {
+        if (branch && (productCategory === 'TRAINING_FITNESS' || productCategory === 'TRAINING' || productCategory === 'PILATES')) {
             params.append('branch', branch);
         }
-        // 유소년 야구 페이지: 유소년 등급 회원만 예약 가능
-        if (config.lessonCategory === 'YOUTH_BASEBALL') {
+        if (config.memberGrade === 'SOCIAL') {
+            params.append('grade', 'SOCIAL');
+        } else if (config.lessonCategory === 'YOUTH_BASEBALL') {
             params.append('grade', 'YOUTH');
         }
         
         const url = params.toString() ? `/members?${params.toString()}` : '/members';
-        const members = await App.api.get(url);
+        let members = await App.api.get(url);
+        if (!Array.isArray(members)) members = [];
+        if (facilityType === 'BASEBALL' && !config.lessonCategory && !config.memberGrade) {
+            members = members.filter(function(m) {
+                if (!m) return false;
+                if (m.grade === 'YOUTH') return false;
+                if (m.grade === 'SOCIAL') return false;
+                return true;
+            });
+        }
         renderMemberSelectTable(members);
-        App.log(`회원 ${members.length}명 로드됨 (카테고리: ${productCategory || '전체'}, 지점: ${productCategory === 'TRAINING_FITNESS' ? (branch || '전체') : '모든 지점'}${config.lessonCategory === 'YOUTH_BASEBALL' ? ', 등급: 유소년' : ''})`);
+        App.log(`회원 ${members.length}명 로드됨 (카테고리: ${productCategory || '전체'}, 지점: ${productCategory === 'TRAINING_FITNESS' ? (branch || '전체') : '모든 지점'}${config.memberGrade === 'SOCIAL' ? ', 등급: 사회인' : (config.lessonCategory === 'YOUTH_BASEBALL' ? ', 등급: 유소년' : '')})`);
     } catch (error) {
         App.err('회원 목록 로드 실패:', error);
         App.showNotification('회원 목록을 불러오는데 실패했습니다.', 'danger');
@@ -2790,7 +2935,11 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
         document.getElementById('selected-member-number').value = memberNumber; // memberNumber 저장
         
         // 회원 정보 표시
-        document.getElementById('member-info-name').textContent = member.name || '-';
+        if (typeof App.setBookingModalMemberName === 'function') {
+            App.setBookingModalMemberName(member.name || '-', member.id);
+        } else {
+            document.getElementById('member-info-name').textContent = member.name || '-';
+        }
         document.getElementById('member-info-phone').textContent = member.phoneNumber || '-';
         document.getElementById('member-info-grade').textContent = getGradeText(member.grade) || '-';
         document.getElementById('member-info-school').textContent = member.school || '-';
@@ -2844,7 +2993,13 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
         setFieldValue('booking-start-time', '');
         setFieldValue('booking-end-time', '');
         setFieldValue('booking-participants', '1');
-        setFieldValue('booking-purpose', '');
+        const newBookingPageConfig = window.BOOKING_PAGE_CONFIG || {};
+        if (newBookingPageConfig.facilityType === 'TRAINING_FITNESS' || newBookingPageConfig.facilityType === 'BASEBALL') {
+            setFieldValue('booking-purpose', 'LESSON');
+            toggleLessonCategory();
+        } else {
+            setFieldValue('booking-purpose', '');
+        }
         setFieldValue('booking-lesson-category', '');
         setFieldValue('booking-status', 'PENDING');
         setFieldValue('booking-payment-method', '');
@@ -2905,6 +3060,10 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
             document.getElementById('booking-purpose').value = 'LESSON';
             toggleLessonCategory();
         }
+        if (member.grade === 'SOCIAL' && !document.getElementById('booking-purpose').value) {
+            document.getElementById('booking-purpose').value = 'LESSON';
+            toggleLessonCategory();
+        }
         
         // 회원 예약은 상태를 기본값 PENDING으로 설정
         const statusSelect = document.getElementById('booking-status');
@@ -2918,7 +3077,7 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
         if (paymentMethodSelect) {
             const eligibleProducts = (memberProducts || []).filter(mp => {
                 const type = mp.product?.type;
-                return type === 'COUNT_PASS' || type === 'MONTHLY_PASS' || type === 'TIME_PASS';
+                return type === 'COUNT_PASS' || type === 'MONTHLY_PASS' || type === 'DAY_PASS' || type === 'TIME_PASS';
             });
             paymentMethodSelect.value = eligibleProducts.length > 0 ? 'PREPAID' : '';
         }
@@ -3203,9 +3362,10 @@ async function selectNonMember() {
             const facilities = await App.api.get(`/facilities?${params.toString()}`);
             
             const expectedBranch = config.branch?.toUpperCase();
-            const filteredFacilities = facilities.filter(f => {
+            const branchFacilities = facilities.filter(f => {
                 return f.branch?.toUpperCase() === expectedBranch;
             });
+            const filteredFacilities = await appendSocialExtraFacilities(config, branchFacilities);
             
             if (filteredFacilities.length > 0) {
                 facilitySelect.innerHTML = '<option value="">시설 선택...</option>';
@@ -3223,14 +3383,13 @@ async function selectNonMember() {
                 // 첫 번째 시설 즉시 선택 및 고정
                 const firstFacility = filteredFacilities[0];
                 facilitySelect.value = firstFacility.id.toString();
-                facilitySelect.disabled = true;
-                facilitySelect.classList.add('facility-fixed');
+                setBookingFacilityLocked(facilitySelect, true);
                 // 오버레이에 선택된 시설명 표시
                 const displayDiv = document.getElementById('facility-selected-display');
                 const nameSpan = document.getElementById('facility-selected-name');
                 if (displayDiv && nameSpan) {
                     nameSpan.textContent = firstFacility.name;
-                    displayDiv.style.display = 'flex';
+                    displayDiv.style.display = isSocialBookingPage() ? 'none' : 'flex';
                 }
                 // 시설의 지점 정보로 booking-branch 업데이트
                 const branchInput = document.getElementById('booking-branch');
@@ -3259,6 +3418,9 @@ function changeMember() {
 }
 
 async function openBookingModal(id = null) {
+    if (!id && typeof App.applyBookingCoachEditPolicy === 'function') {
+        App.applyBookingCoachEditPolicy(null);
+    }
     window.__bookingPrivacySnapshot = null;
     const nmPrivacy = document.getElementById('booking-non-member-name');
     const phPrivacy = document.getElementById('booking-phone');
@@ -3307,7 +3469,7 @@ async function openBookingModal(id = null) {
             branchInput.value = config.branch;
         }
         
-        loadBookingData(id);
+        await loadBookingData(id);
     } else {
         // 예약 등록 모달
         title.textContent = '예약 등록';
@@ -3316,6 +3478,9 @@ async function openBookingModal(id = null) {
         if (deleteBtn) {
             deleteBtn.style.display = 'none';
             deleteBtn.removeAttribute('data-booking-id');
+        }
+        if (typeof App.applyPastMidnightBookingLock === 'function') {
+            App.applyPastMidnightBookingLock(null);
         }
         
         // 예약 등록 버튼에 active 클래스 추가
@@ -3399,24 +3564,18 @@ async function openBookingModal(id = null) {
                 const firstFacilityOption = facilitySelect.options[1]; // 첫 번째는 "시설 선택..."
                 if (firstFacilityOption && firstFacilityOption.value) {
                     facilitySelect.value = firstFacilityOption.value;
-                    facilitySelect.disabled = true;
-                    facilitySelect.classList.add('facility-fixed');
+                    setBookingFacilityLocked(facilitySelect, true);
                     // 오버레이에 선택된 시설명 표시
                     const displayDiv = document.getElementById('facility-selected-display');
                     const nameSpan = document.getElementById('facility-selected-name');
                     if (displayDiv && nameSpan) {
                         nameSpan.textContent = firstFacilityOption.textContent;
-                        displayDiv.style.display = 'flex';
+                        displayDiv.style.display = isSocialBookingPage() ? 'none' : 'flex';
                     }
                     App.log(`[시설 로드] 강제 선택 및 고정: ${firstFacilityOption.textContent} (값: ${firstFacilityOption.value})`);
                 }
             }
         }
-    }
-    
-    // 수정 모드일 때도 시설 로드
-    if (id) {
-        await loadFacilities();
     }
     
     // 지점 선택 시 상품 목록 다시 로드 (모달이 열리기 전에 이벤트 리스너 추가)
@@ -3449,14 +3608,13 @@ async function openBookingModal(id = null) {
                     const firstOption = facilitySelect.options[1]; // 첫 번째는 "시설 선택..."
                     if (firstOption && firstOption.value) {
                         facilitySelect.value = firstOption.value;
-                        facilitySelect.disabled = true;
-                        facilitySelect.classList.add('facility-fixed');
+                        setBookingFacilityLocked(facilitySelect, true);
                         // 오버레이에 선택된 시설명 표시
                         const displayDiv = document.getElementById('facility-selected-display');
                         const nameSpan = document.getElementById('facility-selected-name');
                         if (displayDiv && nameSpan) {
                             nameSpan.textContent = firstOption.textContent;
-                            displayDiv.style.display = 'flex';
+                            displayDiv.style.display = isSocialBookingPage() ? 'none' : 'flex';
                         }
                         App.log(`[시설 로드] 모달 열린 후 즉시 강제 선택 및 고정: ${firstOption.textContent}`);
                     }
@@ -3465,15 +3623,14 @@ async function openBookingModal(id = null) {
                     loadFacilities();
                 } else if (facilitySelect.value && !facilitySelect.disabled) {
                     // 시설이 선택되어 있지만 활성화되어 있으면 고정
-                    facilitySelect.disabled = true;
-                    facilitySelect.classList.add('facility-fixed');
+                    setBookingFacilityLocked(facilitySelect, true);
                     // 오버레이에 선택된 시설명 표시
                     const displayDiv = document.getElementById('facility-selected-display');
                     const nameSpan = document.getElementById('facility-selected-name');
                     if (displayDiv && nameSpan) {
                         const selectedText = facilitySelect.options[facilitySelect.selectedIndex]?.textContent;
                         nameSpan.textContent = selectedText || '';
-                        displayDiv.style.display = 'flex';
+                        displayDiv.style.display = isSocialBookingPage() ? 'none' : 'flex';
                     }
                     App.log(`[시설 로드] 모달 열린 후 즉시 확인 - 시설 고정: ${facilitySelect.options[facilitySelect.selectedIndex]?.textContent}`);
                 }
@@ -3488,14 +3645,13 @@ async function openBookingModal(id = null) {
                     const firstOption = facilitySelect.options[1];
                     if (firstOption && firstOption.value) {
                         facilitySelect.value = firstOption.value;
-                        facilitySelect.disabled = true;
-                        facilitySelect.classList.add('facility-fixed');
+                        setBookingFacilityLocked(facilitySelect, true);
                         // 오버레이에 선택된 시설명 표시
                         const displayDiv = document.getElementById('facility-selected-display');
                         const nameSpan = document.getElementById('facility-selected-name');
                         if (displayDiv && nameSpan) {
                             nameSpan.textContent = firstOption.textContent;
-                            displayDiv.style.display = 'flex';
+                            displayDiv.style.display = isSocialBookingPage() ? 'none' : 'flex';
                         }
                         App.log(`[시설 로드] 모달 열린 후 추가 강제 선택 및 고정: ${firstOption.textContent}`);
                     }
@@ -3503,15 +3659,14 @@ async function openBookingModal(id = null) {
                     App.log('[시설 로드] 모달 열린 후 추가 확인 - 시설 재로드 필요');
                     loadFacilities();
                 } else if (facilitySelect.value && !facilitySelect.disabled) {
-                    facilitySelect.disabled = true;
-                    facilitySelect.classList.add('facility-fixed');
+                    setBookingFacilityLocked(facilitySelect, true);
                     // 오버레이에 선택된 시설명 표시
                     const displayDiv = document.getElementById('facility-selected-display');
                     const nameSpan = document.getElementById('facility-selected-name');
                     if (displayDiv && nameSpan) {
                         const selectedText = facilitySelect.options[facilitySelect.selectedIndex]?.textContent;
                         nameSpan.textContent = selectedText || '';
-                        displayDiv.style.display = 'flex';
+                        displayDiv.style.display = isSocialBookingPage() ? 'none' : 'flex';
                     }
                 }
             }
@@ -3525,14 +3680,13 @@ async function openBookingModal(id = null) {
                     const firstOption = facilitySelect.options[1];
                     if (firstOption && firstOption.value) {
                         facilitySelect.value = firstOption.value;
-                        facilitySelect.disabled = true;
-                        facilitySelect.classList.add('facility-fixed');
+                        setBookingFacilityLocked(facilitySelect, true);
                         // 오버레이에 선택된 시설명 표시
                         const displayDiv = document.getElementById('facility-selected-display');
                         const nameSpan = document.getElementById('facility-selected-name');
                         if (displayDiv && nameSpan) {
                             nameSpan.textContent = firstOption.textContent;
-                            displayDiv.style.display = 'flex';
+                            displayDiv.style.display = isSocialBookingPage() ? 'none' : 'flex';
                         }
                         App.log(`[시설 로드] 모달 열린 후 최종 강제 선택 및 고정: ${firstOption.textContent}`);
                     }
@@ -3540,15 +3694,14 @@ async function openBookingModal(id = null) {
                     App.log('[시설 로드] 모달 열린 후 최종 확인 - 시설 재로드 필요');
                     loadFacilities();
                 } else if (facilitySelect.value && !facilitySelect.disabled) {
-                    facilitySelect.disabled = true;
-                    facilitySelect.classList.add('facility-fixed');
+                    setBookingFacilityLocked(facilitySelect, true);
                     // 오버레이에 선택된 시설명 표시
                     const displayDiv = document.getElementById('facility-selected-display');
                     const nameSpan = document.getElementById('facility-selected-name');
                     if (displayDiv && nameSpan) {
                         const selectedText = facilitySelect.options[facilitySelect.selectedIndex]?.textContent;
                         nameSpan.textContent = selectedText || '';
-                        displayDiv.style.display = 'flex';
+                        displayDiv.style.display = isSocialBookingPage() ? 'none' : 'flex';
                     }
                     App.log(`[시설 로드] ✅ 최종 확인 완료 - 시설 고정: ${facilitySelect.options[facilitySelect.selectedIndex]?.textContent}`);
                 }
@@ -3559,7 +3712,11 @@ async function openBookingModal(id = null) {
     // 모달이 열린 후 레슨 종목 필터링 적용
     setTimeout(() => filterLessonCategoryOptions(), 200);
     if (typeof App.applyBookingCoachEditPolicy === 'function') {
-        App.applyBookingCoachEditPolicy();
+        if (id) {
+            App.applyBookingCoachEditPolicy();
+        } else {
+            App.applyBookingCoachEditPolicy(null);
+        }
     }
     
     // 모달 닫기 이벤트 리스너 추가
@@ -3572,6 +3729,9 @@ function setupBookingModalCloseHandler() {
     if (!modal) return;
     
     const closeHandler = () => {
+        if (typeof App.applyBookingCoachEditPolicy === 'function') {
+            App.applyBookingCoachEditPolicy(null);
+        }
         const bookingBtn = document.getElementById('btn-booking-new');
         if (bookingBtn) {
             bookingBtn.classList.remove('active');
@@ -3612,17 +3772,21 @@ async function loadBookingData(id) {
         document.getElementById('booking-id').value = booking.id;
         const facilitySelect = document.getElementById('booking-facility');
         if (facilitySelect) {
-            facilitySelect.value = booking.facility?.id || '';
-            // 시설 필드가 비활성화되어 있으면 다시 활성화 (수정 모드이므로)
-            if (facilitySelect.disabled) {
-                facilitySelect.disabled = false;
-                facilitySelect.classList.remove('facility-fixed');
-                // 오버레이 숨기기
-                const displayDiv = document.getElementById('facility-selected-display');
-                if (displayDiv) {
-                    displayDiv.style.display = 'none';
+            if (booking.facility && booking.facility.id) {
+                const fid = String(booking.facility.id);
+                const hasOpt = Array.from(facilitySelect.options).some(o => o.value === fid);
+                if (!hasOpt) {
+                    const option = document.createElement('option');
+                    option.value = fid;
+                    option.textContent = booking.facility.name || ('시설 #' + fid);
+                    if (booking.facility.branch) option.dataset.branch = booking.facility.branch;
+                    facilitySelect.appendChild(option);
                 }
+                facilitySelect.value = fid;
+            } else {
+                facilitySelect.value = '';
             }
+            setBookingFacilityLocked(facilitySelect, false);
         }
         document.getElementById('selected-member-id').value = booking.member?.id || '';
         document.getElementById('selected-member-number').value = booking.member?.memberNumber || '';
@@ -3631,7 +3795,11 @@ async function loadBookingData(id) {
             const showPriv = typeof App.shouldShowMemberNameOnBookingCalendar !== 'function' || App.shouldShowMemberNameOnBookingCalendar();
             window.__bookingPrivacySnapshot = null;
             // 회원 정보 표시 (코치·타 캘린더: 실명 대신 마스킹)
-            document.getElementById('member-info-name').textContent = showPriv ? (booking.member.name || '-') : '-';
+            if (typeof App.setBookingModalMemberName === 'function') {
+                App.setBookingModalMemberName(showPriv ? (booking.member.name || '-') : '-', showPriv ? booking.member.id : null);
+            } else {
+                document.getElementById('member-info-name').textContent = showPriv ? (booking.member.name || '-') : '-';
+            }
             document.getElementById('member-info-phone').textContent = showPriv ? (booking.member.phoneNumber || '-') : '-';
             document.getElementById('member-info-grade').textContent = showPriv ? (getGradeText(booking.member.grade) || '-') : '-';
             document.getElementById('member-info-school').textContent = showPriv ? (booking.member.school || '-') : '-';
@@ -3706,6 +3874,11 @@ async function loadBookingData(id) {
                 lessonCategoryEl.disabled = true;
                 lessonCategoryEl.style.backgroundColor = 'var(--bg-secondary)';
                 lessonCategoryEl.style.color = 'var(--text-muted)';
+            } else if (config.lessonCategory === 'TRAINING' || config.lessonCategory === 'PILATES' || config.lessonCategory === 'YOUTH_BASEBALL') {
+                lessonCategoryEl.value = config.lessonCategory;
+                lessonCategoryEl.disabled = true;
+                lessonCategoryEl.style.backgroundColor = 'var(--bg-secondary)';
+                lessonCategoryEl.style.color = 'var(--text-muted)';
             } else if (booking.lessonCategory) {
                 lessonCategoryEl.value = booking.lessonCategory;
             }
@@ -3740,13 +3913,19 @@ async function loadBookingData(id) {
                     select.dispatchEvent(new Event('change', { bubbles: true }));
                     App.log('[예약 수정] 상품 선택 적용:', productIdStr);
                 } else {
-                    // 옵션에 없으면(필터로 제외됐을 수 있음) API로 해당 상품 확인 후 옵션 추가
+                    // 옵션에 없으면: 아직 쓸 수 있는 이용권만 추가. 소진·잔여 0은 넣지 않음.
                     try {
                         const mp = await App.api.get(`/member-products/${productId}`);
-                        if (mp && mp.member && String(mp.member.id) === String(booking.member.id)) {
+                        const sameMember = mp && mp.member && String(mp.member.id) === String(booking.member.id);
+                        const selectable = typeof App.isSelectableMemberProductForBooking === 'function'
+                            ? App.isSelectableMemberProductForBooking(mp)
+                            : (mp && mp.status === 'ACTIVE');
+                        if (sameMember && selectable) {
                             const option = document.createElement('option');
                             option.value = String(mp.id);
-                            option.textContent = (mp.product && mp.product.name) ? mp.product.name : `이용권 #${mp.id}`;
+                            option.textContent = typeof App.formatMemberProductOptionLabel === 'function'
+                                ? App.formatMemberProductOptionLabel(mp)
+                                : ((mp.product && mp.product.name) ? mp.product.name : `이용권 #${mp.id}`);
                             if (mp.product && mp.product.type) option.dataset.productType = mp.product.type;
                             option.dataset.remainingCount = String(App.resolveDisplayRemainingCount(mp, { whenAllUnknown: 'zero' }));
                             if (mp.coach && mp.coach.id) option.dataset.coachId = String(mp.coach.id);
@@ -3766,6 +3945,14 @@ async function loadBookingData(id) {
                             }
                             select.dispatchEvent(new Event('change', { bubbles: true }));
                             App.log('[예약 수정] 상품 옵션 추가 후 선택:', mp.id);
+                        } else if (sameMember && !selectable) {
+                            App.log('[예약 수정] 소진·만료 이용권은 선택 목록에서 제외:', productId);
+                            const productInfoSkip = document.getElementById('product-info');
+                            const productInfoTextSkip = document.getElementById('product-info-text');
+                            if (productInfoSkip && productInfoTextSkip) {
+                                productInfoTextSkip.textContent = '연결된 이용권이 소진되어 선택할 수 없습니다. 사용 중인 이용권을 다시 고르세요.';
+                                productInfoSkip.style.display = 'block';
+                            }
                         }
                     } catch (e) {
                         App.err('[예약 수정] 예약 연결 상품 로드 실패:', e);
@@ -3780,7 +3967,12 @@ async function loadBookingData(id) {
             }
         }
         if (typeof App.applyBookingCoachEditPolicy === 'function') {
-            App.applyBookingCoachEditPolicy();
+            App.applyBookingCoachEditPolicy(booking);
+            setTimeout(function() { App.applyBookingCoachEditPolicy(booking); }, 50);
+            setTimeout(function() { App.applyBookingCoachEditPolicy(booking); }, 400);
+        }
+        if (typeof App.applyPastMidnightBookingLock === 'function') {
+            App.applyPastMidnightBookingLock(booking);
         }
     } catch (error) {
         App.showNotification('예약 정보를 불러오는데 실패했습니다.', 'danger');
@@ -3793,6 +3985,14 @@ function editBooking(id) {
 
 async function saveBooking() {
     App.log('[saveBooking] 예약 저장 시작');
+    var existingIdEl = document.getElementById('booking-id');
+    if (existingIdEl && existingIdEl.value && typeof App.isPastMidnightBookingLocked === 'function') {
+        var lockNote = document.querySelector('#booking-modal .past-midnight-booking-lock-note');
+        if (lockNote && lockNote.style.display !== 'none') {
+            App.showNotification(App.PAST_MIDNIGHT_BOOKING_LOCK_MSG, 'warning');
+            return;
+        }
+    }
     
     const date = document.getElementById('booking-date').value;
     const startTime = document.getElementById('booking-start-time').value;
@@ -3849,11 +4049,18 @@ async function saveBooking() {
         nonMemberPhone = window.__bookingPrivacySnapshot.nonMemberPhone;
     }
     const coachIdElement = document.getElementById('booking-coach');
+    if (coachIdElement) {
+        coachIdElement.disabled = false;
+        coachIdElement.removeAttribute('disabled');
+    }
     const coachId = coachIdElement ? coachIdElement.value : '';
     const participants = document.getElementById('booking-participants').value;
     const purpose = document.getElementById('booking-purpose').value;
     const lessonCategoryElement = document.getElementById('booking-lesson-category');
-    const lessonCategory = lessonCategoryElement ? lessonCategoryElement.value : null;
+    const pageLessonCategory = (window.BOOKING_PAGE_CONFIG || {}).lessonCategory;
+    const lessonCategory = (lessonCategoryElement && lessonCategoryElement.value)
+        ? lessonCategoryElement.value
+        : (pageLessonCategory || null);
     const paymentMethod = document.getElementById('booking-payment-method').value;
     const memo = document.getElementById('booking-notes').value;
     const memberProductId = document.getElementById('booking-member-product')?.value || null;
@@ -3884,8 +4091,9 @@ async function saveBooking() {
     
     // 레슨인 경우 레슨 카테고리 필수
     if (purpose === 'LESSON') {
-        const lessonCategory = document.getElementById('booking-lesson-category')?.value;
-        if (!lessonCategory) {
+        const selectedLessonCategory = (document.getElementById('booking-lesson-category')?.value)
+            || pageLessonCategory;
+        if (!selectedLessonCategory) {
             App.err('[saveBooking] 레슨인데 레슨 종목이 선택되지 않음');
             App.showNotification('레슨인 경우 레슨 종목을 선택해주세요.', 'danger');
             return;
@@ -3904,23 +4112,27 @@ async function saveBooking() {
         return;
     }
     
-    // 회원 예약인 경우 상품/이용권 선택 필수
-    if ((memberNumber || memberId) && !memberProductId) {
-        App.showNotification('사용할 상품/이용권을 선택해주세요.', 'danger');
+    // 회원 예약인 경우 이용권 필수. 횟수권 잔여 0은 신규만 차단(수정은 이용권만 있으면 저장)
+    const bookingIdForPass = document.getElementById('booking-id') ? document.getElementById('booking-id').value.trim() : '';
+    const isNewBookingForPass = !bookingIdForPass;
+    const productSelectForPass = document.getElementById('booking-member-product');
+    const selectedPassOption = productSelectForPass && productSelectForPass.selectedIndex >= 0
+        ? productSelectForPass.options[productSelectForPass.selectedIndex]
+        : null;
+    const passErr = typeof App.assertMemberPassForSave === 'function'
+        ? App.assertMemberPassForSave({
+            isMember: !!(memberNumber || memberId),
+            memberProductId: memberProductId,
+            productType: selectedPassOption && selectedPassOption.dataset ? selectedPassOption.dataset.productType : null,
+            remainingCount: selectedPassOption && selectedPassOption.dataset ? selectedPassOption.dataset.remainingCount : null,
+            totalCount: selectedPassOption && selectedPassOption.dataset ? selectedPassOption.dataset.totalCount : null,
+            isNew: isNewBookingForPass,
+            isCopy: false
+        })
+        : ((memberNumber || memberId) && !memberProductId ? '이용권을 확인해 주세요.' : null);
+    if (passErr) {
+        App.showNotification(passErr, 'danger');
         return;
-    }
-    
-    // 상품 선택 시 횟수권 잔여 횟수 확인
-    if (memberProductId) {
-        const productSelect = document.getElementById('booking-member-product');
-        const selectedOption = productSelect.options[productSelect.selectedIndex];
-        const productType = selectedOption.dataset.productType;
-        const remainingCount = parseInt(selectedOption.dataset.remainingCount) || 0;
-        
-        if (productType === 'COUNT_PASS' && remainingCount <= 0) {
-            App.showNotification('선택한 횟수권의 잔여 횟수가 없습니다.', 'danger');
-            return;
-        }
     }
     
     // 종료 시간 재검증 (날짜와 시간 결합 전)
@@ -3977,12 +4189,15 @@ async function saveBooking() {
     if (facilitySelect && facilitySelect.value) {
         const selectedOption = facilitySelect.options[facilitySelect.selectedIndex];
         if (selectedOption && selectedOption.dataset.branch) {
-            branchValue = selectedOption.dataset.branch.toUpperCase();
-            App.log(`[예약 저장] 시설의 지점 정보 사용: ${branchValue}`);
-            // booking-branch도 업데이트
-            const branchInput = document.getElementById('booking-branch');
-            if (branchInput) {
-                branchInput.value = branchValue;
+            const keepPageBranch = isSocialBookingPage() && isBpaBaseballFacility({ name: selectedOption.textContent });
+            if (!keepPageBranch) {
+                branchValue = selectedOption.dataset.branch.toUpperCase();
+                App.log(`[예약 저장] 시설의 지점 정보 사용: ${branchValue}`);
+                // booking-branch도 업데이트
+                const branchInput = document.getElementById('booking-branch');
+                if (branchInput) {
+                    branchInput.value = branchValue;
+                }
             }
         }
     }
@@ -3999,13 +4214,24 @@ async function saveBooking() {
         endTime: endDateTime,
         participants: parseInt(participants) || 1,
         purpose: purpose,
-        lessonCategory: (purpose === 'LESSON' && lessonCategory) ? lessonCategory : null,
+        lessonCategory: (function() {
+            if (purpose === 'LESSON' && lessonCategory) return lessonCategory;
+            const pageCfg = window.BOOKING_PAGE_CONFIG || {};
+            if (pageCfg.facilityType === 'BASEBALL' && pageCfg.memberGrade === 'SOCIAL') {
+                return pageCfg.lessonCategory || 'BASEBALL';
+            }
+            return null;
+        })(),
         status: bookingStatus, // 회원 예약은 기본적으로 PENDING
         branch: branchValue, // 시설의 지점 정보 우선 사용
         // paymentMethod 값 변환 (프론트엔드 -> 백엔드 enum 형식)
         paymentMethod: paymentMethod ? (paymentMethod === 'ONSITE' ? 'ON_SITE' : (paymentMethod === 'DEFERRED' ? 'POSTPAID' : paymentMethod)) : null,
         memo: memo || null
     };
+    const pageMemberGrade = (window.BOOKING_PAGE_CONFIG || {}).memberGrade;
+    if (pageMemberGrade) {
+        data.memberGrade = pageMemberGrade;
+    }
     
     App.log('예약 저장 데이터:', JSON.stringify(data, null, 2));
     
@@ -4199,10 +4425,8 @@ async function confirmAllPendingBookings() {
         
         // API 파라미터 구성
         const params = new URLSearchParams();
-        params.append('branch', branch);
-        if (facilityType) {
-            params.append('facilityType', facilityType);
-        }
+        appendBookingBranchParam(params, config);
+        appendBookingPageFilters(params, config);
         
         // 예약 목록 가져오기
         let bookings = await App.api.get(`/bookings?${params.toString()}`);
@@ -4338,9 +4562,8 @@ function getStatsParams() {
         endISO = last.toISOString();
     }
     const params = new URLSearchParams({ start: startISO, end: endISO });
-    if (config.branch) params.append('branch', config.branch);
-    if (config.facilityType) params.append('facilityType', config.facilityType);
-    if (config.lessonCategory) params.append('lessonCategory', config.lessonCategory);
+    appendBookingBranchParam(params, config);
+    appendBookingPageFilters(params, config);
     return params;
 }
 
@@ -4516,7 +4739,11 @@ async function deleteBooking(id) {
         }
     } catch (error) {
         App.err('예약 삭제 실패:', error);
-        App.showNotification('삭제에 실패했습니다.', 'danger');
+        if (typeof App.showApiError === 'function') {
+            App.showApiError(error);
+        } else {
+            App.showNotification('삭제에 실패했습니다.', 'danger');
+        }
     }
 }
 

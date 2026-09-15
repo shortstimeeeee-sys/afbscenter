@@ -336,7 +336,6 @@ async function openCheckinModal(bookingId) {
 async function processCheckin() {
     const bookingIdEl = document.getElementById('checkin-booking-id');
     const bookingId = bookingIdEl ? bookingIdEl.value.trim() : '';
-    const autoDeduct = document.getElementById('checkin-auto-deduct').checked;
     
     if (!bookingId) {
         App.showNotification('예약 정보가 없습니다. 체크인 창을 닫았다가 다시 시도해 주세요.', 'warning');
@@ -345,36 +344,13 @@ async function processCheckin() {
     
     try {
         const response = await App.api.post(`/attendance/checkin`, {
-            bookingId: parseInt(bookingId, 10),
-            autoDeduct: autoDeduct
+            bookingId: parseInt(bookingId, 10)
         });
         
-        App.log('체크인 응답 전체:', JSON.stringify(response, null, 2)); // 디버깅용
-        App.log('productDeducted 존재 여부:', !!response?.productDeducted); // 디버깅용
-        App.log('deductSkipped:', response?.deductSkipped); // 디버깅용
-        App.log('deductFailed:', response?.deductFailed); // 디버깅용
+        App.log('체크인 응답 전체:', JSON.stringify(response, null, 2));
         
-        // 이용권 차감 정보가 있으면 상세 메시지 표시
-        if (response && response.productDeducted) {
-            const product = response.productDeducted;
-            App.log('이용권 차감 정보:', product); // 디버깅용
-            
-            // 상세 메시지창 표시
-            showDeductMessage(product);
-        } else {
-            // 차감이 안 된 이유 확인
-            let message = '체크인이 완료되었습니다.';
-            if (response?.deductSkipped) {
-                message += `\n\n⚠️ 이용권 차감 건너뜀: ${response.deductSkipReason || '알 수 없는 이유'}`;
-                App.warn('이용권 차감 건너뜀:', response.deductSkipReason);
-            } else if (response?.deductFailed) {
-                message += `\n\n❌ 이용권 차감 실패: ${response.deductFailReason || '알 수 없는 이유'}`;
-                App.err('이용권 차감 실패:', response.deductFailReason);
-            } else {
-                App.log('이용권 차감 정보 없음 - 응답:', response); // 디버깅용
-            }
-            App.showNotification(message, response?.deductFailed ? 'warning' : 'success');
-        }
+        let message = (response && response.message) ? response.message : '체크인이 완료되었습니다. 이용권은 체크아웃 시 1회 차감됩니다.';
+        App.showNotification(message, 'success');
         
         App.Modal.close('checkin-modal');
         loadTodayBookings();
@@ -719,6 +695,11 @@ function renderAttendanceRecords(records) {
         const isInUse = checkIn && !checkOut;
         const statusText = isInUse ? '이용중' : (checkOut ? '완료' : '-');
         const statusBadge = isInUse ? 'warning' : (checkOut ? 'success' : 'secondary');
+        const autoBadge = record.midnightAutoCheckIn
+            ? ' <span class="badge badge-secondary" title="당일 자정 경과 후 자동 체크인">자동</span>'
+            : '';
+        const isAdmin = App.currentRole === 'ADMIN';
+        const canCancelAuto = isAdmin && !!record.midnightAutoCheckIn;
         let lessonCategoryHtml = '-';
         if (record.purpose === 'RENTAL') {
             lessonCategoryHtml = '<span class="badge badge-rental">대관</span>';
@@ -740,12 +721,13 @@ function renderAttendanceRecords(records) {
                 <td>${lessonCategoryHtml}</td>
                 <td>${checkInStr}</td>
                 <td>${duration}</td>
-                <td><span class="badge badge-${statusBadge}">${statusText}</span></td>
+                <td><span class="badge badge-${statusBadge}">${statusText}</span>${autoBadge}</td>
                 <td>
-                    ${isInUse ? `
-                        <div style="display: flex; gap: 4px;">
-                            <button class="btn btn-sm btn-secondary" onclick="processCheckout(${record.id})">체크아웃</button>
-                            <button class="btn btn-sm btn-danger" onclick="resetAttendance(${record.id})" title="체크인 전 상태로 리셋">리셋</button>
+                    ${isInUse || canCancelAuto ? `
+                        <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                            ${isInUse ? `<button class="btn btn-sm btn-secondary" onclick="processCheckout(${record.id})">체크아웃</button>` : ''}
+                            ${isInUse && !record.midnightAutoCheckIn ? `<button class="btn btn-sm btn-danger" onclick="resetAttendance(${record.id})" title="체크인 전 상태로 리셋">리셋</button>` : ''}
+                            ${canCancelAuto ? `<button class="btn btn-sm btn-danger" onclick="cancelMidnightAutoCheckIn(${record.id})" title="출석 삭제, 횟수 복구, 예약을 노쇼로 변경">자동 체크인 취소</button>` : ''}
                         </div>
                     ` : ''}
                 </td>
@@ -761,11 +743,19 @@ async function processCheckout(attendanceId) {
     }
     
     try {
-        await App.api.post(`/attendance/checkout`, {
+        const res = await App.api.post(`/attendance/checkout`, {
             attendanceId: attendanceId
         });
-        App.showNotification('체크아웃이 완료되었습니다.', 'success');
+        let msg = (res && res.message) ? res.message : '체크아웃이 완료되었습니다.';
+        if (res && res.remainingBefore != null && res.remainingAfter != null) {
+            msg += ' 이용권 ' + res.remainingBefore + '회 → ' + res.remainingAfter + '회';
+        } else if (res && res.deductSkipped) {
+            msg += ' (이미 1회 차감된 수업)';
+        }
+        App.showNotification(msg, 'success');
         loadAttendanceRecords();
+        loadUncheckedBookings();
+        loadTodayBookings();
     } catch (error) {
         App.err('체크아웃 처리 실패:', error);
         App.showNotification('체크아웃 처리에 실패했습니다.', 'danger');
@@ -783,9 +773,32 @@ async function resetAttendance(attendanceId) {
         App.showNotification('출석 기록이 삭제되었습니다.', 'success');
         loadAttendanceRecords();
         loadUncheckedBookings();
+        loadTodayBookings();
     } catch (error) {
         App.err('출석 기록 리셋 실패:', error);
         App.showNotification('출석 기록 리셋에 실패했습니다.', 'danger');
+    }
+}
+
+async function cancelMidnightAutoCheckIn(attendanceId) {
+    if (!confirm('이 자정 자동 체크인을 취소할까요?\n\n· 출석 기록이 삭제됩니다\n· 이미 깎인 이용권은 1회 복구됩니다\n· 예약은 노쇼로 바뀌어 다시 자동 체크인되지 않습니다')) {
+        return;
+    }
+    try {
+        const res = await App.api.post(`/attendance/${attendanceId}/cancel-auto-checkin`, {});
+        const msg = (res && res.message) ? res.message : '자동 체크인을 취소했습니다.';
+        App.showNotification(msg, 'success');
+        loadAttendanceRecords();
+        loadUncheckedBookings();
+        loadTodayBookings();
+    } catch (error) {
+        App.err('자정 자동 체크인 취소 실패:', error);
+        var msg = '자동 체크인 취소에 실패했습니다.';
+        if (error && error.response) {
+            if (error.response.status === 403) msg = '자동 체크인 취소는 관리자만 사용할 수 있습니다.';
+            else if (error.response.data && error.response.data.error) msg = error.response.data.error;
+        }
+        App.showNotification(msg, 'danger');
     }
 }
 
@@ -951,19 +964,11 @@ async function confirmBulkCheckin() {
     const confirmMsg = `선택한 구역 총 ${toProcess.length}건을 체크인 처리하시겠습니까?`;
     if (!confirm(confirmMsg)) return;
     try {
-        const { successCount, failCount, deductedProducts } = await doBulkCheckin(toProcess);
+        const { successCount, failCount } = await doBulkCheckin(toProcess);
         if (failCount === 0) {
-            if (deductedProducts.length > 0) {
-                showBulkDeductMessage(deductedProducts, successCount);
-            } else {
-                App.showNotification(`모든 예약(${successCount}개)이 체크인되었습니다.`, 'success');
-            }
+            App.showNotification(`모든 예약(${successCount}개)이 체크인되었습니다. 이용권은 체크아웃 시 1회 차감됩니다.`, 'success');
         } else {
-            if (deductedProducts.length > 0) {
-                showBulkDeductMessage(deductedProducts, successCount, failCount);
-            } else {
-                App.showNotification(`${successCount}개 체크인 완료, ${failCount}개 실패`, 'warning');
-            }
+            App.showNotification(`${successCount}개 체크인 완료, ${failCount}개 실패`, 'warning');
         }
         loadTodayBookings();
         loadAttendanceRecords();
@@ -978,27 +983,18 @@ async function confirmBulkCheckin() {
 async function doBulkCheckin(bookings) {
     let successCount = 0;
     let failCount = 0;
-    const deductedProducts = [];
     for (const booking of bookings) {
         try {
-            const response = await App.api.post(`/attendance/checkin`, {
-                bookingId: booking.id,
-                autoDeduct: true
+            await App.api.post(`/attendance/checkin`, {
+                bookingId: booking.id
             });
-            if (response && response.productDeducted) {
-                deductedProducts.push({
-                    bookingId: booking.id,
-                    memberName: booking.member?.name || booking.nonMemberName || '알 수 없음',
-                    product: response.productDeducted
-                });
-            }
             successCount++;
         } catch (error) {
             App.err(`예약 ${booking.id} 체크인 실패:`, error);
             failCount++;
         }
     }
-    return { successCount, failCount, deductedProducts };
+    return { successCount, failCount };
 }
 
 function renderUncheckedBookings(bookings) {

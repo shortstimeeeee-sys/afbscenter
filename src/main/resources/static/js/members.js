@@ -19,7 +19,7 @@ function formatPeriodPass(startDate, endDate) {
     return `${startYear}. ${startMonth}. ${startDay}. ~ ${endMonth}. ${endDay}.`;
 }
 
-let currentPage = 1;
+let memberListPage = 1;
 let currentFilters = {};
 const MEMBER_PAGE_SIZE = 50;
 let memberPageIndex = 0;
@@ -28,6 +28,147 @@ let accumulatedMembersList = [];
 // \uD68C\uC6D0 \uC0C1\uC138 \uBAA8\uB2EC \uC5F4 \uB9BC (\uB300\uC2DC\uBCF4\uB4DC index.html\uC5D0\uC11C\uB3C4 \uAC19\uC774 \uC0AC\uC6A9). members.html \uB2E8\uB3C5 \uB85C\uB4DC \uC2DC \uC5EC\uAE30\uC11C \uC120\uC5B8\uD574\uC57C ReferenceError \uC5C6\uC74C.
 var currentMemberDetail = null;
 let currentEditingMember = null; // 현재 편집 중인 회원 정보 (모달 등)
+var memberDetailTabsBound = false;
+
+function ensureMembersDetailStyles() {
+    if (!document.head) return;
+    var links = document.querySelectorAll('link[rel="stylesheet"]');
+    for (var i = 0; i < links.length; i++) {
+        var href = links[i].getAttribute('href') || '';
+        if (href.indexOf('members.css') !== -1) return;
+    }
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = '/css/members.css?v=mem-detail1';
+    link.setAttribute('data-afbs-members-css', '1');
+    document.head.appendChild(link);
+}
+
+function appendModalHtmlIfMissing(id, html) {
+    if (document.getElementById(id) || !document.body) return;
+    var wrap = document.createElement('div');
+    wrap.innerHTML = html.trim();
+    while (wrap.firstChild) {
+        document.body.appendChild(wrap.firstChild);
+    }
+}
+
+/** 예약/대관 페이지 등 members.html 마크업이 없을 때도 회원 관리와 같은 상세 모달을 쓴다. */
+function ensureMemberDetailModals() {
+    ensureMembersDetailStyles();
+    if (!document.body) return;
+    appendModalHtmlIfMissing('member-detail-modal',
+        '<div class="modal-overlay" id="member-detail-modal">' +
+        '<div class="modal member-detail-modal-box">' +
+        '<div class="modal-header">' +
+        '<h2 class="modal-title" id="member-detail-title">회원 상세</h2>' +
+        '<button type="button" class="modal-close" aria-label="닫기">×</button>' +
+        '</div>' +
+        '<div class="modal-body">' +
+        '<div class="detail-tabs">' +
+        '<button type="button" class="tab-btn active" data-tab="info">기본 정보</button>' +
+        '<button type="button" class="tab-btn" data-tab="stats">개인 능력치</button>' +
+        '<button type="button" class="tab-btn" data-tab="products">이용권</button>' +
+        '<button type="button" class="tab-btn" data-tab="payments">결제 내역</button>' +
+        '<button type="button" class="tab-btn" data-tab="bookings">예약 내역</button>' +
+        '<button type="button" class="tab-btn" data-tab="attendance">출석 내역</button>' +
+        '<button type="button" class="tab-btn" data-tab="product-history">이용권 구매/종료 이력</button>' +
+        '<button type="button" class="tab-btn" data-tab="timeline">회원 히스토리</button>' +
+        '<button type="button" class="tab-btn" data-tab="memo">코치 메모</button>' +
+        '</div>' +
+        '<div id="detail-tab-content"></div>' +
+        '</div></div></div>');
+    appendModalHtmlIfMissing('adjust-count-modal',
+        '<div class="modal-overlay" id="adjust-count-modal"><div class="modal">' +
+        '<div class="modal-header"><h2 class="modal-title">이용권 횟수 조정</h2>' +
+        '<button type="button" class="modal-close">×</button></div>' +
+        '<div class="modal-body"><form id="adjust-count-form">' +
+        '<input type="hidden" id="adjust-product-id">' +
+        '<div class="form-group"><label class="form-label">현재 잔여 횟수</label>' +
+        '<div class="form-control" style="background: var(--bg-tertiary); font-weight: 600; color: var(--accent-primary);" id="adjust-current-count">-</div></div>' +
+        '<div class="form-group"><label class="form-label">현재 총 횟수</label>' +
+        '<div class="form-control" style="background: var(--bg-tertiary);" id="adjust-current-total">-</div></div>' +
+        '<div class="form-group"><label class="form-label">조정 방식</label>' +
+        '<div style="display: flex; gap: 16px; margin-bottom: 12px;">' +
+        '<label style="display: flex; align-items: center; cursor: pointer;"><input type="radio" name="adjust-mode" value="relative" checked style="margin-right: 6px;"><span>상대 조정 (+/-)</span></label>' +
+        '<label style="display: flex; align-items: center; cursor: pointer;"><input type="radio" name="adjust-mode" value="absolute" style="margin-right: 6px;"><span>직접 설정 (잔여 N회로 맞추기)</span></label>' +
+        '</div></div>' +
+        '<div class="form-group"><label class="form-label" id="adjust-amount-label">조정할 횟수</label>' +
+        '<input type="number" class="form-control" id="adjust-amount" placeholder="양수: 추가, 음수: 차감 (예: +5, -3)" required>' +
+        '<small style="color: var(--text-muted); font-size: 12px;" id="adjust-amount-hint">양수 입력 시 횟수 추가, 음수 입력 시 횟수 차감</small></div>' +
+        '<div class="form-group"><label class="form-label">총 횟수 설정 (선택)</label>' +
+        '<input type="number" class="form-control" id="adjust-total" placeholder="비워두면 기존 총 횟수 유지"></div>' +
+        '</form></div>' +
+        '<div class="modal-footer">' +
+        '<button type="button" class="btn btn-secondary" onclick="App.Modal.close(\'adjust-count-modal\')">취소</button>' +
+        '<button type="button" class="btn btn-primary" onclick="processAdjustCount()">조정</button>' +
+        '</div></div></div>');
+    appendModalHtmlIfMissing('edit-period-pass-modal',
+        '<div class="modal-overlay" id="edit-period-pass-modal"><div class="modal">' +
+        '<div class="modal-header"><h2 class="modal-title">기간권 기간 수정</h2>' +
+        '<button type="button" class="modal-close">×</button></div>' +
+        '<div class="modal-body"><form id="edit-period-pass-form">' +
+        '<input type="hidden" id="edit-period-product-id">' +
+        '<div class="form-group"><label class="form-label">시작일 *</label>' +
+        '<input type="date" class="form-control" id="edit-period-start-date" required onchange="autoCalculateEndDate()" oninput="autoCalculateEndDate()"></div>' +
+        '<div class="form-group"><label class="form-label">종료일 *</label>' +
+        '<input type="date" class="form-control" id="edit-period-end-date" required></div>' +
+        '</form></div>' +
+        '<div class="modal-footer">' +
+        '<button type="button" class="btn btn-secondary" onclick="App.Modal.close(\'edit-period-pass-modal\')">취소</button>' +
+        '<button type="button" class="btn btn-primary" onclick="processEditPeriodPass()">저장</button>' +
+        '</div></div></div>');
+    appendModalHtmlIfMissing('extend-product-modal',
+        '<div class="modal-overlay" id="extend-product-modal"><div class="modal">' +
+        '<div class="modal-header"><h2 class="modal-title">상품/이용권 연장</h2>' +
+        '<button type="button" class="modal-close">×</button></div>' +
+        '<div class="modal-body"><form id="extend-product-form">' +
+        '<input type="hidden" id="extend-member-id">' +
+        '<div class="form-group"><label class="form-label">연장할 상품/이용권 선택 *</label>' +
+        '<select class="form-control" id="extend-product-select" required><option value="">상품/이용권을 선택하세요...</option></select></div>' +
+        '<div class="form-group"><label class="form-label">현재 만료일</label>' +
+        '<div class="form-control" style="background: var(--bg-tertiary);" id="extend-current-expiry">-</div></div>' +
+        '<div class="form-group"><label class="form-label">구매 금액</label>' +
+        '<div class="form-control" style="background: var(--bg-tertiary);" id="extend-purchase-price">-</div></div>' +
+        '<div class="form-group"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+        '<label class="form-label" style="margin-bottom:0;">담당 코치/강사</label>' +
+        '<button type="button" class="btn btn-sm btn-secondary" id="extend-coach-admin-edit-btn" style="display:none;padding:4px 8px;" title="관리자 전용: 담당 코치 수정">✏️</button></div>' +
+        '<div class="form-control" style="background: var(--bg-tertiary);" id="extend-coach">-</div>' +
+        '<div id="extend-coach-admin-edit-wrap" style="display:none;margin-top:8px;">' +
+        '<select class="form-control" id="extend-coach-admin-select"><option value="">코치를 선택하세요...</option></select>' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">' +
+        '<button type="button" class="btn btn-sm btn-secondary" id="extend-coach-admin-cancel-btn">취소</button>' +
+        '<button type="button" class="btn btn-sm btn-primary" id="extend-coach-admin-save-btn">적용</button>' +
+        '</div></div></div>' +
+        '<div class="form-group"><label class="form-label">연장 횟수 *</label>' +
+        '<input type="number" class="form-control" id="extend-days" min="1" placeholder="추가할 횟수를 입력하세요" required></div>' +
+        '<div class="form-group"><label class="form-label">예상 연장 금액</label>' +
+        '<div class="form-control" style="background: var(--bg-tertiary); font-weight: 600; color: var(--accent-primary);" id="extend-calculated-price">-</div></div>' +
+        '</form></div>' +
+        '<div class="modal-footer">' +
+        '<button type="button" class="btn btn-secondary" onclick="App.Modal.close(\'extend-product-modal\')">취소</button>' +
+        '<button type="button" class="btn btn-primary" onclick="processExtendProduct()">연장</button>' +
+        '</div></div></div>');
+    bindMemberDetailTabs();
+}
+
+function bindMemberDetailTabs() {
+    if (memberDetailTabsBound) return;
+    var root = document.getElementById('member-detail-modal');
+    if (!root) return;
+    memberDetailTabsBound = true;
+    root.querySelectorAll('.tab-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            switchTab(this.getAttribute('data-tab'));
+        });
+    });
+}
+
+if (document.body) {
+    ensureMemberDetailModals();
+} else {
+    document.addEventListener('DOMContentLoaded', ensureMemberDetailModals);
+}
 
 document.addEventListener('DOMContentLoaded', async function() {
     if (App.currentUser && String(App.currentUser.role || '').toUpperCase() === 'COACH'
@@ -93,13 +234,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         searchInput.addEventListener('input', debounce(handleSearch, 300));
     }
     
-    // 탭 전환
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const tab = this.getAttribute('data-tab');
-            switchTab(tab);
-        });
-    });
+    ensureMemberDetailModals();
+    bindMemberDetailTabs();
     
     // 상품 선택 시 스타일·총액·담당 코치 UI 갱신
     const productSelect = document.getElementById('member-products');
@@ -296,6 +432,7 @@ function getProductTypeText(type) {
         'TIME_PASS': '\uAE30\uAC04\uAD8C',
         'COUNT_PASS': '\uD68C\uCC28\uAD8C',
         'MONTHLY_PASS': '\uC6D4\uC815\uC561',
+        'DAY_PASS': '1\uC77C\uAD8C',
         'TEAM_PACKAGE': '\uD300 \uD328\uD0A4\uC9C0'
     };
     return map[type] || type;
@@ -327,6 +464,10 @@ async function loadMembers(append, options) {
             tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">\uB85C\uB529 \uC911...</td></tr>';
         }
 
+        const coachesReady = (App.CoachColors && typeof App.CoachColors.ensureLoaded === 'function')
+            ? App.CoachColors.ensureLoaded()
+            : Promise.resolve();
+
         let members;
         // 검색어가 있으면 검색 API, 없으면 페이지 목록 API
         if (currentFilters.search) {
@@ -350,6 +491,9 @@ async function loadMembers(append, options) {
                 size: MEMBER_PAGE_SIZE,
                 ...currentFilters
             });
+            if (!params.get('status')) {
+                params.set('status', 'ACTIVE');
+            }
             const response = await App.api.get(`/members?${params}`);
             // 페이지 응답: { content, totalElements, totalPages, number }
             if (response && typeof response === 'object' && Array.isArray(response.content)) {
@@ -375,7 +519,11 @@ async function loadMembers(append, options) {
         
         members = accumulatedMembersList;
         App.log('\uD68C\uC6D0 \uBAA9\uB85D \uAC74\uC218:', members.length);
+        try { await coachesReady; } catch (e0) { /* 코치 색 프리로드 실패해도 목록은 표시 */ }
         renderMembersTable(members, !!memberPaginationInfo);
+        if (typeof applyCoachNameColors === 'function') {
+            applyCoachNameColors(document.getElementById('members-table-body'));
+        }
         if (refreshStats) loadMemberStats();
     } catch (error) {
         App.err('\uD68C\uC6D0 \uBAA9\uB85D \uB85C\uB529 \uC624\uB958:', error);
@@ -394,12 +542,8 @@ function resetMemberTableFiltersForSearch(searchQuery) {
         currentFilters.search = searchQuery;
     }
     var fg = document.getElementById('filter-grade');
-    var fs = document.getElementById('filter-status');
     if (fg) {
         fg.value = '';
-    }
-    if (fs) {
-        fs.value = '';
     }
 }
 
@@ -538,15 +682,20 @@ function renderMembersTable(members, showLoadMore) {
             <td><span class="badge badge-${getGradeBadge(member.grade)}">${App.escapeHtml(getGradeText(member.grade))}</span></td>
             <td style="display: none;">${App.escapeHtml(member.phoneNumber || '')}</td>
             <td>${App.escapeHtml(member.school || '-')}</td>
-            <td style="white-space: pre-line; line-height: 1.6;">${renderCoachNamesWithColors(member)}</td>
-            <td style="white-space: pre-line; line-height: 1.6; font-size: 13px;">${renderMemberProducts(member)}</td>
+            <td>${renderCoachNamesWithColors(member)}</td>
+            <td>${renderMemberProducts(member)}</td>
             <td><span class="badge badge-${getStatusBadge(member.status)}">${getStatusText(member.status)}</span></td>
             <td>${member.latestLessonDate ? App.formatDate(member.latestLessonDate) : '-'}</td>
             <td>${App.formatCurrency(member.totalPayment || 0)}</td>
             <td>
-                <button class="btn btn-sm btn-primary" onclick="openExtendProductModal(${member.id})" title="\uC774\uC6A9\uAD8C \uCD94\uAC00 \uB610\uB294 \uC5F0\uC7A5" style="margin-right: 4px;">\uC774\uC6A9\uAD8C \uCD94\uAC00/\uC5F0\uC7A5</button>
-                <button class="btn btn-sm btn-secondary" onclick="editMember(${member.id})">\uC218\uC815</button>
-                ${App.currentUser && App.currentUser.role === 'ADMIN' ? `<button class="btn btn-sm btn-danger" onclick="deleteMember(${member.id})">\uC0AD\uC81C</button>` : ''}
+                <div class="members-row-actions">
+                    <button class="btn btn-sm btn-primary" onclick="openExtendProductModal(${member.id})" title="\uC774\uC6A9\uAD8C \uCD94\uAC00 \uB610\uB294 \uC5F0\uC7A5">\uC774\uC6A9\uAD8C \uCD94\uAC00/\uC5F0\uC7A5</button>
+                    <button class="btn btn-sm btn-secondary" onclick="editMember(${member.id})">\uC218\uC815</button>
+                    ${member.status === 'INACTIVE'
+                        ? `<button class="btn btn-sm btn-success" onclick="toggleMemberDormantStatus(${member.id}, 'INACTIVE')" title="\uD65C\uC131 \uCC98\uB9AC">\uD65C\uC131</button>`
+                        : `<button class="btn btn-sm btn-warning" onclick="toggleMemberDormantStatus(${member.id}, '${member.status || 'ACTIVE'}')" title="\uD734\uBA74 \uCC98\uB9AC">\uD734\uBA74</button>`}
+                    ${App.currentUser && App.currentUser.role === 'ADMIN' ? `<button class="btn btn-sm btn-danger" onclick="deleteMember(${member.id})">\uC0AD\uC81C</button>` : ''}
+                </div>
             </td>
         </tr>
     `;
@@ -697,60 +846,57 @@ function getSortedActiveProductsForMember(member) {
     return list;
 }
 
-/** 회원 상품에서 표시할 코치 이름 추출 (memberProduct 우선; 없으면 product.coach 등 API 필드 조합) */
+function formatUnspecifiedCoachHtml() {
+    return '<span style="color: var(--text-muted);">미지정</span>';
+}
+
+function isWorkingCoachRecord(coach) {
+    if (!coach || typeof coach !== 'object') {
+        return false;
+    }
+    return coach.active !== false;
+}
+
+/** 회원 상품에서 표시할 코치 이름 추출. 퇴사(active=false) 코치는 제외 → 미지정 */
 function getCoachNameForMemberProduct(mp, member) {
-    const product = mp && mp.product ? mp.product : {};
-    let name = mp.coachName || (mp.coach && (mp.coach.name || mp.coach)) || (product.coach && (product.coach.name || product.coach));
+    if (!mp) return null;
+    if (mp.coach && typeof mp.coach === 'object' && mp.coach.active === false) {
+        return null;
+    }
+    // 직접 배정된 코치가 있으나 근무 중이 아니면(이름 숨김) 상품 기본 코치로 대체하지 않음
+    if (mp.coachId && !mp.coachName && !(mp.coach && mp.coach.name)) {
+        return null;
+    }
+    const product = mp.product || {};
+    let name = mp.coachName
+        || (isWorkingCoachRecord(mp.coach) && (mp.coach.name || mp.coach))
+        || (isWorkingCoachRecord(product.coach) && (product.coach.name || product.coach));
     if (name) return String(name).trim();
     return null;
 }
 
-/** 활성 상품 순서대로 코치 HTML (상품당 한 줄) */
+/** 활성 상품 순서대로 코치 HTML (상품당 한 줄). 근무 중 코치가 없으면 미지정 */
 function getMemberCoachDisplayInProductOrder(member) {
     const sorted = getSortedActiveProductsForMember(member);
     if (sorted.length === 0) return null;
-    const lines = sorted.map(mp => {
-        const coachName = getCoachNameForMemberProduct(mp, member);
-        return coachName ? renderCoachNamesWithColorsFromText(coachName) : '-';
-    });
-    return lines.join('<br>');
+    const names = sorted.map(mp => getCoachNameForMemberProduct(mp, member));
+    if (names.every(name => !name)) {
+        return formatUnspecifiedCoachHtml();
+    }
+    return names.map(coachName =>
+        coachName ? renderCoachNamesWithColorsFromText(coachName) : formatUnspecifiedCoachHtml()
+    ).join('<br>');
 }
 
 function renderCoachNamesWithColors(member) {
-    // 상품 순서 기준(없으면 아래 fallback)
     const byProductOrder = getMemberCoachDisplayInProductOrder(member);
     if (byProductOrder) return byProductOrder;
 
-    if (!member.coachNames && !member.coach?.name) {
-        return '-';
-    }
-    
     const coachNames = member.coachNames || member.coach?.name || '';
-    if (!coachNames) {
-        return '-';
+    if (!coachNames || !String(coachNames).trim()) {
+        return formatUnspecifiedCoachHtml();
     }
-    
-    const coachNameList = coachNames.split('\n').filter(name => name.trim());
-    
-    if (coachNameList.length === 0) {
-        return '-';
-    }
-    
-    const coloredNames = coachNameList.map(coachName => {
-        const trimmedName = coachName.trim();
-        if (!trimmedName) return '';
-        
-        // 이름 기준 코치 색
-        let coachColor = App.CoachColors.getColor({ name: trimmedName });
-        
-        if (!coachColor) {
-            coachColor = 'var(--text-primary)';
-        }
-        
-        return `<span style="color: ${coachColor}; font-weight: 600;">${App.escapeHtml(trimmedName)}</span>`;
-    }).filter(name => name).join('<br>');
-    
-    return coloredNames || '-';
+    return renderCoachNamesWithColorsFromText(coachNames);
 }
 
 function normalizeCoachNameForColor(rawName) {
@@ -762,112 +908,52 @@ function normalizeCoachNameForColor(rawName) {
     return normalized;
 }
 
-const COACH_FIXED_COLORS_FALLBACK = {
-    '\uC11C\uC815\uBBFC [\uB300\uD45C]': '#FF9800',
-    '\uC11C\uC815\uBBFC': '#FF9800',
-    '\uC11C\uC815\uD6C8': '#FFFFFF',
-    '\uC11C\uC815\uD6C8[\uC6B4\uC601/\uB300\uAD00\uB2F4\uB2F9]': '#FFFFFF',
-    '\uC11C\uC815\uD6C8 [\uC6B4\uC601/\uB300\uAD00\uB2F4\uB2F9]': '#FFFFFF',
-    '\uC11C\uC815\uD6C8[\uB300\uAD00\uB2F4\uB2F9]': '#FFFFFF',
-    '\uC11C\uC815\uD6C8 [\uB300\uAD00\uB2F4\uB2F9]': '#FFFFFF',
-    '\uC870\uC7A5\uC6B0 [\uCF54\uCE58]': '#4CAF50',
-    '\uC870\uC7A5\uC6B0': '#4CAF50',
-    '\uCD5C\uC131\uD6C8 [\uCF54\uCE58]': '#E91E63',
-    '\uCD5C\uC131\uD6C8': '#E91E63',
-    '\uAE40\uC6B0\uACBD [\uD22C\uC218\uCF54\uCE58]': '#9C27B0',
-    '\uAE40\uC6B0\uACBD': '#9C27B0',
-    '\uC774\uC6D0\uC900 [\uD3EC\uC218\uCF54\uCE58]': '#00897B',
-    '\uC774\uC6D0\uC900': '#00897B',
-    '\uBC15\uC900\uD604 [\uD2B8\uB808\uC774\uB108]': '#5E6AD2',
-    '\uBC15\uC900\uD604': '#5E6AD2',
-    '\uACF5\uC778\uC6B1': '#1976D2',
-    '\uACF5\uC778\uC6B1[\uCF54\uCE58]': '#1976D2',
-    '\uACF5\uC778\uC6B1 [\uCF54\uCE58]': '#1976D2',
-    '\uACF5\uC778\uC6B1[\uB300\uAD00\uB2F4\uB2F9]': '#1976D2',
-    '\uBC15\uADFC\uC5FD': '#C0CA33',
-    '\uBC15\uADFC\uC5FD[\uD22C\uC218\uCF54\uCE58]': '#C0CA33',
-    '\uBC15\uADFC\uC5FD [\uD22C\uC218\uCF54\uCE58]': '#C0CA33',
-    '\uC774\uC720\uC9C4': '#8E24AA',
-    '\uC774\uC720\uC9C4[\uAC15\uC0AC]': '#8E24AA',
-    '\uC774\uC720\uC9C4 [\uAC15\uC0AC]': '#8E24AA',
-    '\uC774\uC18C\uC5F0 [\uAC15\uC0AC]': '#FFC107',
-    '\uC774\uC18C\uC5F0': '#FFC107',
-    '\uC774\uC11C\uD604 [\uAC15\uC0AC]': '#F06292',
-    '\uC774\uC11C\uD604': '#F06292',
-    '\uAE40\uAC00\uC601 [\uAC15\uC0AC]': '#795548',
-    '\uAE40\uAC00\uC601': '#795548',
-    '\uAE40\uC18C\uC5F0 [\uAC15\uC0AC]': '#009688',
-    '\uAE40\uC18C\uC5F0': '#009688',
-    '\uC870\uD61C\uC9C4 [\uAC15\uC0AC]': '#673AB7',
-    '\uC870\uD61C\uC9C4': '#673AB7'
-};
+function splitCoachDisplayNames(rawText) {
+    const raw = String(rawText || '').trim();
+    if (!raw) return [];
+    const chunks = raw.split(/\s*[\n;|]+\s*/).map(s => s.trim()).filter(Boolean);
+    const result = [];
+    chunks.forEach(function(chunk) {
+        var buf = '';
+        var depth = 0;
+        for (var i = 0; i < chunk.length; i++) {
+            var ch = chunk[i];
+            if (ch === '[' || ch === '(') depth++;
+            else if ((ch === ']' || ch === ')') && depth > 0) depth--;
+            if (ch === ',' && depth === 0) {
+                if (buf.trim()) result.push(buf.trim());
+                buf = '';
+            } else {
+                buf += ch;
+            }
+        }
+        if (buf.trim()) result.push(buf.trim());
+    });
+    return result;
+}
 
 function renderCoachNamesWithColorsFromText(rawText) {
     if (!rawText) return '-';
     const text = String(rawText).trim();
     if (!text) return '-';
-    const nameParts = text.split(/\s*[\n,;/|]+\s*/).filter(part => part && part.trim());
+    const nameParts = splitCoachDisplayNames(text);
     if (nameParts.length === 0) return '-';
     const rendered = nameParts.map(part => {
         const trimmed = part.trim();
         if (!trimmed) return '';
-        const match = trimmed.match(/^(.+?)\s*[\[\(]([^\]\)]+)[\]\)]\s*$/);
-        const namePart = match ? match[1].trim() : trimmed;
-        const rolePart = match ? match[2].trim() : '';
-        const normalizedBaseName = normalizeCoachNameForColor(namePart);
-        let coachColor = null;
-        if (window.App && App.CoachColors) {
-            const fixed = App.CoachColors.fixedColors || COACH_FIXED_COLORS_FALLBACK;
-            const normalizedTrimmed = normalizeCoachNameForColor(trimmed);
-            const nameCandidates = [
-                trimmed,
-                namePart,
-                normalizedBaseName,
-                normalizedTrimmed,
-                String(namePart || '').replace(/\s+/g, ''),
-                String(trimmed || '').replace(/\s+/g, '')
-            ].filter(v => v);
-            for (const candidate of nameCandidates) {
-                if (fixed[candidate]) {
-                    coachColor = fixed[candidate];
-                    break;
-                }
-            }
-            if (!coachColor && typeof App.CoachColors.getColor === 'function') {
-                coachColor =
-                    App.CoachColors.getColor({ name: normalizedBaseName || namePart }) ||
-                    App.CoachColors.getColor({ name: trimmed }) ||
-                    null;
-            }
-        } else {
-            const fixed = COACH_FIXED_COLORS_FALLBACK;
-            const normalizedTrimmed = normalizeCoachNameForColor(trimmed);
-            const nameCandidates = [
-                trimmed,
-                namePart,
-                normalizedBaseName,
-                normalizedTrimmed,
-                String(namePart || '').replace(/\s+/g, ''),
-                String(trimmed || '').replace(/\s+/g, '')
-            ].filter(v => v);
-            for (const candidate of nameCandidates) {
-                if (fixed[candidate]) {
-                    coachColor = fixed[candidate];
-                    break;
-                }
-            }
+        let coachColor = 'var(--text-primary)';
+        if (window.App && App.CoachColors && typeof App.CoachColors.getColor === 'function') {
+            // 코치/레슨 관리와 동일: 전체 이름(직함 포함)으로 DB 고유색 조회
+            coachColor = App.CoachColors.getColor({ name: trimmed }) || 'var(--text-primary)';
         }
-        coachColor = coachColor || 'var(--text-secondary)';
-        const nameSpan = `<span class="coach-name" data-coach-name="${normalizedBaseName || namePart}" style="color: ${coachColor} !important; font-weight: 600;">${namePart}</span>`;
-        return rolePart
-            ? `${nameSpan} <span style="color: var(--text-muted); font-weight: 600;">[${rolePart}]</span>`
-            : nameSpan;
+        const dataName = App.escapeHtml(trimmed);
+        return `<span class="coach-name" data-coach-name="${dataName}" style="--coach-color: ${coachColor}; color: ${coachColor}; font-weight: 600;">${App.escapeHtml(trimmed)}</span>`;
     }).filter(item => item).join('<br>');
-    return rendered || '-';
+    return rendered || formatUnspecifiedCoachHtml();
 }
 
 function getMemberCoachDisplayFromProducts(member) {
-    if (!member) return '-';
+    if (!member) return formatUnspecifiedCoachHtml();
     const memberProducts = getMemberProductsForTableDisplay(member);
     const getCategoryKey = (mp) => {
         const product = mp?.product || {};
@@ -893,7 +979,7 @@ function getMemberCoachDisplayFromProducts(member) {
         };
         products.forEach(mp => {
             if (!mp) return;
-            const coachName = mp.coachName || mp.coach?.name || mp.product?.coach?.name;
+            const coachName = getCoachNameForMemberProduct(mp, member);
             if (!coachName) return;
             const categoryKey = getCategoryKey(mp);
             map[categoryKey].add(String(coachName).trim());
@@ -929,7 +1015,7 @@ function getMemberCoachDisplayFromProducts(member) {
         }
     }
     const fallback = member.coachNames || member.coach?.name || '';
-    return fallback ? renderCoachNamesWithColorsFromText(fallback) : '-';
+    return fallback ? renderCoachNamesWithColorsFromText(fallback) : formatUnspecifiedCoachHtml();
 }
 
 function checkMemberExpiring(member) {
@@ -969,7 +1055,7 @@ function checkMemberExpiring(member) {
             }
             
             // 월정액: 만료일이 오늘~3일 이내면 임박
-            if (productType === 'MONTHLY_PASS' && mp.expiryDate) {
+            if ((productType === 'MONTHLY_PASS' || productType === 'DAY_PASS') && mp.expiryDate) {
                 let expiryDate;
                 if (typeof mp.expiryDate === 'string') {
                     expiryDate = new Date(mp.expiryDate);
@@ -1017,7 +1103,7 @@ function memberHasUsableActivePass(member) {
             if (rem > 0) {
                 return true;
             }
-        } else if (pt === 'MONTHLY_PASS' || pt === 'TIME_PASS') {
+        } else if (pt === 'MONTHLY_PASS' || pt === 'DAY_PASS' || pt === 'TIME_PASS') {
             if (!mp.expiryDate) {
                 return true;
             }
@@ -1218,7 +1304,7 @@ function renderMemberProducts(member) {
                         : '<span style="color: #dc3545; font-weight: 700;">\uC804\uBD80 \uC18C\uC9C4</span>';
                 return `<span style="color: ${productNameColor}; font-weight: 600;">${productName}</span> : ${line}`;
             }
-            if (productType === 'MONTHLY_PASS' || productType === 'TIME_PASS') {
+            if (productType === 'MONTHLY_PASS' || productType === 'DAY_PASS' || productType === 'TIME_PASS') {
                 let expiryDate = null;
                 if (mp.expiryDate) {
                     expiryDate = mp.expiryDate;
@@ -1246,7 +1332,7 @@ function renderMemberProducts(member) {
         const productType = product.type || '';
 
         // 월정액·기간권: 기간 표시(만료일 없으면 구매일+validDays, 기본 30일)
-        if (productType === 'MONTHLY_PASS' || productType === 'TIME_PASS') {
+        if (productType === 'MONTHLY_PASS' || productType === 'DAY_PASS' || productType === 'TIME_PASS') {
             let expiryDate = null;
 
             if (mp.expiryDate) {
@@ -1357,29 +1443,29 @@ function renderMemberProducts(member) {
         return '<span style="color: var(--text-muted);">-</span>';
     }
     
-    return `<div style="line-height: 1.6;">${productLines}</div>`;
+    return `<div class="members-table-stack">${productLines}</div>`;
 }
 
 function handleSearch(e) {
     const query = e.target.value;
     if (query) {
         currentFilters.search = query;
+        delete currentFilters.status;
     } else {
         delete currentFilters.search;
     }
-    currentPage = 1;
+    memberListPage = 1;
     loadMembers();
 }
 
 function applyFilters() {
-    const grade = document.getElementById('filter-grade').value;
-    const status = document.getElementById('filter-status').value;
-    
+    const gradeEl = document.getElementById('filter-grade');
+    const grade = gradeEl ? gradeEl.value : '';
+    const searchKeep = currentFilters.search;
     currentFilters = {};
     if (grade) currentFilters.grade = grade;
-    if (status) currentFilters.status = status;
-    
-    currentPage = 1;
+    if (searchKeep) currentFilters.search = searchKeep;
+    memberListPage = 1;
     loadMembers();
 }
 
@@ -1512,6 +1598,27 @@ function editMember(id) {
     openMemberModal(id);
 }
 
+async function toggleMemberDormantStatus(id, currentStatus) {
+    const isDormant = currentStatus === 'INACTIVE';
+    const nextStatus = isDormant ? 'ACTIVE' : 'INACTIVE';
+    const nextLabel = isDormant ? '활성' : '휴면';
+    if (!confirm('이 회원을 ' + nextLabel + ' 처리하시겠습니까?')) {
+        return;
+    }
+    try {
+        await App.api.patch('/members/' + id + '/status', { status: nextStatus });
+        App.showNotification(nextLabel + ' 처리되었습니다.', 'success');
+        loadMembers();
+    } catch (error) {
+        App.err('회원 상태 변경 오류:', error);
+        if (typeof App.showApiError === 'function') {
+            App.showApiError(error);
+        } else {
+            App.showNotification('회원 상태 변경에 실패했습니다.', 'danger');
+        }
+    }
+}
+
 async function loadMemberData(id) {
     try {
         const member = await App.api.get(`/members/${id}`);
@@ -1579,6 +1686,7 @@ function productCategoryShortLabel(cat) {
     }
     var m = {
         BASEBALL: '\uC57C\uAD6C',
+        OUTDOOR_LESSON: '\uC57C\uC678\uB808\uC2A8',
         TRAINING_FITNESS: '\uD2B8\uB808\uC774\uB2DD\u00B7\uD544\uB77C\uD14C\uC2A4',
         TRAINING: '\uD2B8\uB808\uC774\uB2DD',
         PILATES: '\uD544\uB77C\uD14C\uC2A4',
@@ -1602,7 +1710,7 @@ function resolveCoachFilterCategoryFromMemberProduct(mp) {
         .toUpperCase()
         .replace(/-/g, '_');
     var nameLower = String(product.name || '').toLowerCase();
-    if (category === 'BASEBALL' || nameLower.includes('\uC57C\uAD6C') || nameLower.includes('baseball')) {
+    if (category === 'BASEBALL' || category === 'OUTDOOR_LESSON' || nameLower.includes('\uC57C\uAD6C') || nameLower.includes('baseball')) {
         return 'BASEBALL';
     }
     if (category === 'PILATES' || nameLower.includes('\uD544\uB77C\uD14C\uC2A4') || nameLower.includes('pilates')) {
@@ -2209,6 +2317,15 @@ async function updateProductCoachSelection() {
                 var branches = (coach.availableBranches || '').toUpperCase();
                 return branches.indexOf('RENTAL') !== -1;
             }
+            if (categoryLower === 'pilates') {
+                if (typeof App.categorizeCoachBySubject === 'function') {
+                    return App.categorizeCoachBySubject(coach) === 'PILATES';
+                }
+                var pilatesText = ((coach.specialties || '') + ' ' + (coach.name || '')).toLowerCase();
+                return pilatesText.indexOf('pilates') !== -1
+                    || pilatesText.indexOf('\ud544\ub77c\ud14c\uc2a4') !== -1
+                    || (coach.name || '').indexOf('[\uac15\uc0ac]') !== -1;
+            }
             
             if (!coach.specialties || !category) return false;
             var specialties = (coach.specialties || '').toLowerCase();
@@ -2218,9 +2335,6 @@ async function updateProductCoachSelection() {
             }
             if (categoryLower === 'training' || categoryLower === 'training_fitness') {
                 return specialties.includes('training') || specialties.includes('\ud2b8\ub808\uc774\ub2dd') || specialties.includes('training_fitness');
-            }
-            if (categoryLower === 'pilates') {
-                return specialties.includes('pilates') || specialties.includes('\ud544\ub77c\ud14c\uc2a4');
             }
             // GENERAL \uB4F1 \uBBF8\uBD84\uB958 \uC0C1\uD488\uC740 \uC804\uC6D0 \uC5D4\uC9C4 \uC911 \uC120\uD0DD
             if (categoryLower === 'general' || categoryLower === 'other') {
@@ -2755,9 +2869,11 @@ async function deleteAllMembers() {
 
 async function openMemberDetail(id) {
     try {
+        ensureMemberDetailModals();
         const member = await App.api.get(`/members/${id}`);
         currentMemberDetail = member;
-        document.getElementById('member-detail-title').textContent = `${member.name} \uC0C1\uC138 \uC815\uBCF4`;
+        const titleEl = document.getElementById('member-detail-title');
+        if (titleEl) titleEl.textContent = `${member.name} \uC0C1\uC138 \uC815\uBCF4`;
         
         switchTab('info', member);
         App.Modal.open('member-detail-modal');
@@ -2771,7 +2887,7 @@ async function openMemberDetail(id) {
 }
 
 function switchTab(tab, member = null) {
-    document.querySelectorAll('.tab-btn').forEach(btn => {
+    document.querySelectorAll('#member-detail-modal .tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('data-tab') === tab);
     });
     var modalBox = document.querySelector('#member-detail-modal .member-detail-modal-box');
@@ -2781,6 +2897,7 @@ function switchTab(tab, member = null) {
     }
     
     const content = document.getElementById('detail-tab-content');
+    if (!content) return;
     
     switch(tab) {
         case 'info':
@@ -3049,7 +3166,7 @@ function renderProductsList(products, memberId) {
                 const productId = p.id;
                 const voucherNumber = p.voucherNumber || '';
                 const isCountPass = product.type === 'COUNT_PASS';
-                const isMonthlyPass = product.type === 'MONTHLY_PASS';
+                const isMonthlyPass = product.type === 'MONTHLY_PASS' || product.type === 'DAY_PASS';
                 const isPeriodPass = isMonthlyPass || product.type === 'TIME_PASS';
                 const graceExhausted =
                     typeof App.isActiveCountPassExhaustedForGrace === 'function' &&
@@ -3061,8 +3178,10 @@ function renderProductsList(products, memberId) {
                 const startDate = p.purchaseDate ? App.formatDate(p.purchaseDate.split('T')[0]) : '-';
                 
                 // 담당 코치 표시용 이름(서버에서 채움)
-                const rawCoachName = p.coachName || (p.coach && p.coach.name) || (product.coach && product.coach.name) || '\uBBF8\uC9C0\uC815';
-                const coachDisplay = renderCoachNamesWithColorsFromText(rawCoachName);
+                const rawCoachName = getCoachNameForMemberProduct(p, null);
+                const coachDisplay = rawCoachName
+                    ? renderCoachNamesWithColorsFromText(rawCoachName)
+                    : formatUnspecifiedCoachHtml();
                 
                 let remainingDisplay = '';
                 let displayColor = 'var(--text-secondary)';
@@ -3278,7 +3397,7 @@ function applyCoachNameColors(container) {
             const color = App.CoachColors.getColor({ name: coachName });
             if (color) {
                 node.style.setProperty('--coach-color', color);
-                node.style.color = color;
+                node.style.setProperty('color', color);
                 node.style.fontWeight = '600';
             }
         });
@@ -3666,6 +3785,7 @@ function renderPaymentsList(payments) {
 }
 
 //    window  
+window.openMemberDetail = openMemberDetail;
 window.openAdjustCountModal = openAdjustCountModal;
 window.openEditPeriodPassModal = openEditPeriodPassModal;
 window.deleteMemberProduct = deleteMemberProduct;
@@ -3923,7 +4043,19 @@ function renderMemberTimelineContent(events, memberId) {
         PRODUCT_HISTORY: { text: '\uC774\uC6A9\uAD8C', class: 'secondary' }
     };
     const greenStyle = 'color: var(--success, #198754); font-weight: 600;';
-    const rows = events.map(ev => {
+    const timelineTimeMs = function(ev) {
+        if (!ev || ev.date == null) return 0;
+        if (typeof App.parseFlexibleDate === 'function') {
+            const parsed = App.parseFlexibleDate(ev.date);
+            if (parsed && !isNaN(parsed.getTime())) return parsed.getTime();
+        }
+        const fallback = new Date(ev.date);
+        return isNaN(fallback.getTime()) ? 0 : fallback.getTime();
+    };
+    const orderedEvents = events.slice().sort(function(a, b) {
+        return timelineTimeMs(b) - timelineTimeMs(a);
+    });
+    const rows = orderedEvents.map(ev => {
         const date = ev.date ? App.formatDateTime(ev.date) : '-';
         const badge = badgeMap[ev.eventType];
         const badgeClass = ev.eventType === 'PRODUCT_HISTORY'
@@ -3946,7 +4078,7 @@ function renderMemberTimelineContent(events, memberId) {
                 remaining = ' / \uC794\uC5EC <span class="timeline-change" style="' + greenStyle + '">' + ev.remainingAfter + '\uD68C</span>';
             }
         }
-        let descLine = (ev.description && ev.eventType === 'PRODUCT_HISTORY') ? ev.description : '';
+        let descLine = (ev.description && (ev.eventType === 'PRODUCT_HISTORY' || ev.eventType === 'CHECKIN')) ? ev.description : '';
         descLine = descLine ? '<div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">' + descLine + '</div>' : '';
         const processedByLine = (ev.processedBy && String(ev.processedBy).trim()) ? '<div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">\uCC98\uB9AC\uC790: ' + (App.escapeHtml ? App.escapeHtml(ev.processedBy) : ev.processedBy) + '</div>' : '';
         const hasHistoryId = ev.historyId != null;
@@ -4057,7 +4189,7 @@ function renderPurchaseHistorySection(products) {
     const statusLabelForHistory = (mp) => {
         const s = mp.status;
         const pt = (mp.product && mp.product.type) || '';
-        if (s === 'EXPIRED' && (pt === 'MONTHLY_PASS' || pt === 'TIME_PASS')) {
+        if (s === 'EXPIRED' && (pt === 'MONTHLY_PASS' || pt === 'DAY_PASS' || pt === 'TIME_PASS')) {
             return '\uAE30\uAC04 \uC885\uB8CC';
         }
         return ({ 'ACTIVE': '\uC774\uC6A9\uC911', 'EXPIRED': '\uB9CC\uB8CC', 'USED_UP': '\uC18C\uC9C4' }[s] || s || '-');
@@ -4075,12 +4207,12 @@ function renderPurchaseHistorySection(products) {
         const status = statusLabelForHistory(p);
         const statusBadge = p.status === 'ACTIVE' ? 'success' : (p.status === 'USED_UP' ? 'warning' : 'secondary');
         let endDisplay = '-';
-        if ((product.type === 'MONTHLY_PASS' || product.type === 'TIME_PASS') && p.expiryDate) {
+        if ((product.type === 'MONTHLY_PASS' || product.type === 'DAY_PASS' || product.type === 'TIME_PASS') && p.expiryDate) {
             endDisplay = App.formatDate(p.expiryDate) + ' (\uB9CC\uB8CC\uC77C)';
         } else if (p.status === 'USED_UP') {
             endDisplay = '\uC804\uBD80 \uC18C\uC9C4';
         } else if (p.status === 'EXPIRED') {
-            if (product.type === 'MONTHLY_PASS' || product.type === 'TIME_PASS') {
+            if (product.type === 'MONTHLY_PASS' || product.type === 'DAY_PASS' || product.type === 'TIME_PASS') {
                 endDisplay = p.expiryDate
                     ? App.formatDate(p.expiryDate) + ' \uAE30\uAC04 \uC885\uB8CC'
                     : '\uAE30\uAC04 \uC885\uB8CC';
@@ -4874,18 +5006,19 @@ function csvEscapeCell(val) {
 }
 
 function memberCoachPlainForExport(member) {
-    if (!member) return '';
+    if (!member) return '미지정';
     if (member.coachNames) return String(member.coachNames).replace(/\n/g, ', ').trim();
     if (member.coach && member.coach.name) return String(member.coach.name).trim();
     try {
         var sorted = getSortedActiveProductsForMember(member);
         if (sorted && sorted.length) {
-            return sorted.map(function (mp) {
+            var names = sorted.map(function (mp) {
                 return getCoachNameForMemberProduct(mp, member) || '';
-            }).filter(Boolean).join(', ');
+            }).filter(Boolean);
+            if (names.length) return names.join(', ');
         }
     } catch (e) { /* ignore */ }
-    return '';
+    return '미지정';
 }
 
 function memberProductsPlainForExport(member) {
@@ -4978,11 +5111,20 @@ function filterCoachesByProductCategory(allCoaches, productCategory) {
             var branches = (coach.availableBranches || '').toUpperCase();
             return branches.indexOf('RENTAL') !== -1;
         }
+        if (cLower === 'pilates') {
+            if (typeof App.categorizeCoachBySubject === 'function') {
+                return App.categorizeCoachBySubject(coach) === 'PILATES';
+            }
+            var pilatesText = ((coach.specialties || '') + ' ' + (coach.name || '')).toLowerCase();
+            return pilatesText.indexOf('pilates') !== -1
+                || pilatesText.indexOf('\ud544\ub77c\ud14c\uc2a4') !== -1
+                || (coach.name || '').indexOf('[\uac15\uc0ac]') !== -1;
+        }
         if (!coach.specialties || !category) {
             return false;
         }
         var specialties = (coach.specialties || '').toLowerCase();
-        if (cLower === 'baseball') {
+        if (cLower === 'baseball' || cLower === 'outdoor_lesson') {
             return specialties.indexOf('baseball') !== -1 || specialties.indexOf('\uc57c\uad6c') !== -1;
         }
         if (cLower === 'training' || cLower === 'training_fitness') {
@@ -4991,9 +5133,6 @@ function filterCoachesByProductCategory(allCoaches, productCategory) {
                 specialties.indexOf('\ud2b8\ub808\uc774\ub2dd') !== -1 ||
                 specialties.indexOf('training_fitness') !== -1
             );
-        }
-        if (cLower === 'pilates') {
-            return specialties.indexOf('pilates') !== -1 || specialties.indexOf('\ud544\ub77c\ud14c\uc2a4') !== -1;
         }
         if (cLower === 'general' || cLower === 'other') {
             return true;
@@ -5070,7 +5209,7 @@ async function openExtendProductModal(memberId, options) {
         const daysInput = document.getElementById('extend-days');
         const daysGroup = daysInput ? daysInput.closest('.form-group') : null;
         if (!daysInput || !daysGroup) return;
-        if (productType === 'MONTHLY_PASS') {
+        if (productType === 'MONTHLY_PASS' || productType === 'DAY_PASS') {
             daysGroup.style.display = 'none';
             daysInput.value = '1';
             daysInput.required = false;
@@ -5252,7 +5391,7 @@ async function openExtendProductModal(memberId, options) {
                     CANCELLED: '\uCDE8\uC18C'
                 };
                 const statusDisplay =
-                    status === 'EXPIRED' && (productType === 'MONTHLY_PASS' || productType === 'TIME_PASS')
+                    status === 'EXPIRED' && (productType === 'MONTHLY_PASS' || productType === 'DAY_PASS' || productType === 'TIME_PASS')
                         ? '\uAE30\uAC04 \uC885\uB8CC'
                         : (statusLabelKr[status] || status);
                 const remainingCount = mp.remainingCount !== undefined ? mp.remainingCount : '-';
@@ -5277,6 +5416,8 @@ async function openExtendProductModal(memberId, options) {
                     typeText = '[\uAE30\uAC04\uAD8C]';
                 } else if (productType === 'MONTHLY_PASS') {
                     typeText = '[\uC6D4\uC815\uC561]';
+                } else if (productType === 'DAY_PASS') {
+                    typeText = '[\uC77C\uC77C\uAD8C]';
                 }
                 
                 const priceText = App.formatCurrency(actualPurchasePrice);
@@ -5309,7 +5450,7 @@ async function openExtendProductModal(memberId, options) {
         
         if (allProducts && allProducts.length > 0) {
             const countPassProducts = allProducts.filter(
-                p => (p.type === 'COUNT_PASS' || p.type === 'MONTHLY_PASS') && p.active !== false
+                p => (p.type === 'COUNT_PASS' || p.type === 'MONTHLY_PASS' || p.type === 'DAY_PASS') && p.active !== false
             );
             
             if (countPassProducts.length > 0) {
@@ -5327,6 +5468,7 @@ async function openExtendProductModal(memberId, options) {
                     if (productType === 'COUNT_PASS') typeTextNew = '[\uD68C\uCC28\uAD8C]';
                     else if (productType === 'TIME_PASS') typeTextNew = '[\uAE30\uAC04\uAD8C]';
                     else if (productType === 'MONTHLY_PASS') typeTextNew = '[\uC6D4\uC815\uC561]';
+                    else if (productType === 'DAY_PASS') typeTextNew = '[\uC77C\uC77C\uAD8C]';
                     const priceText = App.formatCurrency(productPrice);
                     
                     const optionText = `[\uC2E0\uADDC] ${typeTextNew} ${productName} - ${priceText}`;
@@ -5369,7 +5511,7 @@ async function openExtendProductModal(memberId, options) {
             const selectedValue = freshSelect.value;
             const selectedOption = selectedValue ? freshSelect.options[freshSelect.selectedIndex] : null;
             const selectedType = selectedOption ? selectedOption.dataset.productType : '';
-            const daysValue = selectedType === 'MONTHLY_PASS' ? 1 : (parseInt(daysInput.value) || 0);
+            const daysValue = (selectedType === 'MONTHLY_PASS' || selectedType === 'DAY_PASS') ? 1 : (parseInt(daysInput.value) || 0);
             
             if (selectedValue && daysValue > 0) {
                 const selectedOption = freshSelect.options[freshSelect.selectedIndex];
@@ -5526,12 +5668,12 @@ async function processExtendProduct() {
     const isMemberProduct = selectedOption.dataset.isMemberProduct === 'true';
     const productType = selectedOption.dataset.productType;
     
-    if (productType && productType !== 'COUNT_PASS' && productType !== 'MONTHLY_PASS') {
-        App.showNotification('\uD68C\uCC28\uAD8C \uB610\uB294 \uC6D4\uC815\uC561 \uC774\uC6A9\uAD8C\uB9CC \uC5F0\uC7A5\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.', 'warning');
+    if (productType && productType !== 'COUNT_PASS' && productType !== 'MONTHLY_PASS' && productType !== 'DAY_PASS') {
+        App.showNotification('\uD68C\uCC28\uAD8C, \uC6D4\uC815\uC561, \uC77C\uC77C\uAD8C\uB9CC \uC5F0\uC7A5\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.', 'warning');
         return;
     }
     
-    const effectiveDaysInput = productType === 'MONTHLY_PASS' ? '1' : daysInput;
+    const effectiveDaysInput = (productType === 'MONTHLY_PASS' || productType === 'DAY_PASS') ? '1' : daysInput;
     if (!effectiveDaysInput || effectiveDaysInput.trim() === '') {
         App.showNotification('\uC5F0\uC7A5 \uD68C\uC218\uB97C \uC785\uB825\uD558\uC138\uC694.', 'warning');
         return;
@@ -5551,7 +5693,7 @@ async function processExtendProduct() {
     try {
         if (isMemberProduct) {
             const memberProductId = selectedOption.dataset.memberProductId;
-            if (productType === 'MONTHLY_PASS') {
+            if (productType === 'MONTHLY_PASS' || productType === 'DAY_PASS') {
                 const baseProductId = parseInt(selectedOption.dataset.productId, 10);
                 if (!baseProductId) {
                     App.showNotification('\uAE30\uC900 \uC0C1\uD488 \uC815\uBCF4\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.', 'warning');
@@ -5581,7 +5723,12 @@ async function processExtendProduct() {
                         'info'
                     );
                 } else {
-                    App.showNotification('\uC6D4\uC815\uC561 \uC774\uC6A9\uAD8C\uC774 \uCD94\uAC00\uB418\uC5C8\uC2B5\uB2C8\uB2E4.', 'success');
+                    App.showNotification(
+                        productType === 'DAY_PASS'
+                            ? '\uC77C\uC77C\uAD8C\uC774 \uCD94\uAC00\uB418\uC5C8\uC2B5\uB2C8\uB2E4.'
+                            : '\uC6D4\uC815\uC561 \uC774\uC6A9\uAD8C\uC774 \uCD94\uAC00\uB418\uC5C8\uC2B5\uB2C8\uB2E4.',
+                        'success'
+                    );
                 }
             } else {
                 const result = await App.api.put(`/member-products/${memberProductId}/extend`, {
@@ -5632,7 +5779,7 @@ async function processExtendProduct() {
                     result.message || '\uAD00\uB9AC\uC790·\uB9E4\uB2C8\uC800 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uAD8C\uC774 \uBC18\uC601\uB429\uB2C8\uB2E4.',
                     'info'
                 );
-            } else if (result && result.id && productType !== 'MONTHLY_PASS') {
+            } else if (result && result.id && productType !== 'MONTHLY_PASS' && productType !== 'DAY_PASS') {
                 const extendResult = await App.api.put(`/member-products/${result.id}/extend`, {
                     days: days
                 });
@@ -5646,6 +5793,8 @@ async function processExtendProduct() {
                 App.showNotification(
                     productType === 'MONTHLY_PASS'
                         ? '\uC6D4\uC815\uC561 \uC774\uC6A9\uAD8C\uC774 \uCD94\uAC00\uB418\uC5C8\uC2B5\uB2C8\uB2E4.'
+                        : productType === 'DAY_PASS'
+                        ? '\uC77C\uC77C\uAD8C\uC774 \uCD94\uAC00\uB418\uC5C8\uC2B5\uB2C8\uB2E4.'
                         : '\uCC98\uB9AC\uAC00 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.',
                     'success'
                 );
@@ -5691,6 +5840,13 @@ async function processExtendProduct() {
         App.showNotification(typeof msg === 'string' ? msg : '\uC0C1\uD488/\uC774\uC6A9\uAD8C \uC5F0\uC7A5 \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.', 'danger');
     }
 }
+
+document.addEventListener('afbs-coach-colors-ready', function() {
+    var tbody = document.getElementById('members-table-body');
+    if (tbody && typeof applyCoachNameColors === 'function') {
+        applyCoachNameColors(tbody);
+    }
+});
 
 document.addEventListener('afbs-operational-coach-filter-changed', function() {
     if (document.getElementById('members-table-body') && typeof loadMembers === 'function') {

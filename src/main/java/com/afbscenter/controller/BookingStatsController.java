@@ -6,6 +6,7 @@ import com.afbscenter.model.Facility;
 import com.afbscenter.model.LessonCategory;
 import com.afbscenter.repository.BookingRepository;
 import com.afbscenter.service.OperationalCoachViewService;
+import com.afbscenter.util.BookingCalendarMemberGrade;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,7 +25,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -53,6 +53,7 @@ public class BookingStatsController {
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) String facilityType,
             @RequestParam(required = false) String lessonCategory,
+            @RequestParam(required = false) String memberGrade,
             @RequestParam(required = false) String viewCoachIds,
             HttpServletRequest request) {
         try {
@@ -115,7 +116,8 @@ public class BookingStatsController {
                                 if (ft == requestedType) return true;
                                 if (ft == Facility.FacilityType.ALL && booking.getLessonCategory() != null) {
                                     if (requestedType == Facility.FacilityType.BASEBALL)
-                                        return booking.getLessonCategory() == LessonCategory.BASEBALL;
+                                        return BookingCalendarMemberGrade.includeAllFacilityOnBaseballCalendar(
+                                                booking.getLessonCategory(), memberGrade, lessonCategory);
                                     if (requestedType == Facility.FacilityType.TRAINING_FITNESS)
                                         return booking.getLessonCategory() == LessonCategory.TRAINING
                                                 || booking.getLessonCategory() == LessonCategory.PILATES;
@@ -125,7 +127,8 @@ public class BookingStatsController {
                             .collect(Collectors.toList());
                 } catch (IllegalArgumentException ignored) { }
             }
-            if (lessonCategory != null && !lessonCategory.trim().isEmpty()) {
+            if (lessonCategory != null && !lessonCategory.trim().isEmpty()
+                    && !BookingCalendarMemberGrade.skipStrictLessonCategoryFilter(memberGrade, lessonCategory)) {
                 try {
                     LessonCategory categoryEnum = LessonCategory.valueOf(lessonCategory.toUpperCase());
                     final LessonCategory finalCategoryEnum = categoryEnum;
@@ -134,43 +137,12 @@ public class BookingStatsController {
                             .collect(Collectors.toList());
                 } catch (IllegalArgumentException ignored) { }
             }
+            bookings = bookings.stream()
+                    .filter(bk -> BookingCalendarMemberGrade.include(bk, memberGrade, branch, facilityType, lessonCategory))
+                    .collect(Collectors.toList());
 
             if (request != null && "COACH".equalsIgnoreCase((String) request.getAttribute("role"))) {
-                java.util.List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
-                boolean operational = operationalCoachViewService.isOperationalCoachViewer(request);
-                if (operational) {
-                    if (!viewIds.isEmpty()) {
-                        bookings = bookings.stream()
-                                .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b, viewIds))
-                                .collect(Collectors.toList());
-                    } else {
-                        java.util.Optional<Long> coachIdOpt = operationalCoachViewService.resolveCoachIdFromLoggedInUser(request);
-                        if (coachIdOpt.isEmpty()) {
-                            bookings = new java.util.ArrayList<>();
-                        } else {
-                            Long myCoachId = coachIdOpt.get();
-                            bookings = bookings.stream()
-                                    .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b,
-                                            java.util.List.of(myCoachId)))
-                                    .collect(Collectors.toList());
-                        }
-                    }
-                } else if (!viewIds.isEmpty()) {
-                    bookings = bookings.stream()
-                            .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b, viewIds))
-                            .collect(Collectors.toList());
-                } else {
-                    java.util.Optional<Long> coachIdOpt = operationalCoachViewService.resolveCoachIdFromLoggedInUser(request);
-                    if (coachIdOpt.isEmpty()) {
-                        bookings = new java.util.ArrayList<>();
-                    } else {
-                        Long myCoachId = coachIdOpt.get();
-                        bookings = bookings.stream()
-                                .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b,
-                                        java.util.List.of(myCoachId)))
-                                .collect(Collectors.toList());
-                    }
-                }
+                bookings = operationalCoachViewService.filterBookingsForCoachCalendar(bookings, request, viewCoachIds);
             }
 
             int year = startDate.getYear();
@@ -228,6 +200,7 @@ public class BookingStatsController {
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) String facilityType,
             @RequestParam(required = false) String lessonCategory,
+            @RequestParam(required = false) String memberGrade,
             @RequestParam(required = false) Long coachId,
             @RequestParam(required = false) String viewCoachIds,
             HttpServletRequest request) {
@@ -276,7 +249,8 @@ public class BookingStatsController {
                                 if (ft == requestedType) return true;
                                 if (ft == Facility.FacilityType.ALL && booking.getLessonCategory() != null) {
                                     if (requestedType == Facility.FacilityType.BASEBALL)
-                                        return booking.getLessonCategory() == LessonCategory.BASEBALL;
+                                        return BookingCalendarMemberGrade.includeAllFacilityOnBaseballCalendar(
+                                                booking.getLessonCategory(), memberGrade, lessonCategory);
                                     if (requestedType == Facility.FacilityType.TRAINING_FITNESS)
                                         return booking.getLessonCategory() == LessonCategory.TRAINING
                                                 || booking.getLessonCategory() == LessonCategory.PILATES;
@@ -286,7 +260,8 @@ public class BookingStatsController {
                             .collect(Collectors.toList());
                 } catch (IllegalArgumentException ignored) { }
             }
-            if (lessonCategory != null && !lessonCategory.trim().isEmpty()) {
+            if (lessonCategory != null && !lessonCategory.trim().isEmpty()
+                    && !BookingCalendarMemberGrade.skipStrictLessonCategoryFilter(memberGrade, lessonCategory)) {
                 try {
                     LessonCategory categoryEnum = LessonCategory.valueOf(lessonCategory.toUpperCase());
                     final LessonCategory finalCategoryEnum = categoryEnum;
@@ -295,6 +270,9 @@ public class BookingStatsController {
                             .collect(Collectors.toList());
                 } catch (IllegalArgumentException ignored) { }
             }
+            bookings = bookings.stream()
+                    .filter(bk -> BookingCalendarMemberGrade.include(bk, memberGrade, branch, facilityType, lessonCategory))
+                    .collect(Collectors.toList());
             if (coachId != null) {
                 final Long cid = coachId;
                 bookings = bookings.stream()
@@ -303,41 +281,7 @@ public class BookingStatsController {
             }
 
             if (request != null && "COACH".equalsIgnoreCase((String) request.getAttribute("role"))) {
-                List<Long> viewIds = operationalCoachViewService.parseViewCoachIds(viewCoachIds);
-                boolean operational = operationalCoachViewService.isOperationalCoachViewer(request);
-                if (operational) {
-                    if (!viewIds.isEmpty()) {
-                        bookings = bookings.stream()
-                                .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b, viewIds))
-                                .collect(Collectors.toList());
-                    } else {
-                        Optional<Long> coachIdOpt = operationalCoachViewService.resolveCoachIdFromLoggedInUser(request);
-                        if (coachIdOpt.isEmpty()) {
-                            bookings = new ArrayList<>();
-                        } else {
-                            Long myCoachId = coachIdOpt.get();
-                            bookings = bookings.stream()
-                                    .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b,
-                                            java.util.List.of(myCoachId)))
-                                    .collect(Collectors.toList());
-                        }
-                    }
-                } else if (!viewIds.isEmpty()) {
-                    bookings = bookings.stream()
-                            .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b, viewIds))
-                            .collect(Collectors.toList());
-                } else {
-                    Optional<Long> coachIdOpt = operationalCoachViewService.resolveCoachIdFromLoggedInUser(request);
-                    if (coachIdOpt.isEmpty()) {
-                        bookings = new ArrayList<>();
-                    } else {
-                        Long myCoachId = coachIdOpt.get();
-                        bookings = bookings.stream()
-                                .filter(b -> operationalCoachViewService.bookingMatchesOperationalCoachIds(b,
-                                        java.util.List.of(myCoachId)))
-                                .collect(Collectors.toList());
-                    }
-                }
+                bookings = operationalCoachViewService.filterBookingsForCoachCalendar(bookings, request, viewCoachIds);
             }
 
             final boolean redactPendingMemberPii = request != null
@@ -701,9 +645,13 @@ public class BookingStatsController {
         }
     }
 
+    private static boolean isWorkingCoach(Coach c) {
+        return c != null && (c.getActive() == null || Boolean.TRUE.equals(c.getActive()));
+    }
+
     /**
      * {@code common.js} 의 {@code App.resolveCoachForCalendarDisplay} 와 동일한 우선순위로
-     * 통계 칩(byCoach)에 묶일 코치를 고른다.
+     * 통계 칩(byCoach)에 묶일 코치를 고른다. 퇴사 코치는 근무 중 카드 담당 또는 미배정.
      *
      * @param operationalViewIds 운영 모달 {@code viewCoachIds}; 비어 있으면 예약 배정 코치 우선(일반).
      */
@@ -711,23 +659,22 @@ public class BookingStatsController {
         if (b == null) {
             return null;
         }
+        Coach bCoach = b.getCoach();
+        Coach mCoach = b.getMember() != null ? b.getMember().getCoach() : null;
         if (operationalViewIds != null && !operationalViewIds.isEmpty()) {
-            Coach bCoach = b.getCoach();
-            Coach mCoach = b.getMember() != null ? b.getMember().getCoach() : null;
             java.util.Set<Long> want = new java.util.HashSet<>(operationalViewIds);
-            if (bCoach != null && bCoach.getId() != null && want.contains(bCoach.getId())) {
+            if (isWorkingCoach(bCoach) && bCoach.getId() != null && want.contains(bCoach.getId())) {
                 return bCoach;
             }
-            if (mCoach != null && mCoach.getId() != null && want.contains(mCoach.getId())) {
+            if (isWorkingCoach(mCoach) && mCoach.getId() != null && want.contains(mCoach.getId())) {
                 return mCoach;
             }
-            return bCoach != null ? bCoach : mCoach;
         }
-        if (b.getCoach() != null) {
-            return b.getCoach();
+        if (isWorkingCoach(bCoach)) {
+            return bCoach;
         }
-        if (b.getMember() != null && b.getMember().getCoach() != null) {
-            return b.getMember().getCoach();
+        if (isWorkingCoach(mCoach)) {
+            return mCoach;
         }
         return null;
     }

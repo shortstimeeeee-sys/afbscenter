@@ -52,7 +52,11 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Query("SELECT COUNT(p) FROM Payment p WHERE p.refundAmount IS NOT NULL AND p.refundAmount > 0 AND (p.status IS NULL OR p.status <> 'REFUNDED')")
     long countRefundPending();
     
-    @Query("SELECT COALESCE(SUM(p.amount - COALESCE(p.refundAmount, 0)), 0) FROM Payment p WHERE p.member.id = :memberId AND (p.status = 'COMPLETED' OR p.status IS NULL) AND (p.memberProduct IS NULL OR p.memberProduct.deletedAt IS NULL)")
+    /**
+     * 회원 누적 결제: 결제 기록의 (금액 − 환불액) 합계.
+     * 기록이 없으면 0. 이용권 가격으로 대체하지 않음.
+     */
+    @Query("SELECT COALESCE(SUM(p.amount - COALESCE(p.refundAmount, 0)), 0) FROM Payment p WHERE p.member.id = :memberId")
     Integer sumTotalAmountByMemberId(@Param("memberId") Long memberId);
     
     // MemberProduct 구매 시 결제 기록 찾기 (구매일 전후 범위 내의 결제 기록)

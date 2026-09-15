@@ -54,8 +54,8 @@ function handleProductTypeChange() {
         }
     }
     
-    if (type === 'MONTHLY_PASS') {
-        // 유효기간 필수 표시
+    if (type === 'MONTHLY_PASS' || type === 'DAY_PASS') {
+        const defaultDays = type === 'DAY_PASS' ? '1' : '30';
         const validityRequired = document.getElementById('validity-required');
         const validityHint = document.getElementById('validity-hint');
         if (validityRequired) {
@@ -68,34 +68,29 @@ function handleProductTypeChange() {
         if (validityInput) {
             validityInput.required = true;
             validityInput.min = 1;
-            validityInput.value = '30';
-        }
-        
-        // 사용조건에 "시작일로부터 30일" 자동 입력
-        if (conditionsInput) {
-            const validDays = validityInput ? (validityInput.value || '30') : '30';
-            
-            // 기존 사용조건이 없거나 비어있으면 자동 입력
-            if (!conditionsInput.value || conditionsInput.value.trim() === '') {
-                conditionsInput.value = `시작일로부터 ${validDays}일`;
-            } else {
-                // 기존 값이 날짜 형식이면 "시작일로부터 X일" 형식으로 변경
-                const currentValue = conditionsInput.value.trim();
-                const datePattern = /~\s*\d{4}\.\s*\d{2}\.\s*\d{2}\./;
-                if (datePattern.test(currentValue)) {
-                    conditionsInput.value = `시작일로부터 ${validDays}일`;
-                } else if (currentValue.startsWith('~')) {
-                    // 다른 날짜 형식도 처리
-                    conditionsInput.value = `시작일로부터 ${validDays}일`;
-                }
-                // 이미 "시작일로부터" 형식이면 그대로 유지
+            if (type === 'DAY_PASS') {
+                validityInput.value = '1';
+            } else if (!validityInput.value || validityInput.value === '0') {
+                validityInput.value = '30';
             }
         }
         
-        // 월정기 권인 경우 사용 조건 섹션 숨김
-        const usageConditionsGroup = document.getElementById('usage-conditions-group');
-        if (usageConditionsGroup) {
-            usageConditionsGroup.style.display = 'none';
+        if (conditionsInput) {
+            const validDays = validityInput ? (validityInput.value || defaultDays) : defaultDays;
+            if (!conditionsInput.value || conditionsInput.value.trim() === '') {
+                conditionsInput.value = `시작일로부터 ${validDays}일`;
+            } else {
+                const currentValue = conditionsInput.value.trim();
+                const datePattern = /~\s*\d{4}\.\s*\d{2}\.\s*\d{2}\./;
+                if (datePattern.test(currentValue) || currentValue.startsWith('~')) {
+                    conditionsInput.value = `시작일로부터 ${validDays}일`;
+                }
+            }
+        }
+        
+        const usageConditionsGroupMonthly = document.getElementById('usage-conditions-group');
+        if (usageConditionsGroupMonthly) {
+            usageConditionsGroupMonthly.style.display = 'none';
         }
     } else {
         // 기간제가 아닌 경우 유효기간 필수 해제
@@ -188,18 +183,20 @@ function renderProductStats(products) {
         const c = p.category || 'GENERAL';
         byCategory[c] = (byCategory[c] || 0) + 1;
     });
-    const typeOrder = ['COUNT_PASS', 'MONTHLY_PASS', 'TIME_PASS', 'SINGLE_USE', 'TEAM_PACKAGE'];
+    const typeOrder = ['COUNT_PASS', 'MONTHLY_PASS', 'DAY_PASS', 'TIME_PASS', 'SINGLE_USE', 'TEAM_PACKAGE'];
     const typeLabels = {
         'SINGLE_USE': '단건 대관',
         'TIME_PASS': '시간권',
         'COUNT_PASS': '회차권',
         'MONTHLY_PASS': '월정기',
+        'DAY_PASS': '1일권',
         'TEAM_PACKAGE': '팀 대관',
         'UNKNOWN': '미분류'
     };
-    const categoryOrder = ['BASEBALL', 'TRAINING', 'PILATES', 'TRAINING_FITNESS', 'RENTAL', 'GENERAL'];
+    const categoryOrder = ['BASEBALL', 'OUTDOOR_LESSON', 'TRAINING', 'PILATES', 'TRAINING_FITNESS', 'RENTAL', 'GENERAL'];
     const categoryLabels = {
         'BASEBALL': '⚾ 야구',
+        'OUTDOOR_LESSON': '🧢 야외레슨',
         'TRAINING': '💪 트레이닝',
         'PILATES': '🧘 필라테스',
         'TRAINING_FITNESS': '트레이닝+필라테스',
@@ -276,8 +273,8 @@ async function openStatsProductModal(filterType, filterValue, titleLabel) {
     titleEl.textContent = (titleLabel || '이용권') + ' 목록';
     bodyEl.innerHTML = '<p class="products-stats-loading">로딩 중...</p>';
     App.Modal.open('stats-products-modal');
-    var typeLabels = { 'SINGLE_USE': '단건 대관', 'TIME_PASS': '시간권', 'COUNT_PASS': '회차권', 'MONTHLY_PASS': '월정기', 'TEAM_PACKAGE': '팀 대관', 'UNKNOWN': '미분류' };
-    var categoryLabels = { 'BASEBALL': '야구', 'TRAINING': '트레이닝', 'PILATES': '필라테스', 'TRAINING_FITNESS': '트레이닝+필라테스', 'RENTAL': '대관', 'GENERAL': '일반', 'UNKNOWN': '미분류' };
+    var typeLabels = { 'SINGLE_USE': '단건 대관', 'TIME_PASS': '시간권', 'COUNT_PASS': '회차권', 'MONTHLY_PASS': '월정기', 'DAY_PASS': '1일권', 'TEAM_PACKAGE': '팀 대관', 'UNKNOWN': '미분류' };
+    var categoryLabels = { 'BASEBALL': '야구', 'OUTDOOR_LESSON': '야외레슨', 'TRAINING': '트레이닝', 'PILATES': '필라테스', 'TRAINING_FITNESS': '트레이닝+필라테스', 'RENTAL': '대관', 'GENERAL': '일반', 'UNKNOWN': '미분류' };
     try {
         var list = await App.api.get('/products');
         var products = Array.isArray(list) ? list : [];
@@ -329,7 +326,7 @@ function renderProductsTable(products) {
                 if (product.conditions) {
                     // 월정기 상품의 경우 날짜 표시를 "시작일로부터 X일" 형식으로 변경
                     let conditionsText = product.conditions;
-                    if (product.type === 'MONTHLY_PASS' && product.validDays) {
+                    if ((product.type === 'MONTHLY_PASS' || product.type === 'DAY_PASS') && product.validDays) {
                         // 날짜 패턴 제거하고 "시작일로부터 X일" 형식으로 변경
                         const datePattern = /~\s*\d{4}\.\s*\d{2}\.\s*\d{2}\./g;
                         if (datePattern.test(conditionsText)) {
@@ -344,7 +341,7 @@ function renderProductsTable(products) {
             } catch (e) {
                 // 월정기 상품의 경우 날짜 표시를 "시작일로부터 X일" 형식으로 변경
                 let conditionsText = product.conditions || '-';
-                if (product.type === 'MONTHLY_PASS' && product.validDays) {
+                if ((product.type === 'MONTHLY_PASS' || product.type === 'DAY_PASS') && product.validDays) {
                     const datePattern = /~\s*\d{4}\.\s*\d{2}\.\s*\d{2}\./g;
                     if (datePattern.test(conditionsText)) {
                         conditionsText = `시작일로부터 ${product.validDays}일`;
@@ -357,7 +354,7 @@ function renderProductsTable(products) {
         } else {
             // 월정기 상품의 경우 날짜 표시를 "시작일로부터 X일" 형식으로 변경
             let conditionsText = product.conditions || '-';
-            if (product.type === 'MONTHLY_PASS' && product.validDays) {
+            if ((product.type === 'MONTHLY_PASS' || product.type === 'DAY_PASS') && product.validDays) {
                 const datePattern = /~\s*\d{4}\.\s*\d{2}\.\s*\d{2}\./g;
                 if (datePattern.test(conditionsText)) {
                     conditionsText = `시작일로부터 ${product.validDays}일`;
@@ -391,6 +388,7 @@ function getProductTypeText(type) {
         'TIME_PASS': '시간권',
         'COUNT_PASS': '회차권',
         'MONTHLY_PASS': '월정기',
+        'DAY_PASS': '1일권',
         'TEAM_PACKAGE': '팀 대관 패키지'
     };
     return map[type] || type;
@@ -399,6 +397,7 @@ function getProductTypeText(type) {
 function getCategoryText(category) {
     const map = {
         'BASEBALL': '⚾ 야구',
+        'OUTDOOR_LESSON': '🧢 야외레슨',
         'TRAINING': '💪 트레이닝',
         'PILATES': '🧘 필라테스',
         'TRAINING_FITNESS': '💪 트레이닝+필라테스',
@@ -411,6 +410,7 @@ function getCategoryText(category) {
 function getCategoryBadgeClass(category) {
     const map = {
         'BASEBALL': 'badge-primary',        // 야구 - 파란색
+        'OUTDOOR_LESSON': 'badge-warning',  // 야외레슨
         'TRAINING': 'badge-success',        // 트레이닝 - 초록색
         'PILATES': 'badge-info',            // 필라테스 - 하늘색
         'TRAINING_FITNESS': 'badge-success', // 트레이닝+필라테스 - 초록색
@@ -454,7 +454,7 @@ function openProductModal(id = null) {
 function addPackageItem(itemName = '', itemCount = '') {
     const container = document.getElementById('package-items-container');
     const productType = document.getElementById('product-type')?.value;
-    const isMonthlyPass = productType === 'MONTHLY_PASS';
+    const isMonthlyPass = productType === 'MONTHLY_PASS' || productType === 'DAY_PASS';
     
     // itemCount를 숫자로 변환하여 비교
     const countValue = itemCount ? parseInt(itemCount) : '';
@@ -469,6 +469,7 @@ function addPackageItem(itemName = '', itemCount = '') {
         <select class="form-control package-item-name" style="flex: 2;">
             <option value="">레슨명 선택</option>
             <option value="야구" ${itemName === '야구' ? 'selected' : ''}>야구</option>
+            <option value="야외레슨" ${itemName === '야외레슨' ? 'selected' : ''}>야외레슨</option>
             <option value="필라테스" ${itemName === '필라테스' ? 'selected' : ''}>필라테스</option>
             <option value="트레이닝" ${itemName === '트레이닝' ? 'selected' : ''}>트레이닝</option>
             <option value="대관" ${itemName === '대관' ? 'selected' : ''}>대관</option>
@@ -576,7 +577,7 @@ async function loadProductData(id) {
         document.getElementById('product-refund-policy').value = product.refundPolicy || '';
         
         // 수정 모드에서도 유형이 월정기 권이면 날짜 자동 계산 (기존 값이 없을 때만)
-        if (product.type === 'MONTHLY_PASS') {
+        if (product.type === 'MONTHLY_PASS' || product.type === 'DAY_PASS') {
             const validityInput = document.getElementById('product-validity');
             const conditionsInput = document.getElementById('product-conditions');
             
@@ -765,7 +766,7 @@ async function saveProduct() {
     };
     
     // 기간제(MONTHLY_PASS)인 경우 validDays 필수 검증
-    if (type === 'MONTHLY_PASS') {
+    if (type === 'MONTHLY_PASS' || type === 'DAY_PASS') {
         if (!validDaysStr || validDaysStr.trim() === '' || isNaN(parseInt(validDaysStr)) || parseInt(validDaysStr) <= 0) {
             App.showNotification('⚠️ 기간제 상품은 유효기간(일)이 필수 입력 항목입니다. 1 이상의 숫자를 입력해주세요.', 'danger');
             document.getElementById('product-validity').focus();
@@ -877,7 +878,7 @@ async function saveProduct() {
         App.showNotification('⚠️ 가격은 필수 입력 항목이며 0 이상이어야 합니다.', 'danger');
         return;
     }
-    if (data.type === 'MONTHLY_PASS' && (data.validDays == null || data.validDays <= 0)) {
+    if ((data.type === 'MONTHLY_PASS' || data.type === 'DAY_PASS') && (data.validDays == null || data.validDays <= 0)) {
         App.showNotification('⚠️ 기간제 상품은 유효기간(일)이 필수이며 1 이상이어야 합니다.', 'danger');
         return;
     }
@@ -952,11 +953,12 @@ function applyFilters() {
     filteredProducts.sort((a, b) => {
         const categoryOrder = {
             'BASEBALL': 1,      // 야구
-            'PILATES': 2,      // 필라테스
-            'TRAINING': 3,      // 트레이닝
-            'TRAINING_FITNESS': 3, // 트레이닝+필라테스
-            'RENTAL': 4,       // 대관
-            'GENERAL': 5       // 일반
+            'OUTDOOR_LESSON': 2, // 야외레슨
+            'PILATES': 3,      // 필라테스
+            'TRAINING': 4,      // 트레이닝
+            'TRAINING_FITNESS': 4, // 트레이닝+필라테스
+            'RENTAL': 5,       // 대관
+            'GENERAL': 6       // 일반
         };
         
         const orderA = categoryOrder[a.category] || 99;

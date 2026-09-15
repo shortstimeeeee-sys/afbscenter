@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>대시보드 - AFBS 센터</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/common.css?v=dash-bk10">
     <link rel="stylesheet" href="/css/dashboard.css">
     <link rel="stylesheet" href="/css/members.css">
 </head>
@@ -57,13 +57,13 @@
                         <span class="menu-item-icon">⚾</span>
                         <span>야구</span>
                     </a>
-                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front" data-permission="bookingView">
-                        <span class="menu-item-icon">👶</span>
-                        <span>야구(유소년)</span>
-                    </a>
                     <a href="/bookings-saha-training.html" class="menu-item" data-role="Front" data-permission="bookingView">
                         <span class="menu-item-icon">💪</span>
-                        <span>트레이닝+필라테스</span>
+                        <span>트레이닝</span>
+                    </a>
+                    <a href="/bookings-saha-pilates.html" class="menu-item" data-role="Front" data-permission="bookingView">
+                        <span class="menu-item-icon">🧘</span>
+                        <span>필라테스</span>
                     </a>
                     
                     <!-- 연산점 -->
@@ -72,17 +72,23 @@
                         <span class="menu-item-icon">⚾</span>
                         <span>야구</span>
                     </a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front" data-permission="bookingView">
+                        <span class="menu-item-icon">🧘</span>
+                        <span>필라테스</span>
+                    </a>
+                    <div class="menu-section-title">비 야구파트</div>
+                    <a href="/staff-attendance.html" class="menu-item" data-role="Admin">
+                        <span class="menu-item-icon">🕒</span>
+                        <span>출근부</span>
+                    </a>
                     <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front" data-permission="bookingView">
                         <span class="menu-item-icon">👶</span>
                         <span>야구(유소년)</span>
                     </a>
-                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front" data-permission="bookingView">
-                        <span class="menu-item-icon">💪</span>
-                        <span>트레이닝+필라테스</span>
+                    <a href="/bookings-yeonsan-social.html" class="menu-item" data-role="Front" data-permission="bookingView">
+                        <span class="menu-item-icon">🧢</span>
+                        <span>야구(사회인)</span>
                     </a>
-                    
-                    <!-- 대관 -->
-                    <div class="menu-section-title">🏟️ 대관</div>
                     <a href="/rentals.html" class="menu-item" data-role="Front" data-permission="bookingView">
                         <span class="menu-item-icon">🏟️</span>
                         <span>대관 관리</span>
@@ -159,9 +165,6 @@
             <header class="topbar">
                 <div class="topbar-left">
                     <h1 class="page-title">대시보드</h1>
-                    <div class="search-box">
-                        <input type="text" placeholder="검색..." id="global-search">
-                    </div>
                 </div>
                 <div class="topbar-right">
                     <button class="notification-btn" id="notification-btn" title="알림">🔔</button>
@@ -189,12 +192,12 @@
                     <div class="kpi-card kpi-card--total kpi-card-clickable" data-kpi="total-members" title="클릭하여 상세 보기">
                         <div class="kpi-label">총 회원 수</div>
                         <div class="kpi-value" id="kpi-total-members">-</div>
-                        <div class="kpi-change positive">전체 회원</div>
+                        <div class="kpi-change positive">활성 회원</div>
                     </div>
                     <div class="kpi-card kpi-card-clickable" data-kpi="total-bookings-month" title="클릭하여 상세 보기">
                         <div class="kpi-label" id="kpi-total-bookings-month-label">총 예약 건수</div>
                         <div class="kpi-value" id="kpi-total-bookings-month">-</div>
-                        <div class="kpi-change positive" id="kpi-bookings-by-branch">사하 0 (비회원 0) / 연산 0 (비회원 0) / 대관 0 (비회원 0)</div>
+                        <div class="kpi-change positive" id="kpi-bookings-by-branch"></div>
                     </div>
                     <div class="kpi-card kpi-card-clickable" data-kpi="bookings" title="클릭하여 상세 보기">
                         <div class="kpi-label">오늘 예약 수</div>
@@ -558,8 +561,8 @@
         </div>
     </div>
 
-    <script src="/js/common.js"></script>
-    <script src="/js/members.js"></script>
-    <script src="/js/dashboard.js"></script>
+    <script src="/js/common.js?v=branch-off3"></script>
+    <script src="/js/members.js?v=timeline-desc1"></script>
+    <script src="/js/dashboard.js?v=studio-bk7"></script>
 </body>
 </html>

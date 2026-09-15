@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>출석/이용 기록 - AFBS 센터</title>
-    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/common.css?v=miss-pass1">
     <link rel="stylesheet" href="/css/attendance.css">
 </head>
 <body class="attendance-page">
@@ -34,17 +34,17 @@
                     <!-- 사하점 -->
                     <div class="menu-section-title">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
-                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
-                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝</span></a>
+                    <a href="/bookings-saha-pilates.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧘</span><span>필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div class="menu-section-title">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧘</span><span>필라테스</span></a>
+                    <div class="menu-section-title">비 야구파트</div>
+                    <a href="/staff-attendance.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">🕒</span><span>출근부</span></a>
                     <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
-                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
-                    
-                    <!-- 대관 -->
-                    <div class="menu-section-title">🏟️ 대관</div>
+                    <a href="/bookings-yeonsan-social.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧢</span><span>야구(사회인)</span></a>
                     <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
                 </div>
                 <div class="menu-section">
@@ -243,11 +243,7 @@
                         <input type="text" class="form-control" id="checkin-booking-time" readonly>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">이용권 자동 차감</label>
-                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                            <input type="checkbox" id="checkin-auto-deduct" checked>
-                            <span>이용권 자동 차감</span>
-                        </label>
+                        <p class="form-hint" style="margin:0;color:var(--text-muted);font-size:13px;">원칙은 체크인 버튼을 누르는 것입니다. 이용권 횟수는 체크인이 아니라 <strong>체크아웃</strong> 때 1회 차감됩니다. 체크아웃을 누르면 바로 종료되고, 안 누르면 수업 종료 1시간 뒤에 자동 정산됩니다. 체크인을 못 누른 채 수업이 진행된 회원 예약은 당일 자정이 지나면 자동 체크인됩니다.</p>
                     </div>
                 </form>
             </div>
@@ -317,7 +313,7 @@
         </div>
     </div>
     
-    <script src="/js/common.js"></script>
-    <script src="/js/attendance.js"></script>
+    <script src="/js/common.js?v=branch-off3"></script>
+    <script src="/js/attendance.js?v=cancel-auto-checkin1"></script>
 </body>
 </html>

@@ -388,28 +388,6 @@ public class MemberDetailQueryController {
                         logger.warn("패키지 잔여 합산 실패: MemberProduct ID={}", mp.getId(), e);
                         remainingCount = mp.getRemainingCount();
                     }
-                    // 패키지 JSON이 체크인 시 갱신 안 됐을 수 있음 → 차감(DEDUCT) 횟수로 잔여 재계산
-                    try {
-                        List<com.afbscenter.model.MemberProductHistory> histories =
-                            memberProductHistoryRepository.findByMemberProductIdOrderByTransactionDateDesc(mp.getId());
-                        int deductCount = 0;
-                        for (com.afbscenter.model.MemberProductHistory h : histories) {
-                            if (h.getType() == com.afbscenter.model.MemberProductHistory.TransactionType.DEDUCT && h.getChangeAmount() != null) {
-                                deductCount += Math.abs(h.getChangeAmount().intValue());
-                            }
-                        }
-                        if (totalCount == null) totalCount = mp.getTotalCount() != null ? mp.getTotalCount() : 0;
-                        // DEDUCT 히스토리 잔여와 DB/JSON 잔여 중 더 작은 값 사용 → 수동 조정이 다음에도 유지됨
-                        if (totalCount != null && deductCount > 0) {
-                            int fromHistory = Math.max(0, totalCount - deductCount);
-                            int fromJson = remainingCount != null ? remainingCount : Integer.MAX_VALUE;
-                            int fromDb = mp.getRemainingCount() != null ? mp.getRemainingCount() : Integer.MAX_VALUE;
-                            int current = Math.min(fromJson, fromDb);
-                            remainingCount = Math.min(fromHistory, current);
-                        }
-                    } catch (Exception e) {
-                        logger.warn("히스토리 기반 잔여 보정 실패: MemberProduct ID={}", mp.getId(), e);
-                    }
                     if (totalCount == null) totalCount = mp.getTotalCount() != null ? mp.getTotalCount() : 0;
                     if (mp.getProduct() != null && mp.getProduct().getType() == Product.ProductType.COUNT_PASS) {
                         remainingCount = com.afbscenter.util.MemberProductCountPassHelper.resolveRemainingForRead(
@@ -983,6 +961,7 @@ public class MemberDetailQueryController {
                 if (memberProductId != null) e.put("memberProductId", memberProductId);
                 if (totalCount != null) e.put("totalCount", totalCount);
                 if (a.getProcessedBy() != null && !a.getProcessedBy().isEmpty()) e.put("processedBy", a.getProcessedBy());
+                if (a.getMemo() != null && !a.getMemo().isBlank()) e.put("description", a.getMemo());
                 events.add(e);
             }
             
@@ -1052,14 +1031,14 @@ public class MemberDetailQueryController {
                 Integer currentRemaining = remainingByProduct.get(productName);
                 if (currentRemaining != null) e.put("remainingAfterCorrected", currentRemaining);
             }
-            // 날짜 오름차순(과거 → 현재, 날짜순)으로 재정렬
+            // 잔여 보정은 오름차순으로 끝난 뒤, 화면에는 최신 항목이 위로 오도록 내림차순
             events.sort((a, b) -> {
                 LocalDateTime t1 = (LocalDateTime) a.get("date");
                 LocalDateTime t2 = (LocalDateTime) b.get("date");
                 if (t1 == null && t2 == null) return 0;
                 if (t1 == null) return 1;
                 if (t2 == null) return -1;
-                return t1.compareTo(t2);
+                return t2.compareTo(t1);
             });
             
             return ResponseEntity.ok(events);

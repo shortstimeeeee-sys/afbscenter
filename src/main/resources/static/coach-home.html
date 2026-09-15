@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>코치 홈 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css?v=miss-pass1">
+    <link rel="stylesheet" href="/css/coach-home.css?v=settle-received1">
+</head>
+<body class="coach-home-page">
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">코치 전용</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">내 업무</div>
+                    <a href="#work" class="menu-item active" data-tab="work" id="nav-work"><span class="menu-item-icon">🕒</span><span>출근부</span></a>
+                    <a href="#members" class="menu-item" data-tab="members" id="nav-members"><span class="menu-item-icon">👥</span><span>내 회원</span></a>
+                    <a href="#settlement" class="menu-item" data-tab="settlement" id="nav-settlement"><span class="menu-item-icon">💳</span><span>정산</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">바로가기</div>
+                    <a href="/" class="menu-item" data-role="Admin" data-permission="dashboardView"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                    <a href="/bookings.html" class="menu-item" data-role="Front" data-permission="bookingView"><span class="menu-item-icon">⚾</span><span>예약 캘린더</span></a>
+                    <a href="/training-logs.html" class="menu-item" data-role="Coach" data-permission="trainingLogView"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title" id="coach-home-title">코치 홈</h1>
+                    <select id="admin-coach-select" class="form-control" style="display:none;" title="조회할 코치"></select>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn">🔔</button>
+                    <button class="user-menu-btn">👤</button>
+                </div>
+            </header>
+
+            <div class="content-area">
+                <div id="coach-unlinked-banner" class="card" style="display:none;">
+                    <div class="card-header">
+                        <h2 class="card-title">코치 명단 연동이 필요합니다</h2>
+                    </div>
+                    <p class="coach-home-hint">사용자 관리에서 이 계정을 코치 명단과 연결하면 출근부·담당 회원·정산을 볼 수 있습니다.</p>
+                </div>
+
+                <div id="coach-home-body">
+                    <section id="tab-work" class="coach-tab active">
+                        <div class="kpi-grid">
+                            <div class="kpi-card">
+                                <div class="kpi-label">오늘 상태</div>
+                                <div class="kpi-value" id="kpi-today-status">-</div>
+                                <div class="kpi-change" id="kpi-today-times">출근·퇴근 전</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-label">이번 달 출근</div>
+                                <div class="kpi-value" id="kpi-work-days">0일</div>
+                                <div class="kpi-change" id="kpi-work-hours">근무 0시간</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-label">이번 달 휴무</div>
+                                <div class="kpi-value" id="kpi-off-days">0일</div>
+                                <div class="kpi-change" id="kpi-sick-days">병가 0일</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-label">오늘 수업</div>
+                                <div class="kpi-value" id="kpi-today-lessons">0건</div>
+                                <div class="kpi-change">배정된 예약</div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h2 class="card-title">출근 체크</h2>
+                                <div class="filter-actions">
+                                    <button type="button" class="btn btn-primary" id="btn-clock-in">출근</button>
+                                    <button type="button" class="btn btn-secondary" id="btn-clock-out">퇴근</button>
+                                </div>
+                            </div>
+                            <p class="coach-home-hint">오늘 근무 시작·종료 시각을 남깁니다. 이미 출근한 날은 달력에서 휴무로 바꿀 수 없습니다.</p>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h2 class="card-title">월간 근무·휴무</h2>
+                                <div class="filter-actions">
+                                    <button type="button" class="btn btn-secondary btn-sm" id="btn-month-prev">이전 달</button>
+                                    <span id="work-month-label" class="coach-month-label"></span>
+                                    <button type="button" class="btn btn-secondary btn-sm" id="btn-month-next">다음 달</button>
+                                </div>
+                            </div>
+                            <div id="work-calendar" class="coach-calendar"></div>
+                            <p class="coach-home-hint">날짜를 누르면 휴무 또는 병가를 등록할 수 있습니다. 금액을 누르면 그날 매출이 어떻게 발생했는지 볼 수 있습니다.</p>
+                        </div>
+                    </section>
+
+                    <section id="tab-members" class="coach-tab">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2 class="card-title">담당 회원 <span id="coach-members-count" class="coach-members-count"></span></h2>
+                                <div class="search-box">
+                                    <input type="text" class="form-control" id="member-search" placeholder="이름/전화번호 검색...">
+                                </div>
+                            </div>
+                            <p class="coach-home-hint">구매일·이용권·상태·나온 날짜·남은 횟수는 칸으로 나뉩니다. 회원을 누르면 바로 아래에 이용 이력이 열립니다.</p>
+                            <div class="coach-members-table-wrap">
+                                <div class="coach-members-head">
+                                    <div class="col-name">이름</div>
+                                    <div class="col-purchase">구매일</div>
+                                    <div class="col-pass">이용권</div>
+                                    <div class="col-status">상태</div>
+                                    <div class="col-dates">나온 날짜</div>
+                                    <div class="col-remain">남은 횟수</div>
+                                </div>
+                                <div id="coach-members-body" class="coach-members-body">
+                                    <div class="coach-members-empty">로딩 중...</div>
+                                </div>
+                                <div id="member-visits-host">
+                                    <div id="member-visits-card" class="coach-member-visits" style="display:none;">
+                                        <div class="coach-member-visits-head" id="member-visits-title">이용 이력</div>
+                                        <div class="table-container">
+                                            <table class="table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>날짜</th>
+                                                        <th>회차</th>
+                                                        <th>이용권</th>
+                                                        <th>잔여</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="member-visits-body"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section id="tab-settlement" class="coach-tab">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2 class="card-title">월별 정산</h2>
+                                <div class="filter-actions">
+                                    <button type="button" class="btn btn-secondary btn-sm" id="btn-settle-prev">이전 달</button>
+                                    <span id="settle-month-label" class="coach-month-label"></span>
+                                    <button type="button" class="btn btn-secondary btn-sm" id="btn-settle-next">다음 달</button>
+                                </div>
+                            </div>
+                            <p class="coach-home-hint" style="margin:0 0 16px;">이 코치로 연결된 <strong>실제 결제 금액</strong>입니다. 금액 옆 <strong>실제 수령</strong>에 받은 돈을 적으면 순 수익에 합산됩니다.</p>
+                            <div class="kpi-grid">
+                                <div class="kpi-card kpi-card--total">
+                                    <div class="kpi-label">결제 합계</div>
+                                    <div class="kpi-value" id="settle-revenue">0원</div>
+                                    <div class="kpi-change" id="settle-payments">완료 0건</div>
+                                </div>
+                                <div class="kpi-card kpi-card--profit">
+                                    <div class="kpi-label">순 수익</div>
+                                    <div class="kpi-value" id="settle-net-profit">0원</div>
+                                    <div class="kpi-change" id="settle-received-count">기록 0건</div>
+                                </div>
+                                <div class="kpi-card">
+                                    <div class="kpi-label">결제 건수</div>
+                                    <div class="kpi-value" id="settle-payment-count">0건</div>
+                                    <div class="kpi-change" id="settle-methods">현금·카드 등</div>
+                                </div>
+                                <div class="kpi-card">
+                                    <div class="kpi-label">환불</div>
+                                    <div class="kpi-value" id="settle-refunds">0원</div>
+                                    <div class="kpi-change" id="settle-refund-count">환불 0건</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header"><h2 class="card-title">결제 내역</h2></div>
+                            <div class="table-container">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>결제일시</th>
+                                            <th>회원</th>
+                                            <th>내용</th>
+                                            <th>결제수단</th>
+                                            <th>상태</th>
+                                            <th>금액</th>
+                                            <th>실제 수령</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="settle-payments-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="work-day-modal" class="modal-overlay" style="display:none;">
+        <div class="modal" style="max-width: 420px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="work-day-modal-title">휴무 등록</h2>
+                <button class="modal-close" type="button" id="work-day-modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">구분</label>
+                    <select class="form-control" id="work-day-type">
+                        <option value="OFF">휴무</option>
+                        <option value="OUTDOOR">야외레슨</option>
+                        <option value="SICK">병가</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">메모</label>
+                    <input type="text" class="form-control" id="work-day-memo" maxlength="200" placeholder="선택">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="work-day-clear">해제</button>
+                <button type="button" class="btn btn-primary" id="work-day-save">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="work-revenue-modal" class="modal-overlay" style="display:none;">
+        <div class="modal work-revenue-modal-dialog">
+            <div class="modal-header">
+                <h2 class="modal-title" id="work-revenue-modal-title">그날 수익</h2>
+                <button class="modal-close" type="button" id="work-revenue-modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="coach-home-hint" id="work-revenue-modal-sum"></p>
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>시각</th>
+                                <th>회원</th>
+                                <th>내용</th>
+                                <th>연결</th>
+                                <th>금액</th>
+                            </tr>
+                        </thead>
+                        <tbody id="work-revenue-modal-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/common.js?v=branch-off3"></script>
+    <script src="/js/coach-home.js?v=outdoor-day1"></script>
+</body>
+</html>

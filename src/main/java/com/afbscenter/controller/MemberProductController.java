@@ -226,26 +226,6 @@ public class MemberProductController {
                         logger.warn("패키지 잔여 합산 실패: MemberProduct ID={}", mp.getId(), e);
                         remainingCount = mp.getRemainingCount();
                     }
-                    try {
-                        List<com.afbscenter.model.MemberProductHistory> histories =
-                            memberProductHistoryRepository.findByMemberProductIdOrderByTransactionDateDesc(mp.getId());
-                        int deductCount = 0;
-                        for (com.afbscenter.model.MemberProductHistory h : histories) {
-                            if (h.getType() == com.afbscenter.model.MemberProductHistory.TransactionType.DEDUCT && h.getChangeAmount() != null) {
-                                deductCount += Math.abs(h.getChangeAmount().intValue());
-                            }
-                        }
-                        if (totalCount == null) totalCount = mp.getTotalCount() != null ? mp.getTotalCount() : 0;
-                        // 체크인(DEDUCT) 건수 기준 상한: DB/조정이 DEDUCT보다 크게 나오지 않게 (4회 남았는데 9/10으로 보이는 것 방지)
-                        if (totalCount != null) {
-                            int fromHistory = Math.max(0, totalCount - deductCount);
-                            if (remainingCount == null || remainingCount > fromHistory)
-                                remainingCount = fromHistory;
-                        }
-                        computedTotalCount = totalCount;
-                    } catch (Exception e) {
-                        logger.warn("히스토리 기반 잔여 보정 실패: MemberProduct ID={}", mp.getId(), e);
-                    }
                 } else if (mp.getProduct() != null && mp.getProduct().getType() == com.afbscenter.model.Product.ProductType.COUNT_PASS) {
                     computedTotalCount = com.afbscenter.util.MemberProductCountPassHelper.resolveTotalCount(mp);
                     Long actualMemberId = memberId;
@@ -305,8 +285,8 @@ public class MemberProductController {
                         productMap.put("price", mp.getProduct().getPrice());
                         productMap.put("usageCount", mp.getProduct().getUsageCount()); // 상품의 usageCount 추가
                         
-                        // Product의 코치 정보
-                        if (mp.getProduct().getCoach() != null) {
+                        // Product의 코치 정보: 근무 중이며, 이용권에 직접 배정된 코치가 없을 때만
+                        if (mp.getCoach() == null && MemberProductCoachResolver.isWorkingCoach(mp.getProduct().getCoach())) {
                             try {
                                 Map<String, Object> productCoachMap = new HashMap<>();
                                 productCoachMap.put("id", mp.getProduct().getCoach().getId());
@@ -327,20 +307,27 @@ public class MemberProductController {
                 }
                 
                 // MemberProduct에 직접 배정된 코치만 반환 (미배정 집계용). Product 기본 코치는 product.coach에만 있음.
+                // 표시용 이름은 근무 중 코치만. 퇴사 코치는 coachId는 유지하되 이름은 숨긴다.
                 Long memberProductCoachId = null;
                 Map<String, Object> coachMap = null;
                 try {
                     if (mp.getCoach() != null) {
                         memberProductCoachId = mp.getCoach().getId();
-                        coachMap = new HashMap<>();
-                        coachMap.put("id", memberProductCoachId);
-                        coachMap.put("name", mp.getCoach().getName());
+                        if (MemberProductCoachResolver.isWorkingCoach(mp.getCoach())) {
+                            coachMap = new HashMap<>();
+                            coachMap.put("id", memberProductCoachId);
+                            coachMap.put("name", mp.getCoach().getName());
+                        }
                     }
                 } catch (Exception e) {
                     logger.warn("Coach 로드 실패: MemberProduct ID={}", mp.getId(), e);
                 }
                 map.put("coachId", memberProductCoachId); // 이용권에 직접 배정된 코치 ID (null이면 미배정)
                 map.put("coach", coachMap);
+                String displayCoachName = MemberProductCoachResolver.resolveDisplayCoachName(mp);
+                if (displayCoachName != null) {
+                    map.put("coachName", displayCoachName);
+                }
 
                 // 이용권 번호 (없으면 null)
                 map.put("voucherNumber", mp.getVoucherNumber());
@@ -891,81 +878,27 @@ public class MemberProductController {
         }
     }
     
-    // 이용권 잔여 횟수 재계산 (실제 예약 데이터 기반)
+    // 잔여는 예약·출석 건수로 다시 맞추지 않는다. 수동 조정과 수업 차감만 반영한다.
     @PostMapping("/{id}/recalculate")
-    @Transactional
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> recalculateRemainingCount(@PathVariable Long id) {
         try {
             MemberProduct memberProduct = memberProductRepository.findByIdAndDeletedAtIsNull(id)
                     .orElseThrow(() -> new IllegalArgumentException("상품권을 찾을 수 없습니다."));
-            
-            // 횟수권이 아닌 경우
-            if (memberProduct.getProduct() == null || 
+            if (memberProduct.getProduct() == null ||
                 memberProduct.getProduct().getType() != Product.ProductType.COUNT_PASS) {
                 Map<String, Object> error = new HashMap<>();
                 error.put("error", "횟수권이 아닙니다.");
                 return ResponseEntity.badRequest().body(error);
             }
-            
-            // 총 횟수 계산
+            Integer remainingCount = memberProduct.getRemainingCount();
             Integer totalCount = memberProduct.getTotalCount();
-            if (totalCount == null || totalCount <= 0) {
-                totalCount = memberProduct.getProduct().getUsageCount();
-                if (totalCount == null || totalCount <= 0) {
-                    totalCount = com.afbscenter.constants.ProductDefaults.getDefaultTotalCount();
-                }
-            }
-            
-            // 실제 사용된 횟수 계산
-            // 주의: countConfirmedBookingsByMemberProductId는 이제 체크인된 예약만 카운트함
-            // 출석 기록도 확인하여 더 정확한 계산
-            Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(
-                memberProduct.getMember().getId(), id);
-            if (usedCountByAttendance == null) {
-                usedCountByAttendance = 0L;
-            }
-            
-            Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(id);
-            if (usedCountByBooking == null) {
-                usedCountByBooking = 0L;
-            }
-            
-            // 출석 기록이 있으면 출석 기록 사용, 없으면 예약 기록 사용 (중복 방지)
-            Long usedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
-            
-            // 잔여 횟수 재계산
-            Integer remainingCount = totalCount - usedCount.intValue();
-            if (remainingCount < 0) {
-                remainingCount = 0;
-            }
-            
-            // 업데이트
-            memberProduct.setRemainingCount(remainingCount);
-            memberProduct.setTotalCount(totalCount);
-            
-            // 상태 업데이트
-            if (remainingCount == 0) {
-                memberProduct.setStatus(MemberProduct.Status.USED_UP);
-                if (memberProduct.getEndedAt() == null) memberProduct.setEndedAt(LocalDateTime.now());
-            } else if (memberProduct.getStatus() == MemberProduct.Status.USED_UP) {
-                // 잔여 횟수가 있으면 다시 ACTIVE로 변경
-                memberProduct.setStatus(MemberProduct.Status.ACTIVE);
-                memberProduct.setEndedAt(null);
-            }
-            
-            MemberProduct saved = memberProductRepository.save(memberProduct);
-            
             Map<String, Object> result = new HashMap<>();
-            result.put("id", saved.getId());
+            result.put("id", memberProduct.getId());
             result.put("totalCount", totalCount);
-            result.put("usedCount", usedCount.intValue());
             result.put("remainingCount", remainingCount);
-            result.put("status", saved.getStatus() != null ? saved.getStatus().name() : null);
-            result.put("message", "잔여 횟수가 재계산되었습니다.");
-            
-            logger.info("이용권 잔여 횟수 재계산: MemberProduct ID={}, 총={}회, 사용={}회, 잔여={}회", 
-                    saved.getId(), totalCount, usedCount, remainingCount);
-            
+            result.put("status", memberProduct.getStatus() != null ? memberProduct.getStatus().name() : null);
+            result.put("message", "잔여 횟수는 예약 건수로 재계산하지 않습니다.");
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
             logger.warn("상품권을 찾을 수 없습니다. ID: {}", id, e);
@@ -973,77 +906,21 @@ public class MemberProductController {
             error.put("error", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
         } catch (Exception e) {
-            logger.error("이용권 잔여 횟수 재계산 중 오류 발생. ID: {}", id, e);
+            logger.error("이용권 횟수 조회 중 오류 발생. ID: {}", id, e);
             Map<String, Object> error = new HashMap<>();
-            error.put("error", "재계산 중 오류가 발생했습니다: " + e.getMessage());
+            error.put("error", "처리 중 오류가 발생했습니다: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
     }
-    
-    // 회원의 모든 이용권 잔여 횟수 재계산
+
     @PostMapping("/member/{memberId}/recalculate-all")
-    @Transactional
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> recalculateAllMemberProducts(@PathVariable Long memberId) {
-        try {
-            List<MemberProduct> memberProducts = memberProductRepository.findByMemberId(memberId);
-            
-            int recalculatedCount = 0;
-            int totalRecalculated = 0;
-            
-            for (MemberProduct memberProduct : memberProducts) {
-                // 횟수권인 경우만 재계산
-                if (memberProduct.getProduct() != null && 
-                    memberProduct.getProduct().getType() == Product.ProductType.COUNT_PASS) {
-                    // 총 횟수: 목록/단건 재계산 API와 동일 — 회원 구매 건 totalCount 우선 (상품 마스터만 20→10으로 바꿔도 기존 20회권 유지)
-                    int totalCount = com.afbscenter.util.MemberProductCountPassHelper.resolveTotalCount(memberProduct);
-                    
-                    Long usedCountByAttendance = attendanceRepository.countCheckedInAttendancesByMemberAndProduct(
-                        memberId, memberProduct.getId());
-                    if (usedCountByAttendance == null) usedCountByAttendance = 0L;
-                    Long usedCountByBooking = bookingRepository.countConfirmedBookingsByMemberProductId(memberProduct.getId());
-                    if (usedCountByBooking == null) usedCountByBooking = 0L;
-                    Long usedCount = usedCountByAttendance > 0 ? usedCountByAttendance : usedCountByBooking;
-                    
-                    // 잔여 횟수 재계산
-                    Integer remainingCount = totalCount - usedCount.intValue();
-                    if (remainingCount < 0) {
-                        remainingCount = 0;
-                    }
-                    
-                    // 업데이트
-                    memberProduct.setRemainingCount(remainingCount);
-                    memberProduct.setTotalCount(totalCount);
-                    
-                    // 상태 업데이트
-                    if (remainingCount == 0) {
-                        memberProduct.setStatus(MemberProduct.Status.USED_UP);
-                        if (memberProduct.getEndedAt() == null) memberProduct.setEndedAt(LocalDateTime.now());
-                    } else if (memberProduct.getStatus() == MemberProduct.Status.USED_UP) {
-                        memberProduct.setStatus(MemberProduct.Status.ACTIVE);
-                        memberProduct.setEndedAt(null);
-                    }
-                    
-                    memberProductRepository.save(memberProduct);
-                    recalculatedCount++;
-                    totalRecalculated += remainingCount;
-                }
-            }
-            
-            Map<String, Object> result = new HashMap<>();
-            result.put("recalculatedCount", recalculatedCount);
-            result.put("totalRemainingCount", totalRecalculated);
-            result.put("message", recalculatedCount + "개의 이용권이 재계산되었습니다.");
-            
-            logger.info("회원 이용권 전체 재계산: Member ID={}, 재계산={}개, 총 잔여={}회", 
-                    memberId, recalculatedCount, totalRecalculated);
-            
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            logger.error("회원 이용권 재계산 중 오류 발생. Member ID: {}", memberId, e);
-            Map<String, Object> error = new HashMap<>();
-            error.put("error", "재계산 중 오류가 발생했습니다: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
-        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("recalculatedCount", 0);
+        result.put("totalRemainingCount", 0);
+        result.put("message", "잔여 횟수는 예약 건수로 재계산하지 않습니다.");
+        return ResponseEntity.ok(result);
     }
     
     // 이용권 횟수 직접 설정 (절대값)
@@ -1394,6 +1271,7 @@ public class MemberProductController {
             Product product = oldMp.getProduct();
             boolean isPeriodPassType = product != null && product.getType() != null
                     && (product.getType() == Product.ProductType.MONTHLY_PASS
+                    || product.getType() == Product.ProductType.DAY_PASS
                     || product.getType() == Product.ProductType.TIME_PASS);
             
             java.time.LocalDate today = java.time.LocalDate.now();

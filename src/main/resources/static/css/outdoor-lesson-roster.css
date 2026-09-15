@@ -1,0 +1,357 @@
+#outdoor-lesson-modal .modal {
+    max-width: 1400px;
+    width: 96vw;
+    position: relative;
+}
+#outdoor-lesson-modal .modal-body {
+    overflow-y: hidden;
+}
+#outdoor-lesson-modal .ol-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+}
+#outdoor-lesson-modal .ol-toolbar .form-group {
+    margin: 0;
+}
+#outdoor-lesson-modal .ol-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 268px;
+    gap: 16px;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+#outdoor-lesson-modal .table-container {
+    max-height: none;
+    height: 100%;
+    min-height: 0;
+    overflow: auto;
+}
+#outdoor-lesson-modal table {
+    table-layout: fixed;
+    width: 100%;
+}
+#outdoor-lesson-modal th:nth-child(1),
+#outdoor-lesson-modal .ol-seq {
+    width: 52px;
+    text-align: center;
+    font-weight: 600;
+    white-space: nowrap;
+}
+#outdoor-lesson-modal th:nth-child(5),
+#outdoor-lesson-modal .ol-plan-cell {
+    width: 210px;
+}
+#outdoor-lesson-modal th:nth-child(6),
+#outdoor-lesson-modal .ol-amount-cell {
+    width: 108px;
+    text-align: right;
+    white-space: nowrap;
+    font-weight: 600;
+}
+#outdoor-lesson-modal th:nth-child(7),
+#outdoor-lesson-modal .ol-deposit-cell {
+    width: 92px;
+    text-align: center;
+    white-space: nowrap;
+}
+#outdoor-lesson-modal th:nth-child(8),
+#outdoor-lesson-modal .ol-carry-cell {
+    width: 76px;
+    white-space: nowrap;
+    padding: 8px;
+    text-align: center;
+}
+#outdoor-lesson-modal th:nth-child(9),
+#outdoor-lesson-modal .ol-remove-cell {
+    width: 88px;
+    white-space: nowrap;
+    padding: 8px;
+    text-align: center;
+}
+#outdoor-lesson-modal .ol-deposit-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    cursor: pointer;
+    white-space: nowrap;
+}
+#outdoor-lesson-modal .ol-remove,
+#outdoor-lesson-modal .ol-carry {
+    white-space: nowrap;
+    display: inline-block;
+    padding: 6px 12px;
+}
+#outdoor-lesson-modal .ol-name-cell .ol-name {
+    width: 100%;
+}
+#outdoor-lesson-modal .ol-carry-badge {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--warning, #d4a017);
+    font-weight: 600;
+    line-height: 1.3;
+}
+#outdoor-lesson-modal .ol-carry-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    border-radius: inherit;
+}
+#outdoor-lesson-modal .ol-carry-overlay[hidden] {
+    display: none !important;
+}
+#outdoor-lesson-modal .ol-carry-dialog {
+    background: var(--bg-primary, #1a1f2b);
+    color: var(--text-primary);
+    padding: 22px 24px;
+    border-radius: 12px;
+    min-width: 320px;
+    max-width: 420px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .35);
+}
+#outdoor-lesson-modal .ol-carry-dialog #ol-carry-who {
+    margin: 0 0 14px;
+    font-weight: 700;
+}
+#outdoor-lesson-modal .ol-carry-help {
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+#outdoor-lesson-modal .ol-carry-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+}
+#outdoor-lesson-modal .ol-date-hint {
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+#outdoor-lesson-modal .ol-date-hint:empty {
+    display: none;
+}
+#outdoor-lesson-modal .ol-date-hint:not(:empty) {
+    color: var(--warning, #d4a017);
+    margin-bottom: 6px;
+}
+#outdoor-lesson-modal .ol-side {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+    align-self: stretch;
+}
+#outdoor-lesson-modal .ol-info,
+#outdoor-lesson-modal .ol-settle {
+    margin: 0;
+    padding: 16px 18px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    max-width: none;
+}
+#outdoor-lesson-modal .ol-settle-title {
+    font-weight: 700;
+    margin: 0 0 10px;
+    font-size: 14px;
+}
+#outdoor-lesson-modal .ol-info-hero {
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border-color);
+}
+#outdoor-lesson-modal .ol-info-hero strong {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+#outdoor-lesson-modal .ol-settle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    padding: 5px 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+#outdoor-lesson-modal .ol-settle-row strong {
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+#outdoor-lesson-modal .ol-settle-total {
+    border-top: 1px solid var(--border-color);
+    margin-top: 8px;
+    padding-top: 10px;
+    font-size: 15px;
+    color: var(--text-primary);
+}
+#outdoor-lesson-modal .ol-settle-total strong {
+    font-size: 16px;
+}
+#outdoor-lesson-modal .ol-settle-row strong.ol-settle-minus,
+#outdoor-lesson-modal .ol-settle-total strong.ol-settle-minus {
+    color: var(--danger);
+}
+
+@media (max-width: 900px) {
+    #outdoor-lesson-modal .modal {
+        width: 100% !important;
+        max-width: none !important;
+        height: 100dvh !important;
+        max-height: 100dvh !important;
+        border-radius: 0;
+        margin: 0;
+    }
+    #outdoor-lesson-modal .modal-body {
+        overflow-y: auto;
+        padding: 12px;
+    }
+    #outdoor-lesson-modal .ol-main {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        display: flex;
+        flex-direction: column;
+    }
+    #outdoor-lesson-modal .ol-side {
+        order: -1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    #outdoor-lesson-modal .ol-info,
+    #outdoor-lesson-modal .ol-settle {
+        padding: 12px;
+    }
+    #outdoor-lesson-modal .ol-info-hero strong,
+    #outdoor-lesson-modal .ol-settle-total strong {
+        font-size: 18px;
+    }
+    #outdoor-lesson-modal .ol-toolbar {
+        gap: 8px;
+    }
+    #outdoor-lesson-modal .ol-toolbar .form-group {
+        flex: 1 1 100%;
+    }
+    #outdoor-lesson-modal .ol-toolbar .form-control {
+        width: 100% !important;
+        min-height: 44px;
+        font-size: 16px;
+    }
+    #outdoor-lesson-modal .ol-toolbar .btn {
+        min-height: 44px;
+        flex: 1 1 calc(33.33% - 8px);
+        padding: 8px 10px;
+    }
+    #outdoor-lesson-modal .table-container {
+        max-height: none;
+        height: auto;
+        overflow: visible;
+    }
+    #outdoor-lesson-modal table {
+        table-layout: auto;
+        border: 0;
+    }
+    #outdoor-lesson-modal thead {
+        display: none;
+    }
+    #outdoor-lesson-modal tbody tr {
+        display: grid;
+        grid-template-columns: 32px minmax(0, 1fr) auto auto;
+        gap: 8px 8px;
+        align-items: center;
+        padding: 12px;
+        margin-bottom: 10px;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        background: var(--bg-tertiary);
+    }
+    #outdoor-lesson-modal tbody td {
+        width: auto !important;
+        max-width: none !important;
+        padding: 0 !important;
+        border: 0 !important;
+        text-align: left !important;
+        white-space: normal !important;
+    }
+    #outdoor-lesson-modal tbody td:nth-child(1) { grid-column: 1; grid-row: 1; }
+    #outdoor-lesson-modal tbody td:nth-child(2) { grid-column: 2; grid-row: 1; }
+    #outdoor-lesson-modal tbody td:nth-child(8) { grid-column: 3; grid-row: 1; }
+    #outdoor-lesson-modal tbody td:nth-child(9) { grid-column: 4; grid-row: 1; }
+    #outdoor-lesson-modal tbody td:nth-child(3),
+    #outdoor-lesson-modal tbody td:nth-child(4),
+    #outdoor-lesson-modal tbody td:nth-child(5) {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    #outdoor-lesson-modal tbody td:nth-child(6) {
+        grid-column: 1 / 3;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 16px;
+    }
+    #outdoor-lesson-modal tbody td:nth-child(7) {
+        grid-column: 3 / -1;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+    }
+    #outdoor-lesson-modal tbody td[data-label]::before {
+        content: attr(data-label);
+        flex: 0 0 56px;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text-muted);
+    }
+    #outdoor-lesson-modal .form-control,
+    #outdoor-lesson-modal select.form-control {
+        min-height: 44px;
+        font-size: 16px;
+    }
+    #outdoor-lesson-modal .ol-carry,
+    #outdoor-lesson-modal .ol-remove {
+        min-height: 40px;
+        padding: 8px 10px;
+    }
+    #outdoor-lesson-modal .ol-deposit-label {
+        min-height: 44px;
+        padding: 0 8px;
+        font-size: 15px;
+        font-weight: 700;
+    }
+    #outdoor-lesson-modal .ol-carry-dialog {
+        min-width: 0;
+        width: calc(100% - 32px);
+        max-width: 420px;
+        margin: 16px;
+    }
+    #outdoor-lesson-modal .modal-footer {
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    }
+    #outdoor-lesson-modal .modal-footer .btn {
+        flex: 1 1 auto;
+        min-height: 44px;
+    }
+}
+
+@media (max-width: 520px) {
+    #outdoor-lesson-modal .ol-side {
+        grid-template-columns: 1fr;
+    }
+}

@@ -100,6 +100,9 @@ public class CoachService {
                     || coach.getColor() == null
                     || coach.getColor().trim().isEmpty();
             assignUniqueColorIfNeeded(coach, id, strictFamily);
+        } else if (wasActive) {
+            // 퇴사(비활성): 목록에서 빠지므로 회원·이용권 담당은 미지정
+            unassignCoachFromMembersAndProducts(id);
         }
         return coachRepository.save(coach);
     }
@@ -150,14 +153,14 @@ public class CoachService {
                 coach.getName(), picked, CoachColorPalette.familyKey(picked));
     }
 
-    /** 활성 코치의 색만 수집 — 삭제(비활성)된 코치 색/계열은 재사용 가능 */
+    /** 근무 중 코치 고유색만 수집. 퇴사 강사 색은 현직과 같은 계열이 아니면 재사용해도 된다. */
     private Set<String> collectActiveUsedColors(Long excludeCoachId) {
         Set<String> used = new HashSet<>();
         for (Coach c : coachRepository.findAll()) {
             if (c == null || c.getColor() == null || c.getColor().trim().isEmpty()) {
                 continue;
             }
-            if (c.getActive() != null && !c.getActive()) {
+            if (Boolean.FALSE.equals(c.getActive())) {
                 continue;
             }
             if (excludeCoachId != null && excludeCoachId.equals(c.getId())) {
@@ -194,15 +197,59 @@ public class CoachService {
         return Optional.of(coachRepository.save(target));
     }
 
-    // 코치 삭제 → 실제 삭제 대신 비활성(퇴사 처리). 색은 유지하되 활성 집합에서 제외되어
-    // 신규 코치가 같은 색/계열을 다시 쓸 수 있다. 재활성화 시 충돌하면 재할당.
+    /**
+     * 코치 삭제: 목록에서 완전히 제거한다.
+     * 담당 회원·이용권은 미지정(coach_id NULL). 예약은 남기고 코치만 해제한다.
+     */
     public void deleteCoach(Long id) {
         Coach coach = coachRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("코치를 찾을 수 없습니다."));
-        coach.setActive(false);
+        String name = coach.getName();
+
+        int[] cleared = unassignCoachFromMembersAndProducts(id);
+        clearCoachFk("bookings", "coach_id", id);
+        try {
+            jdbcTemplate.update("DELETE FROM coach_work_records WHERE coach_id = ?", id);
+        } catch (Exception e) {
+            logger.warn("코치 삭제 전 출근 기록 삭제 스킵: {}", e.getMessage());
+        }
+        try {
+            jdbcTemplate.update("DELETE FROM coach_payment_receipts WHERE coach_id = ?", id);
+        } catch (Exception e) {
+            logger.warn("코치 삭제 전 실제 수령 기록 삭제 스킵: {}", e.getMessage());
+        }
+
+        coach.setUserId(null);
         coachRepository.save(coach);
-        logger.info("코치 비활성 처리(색상 계열 재사용 가능): id={}, name={}, color={}",
-                id, coach.getName(), coach.getColor());
+        coachRepository.delete(coach);
+        logger.info("코치 삭제: id={}, name={}, 회원 미지정 {}명, 이용권 미지정 {}건",
+                id, name, cleared[0], cleared[1]);
+    }
+
+    /**
+     * 회원 카드·이용권·상품 기본 담당에서 해당 코치를 미지정(NULL)으로 바꾼다.
+     * 과거 예약(bookings)은 이력으로 남긴다. 행 삭제 시에만 예약 FK를 별도로 해제한다.
+     * @return [회원 수, 이용권 수]
+     */
+    int[] unassignCoachFromMembersAndProducts(Long coachId) {
+        int membersCleared = clearCoachFk("members", "coach_id", coachId);
+        int memberProductsCleared = clearCoachFk("member_products", "coach_id", coachId);
+        clearCoachFk("products", "coach_id", coachId);
+        clearCoachFk("member_approval_requests", "reassignment_new_coach_id", coachId);
+        logger.info("코치 담당 미지정 처리: coachId={}, 회원 {}명, 이용권 {}건",
+                coachId, membersCleared, memberProductsCleared);
+        return new int[] { membersCleared, memberProductsCleared };
+    }
+
+    private int clearCoachFk(String table, String column, Long coachId) {
+        try {
+            return jdbcTemplate.update(
+                    "UPDATE " + table + " SET " + column + " = NULL WHERE " + column + " = ?",
+                    coachId);
+        } catch (Exception e) {
+            logger.warn("코치 삭제 전 {}.{} 해제 스킵: {}", table, column, e.getMessage());
+            return 0;
+        }
     }
 
     // 코치별 수강 인원 수 조회 (getStudents 목록과 동일 기준: 해당 코치가 배정된 활성 이용권 보유 회원 수만)

@@ -5,6 +5,7 @@ import com.afbscenter.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.HashMap;
 import java.util.List;
@@ -137,13 +138,14 @@ public class UserController {
         }
     }
 
-    // 사용자 삭제 (소프트 삭제)
+    // 사용자 완전 삭제
     @DeleteMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> deleteUser(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> deleteUser(@PathVariable Long id, HttpServletRequest request) {
         try {
-            userService.deleteUser(id);
+            String currentUsername = request != null ? (String) request.getAttribute("username") : null;
+            userService.deleteUser(id, currentUsername);
             Map<String, Object> response = new HashMap<>();
-            response.put("message", "사용자가 비활성화되었습니다.");
+            response.put("message", "사용자가 삭제되었습니다.");
             return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
             Map<String, Object> error = new HashMap<>();

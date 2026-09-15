@@ -201,7 +201,7 @@ public class MemberQueryController {
             }
         }
 
-        // GET /members 목록과 동일: 기본은 승인 대기 제외. status= 또는 includePendingApproval=true 로 예외 처리
+        // 검색: 승인 대기만 기본 제외. 휴면·탈퇴도 이름·번호 검색에 포함.
         boolean includePending = "true".equalsIgnoreCase(includePendingApproval);
         if (status != null && !status.trim().isEmpty()) {
             try {
@@ -319,7 +319,7 @@ public class MemberQueryController {
                                 .filter(mp -> {
                                     try {
                                         return mp.getProduct() != null &&
-                                                mp.getProduct().getType() == Product.ProductType.MONTHLY_PASS &&
+                                                Product.isPeriodPass(mp.getProduct().getType()) &&
                                                 mp.getStatus() == MemberProduct.Status.ACTIVE &&
                                                 mp.getExpiryDate() != null;
                                     } catch (Exception e) {

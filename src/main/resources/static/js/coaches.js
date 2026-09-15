@@ -121,7 +121,7 @@ async function openStatsCoachModal(filterType, titleLabel) {
                 return Object.assign({}, c, { studentCount: 0 });
             }
         }));
-        // 코치 고유 순번 정렬: 위(대표) → 아래(기타) 순 (0→1→2→3→4→5→6, 동일 순번이면 이름)
+        // 코치 정렬: 대표 → 이사 → 센터장 → 지점장 → 투수 → 유소년 → 재활 → 트레이너 → 강사
         coachesWithCount.sort(function(a, b) {
             var orderA = App.CoachSortOrder ? App.CoachSortOrder(a) : 6;
             var orderB = App.CoachSortOrder ? App.CoachSortOrder(b) : 6;
@@ -299,7 +299,7 @@ async function renderCoachesTable(coaches) {
         return;
     }
     
-    // 코치 정렬: 대표 → 대관 담당 → 메인 코치 → 야구 관련 → 트레이닝 강사 → 필라테스 강사 (common.js CoachSortOrder와 동일)
+    // 코치 정렬: 대표 → 이사 → 센터장 → 지점장 → 투수 → 유소년 → 재활 → 트레이너 → 강사
     const sortedCoaches = coaches.sort((a, b) => {
         const orderA = App.CoachSortOrder ? App.CoachSortOrder(a) : 6;
         const orderB = App.CoachSortOrder ? App.CoachSortOrder(b) : 6;
@@ -604,13 +604,13 @@ async function saveCoach() {
 }
 
 async function deleteCoach(id) {
-    if (!confirm('퇴사 처리하시겠습니까? 목록에서 제외되며, 예약·이용권 기록은 유지됩니다.')) return;
+    if (!confirm('이 코치를 삭제할까요?\n담당 회원은 미지정으로 바뀌고, 코치 목록에서 완전히 사라집니다.')) return;
     
     try {
         await App.api.delete(`/coaches/${id}`);
-        App.showNotification('코치가 퇴사 처리되었습니다.', 'success');
+        App.showNotification('코치가 삭제되었습니다. 담당 회원은 미지정입니다.', 'success');
         await loadCoaches();
     } catch (error) {
-        App.showNotification('퇴사 처리에 실패했습니다.', 'danger');
+        App.showNotification('코치 삭제에 실패했습니다.', 'danger');
     }
 }

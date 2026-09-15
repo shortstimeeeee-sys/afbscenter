@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>설정 - AFBS 센터</title>
-    <link rel="stylesheet" href="/css/common.css">
-    <link rel="stylesheet" href="/css/settings.css">
+    <link rel="stylesheet" href="/css/common.css?v=miss-pass1">
+    <link rel="stylesheet" href="/css/settings.css?v=branch-off3">
 </head>
 <body class="settings-page">
     <div class="app-container">
@@ -34,17 +34,17 @@
                     <!-- 사하점 -->
                     <div class="menu-section-title">📍 사하점</div>
                     <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
-                    <a href="/bookings-saha-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
-                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝</span></a>
+                    <a href="/bookings-saha-pilates.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧘</span><span>필라테스</span></a>
                     
                     <!-- 연산점 -->
                     <div class="menu-section-title">📍 연산점</div>
                     <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧘</span><span>필라테스</span></a>
+                    <div class="menu-section-title">비 야구파트</div>
+                    <a href="/staff-attendance.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">🕒</span><span>출근부</span></a>
                     <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
-                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝+필라테스</span></a>
-                    
-                    <!-- 대관 -->
-                    <div class="menu-section-title">🏟️ 대관</div>
+                    <a href="/bookings-yeonsan-social.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧢</span><span>야구(사회인)</span></a>
                     <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
                 </div>
                 <div class="menu-section">
@@ -146,13 +146,13 @@
                             <button type="button" class="btn btn-secondary" id="btn-calendar-marks-refresh" onclick="refreshCalendarMarksList()">목록 새로고침</button>
                         </div>
                         <div style="border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; margin-bottom: 20px;">
-                            <table class="table" style="margin: 0;">
+                            <table class="table calendar-marks-table" style="margin: 0;">
                                 <thead>
                                     <tr>
                                         <th>날짜</th>
                                         <th>빨간날</th>
                                         <th>메모</th>
-                                        <th style="width: 88px;">편집</th>
+                                        <th>편집</th>
                                     </tr>
                                 </thead>
                                 <tbody id="calendar-marks-list-body">
@@ -181,6 +181,59 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="card" id="branch-closures-card" style="display: none;">
+                    <div class="card-header">
+                        <h2 class="card-title">지점 휴무</h2>
+                    </div>
+                    <div style="padding: 0 16px 16px 16px;">
+                        <p style="font-size: 14px; color: var(--text-secondary); margin: 0 0 12px 0; line-height: 1.5;">
+                            사이드바와 같이 <strong>사하</strong>(야구·트레이닝·필라테스),
+                            <strong>연산</strong>(야구·필라테스),
+                            <strong>비 야구파트</strong>(유소년·사회인·대관)로 지정합니다.
+                            지정한 날짜 칸에 <strong>빨간 음영</strong>과 <strong>휴무</strong>가 표시됩니다.
+                        </p>
+                        <div class="form-group" style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 16px;">
+                            <div style="min-width: 220px;">
+                                <label class="form-label" for="branch-closures-branch">그룹</label>
+                                <select class="form-control" id="branch-closures-branch">
+                                    <option value="SAHA">사하</option>
+                                    <option value="YEONSAN">연산</option>
+                                    <option value="NON_BASEBALL">비 야구파트</option>
+                                </select>
+                            </div>
+                            <div style="min-width: 160px;">
+                                <label class="form-label" for="branch-closures-month">조회 월</label>
+                                <input type="month" class="form-control" id="branch-closures-month" />
+                            </div>
+                            <button type="button" class="btn btn-secondary" onclick="refreshBranchClosuresList()">목록 새로고침</button>
+                        </div>
+                        <div style="border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; margin-bottom: 20px;">
+                            <table class="table calendar-marks-table" style="margin: 0;">
+                                <thead>
+                                    <tr>
+                                        <th>날짜</th>
+                                        <th>표시</th>
+                                        <th>편집</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="branch-closures-list-body">
+                                    <tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 12px;">불러오는 중…</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <h3 style="font-size: 15px; margin: 0 0 12px 0;">휴무 날짜 지정</h3>
+                        <div class="form-group">
+                            <label class="form-label" for="branch-closure-date">날짜</label>
+                            <input type="date" class="form-control" id="branch-closure-date" style="max-width: 220px;" />
+                            <p class="form-text" style="margin-top: 6px; font-size: 13px; color: var(--text-muted);">위에서 고른 그룹의 예약 달력에만 휴무로 표시됩니다.</p>
+                        </div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                            <button type="button" class="btn btn-primary" onclick="saveBranchClosure()">휴무로 지정</button>
+                            <button type="button" class="btn btn-danger" onclick="deleteBranchClosure()">이 날짜 휴무 해제</button>
+                        </div>
+                    </div>
+                </div>
                 
                 <div class="card">
                     <div class="card-header">
@@ -206,7 +259,7 @@
         </main>
     </div>
     
-    <script src="/js/common.js"></script>
-    <script src="/js/settings.js"></script>
+    <script src="/js/common.js?v=branch-off3"></script>
+    <script src="/js/settings.js?v=branch-off3"></script>
 </body>
 </html>

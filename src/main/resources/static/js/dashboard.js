@@ -7,7 +7,61 @@ let monthlyRevenueCalendarState = { categoryKey: null, categoryTitle: '', year: 
 let monthlyRevenueDayPaymentMap = {};
 // currentMemberDetail — members.js \uC5D0\uC11C var \uC120\uC5B8 (index.html: members.js \u2192 dashboard.js \uC21C\uC11C)
 
-/** ??????(FRONT)? ?? KPI??? ?? ?? */
+/** 대시보드 월 총 예약: 사하/연산 엘리트·유소년·사회인·대관·비회원 */
+function studioBookingCount(row, key) {
+    if (!row || row[key] == null) return 0;
+    return Number(row[key]) || 0;
+}
+
+function formatStudioBookingStat(label, count, extraClass, extraAttrs) {
+    var zero = Number(count) === 0 ? ' is-zero' : '';
+    var cls = extraClass ? ' ' + extraClass : '';
+    var attrs = extraAttrs || '';
+    return '<span class="kpi-studio-stat' + zero + cls + '"' + attrs + '><em>' + label + '</em><b>' + count + '</b></span>';
+}
+
+function formatStudioBookingStatsHtml(row, extraNonMemberAttrs) {
+    var parts = [
+        ['엘리트', 'elite'],
+        ['유소년', 'youth'],
+        ['사회인', 'social'],
+        ['대관', 'rental']
+    ];
+    var html = parts.map(function(part) {
+        return formatStudioBookingStat(part[0], studioBookingCount(row, part[1]));
+    }).join('');
+    html += formatStudioBookingStat('비회원', studioBookingCount(row, 'nonMember'), extraNonMemberAttrs ? 'non-member-link' : '', extraNonMemberAttrs || '');
+    return html;
+}
+
+function formatStudioBookingCompactRow(kind, label, row) {
+    row = row || {};
+    var escape = (typeof App !== 'undefined' && App.escapeHtml) ? App.escapeHtml : function(s) { return String(s || ''); };
+    var parts = [
+        ['엘리트', 'elite'],
+        ['유소년', 'youth'],
+        ['사회인', 'social'],
+        ['대관', 'rental'],
+        ['비회원', 'nonMember']
+    ];
+    var bits = parts.filter(function(part) {
+        return studioBookingCount(row, part[1]) > 0;
+    }).map(function(part) {
+        return escape(part[0]) + ' ' + studioBookingCount(row, part[1]);
+    }).join(' · ');
+    return '<div class="kpi-studio-line kpi-studio-line--' + kind + '">'
+        + '<b>' + escape(label) + ' ' + studioBookingCount(row, 'total') + '</b>'
+        + (bits ? '<span class="kpi-studio-sep">|</span><span class="kpi-studio-detail">' + bits + '</span>' : '')
+        + '</div>';
+}
+
+function formatStudioBookingBreakdown(byStudio) {
+    byStudio = byStudio || {};
+    return formatStudioBookingCompactRow('saha', '사하', byStudio.SAHA)
+        + formatStudioBookingCompactRow('yeonsan', '연산', byStudio.YEONSAN);
+}
+
+/** 코치/프론트는 숫자 KPI를 숨김 */
 function dashboardShouldHideNumbers() {
     const role = (App.currentRole || '').toUpperCase();
     return role === 'COACH' || role === 'FRONT';
@@ -281,24 +335,13 @@ async function loadDashboardData() {
         updateElement('kpi-monthly-revenue', hideRevenueOnly ? '-' : App.formatCurrency(kpiData.monthlyRevenue || 0));
         
         const totalBookingsMonth = kpiData.totalBookingsMonth != null ? kpiData.totalBookingsMonth : 0;
-        const byBranch = kpiData.bookingsByBranch || {};
-        const nonMemberByBranch = kpiData.bookingsNonMemberByBranch || {};
-        const saha = byBranch.SAHA != null ? byBranch.SAHA : 0;
-        const yeonsan = byBranch.YEONSAN != null ? byBranch.YEONSAN : 0;
-        const rental = byBranch.RENTAL != null ? byBranch.RENTAL : 0;
-        const sahaNonMember = nonMemberByBranch.SAHA != null ? nonMemberByBranch.SAHA : 0;
-        const yeonsanNonMember = nonMemberByBranch.YEONSAN != null ? nonMemberByBranch.YEONSAN : 0;
-        const rentalNonMember = nonMemberByBranch.RENTAL != null ? nonMemberByBranch.RENTAL : 0;
         const currentMonth = new Date().getMonth() + 1;
         const monthLabelEl = document.getElementById('kpi-total-bookings-month-label');
         if (monthLabelEl) monthLabelEl.textContent = currentMonth + '\uC6D4 \uCD1D \uC608\uC57D \uAC74\uC218';
-        var totalMembers = kpiData.totalMembers != null ? Number(kpiData.totalMembers) : 0;
-        var perMember = totalMembers > 0 ? (totalBookingsMonth / totalMembers) : 0;
-        var perMemberStr = totalMembers > 0 ? (Math.round(perMember * 10) / 10).toFixed(1) : '0';
         var valueEl = document.getElementById('kpi-total-bookings-month');
-        if (valueEl) valueEl.innerHTML = totalBookingsMonth + '<span class="kpi-change positive" style="margin-left: 0.25em;">(\uD68C\uC6D0 1\uBA85\uB2F9 \uD3C9\uADE0 ' + perMemberStr + '\uAC74)</span>';
+        if (valueEl) valueEl.textContent = String(totalBookingsMonth);
         const branchEl = document.getElementById('kpi-bookings-by-branch');
-        if (branchEl) branchEl.textContent = '\uC0AC\uD558 ' + saha + ' (\uBE44\uD68C\uC6D0 ' + sahaNonMember + ') / \uC5F0\uC0B0 ' + yeonsan + ' (\uBE44\uD68C\uC6D0 ' + yeonsanNonMember + ') / \uB300\uAD00 ' + rental + ' (\uBE44\uD68C\uC6D0 ' + rentalNonMember + ')';
+        if (branchEl) branchEl.innerHTML = formatStudioBookingBreakdown(kpiData.bookingsByStudio);
         
         const expiringMembers = kpiData.expiringMembers || 0;
         const expiredMembers = kpiData.expiredMembers || 0;
@@ -536,7 +579,11 @@ async function loadKpiDetail(type) {
         if (type === 'total-members' || type === 'monthly-new-members' || type === 'new-members') {
             const members = await App.api.get('/members');
             let list = Array.isArray(members) ? members : [];
-            if (type === 'monthly-new-members') {
+            if (type === 'total-members') {
+                list = list.filter(function(m) {
+                    return (m.status || '') === 'ACTIVE';
+                });
+            } else if (type === 'monthly-new-members') {
                 list = list.filter(function(m) {
                     const j = m.joinDate;
                     if (!j) return false;
@@ -570,14 +617,9 @@ async function loadKpiDetail(type) {
         } else if (type === 'total-bookings-month') {
             const kpiData = await App.api.get('/dashboard/kpi');
             const total = kpiData.totalBookingsMonth != null ? kpiData.totalBookingsMonth : 0;
-            const byBranch = kpiData.bookingsByBranch || {};
-            const nonMemberByBranch = kpiData.bookingsNonMemberByBranch || {};
-            const saha = byBranch.SAHA != null ? byBranch.SAHA : 0;
-            const yeonsan = byBranch.YEONSAN != null ? byBranch.YEONSAN : 0;
-            const rental = byBranch.RENTAL != null ? byBranch.RENTAL : 0;
-            const sahaNonMember = nonMemberByBranch.SAHA != null ? nonMemberByBranch.SAHA : 0;
-            const yeonsanNonMember = nonMemberByBranch.YEONSAN != null ? nonMemberByBranch.YEONSAN : 0;
-            const rentalNonMember = nonMemberByBranch.RENTAL != null ? nonMemberByBranch.RENTAL : 0;
+            const byStudio = kpiData.bookingsByStudio || {};
+            const sahaRow = byStudio.SAHA || {};
+            const yeonsanRow = byStudio.YEONSAN || {};
             const monthNum = new Date().getMonth() + 1;
             const now = new Date();
             const startISO = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -585,14 +627,20 @@ async function loadKpiDetail(type) {
             var totalMembersModal = kpiData.totalMembers != null ? Number(kpiData.totalMembers) : 0;
             var perMemberModal = totalMembersModal > 0 ? (total / totalMembersModal) : 0;
             var perMemberStrModal = totalMembersModal > 0 ? (Math.round(perMemberModal * 10) / 10).toFixed(1) : '0';
+            function studioModalCard(label, href, branch, kind, row) {
+                row = row || {};
+                var nonMemberAttrs = ' role="button" tabindex="0" data-branch="' + branch + '" data-label="' + label + '" data-start="' + startISO + '" data-end="' + endISO + '"';
+                return '<div class="kpi-studio-row kpi-studio-modal-card kpi-studio-row--' + kind + '">'
+                    + '<a href="' + href + '" class="kpi-studio-modal-title">' + label + ' 예약 <strong>' + studioBookingCount(row, 'total') + '</strong></a>'
+                    + '<div class="kpi-studio-stats">' + formatStudioBookingStatsHtml(row, nonMemberAttrs) + '</div></div>';
+            }
             let html = '<p style="margin-bottom: 16px; font-size: 14px; color: var(--text-secondary);">' + monthNum + '\uC6D4(1\uC77C~\uD604\uC7AC) \uB204\uC801 \uC608\uC57D \uAC74\uC218\uC785\uB2C8\uB2E4. \uC9C0\uC810\uBCC4 \uD604\uD669\uC744 \uD655\uC778\uD574 \uBCF4\uC138\uC694.</p>';
             html += '<p style="margin-bottom: 12px; font-size: 14px; font-weight: 600;">\uCD1D \uD68C\uC6D0 <strong>' + totalMembersModal + '\uBA85</strong> \uAE30\uC900 1\uBA85\uB2F9 \uD3C9\uADE0 <strong>' + perMemberStrModal + '\uAC74</strong></p>';
-            html += '<div style="display: flex; flex-wrap: wrap; gap: 12px;">';
-            html += '<span style="display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 12px 20px; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid var(--border-color);"><a href="/bookings.html" style="text-decoration: none; color: var(--text-primary); font-weight: 600;"><span style="color: var(--text-secondary); margin-right: 6px;">\uC0AC\uD558 \uC608\uC57D</span>' + saha + '\uAC74</a> <span class="non-member-link" role="button" tabindex="0" data-branch="SAHA" data-label="\uC0AC\uD558" data-start="' + startISO + '" data-end="' + endISO + '" style="color: var(--primary); cursor: pointer; text-decoration: underline;">(\uBE44\uD68C\uC6D0 ' + sahaNonMember + ')</span></span>';
-            html += '<span style="display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 12px 20px; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid var(--border-color);"><a href="/bookings-yeonsan.html" style="text-decoration: none; color: var(--text-primary); font-weight: 600;"><span style="color: var(--text-secondary); margin-right: 6px;">\uC5F0\uC0B0 \uC608\uC57D</span>' + yeonsan + '\uAC74</a> <span class="non-member-link" role="button" tabindex="0" data-branch="YEONSAN" data-label="\uC5F0\uC0B0" data-start="' + startISO + '" data-end="' + endISO + '" style="color: var(--primary); cursor: pointer; text-decoration: underline;">(\uBE44\uD68C\uC6D0 ' + yeonsanNonMember + ')</span></span>';
-            html += '<span style="display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 12px 20px; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid var(--border-color);"><a href="/rentals.html" style="text-decoration: none; color: var(--text-primary); font-weight: 600;"><span style="color: var(--text-secondary); margin-right: 6px;">\uB300\uC5EC \uC608\uC57D</span>' + rental + '\uAC74</a> <span class="non-member-link" role="button" tabindex="0" data-branch="RENTAL" data-label="\uB300\uC5EC" data-start="' + startISO + '" data-end="' + endISO + '" style="color: var(--primary); cursor: pointer; text-decoration: underline;">(\uBE44\uD68C\uC6D0 ' + rentalNonMember + ')</span></span>';
+            html += '<div class="kpi-studio-modal-grid">';
+            html += studioModalCard('사하', '/bookings.html', 'SAHA', 'saha', sahaRow);
+            html += studioModalCard('연산', '/bookings-yeonsan.html', 'YEONSAN', 'yeonsan', yeonsanRow);
             html += '</div>';
-            html += '<p style="margin-top: 16px; font-size: 13px; color: var(--text-muted);">\uCD1D <strong>' + total + '</strong>\uAC74 (\uC0AC\uD558 ' + saha + ' + \uC5F0\uC0B0 ' + yeonsan + ' + \uB300\uC5EC ' + rental + ')</p>';
+            html += '<p style="margin-top: 16px; font-size: 13px; color: var(--text-muted);">\uCD1D <strong>' + total + '</strong>\uAC74 (\uC0AC\uD558 ' + studioBookingCount(sahaRow, 'total') + ' + \uC5F0\uC0B0 ' + studioBookingCount(yeonsanRow, 'total') + ')</p>';
             contentEl.innerHTML = html;
             contentEl.querySelectorAll('.non-member-link').forEach(function(span) {
                 function openNonMember() {
@@ -1900,7 +1948,7 @@ async function openExtendModal(memberId, memberProductId, productType, productNa
                 <div style="font-size: 16px; font-weight: 600; color: var(--text-primary);">${productName || '? ? ??'}</div>
             </div>
         `;
-    } else if (productType === 'MONTHLY_PASS') {
+    } else if (productType === 'MONTHLY_PASS' || productType === 'DAY_PASS') {
         content.innerHTML = `
             <div class="form-group">
                 <label class="form-label">??? ?? *</label>
@@ -1970,7 +2018,7 @@ async function openRepurchaseModal(memberId, memberProductId, productType, produ
                     <div style="font-size: 14px; color: var(--text-secondary); margin-top: 8px;">??: ${App.formatCurrency(product.price || 0)}</div>
                 </div>
             `;
-        } else if (productType === 'MONTHLY_PASS') {
+        } else if (productType === 'MONTHLY_PASS' || productType === 'DAY_PASS') {
             content.innerHTML = `
                 <div class="form-group">
                     <label class="form-label">??? ?? (?) *</label>
@@ -2124,7 +2172,7 @@ function renderCurrentMemberProducts(memberProducts) {
         let remaining = App.resolveDisplayRemainingCount(mp, { whenAllUnknown: 'zero' });
 
         const isCountPass = product.type === 'COUNT_PASS';
-        const isPeriodPass = product.type === 'MONTHLY_PASS' || product.type === 'TIME_PASS';
+        const isPeriodPass = product.type === 'MONTHLY_PASS' || product.type === 'DAY_PASS' || product.type === 'TIME_PASS';
         const graceExhausted =
             typeof App.isActiveCountPassExhaustedForGrace === 'function' &&
             App.isActiveCountPassExhaustedForGrace(mp);
@@ -2604,7 +2652,7 @@ async function submitExtendRepurchase() {
             if (productType === 'COUNT_PASS') {
                 const el = document.getElementById('extend-count');
                 rawInput = el ? el.value : '';
-            } else if (productType === 'MONTHLY_PASS') {
+            } else if (productType === 'MONTHLY_PASS' || productType === 'DAY_PASS') {
                 const el = document.getElementById('extend-days');
                 rawInput = el ? el.value : '';
             } else {
@@ -2690,7 +2738,7 @@ async function submitExtendRepurchase() {
             if (productType === 'COUNT_PASS') {
                 const count = parseInt(document.getElementById('repurchase-count').value);
                 purchaseData.count = count;
-            } else if (productType === 'MONTHLY_PASS') {
+            } else if (productType === 'MONTHLY_PASS' || productType === 'DAY_PASS') {
                 const days = parseInt(document.getElementById('repurchase-days').value);
                 purchaseData.days = days;
             }

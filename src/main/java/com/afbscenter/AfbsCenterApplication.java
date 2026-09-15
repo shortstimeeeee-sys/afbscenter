@@ -2,11 +2,13 @@ package com.afbscenter;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 @SpringBootApplication
+@EnableScheduling
 public class AfbsCenterApplication {
 
     public static void main(String[] args) {

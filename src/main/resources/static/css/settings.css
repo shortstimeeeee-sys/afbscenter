@@ -9,3 +9,30 @@ body.settings-page .topbar { margin-top: 0; }
     display: flex;
     justify-content: flex-end;
 }
+
+/* 예약 달력 목록: 편집 열을 넓혀 '불러오기'가 한 줄로 보이게 */
+#calendar-day-marks-card .calendar-marks-table th:last-child,
+#calendar-day-marks-card .calendar-marks-table td:last-child {
+    width: 148px;
+    min-width: 148px;
+    white-space: nowrap;
+    padding-left: 14px;
+    padding-right: 14px;
+}
+
+#calendar-day-marks-card .calendar-marks-table .btn {
+    white-space: nowrap;
+}
+
+#branch-closures-card .calendar-marks-table th:last-child,
+#branch-closures-card .calendar-marks-table td:last-child {
+    width: 210px;
+    min-width: 210px;
+    white-space: nowrap;
+    padding-left: 14px;
+    padding-right: 14px;
+}
+
+#branch-closures-card .calendar-marks-table .btn {
+    white-space: nowrap;
+}
