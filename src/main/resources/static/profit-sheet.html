@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>수익 정산표 - AFBS 센터</title>
+    <link rel="stylesheet" href="/css/common.css?v=profit-sheet1">
+    <link rel="stylesheet" href="/css/profit-sheet.css?v=profit-sheet9">
+</head>
+<body class="profit-sheet-page">
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">⚾ AFBS 센터</div>
+                <div class="sidebar-subtitle">운영 관리 시스템</div>
+            </div>
+            <nav class="sidebar-menu">
+                <div class="menu-section">
+                    <div class="menu-section-title">주요 메뉴</div>
+                    <a href="/" class="menu-item" data-role="Front"><span class="menu-item-icon">📊</span><span>대시보드</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">회원 관리</div>
+                    <a href="/members.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👥</span><span>회원 관리</span></a>
+                    <a href="/coaches.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏃</span><span>코치/레슨 관리</span></a>
+                    <div class="menu-section-title">출석부</div>
+                    <a href="/attendance.html" class="menu-item menu-item--attendance" data-role="Front"><span class="menu-item-icon">✓</span><span>출석/이용 기록</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">예약 관리</div>
+                    <a href="/bookings-without-product.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚠️</span><span>이용권 미연결 예약 관리</span></a>
+                    <div class="menu-section-title">📍 사하점</div>
+                    <a href="/bookings.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-saha-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">💪</span><span>트레이닝</span></a>
+                    <a href="/bookings-saha-pilates.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧘</span><span>필라테스</span></a>
+                    <div class="menu-section-title">📍 연산점</div>
+                    <a href="/bookings-yeonsan.html" class="menu-item" data-role="Front"><span class="menu-item-icon">⚾</span><span>야구</span></a>
+                    <a href="/bookings-yeonsan-training.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧘</span><span>필라테스</span></a>
+                    <div class="menu-section-title">비 야구파트</div>
+                    <a href="/staff-attendance.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">🕒</span><span>출근부</span></a>
+                    <a href="/bookings-yeonsan-youth.html" class="menu-item" data-role="Front"><span class="menu-item-icon">👶</span><span>야구(유소년)</span></a>
+                    <a href="/bookings-yeonsan-social.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🧢</span><span>야구(사회인)</span></a>
+                    <a href="/rentals.html" class="menu-item" data-role="Front"><span class="menu-item-icon">🏟️</span><span>대관 관리</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">훈련 관리</div>
+                    <a href="/training-logs.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📝</span><span>훈련 기록</span></a>
+                    <a href="/rankings.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">🏆</span><span>훈련 랭킹</span></a>
+                    <a href="/training-stats.html" class="menu-item" data-role="Coach"><span class="menu-item-icon">📈</span><span>훈련 통계</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">이용권/결제</div>
+                    <a href="/products.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🎁</span><span>이용권</span></a>
+                    <a href="/payments.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">💳</span><span>결제/정산</span></a>
+                </div>
+                <div class="menu-section">
+                    <div class="menu-section-title">시설 관리</div>
+                    <a href="/facilities.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">🏟️</span><span>시설/슬롯 설정</span></a>
+                </div>
+                <div class="menu-section" data-role="Admin">
+                    <div class="menu-section-title">관리자</div>
+                    <a href="/analytics.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📈</span><span>통계/분석</span></a>
+                    <a href="/announcements.html" class="menu-item" data-role="Manager"><span class="menu-item-icon">📢</span><span>공지/메시지</span></a>
+                    <a href="/screenshot-export.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">📷</span><span>스크린샷 발췌</span></a>
+                    <a href="/users.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">👤</span><span>사용자 관리</span></a>
+                    <a href="/permissions.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">🔐</span><span>권한 관리</span></a>
+                    <a href="/settings.html" class="menu-item" data-role="Admin"><span class="menu-item-icon">⚙️</span><span>설정</span></a>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <h1 class="page-title">수익 정산표</h1>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn">🔔</button>
+                    <button class="user-menu-btn">👤</button>
+                </div>
+            </header>
+
+            <div class="content-area">
+                <div class="card profit-sheet-card">
+                    <div class="profit-sheet-toolbar">
+                        <button type="button" class="btn btn-secondary btn-sm" id="profit-sheet-prev">◀</button>
+                        <div class="profit-sheet-month" id="profit-sheet-month-label"></div>
+                        <button type="button" class="btn btn-secondary btn-sm" id="profit-sheet-next">▶</button>
+                        <span class="profit-sheet-hint">빈 칸에 금액을 넣고, 등록된 금액을 누르면 누가 얼마 냈는지 적을 수 있습니다.</span>
+                        <span class="profit-sheet-save-status" id="profit-sheet-save-status"></span>
+                        <div class="profit-sheet-grand" id="profit-sheet-grand">0</div>
+                    </div>
+                    <div class="profit-sheet-table-wrap" id="profit-sheet-table-wrap"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="modal-overlay" id="ps-payer-modal">
+        <div class="modal" style="max-width: 480px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="ps-payer-title">납부 내역</h2>
+                <button type="button" class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label" for="ps-payer-cell-input">칸 금액</label>
+                    <input type="text" class="form-control" id="ps-payer-cell-input" inputmode="numeric" autocomplete="off" placeholder="금액">
+                </div>
+                <p class="ps-payer-meta">내역 합계 <strong id="ps-payer-sum">0</strong></p>
+                <p class="ps-payer-match" id="ps-payer-match"></p>
+                <div id="ps-payer-list"></div>
+                <button type="button" class="btn btn-secondary btn-sm" id="ps-payer-add">+ 내역 추가</button>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="App.Modal.close('ps-payer-modal')">닫기</button>
+                <button type="button" class="btn btn-primary" id="ps-payer-save">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/common.js?v=hide-ext-work1"></script>
+    <script src="/js/profit-sheet.js?v=profit-sheet8"></script>
+</body>
+</html>

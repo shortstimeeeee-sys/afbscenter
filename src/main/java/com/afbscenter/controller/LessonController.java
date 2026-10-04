@@ -37,7 +37,7 @@ public class LessonController {
             // LESSON 목적의 예약만 조회
             List<Booking> allBookings = bookingRepository.findAll();
             List<Booking> lessonBookings = allBookings.stream()
-                    .filter(b -> b.getPurpose() == Booking.BookingPurpose.LESSON)
+                    .filter(Booking::usesLessonCategory)
                     .collect(Collectors.toList());
             
             // 코치 필터링
@@ -136,7 +136,7 @@ public class LessonController {
             return bookingRepository.findById(id)
                     .map(booking -> {
                         // LESSON 목적인지 확인
-                        if (booking.getPurpose() != Booking.BookingPurpose.LESSON) {
+                        if (!booking.usesLessonCategory()) {
                             Map<String, Object> error = new HashMap<>();
                             error.put("error", "레슨을 찾을 수 없습니다.");
                             return ResponseEntity.<Map<String, Object>>status(HttpStatus.NOT_FOUND).body(error);

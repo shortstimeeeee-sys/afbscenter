@@ -74,6 +74,10 @@ public class Payment {
     @Column(name = "refund_approved_by")
     private String refundApprovedBy; // 환불 승인자
 
+    /** 결제/정산 목록에서 직접 입력한 순매출. null이면 결제금액 − 환불금액. */
+    @Column(name = "settlement_net_amount")
+    private Integer settlementNetAmount;
+
     @Column(name = "paid_at", nullable = false)
     private LocalDateTime paidAt = LocalDateTime.now();
 

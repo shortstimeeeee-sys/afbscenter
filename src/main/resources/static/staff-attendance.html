@@ -6,7 +6,7 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>출근부 - AFBS 센터</title>
     <link rel="stylesheet" href="/css/common.css?v=att-off1">
-    <link rel="stylesheet" href="/css/staff-attendance.css?v=att-off4">
+    <link rel="stylesheet" href="/css/staff-attendance.css?v=ext-work2">
 </head>
 <body class="staff-attendance-page">
     <div class="app-container">
@@ -87,22 +87,27 @@
                     <div class="staff-att-kpi is-work">
                         <div class="staff-att-kpi-label">오늘 근무 중</div>
                         <div class="staff-att-kpi-value" id="kpi-working-now">0</div>
+                        <div class="staff-att-kpi-detail" id="kpi-working-now-detail"></div>
                     </div>
                     <div class="staff-att-kpi is-out">
                         <div class="staff-att-kpi-label">오늘 퇴근</div>
                         <div class="staff-att-kpi-value" id="kpi-clocked-out">0</div>
+                        <div class="staff-att-kpi-detail" id="kpi-clocked-out-detail"></div>
                     </div>
                     <div class="staff-att-kpi is-off">
                         <div class="staff-att-kpi-label">오늘 휴무·병가</div>
                         <div class="staff-att-kpi-value" id="kpi-off-today">0</div>
+                        <div class="staff-att-kpi-detail" id="kpi-off-today-detail"></div>
                     </div>
                     <div class="staff-att-kpi is-empty">
                         <div class="staff-att-kpi-label">오늘 미출근</div>
                         <div class="staff-att-kpi-value" id="kpi-not-in">0</div>
+                        <div class="staff-att-kpi-detail" id="kpi-not-in-detail"></div>
                     </div>
                     <div class="staff-att-kpi">
                         <div class="staff-att-kpi-label">명부 인원</div>
                         <div class="staff-att-kpi-value" id="kpi-staff-count">0</div>
+                        <div class="staff-att-kpi-detail" id="kpi-staff-count-detail"></div>
                     </div>
                 </div>
                 <div class="staff-att-toolbar">
@@ -130,6 +135,7 @@
                         <option value="WORK">근무</option>
                         <option value="OFF">휴무</option>
                         <option value="OUTDOOR">야외레슨</option>
+                        <option value="EXTERNAL_WORK">외부업무</option>
                         <option value="SICK">병가</option>
                     </select>
                 </div>
@@ -180,7 +186,6 @@
         </div>
     </div>
 
-    <script src="/js/common.js?v=att-off5"></script>
-    <script src="/js/staff-attendance.js?v=att-off4"></script>
-</body>
+    <script src="/js/common.js?v=hide-ext-work1"></script>
+    <script src="/js/staff-attendance.js?v=ext-work2"></script>
 </html>

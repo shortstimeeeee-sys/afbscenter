@@ -15,8 +15,10 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -51,11 +53,14 @@ public class PublicBranchClosureController {
             return ResponseEntity.badRequest().body(Collections.emptyList());
         }
         Facility.Branch studio = BranchStudio.storageBranch(g);
-        BranchClosure.CalendarPart part = BranchStudio.storagePart(g);
+        List<BranchClosure.CalendarPart> parts = BranchStudio.displayParts(g);
         final BranchClosure.ClosureGroup resolved = g;
+        Set<String> seen = new LinkedHashSet<>();
         List<Map<String, Object>> out = branchClosureRepository
-                .findByBranchAndCalendarPartAndClosureDateBetweenOrderByClosureDateAsc(studio, part, startDate, endDate)
+                .findByBranchAndCalendarPartInAndClosureDateBetweenOrderByClosureDateAsc(
+                        studio, parts, startDate, endDate)
                 .stream()
+                .filter(row -> row.getClosureDate() != null && seen.add(row.getClosureDate().toString()))
                 .map(row -> {
                     Map<String, Object> map = new HashMap<>();
                     map.put("group", resolved.name());

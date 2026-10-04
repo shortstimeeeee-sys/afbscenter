@@ -184,22 +184,34 @@
 
                 <div class="card" id="branch-closures-card" style="display: none;">
                     <div class="card-header">
-                        <h2 class="card-title">지점 휴무</h2>
+                        <h2 class="card-title">지점·파트 휴무</h2>
                     </div>
                     <div style="padding: 0 16px 16px 16px;">
                         <p style="font-size: 14px; color: var(--text-secondary); margin: 0 0 12px 0; line-height: 1.5;">
-                            사이드바와 같이 <strong>사하</strong>(야구·트레이닝·필라테스),
-                            <strong>연산</strong>(야구·필라테스),
-                            <strong>비 야구파트</strong>(유소년·사회인·대관)로 지정합니다.
-                            지정한 날짜 칸에 <strong>빨간 음영</strong>과 <strong>휴무</strong>가 표시됩니다.
+                            <strong>지점 전체</strong>(사하 / 연산 / 비 야구파트)로 지정하면 그 아래 모든 달력에 휴무가 표시됩니다.
+                            <strong>파트</strong>(야구·트레이닝·필라테스·유소년·사회인·대관)만 고르면 해당 달력에만 표시됩니다.
                         </p>
                         <div class="form-group" style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 16px;">
-                            <div style="min-width: 220px;">
-                                <label class="form-label" for="branch-closures-branch">그룹</label>
+                            <div style="min-width: 240px;">
+                                <label class="form-label" for="branch-closures-branch">대상</label>
                                 <select class="form-control" id="branch-closures-branch">
-                                    <option value="SAHA">사하</option>
-                                    <option value="YEONSAN">연산</option>
-                                    <option value="NON_BASEBALL">비 야구파트</option>
+                                    <optgroup label="사하">
+                                        <option value="SAHA">사하 (전체)</option>
+                                        <option value="SAHA_BASEBALL">사하 야구</option>
+                                        <option value="SAHA_TRAINING">사하 트레이닝</option>
+                                        <option value="SAHA_PILATES">사하 필라테스</option>
+                                    </optgroup>
+                                    <optgroup label="연산">
+                                        <option value="YEONSAN">연산 (전체)</option>
+                                        <option value="YEONSAN_BASEBALL">연산 야구</option>
+                                        <option value="YEONSAN_PILATES">연산 필라테스</option>
+                                    </optgroup>
+                                    <optgroup label="비 야구파트">
+                                        <option value="NON_BASEBALL">비 야구파트 (전체)</option>
+                                        <option value="YOUTH">유소년</option>
+                                        <option value="SOCIAL">사회인</option>
+                                        <option value="RENTAL">대관</option>
+                                    </optgroup>
                                 </select>
                             </div>
                             <div style="min-width: 160px;">
@@ -226,7 +238,7 @@
                         <div class="form-group">
                             <label class="form-label" for="branch-closure-date">날짜</label>
                             <input type="date" class="form-control" id="branch-closure-date" style="max-width: 220px;" />
-                            <p class="form-text" style="margin-top: 6px; font-size: 13px; color: var(--text-muted);">위에서 고른 그룹의 예약 달력에만 휴무로 표시됩니다.</p>
+                            <p class="form-text" style="margin-top: 6px; font-size: 13px; color: var(--text-muted);">위에서 고른 대상의 예약 달력에 휴무로 표시됩니다. 파트만 지정하면 다른 파트는 그대로입니다.</p>
                         </div>
                         <div style="display: flex; flex-wrap: wrap; gap: 8px;">
                             <button type="button" class="btn btn-primary" onclick="saveBranchClosure()">휴무로 지정</button>
@@ -259,7 +271,7 @@
         </main>
     </div>
     
-    <script src="/js/common.js?v=branch-off3"></script>
-    <script src="/js/settings.js?v=branch-off3"></script>
+    <script src="/js/common.js?v=hide-ext-work1"></script>
+    <script src="/js/settings.js?v=part-off1"></script>
 </body>
 </html>

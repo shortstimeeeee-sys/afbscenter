@@ -76,7 +76,7 @@ public class BookingAdminController {
                 if (booking != null && booking.getStatus() == Booking.BookingStatus.PENDING) {
                     booking.setStatus(Booking.BookingStatus.CONFIRMED);
                     if (booking.getMember() != null && booking.getMemberProduct() == null
-                            && booking.getPurpose() == Booking.BookingPurpose.LESSON) {
+                            && booking.usesLessonCategory()) {
                         try {
                             List<com.afbscenter.model.MemberProduct> activeCountPass =
                                     memberProductRepository.findActiveCountPassByMemberId(booking.getMember().getId());
@@ -123,7 +123,7 @@ public class BookingAdminController {
             int updatedCount = 0;
 
             for (Booking booking : bookings) {
-                if (booking.getPurpose() == Booking.BookingPurpose.LESSON && booking.getLessonCategory() == null) {
+                if (booking.usesLessonCategory() && booking.getLessonCategory() == null) {
                     Coach coach = booking.getCoach();
                     if (coach == null && booking.getMember() != null && booking.getMember().getCoach() != null) {
                         coach = booking.getMember().getCoach();

@@ -1697,6 +1697,28 @@ body.green-gold-white-theme .kpi-card:hover {
     letter-spacing: 0.5px;
 }
 
+.kpi-label-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 8px;
+    min-width: 0;
+}
+
+.kpi-label-row .kpi-label {
+    margin-bottom: 0;
+    flex: 0 0 auto;
+}
+
+.kpi-label-row .kpi-change {
+    font-size: 11px;
+    line-height: 1.2;
+    letter-spacing: 0;
+    text-transform: none;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .kpi-value {
     font-size: 32px;
     font-weight: 700;
@@ -1719,7 +1741,9 @@ body.green-gold-white-theme .kpi-card:hover {
     color: var(--danger);
 }
 
-#kpi-bookings-by-branch {
+#kpi-bookings-by-branch,
+#kpi-bookings-today-by-studio,
+#kpi-monthly-new-members-by-studio {
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -1729,6 +1753,13 @@ body.green-gold-white-theme .kpi-card:hover {
     font-size: 11px;
     line-height: 1.35;
     white-space: normal;
+}
+
+.kpi-studio-caption {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--success);
+    opacity: 0.9;
 }
 
 .kpi-studio-line b {
@@ -1966,6 +1997,236 @@ body.green-gold-white-theme .kpi-studio-modal-title {
 
 .modal-overlay.active {
     display: flex;
+}
+
+.weekday-closure-dates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.weekday-closure-date {
+    min-width: 68px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: center;
+    font-size: 15px;
+    font-weight: 600;
+}
+.weekday-closure-date.is-on {
+    background: rgba(211, 47, 47, 0.14);
+    border-color: #d32f2f;
+    color: #d32f2f;
+}
+.weekday-picker-lead {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin: 0 0 14px 0;
+    line-height: 1.5;
+}
+.weekday-picker-section {
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-secondary, transparent);
+    margin-bottom: 12px;
+}
+.weekday-picker-section:last-of-type {
+    margin-bottom: 0;
+}
+.weekday-picker-section-title {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+.weekday-picker-section-hint {
+    margin: 0 0 10px 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+.weekday-picker-section-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+.weekday-picker-mini-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+}
+.weekday-picker-section--trial {
+    border-color: rgba(41, 98, 255, 0.45);
+}
+.weekday-picker-section--trial .weekday-picker-section-title {
+    color: #82b1ff;
+}
+.weekday-trial-date.is-on {
+    background: rgba(41, 98, 255, 0.22);
+    border-color: #448aff;
+    color: #bbdefb;
+}
+.weekday-picker-section--closure {
+    border-color: rgba(211, 47, 47, 0.35);
+}
+.weekday-picker-section--closure .weekday-picker-section-title {
+    color: #ef9a9a;
+}
+body.light-mode .weekday-picker-section--trial .weekday-picker-section-title {
+    color: #1565c0;
+}
+body.light-mode .weekday-trial-date.is-on {
+    background: rgba(41, 98, 255, 0.16);
+    border-color: #2962ff;
+    color: #1565c0;
+}
+.weekday-picker-section--social-outdoor {
+    border-color: rgba(41, 98, 255, 0.45);
+}
+.weekday-picker-meta {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 8px;
+    margin: 8px 0 4px;
+}
+.weekday-picker-meta-field--coach {
+    grid-column: 1 / -1;
+}
+.weekday-picker-meta-field {
+    margin: 0;
+}
+.weekday-picker-meta-field .form-label {
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+.weekday-picker-meta-field .form-control {
+    font-size: 13px;
+}
+@media (max-width: 520px) {
+    .weekday-picker-meta {
+        grid-template-columns: 1fr;
+    }
+}
+.weekday-picker-section--social-outdoor .weekday-picker-section-title {
+    color: #82b1ff;
+}
+.weekday-social-outdoor-date.is-on {
+    background: rgba(41, 98, 255, 0.22);
+    border-color: #448aff;
+    color: #bbdefb;
+}
+body.light-mode .weekday-picker-section--social-outdoor .weekday-picker-section-title {
+    color: #1565c0;
+}
+body.light-mode .weekday-social-outdoor-date.is-on {
+    background: rgba(41, 98, 255, 0.16);
+    border-color: #2962ff;
+    color: #1565c0;
+}
+.weekday-picker-section--social-scrimmage {
+    border-color: rgba(41, 98, 255, 0.45);
+}
+.weekday-picker-section--social-scrimmage .weekday-picker-section-title {
+    color: #82b1ff;
+}
+.weekday-social-scrimmage-date.is-on {
+    background: rgba(41, 98, 255, 0.22);
+    border-color: #448aff;
+    color: #bbdefb;
+}
+body.light-mode .weekday-picker-section--social-scrimmage .weekday-picker-section-title {
+    color: #1565c0;
+}
+body.light-mode .weekday-social-scrimmage-date.is-on {
+    background: rgba(41, 98, 255, 0.16);
+    border-color: #2962ff;
+    color: #1565c0;
+}
+.weekday-picker-section--social-regular-meeting {
+    border-color: rgba(41, 98, 255, 0.45);
+}
+.weekday-picker-section--social-regular-meeting .weekday-picker-section-title {
+    color: #82b1ff;
+}
+.weekday-social-regular-meeting-date.is-on {
+    background: rgba(41, 98, 255, 0.22);
+    border-color: #448aff;
+    color: #bbdefb;
+}
+body.light-mode .weekday-picker-section--social-regular-meeting .weekday-picker-section-title {
+    color: #1565c0;
+}
+body.light-mode .weekday-social-regular-meeting-date.is-on {
+    background: rgba(41, 98, 255, 0.16);
+    border-color: #2962ff;
+    color: #1565c0;
+}
+.weekday-picker-section--external-work {
+    display: none;
+}
+.weekday-picker-section--external-work .weekday-picker-section-title {
+    color: #ffb74d;
+}
+.weekday-external-work-date.is-on {
+    background: rgba(239, 108, 0, 0.24);
+    border-color: #fb8c00;
+    color: #ffe0b2;
+}
+body.light-mode .weekday-picker-section--external-work .weekday-picker-section-title {
+    color: #e65100;
+}
+body.light-mode .weekday-external-work-date.is-on {
+    background: rgba(239, 108, 0, 0.16);
+    border-color: #ef6c00;
+    color: #e65100;
+}
+body.light-mode .weekday-picker-section--closure .weekday-picker-section-title {
+    color: #c62828;
+}
+.calendar-event.calendar-event--youth-trial {
+    background-color: #2962ff;
+    border-left: 3px solid #1565c0;
+    color: #fff;
+    cursor: default;
+    font-weight: 700;
+}
+.calendar-event.calendar-event--social-outdoor {
+    background-color: #2962ff;
+    border-left: 3px solid #1565c0;
+    color: #fff;
+    cursor: default;
+    font-weight: 700;
+}
+.calendar-event.calendar-event--social-scrimmage {
+    background-color: #2962ff;
+    border-left: 3px solid #1565c0;
+    color: #fff;
+    cursor: default;
+    font-weight: 700;
+}
+.calendar-event.calendar-event--social-regular-meeting {
+    background-color: #2962ff;
+    border-left: 3px solid #1565c0;
+    color: #fff;
+    cursor: default;
+    font-weight: 700;
+}
+.calendar-event.calendar-event--external-work {
+    background-color: #ef6c00;
+    border-left: 3px solid #e65100;
+    color: #fff;
+    cursor: default;
+    font-weight: 700;
+}
+.calendar-event.calendar-event--youth-trial.calendar-event--weekday-cancelable,
+.calendar-event.calendar-event--social-outdoor.calendar-event--weekday-cancelable,
+.calendar-event.calendar-event--social-scrimmage.calendar-event--weekday-cancelable,
+.calendar-event.calendar-event--social-regular-meeting.calendar-event--weekday-cancelable,
+.calendar-event.calendar-event--external-work.calendar-event--weekday-cancelable {
+    cursor: pointer;
 }
 
 #member-info-modal {

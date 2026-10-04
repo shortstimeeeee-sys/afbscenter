@@ -334,7 +334,7 @@ public class DashboardQueryController {
     void updateMissingLessonCategoriesForBookings(List<Booking> bookings) {
         try {
             for (Booking booking : bookings) {
-                if (booking.getPurpose() == Booking.BookingPurpose.LESSON && booking.getLessonCategory() == null) {
+                if (booking.usesLessonCategory() && booking.getLessonCategory() == null) {
                     com.afbscenter.model.Coach coach = booking.getCoach();
                     if (coach == null && booking.getMember() != null && booking.getMember().getCoach() != null) {
                         coach = booking.getMember().getCoach();
@@ -392,7 +392,7 @@ public class DashboardQueryController {
                     String memberName = booking.getMember() != null ? booking.getMember().getName() : (booking.getNonMemberName() != null ? booking.getNonMemberName() : "비회원");
                     item.put("memberName", memberName);
                     String lessonCategory = "";
-                    if (booking.getPurpose() == Booking.BookingPurpose.LESSON) {
+                    if (booking.usesLessonCategory()) {
                         if (booking.getLessonCategory() != null) {
                             lessonCategory = LessonCategoryUtil.toKoreanText(booking.getLessonCategory());
                         } else {

@@ -117,6 +117,7 @@ public class CoachPortalService {
         int offDays = 0;
         int sickDays = 0;
         int outdoorDays = 0;
+        int externalWorkDays = 0;
         long workedMinutes = 0;
         List<Map<String, Object>> days = new ArrayList<>();
         Set<LocalDate> seen = new HashSet<>();
@@ -127,6 +128,8 @@ public class CoachPortalService {
                 sickDays++;
             } else if (r.getDayType() == CoachWorkRecord.DayType.OUTDOOR) {
                 outdoorDays++;
+            } else if (r.getDayType() == CoachWorkRecord.DayType.EXTERNAL_WORK) {
+                externalWorkDays++;
             } else if (r.getCheckInTime() != null) {
                 workDays++;
                 if (r.getCheckOutTime() != null) {
@@ -561,11 +564,13 @@ public class CoachPortalService {
     private static boolean isNonWorkDay(CoachWorkRecord.DayType type) {
         return type == CoachWorkRecord.DayType.OFF
                 || type == CoachWorkRecord.DayType.SICK
-                || type == CoachWorkRecord.DayType.OUTDOOR;
+                || type == CoachWorkRecord.DayType.OUTDOOR
+                || type == CoachWorkRecord.DayType.EXTERNAL_WORK;
     }
 
     private static boolean isClearableDayMark(CoachWorkRecord.DayType type) {
-        return type == CoachWorkRecord.DayType.OFF || type == CoachWorkRecord.DayType.OUTDOOR;
+        return type == CoachWorkRecord.DayType.OFF
+                || type == CoachWorkRecord.DayType.OUTDOOR;
     }
 
     private static boolean blocksOffConversion(CoachWorkRecord record, LocalDate date) {
@@ -597,6 +602,7 @@ public class CoachPortalService {
         int offDays = 0;
         int sickDays = 0;
         int outdoorDays = 0;
+        int externalWorkDays = 0;
         long workedMinutes = 0;
         List<Map<String, Object>> days = new ArrayList<>();
         if (records != null) {
@@ -607,6 +613,8 @@ public class CoachPortalService {
                     sickDays++;
                 } else if (r.getDayType() == CoachWorkRecord.DayType.OUTDOOR) {
                     outdoorDays++;
+                } else if (r.getDayType() == CoachWorkRecord.DayType.EXTERNAL_WORK) {
+                    externalWorkDays++;
                 } else if (r.getCheckInTime() != null) {
                     workDays++;
                     if (r.getCheckOutTime() != null) {
@@ -621,6 +629,7 @@ public class CoachPortalService {
         out.put("offDays", offDays);
         out.put("sickDays", sickDays);
         out.put("outdoorDays", outdoorDays);
+        out.put("externalWorkDays", externalWorkDays);
         out.put("workedMinutes", workedMinutes);
         out.put("days", days);
         return out;
@@ -639,6 +648,9 @@ public class CoachPortalService {
         }
         if ("OUTDOOR".equals(type)) {
             return "야외레슨";
+        }
+        if ("EXTERNAL_WORK".equals(type)) {
+            return "외부업무";
         }
         if (todayRec.get("checkOutTime") != null) {
             return "퇴근";
@@ -1298,7 +1310,6 @@ public class CoachPortalService {
         map.put("checkInTime", record.getCheckInTime());
         map.put("checkOutTime", record.getCheckOutTime());
         map.put("dayType", record.getDayType() != null ? record.getDayType().name() : null);
-        map.put("memo", record.getMemo());
         return map;
     }
 }

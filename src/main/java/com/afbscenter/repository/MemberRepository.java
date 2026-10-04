@@ -12,11 +12,15 @@ import java.util.Optional;
 @Repository
 public interface MemberRepository extends JpaRepository<Member, Long> {
     
+    List<Member> findByName(String name);
+
     Optional<Member> findByPhoneNumber(String phoneNumber);
     
     Optional<Member> findByMemberNumber(String memberNumber);
     
     List<Member> findByNameContaining(String name);
+
+    List<Member> findBySchoolContainingIgnoreCase(String school);
     
     List<Member> findByMemberNumberContaining(String memberNumber);
     

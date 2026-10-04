@@ -152,13 +152,19 @@ public class PaymentStatsController {
     public ResponseEntity<Map<String, Object>> getPaymentMethodStatistics(
             @RequestParam(required = false, defaultValue = "month") String period,
             @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) String coachId) {
         try {
             List<Payment> payments = new ArrayList<>(paymentPeriodQueryHelper.loadPayments(period, startDate, endDate));
+            java.util.Map<Long, com.afbscenter.model.Coach> coachByPaymentId =
+                    paymentCoachResolver.resolveCoachesForPayments(payments);
+            payments = paymentCoachResolver.filterByCoachId(payments, coachByPaymentId, coachId);
 
             Map<String, Integer> methodCount = new HashMap<>();
             Map<String, Integer> methodAmount = new HashMap<>();
+            Map<String, Integer> methodSettlementNet = new HashMap<>();
             int totalAmount = 0;
+            int totalSettlementNet = 0;
 
             int includedCount = 0;
             for (Payment pay : payments) {
@@ -168,9 +174,12 @@ public class PaymentStatsController {
                 if (pay.getPaymentMethod() != null && pay.getAmount() != null) {
                     String methodKey = pay.getPaymentMethod().name();
                     int net = AccountingPolicy.netAmount(pay);
+                    int settlementNet = AccountingPolicy.settlementNetAmount(pay);
                     methodCount.put(methodKey, methodCount.getOrDefault(methodKey, 0) + 1);
                     methodAmount.put(methodKey, methodAmount.getOrDefault(methodKey, 0) + net);
+                    methodSettlementNet.put(methodKey, methodSettlementNet.getOrDefault(methodKey, 0) + settlementNet);
                     totalAmount += net;
+                    totalSettlementNet += settlementNet;
                     includedCount++;
                 }
             }
@@ -178,9 +187,11 @@ public class PaymentStatsController {
             Map<String, Object> statistics = new HashMap<>();
             statistics.put("methodCount", methodCount);
             statistics.put("methodAmount", methodAmount);
+            statistics.put("methodSettlementNet", methodSettlementNet);
             statistics.put("methodAmountNetOfRefunds", true);
             statistics.put("totalCount", includedCount);
             statistics.put("totalAmount", totalAmount);
+            statistics.put("totalSettlementNet", totalSettlementNet);
 
             return ResponseEntity.ok(statistics);
         } catch (Exception e) {
@@ -250,7 +261,8 @@ public class PaymentStatsController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) String coachId) {
         try {
             List<Payment> payments = new ArrayList<>(paymentPeriodQueryHelper.loadPayments(period, startDate, endDate));
             payments = payments.stream()
@@ -287,6 +299,7 @@ public class PaymentStatsController {
 
             java.util.Map<Long, com.afbscenter.model.Coach> coachByPaymentId =
                     paymentCoachResolver.resolveCoachesForPayments(payments);
+            payments = paymentCoachResolver.filterByCoachId(payments, coachByPaymentId, coachId);
 
             org.apache.poi.ss.usermodel.Workbook workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook();
             org.apache.poi.ss.usermodel.Sheet sheet = workbook.createSheet("결제 내역");
@@ -316,7 +329,7 @@ public class PaymentStatsController {
                 row.createCell(7).setCellValue(payment.getStatus() != null ? payment.getStatus().name() : "");
                 int refund = payment.getRefundAmount() != null ? payment.getRefundAmount() : 0;
                 row.createCell(8).setCellValue(refund);
-                row.createCell(9).setCellValue(AccountingPolicy.netAmount(payment));
+                row.createCell(9).setCellValue(AccountingPolicy.settlementNetAmount(payment));
                 row.createCell(10).setCellValue(payment.getMemo() != null ? payment.getMemo() : "");
             }
 

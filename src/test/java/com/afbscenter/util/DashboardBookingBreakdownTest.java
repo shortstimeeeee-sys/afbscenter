@@ -59,6 +59,54 @@ class DashboardBookingBreakdownTest {
     }
 
     @Test
+    void youthBaseball_countsAsYouthPartNotBaseball() {
+        Booking booking = booking(Facility.Branch.SAHA, "사하점", Booking.Branch.SAHA,
+                youthMember(), Booking.BookingPurpose.YOUTH_LESSON, LessonCategory.YOUTH_BASEBALL);
+        assertEquals("youth", DashboardBookingBreakdown.partOf(booking));
+    }
+
+    @Test
+    void socialBaseball_countsAsSocialPartNotBaseball() {
+        Booking booking = booking(Facility.Branch.SAHA, "사하점", Booking.Branch.SAHA,
+                socialMember(), Booking.BookingPurpose.SOCIAL_LESSON, LessonCategory.BASEBALL);
+        assertEquals("social", DashboardBookingBreakdown.partOf(booking));
+    }
+
+    @Test
+    void socialPilates_staysPilatesPart() {
+        Booking booking = booking(Facility.Branch.SAHA, "사하점", Booking.Branch.SAHA,
+                socialMember(), Booking.BookingPurpose.PILATES_LESSON, LessonCategory.PILATES);
+        assertEquals("pilates", DashboardBookingBreakdown.partOf(booking));
+    }
+
+    @Test
+    void pilatesLesson_countsAsPilatesPart() {
+        Booking booking = booking(Facility.Branch.SAHA, "사하점", Booking.Branch.SAHA,
+                eliteMember(), Booking.BookingPurpose.PILATES_LESSON, LessonCategory.PILATES);
+        assertEquals("pilates", DashboardBookingBreakdown.partOf(booking));
+    }
+
+    @Test
+    void trainingLesson_countsAsTrainingPart() {
+        Booking booking = booking(Facility.Branch.YEONSAN, "연산점", Booking.Branch.YEONSAN,
+                eliteMember(), Booking.BookingPurpose.TRAINING_LESSON, LessonCategory.TRAINING);
+        assertEquals("YEONSAN", DashboardBookingBreakdown.studioOf(booking));
+        assertEquals("training", DashboardBookingBreakdown.partOf(booking));
+    }
+
+    @Test
+    void addPart_incrementsStudioPartBuckets() {
+        Map<String, Map<String, Long>> byStudio = DashboardBookingBreakdown.emptyPartsByStudio();
+        DashboardBookingBreakdown.addPart(byStudio, booking(Facility.Branch.SAHA, "사하점", Booking.Branch.SAHA,
+                eliteMember(), Booking.BookingPurpose.LESSON, LessonCategory.BASEBALL));
+        DashboardBookingBreakdown.addPart(byStudio, booking(Facility.Branch.YEONSAN, "연산점", Booking.Branch.YEONSAN,
+                eliteMember(), Booking.BookingPurpose.PILATES_LESSON, LessonCategory.PILATES));
+        assertEquals(1L, byStudio.get("SAHA").get("baseball"));
+        assertEquals(1L, byStudio.get("YEONSAN").get("pilates"));
+        assertEquals(1L, byStudio.get("YEONSAN").get("total"));
+    }
+
+    @Test
     void add_incrementsStudioBuckets() {
         Map<String, Map<String, Long>> byStudio = DashboardBookingBreakdown.emptyByStudio();
         DashboardBookingBreakdown.add(byStudio, booking(Facility.Branch.SAHA, "사하점", Booking.Branch.SAHA,
@@ -73,6 +121,12 @@ class DashboardBookingBreakdownTest {
     private static Member eliteMember() {
         Member member = new Member();
         member.setGrade(Member.MemberGrade.ELITE_HIGH);
+        return member;
+    }
+
+    private static Member youthMember() {
+        Member member = new Member();
+        member.setGrade(Member.MemberGrade.YOUTH);
         return member;
     }
 

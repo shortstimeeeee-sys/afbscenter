@@ -66,14 +66,157 @@ function showCoachEmptyModal() {
     document.body.appendChild(overlay);
 }
 
+var GUEST_PURPOSE_OPTIONS = [
+    { value: '', text: '목적 선택...' },
+    { value: 'BASEBALL_LESSON', text: '엘리트' },
+    { value: 'OUTDOOR_LESSON', text: '엘리트(야외)' },
+    { value: 'TRAINING_LESSON', text: '트레이닝' },
+    { value: 'PILATES_LESSON', text: '필라테스' },
+    { value: 'SOCIAL_LESSON', text: '사회인' },
+    { value: 'SOCIAL_OUTDOOR_LESSON', text: '사회인(야외)' },
+    { value: 'YOUTH_LESSON', text: '유소년' }
+];
+var MEMBER_PURPOSE_OPTIONS = [
+    { value: '', text: '목적 선택...' },
+    { value: 'LESSON', text: '레슨' },
+    { value: 'PERSONAL_TRAINING', text: '개인훈련' }
+];
+
+function isGuestTypedPurpose(purpose) {
+    var p = String(purpose || '').toUpperCase();
+    return p === 'BASEBALL_LESSON' || p === 'OUTDOOR_LESSON' || p === 'TRAINING_LESSON' || p === 'PILATES_LESSON'
+        || p === 'SOCIAL_LESSON' || p === 'SOCIAL_OUTDOOR_LESSON' || p === 'YOUTH_LESSON';
+}
+
+function isLessonPurposeValue(purpose) {
+    var p = String(purpose || '').toUpperCase();
+    return p === 'LESSON' || isGuestTypedPurpose(p);
+}
+
+function lessonCategoryForGuestPurpose(purpose) {
+    var p = String(purpose || '').toUpperCase();
+    if (p === 'TRAINING_LESSON') return 'TRAINING';
+    if (p === 'PILATES_LESSON') return 'PILATES';
+    if (p === 'BASEBALL_LESSON' || p === 'OUTDOOR_LESSON' || p === 'SOCIAL_LESSON' || p === 'SOCIAL_OUTDOOR_LESSON' || p === 'YOUTH_LESSON') return 'BASEBALL';
+    return null;
+}
+
+function isRegularBaseballBookingPage() {
+    var c = window.BOOKING_PAGE_CONFIG || {};
+    if (String(c.facilityType || '').toUpperCase() !== 'BASEBALL') return false;
+    if (String(c.memberGrade || '').toUpperCase() === 'SOCIAL') return false;
+    if (c.lessonCategory === 'YOUTH_BASEBALL') return false;
+    return true;
+}
+
+function isYouthBaseballBookingPage() {
+    return (window.BOOKING_PAGE_CONFIG || {}).lessonCategory === 'YOUTH_BASEBALL';
+}
+
+function usesTypedBaseballPurpose() {
+    return isRegularBaseballBookingPage() || isYouthBaseballBookingPage() || isSocialBookingPage();
+}
+
+function isBaseballGroupPurpose(purpose) {
+    var p = String(purpose || '').toUpperCase();
+    return p === 'BASEBALL_LESSON' || p === 'OUTDOOR_LESSON' || p === 'YOUTH_LESSON'
+        || p === 'SOCIAL_LESSON' || p === 'SOCIAL_OUTDOOR_LESSON';
+}
+
+function defaultGuestPurpose() {
+    var c = window.BOOKING_PAGE_CONFIG || {};
+    if (String(c.memberGrade || '').toUpperCase() === 'SOCIAL') return 'SOCIAL_LESSON';
+    if (c.lessonCategory === 'YOUTH_BASEBALL') return 'YOUTH_LESSON';
+    if (c.lessonCategory === 'TRAINING') return 'TRAINING_LESSON';
+    if (c.lessonCategory === 'PILATES') return 'PILATES_LESSON';
+    if (isRegularBaseballBookingPage()) return '';
+    if (c.facilityType === 'BASEBALL') return 'BASEBALL_LESSON';
+    if (c.facilityType === 'TRAINING_FITNESS') return 'TRAINING_LESSON';
+    return 'BASEBALL_LESSON';
+}
+
+function guestPurposeOptionsForPage() {
+    var c = window.BOOKING_PAGE_CONFIG || {};
+    var placeholder = GUEST_PURPOSE_OPTIONS[0];
+    var allowed = null;
+    if (c.lessonCategory === 'TRAINING') {
+        allowed = ['TRAINING_LESSON'];
+    } else if (c.lessonCategory === 'PILATES') {
+        allowed = ['PILATES_LESSON'];
+    } else if (c.lessonCategory === 'YOUTH_BASEBALL') {
+        allowed = ['YOUTH_LESSON'];
+    } else if (String(c.memberGrade || '').toUpperCase() === 'SOCIAL') {
+        allowed = ['SOCIAL_LESSON', 'SOCIAL_OUTDOOR_LESSON'];
+    } else if (String(c.facilityType || '').toUpperCase() === 'BASEBALL') {
+        allowed = ['BASEBALL_LESSON', 'OUTDOOR_LESSON', 'SOCIAL_LESSON', 'SOCIAL_OUTDOOR_LESSON', 'YOUTH_LESSON'];
+    }
+    if (!allowed) {
+        return GUEST_PURPOSE_OPTIONS.slice();
+    }
+    return [placeholder].concat(GUEST_PURPOSE_OPTIONS.filter(function (o) {
+        return allowed.indexOf(o.value) !== -1;
+    }));
+}
+
+function fillBookingPurposeOptions(options, keepValue) {
+    var select = document.getElementById('booking-purpose');
+    if (!select) return;
+    var current = keepValue != null ? keepValue : select.value;
+    var list = options.slice();
+    if (current && !list.some(function (o) { return o.value === current; })) {
+        list.push({ value: current, text: getPurposeText(current) });
+    }
+    select.innerHTML = '';
+    list.forEach(function (o) {
+        var opt = document.createElement('option');
+        opt.value = o.value;
+        opt.textContent = o.text;
+        select.appendChild(opt);
+    });
+    if (current && Array.from(select.options).some(function (o) { return o.value === current; })) {
+        select.value = current;
+    }
+}
+
+function memberPurposeOptionsForPage() {
+    if (usesTypedBaseballPurpose()) {
+        var list = guestPurposeOptionsForPage();
+        if (!list.some(function (o) { return o.value === 'PERSONAL_TRAINING'; })) {
+            list = list.concat([{ value: 'PERSONAL_TRAINING', text: '개인훈련' }]);
+        }
+        return list;
+    }
+    return MEMBER_PURPOSE_OPTIONS.slice();
+}
+
+function syncGuestPurposeOptions(isGuest, preferredValue) {
+    if (isGuest) {
+        fillBookingPurposeOptions(guestPurposeOptionsForPage(), preferredValue);
+    } else {
+        fillBookingPurposeOptions(memberPurposeOptionsForPage(), preferredValue);
+    }
+}
+
+function purposeValueForBaseballForm(purpose, booking) {
+    if (!isRegularBaseballBookingPage()) return purpose;
+    if (isBaseballGroupPurpose(purpose)) return purpose;
+    if (purpose === 'LESSON') {
+        var g = String((booking && (booking.calendarGrade || (booking.member && booking.member.grade))) || '').toUpperCase();
+        if (g === 'SOCIAL') return 'SOCIAL_LESSON';
+        if (g === 'YOUTH') return 'YOUTH_LESSON';
+        return 'BASEBALL_LESSON';
+    }
+    return purpose;
+}
+
 // 목적 변경 시 레슨 카테고리 필드 표시/숨김
 function toggleLessonCategory() {
     const purpose = document.getElementById('booking-purpose').value;
     const lessonCategoryGroup = document.getElementById('lesson-category-group');
     if (lessonCategoryGroup) {
-        lessonCategoryGroup.style.display = (purpose === 'LESSON') ? 'block' : 'none';
-        // 레슨 종목이 표시될 때 필터링 적용
-        if (purpose === 'LESSON') {
+        var showCategory = purpose === 'LESSON' && !isRegularBaseballBookingPage();
+        lessonCategoryGroup.style.display = showCategory ? 'block' : 'none';
+        if (showCategory) {
             filterLessonCategoryOptions();
         }
     }
@@ -118,10 +261,10 @@ function getCoachColors(bookings) {
     const colors = new Set();
     bookings.forEach(booking => {
         const coach = getCoachForCalendarStripeColor(booking);
-        if (coach) {
-            const color = getCoachColor(coach);
-            if (color) colors.add(color);
-        }
+        const color = (typeof App.calendarColorForBooking === 'function')
+            ? App.calendarColorForBooking(booking, coach)
+            : getCoachColor(coach);
+        if (color) colors.add(color);
     });
     return Array.from(colors);
 }
@@ -242,21 +385,33 @@ function filterLessonCategoryOptions() {
         lessonCategorySelect.disabled = true;
         lessonCategorySelect.style.backgroundColor = 'var(--bg-secondary)';
         lessonCategorySelect.style.color = 'var(--text-muted)';
-    } else if (facilityType === 'BASEBALL') {
-        // 야구만 표시하고 자동 선택 및 고정
+    } else if (facilityType === 'BASEBALL' && !isRegularBaseballBookingPage()) {
+        // 사회인/유소년 전용 캘린더: 야구만 표시하고 자동 선택
         lessonCategorySelect.innerHTML = '';
         const baseballOption = originalLessonCategoryOptions.find(opt => opt.value === 'BASEBALL');
         if (baseballOption) {
             const option = document.createElement('option');
             option.value = baseballOption.value;
             option.textContent = baseballOption.text;
-            option.selected = true; // 자동 선택
+            option.selected = true;
             lessonCategorySelect.appendChild(option);
         }
-        // 야구로 고정 (변경 불가능)
         lessonCategorySelect.disabled = true;
         lessonCategorySelect.style.backgroundColor = 'var(--bg-secondary)';
         lessonCategorySelect.style.color = 'var(--text-muted)';
+    } else if (facilityType === 'BASEBALL') {
+        lessonCategorySelect.innerHTML = '';
+        const baseballOption = originalLessonCategoryOptions.find(opt => opt.value === 'BASEBALL');
+        if (baseballOption) {
+            const option = document.createElement('option');
+            option.value = baseballOption.value;
+            option.textContent = baseballOption.text;
+            lessonCategorySelect.appendChild(option);
+            lessonCategorySelect.value = 'BASEBALL';
+        }
+        lessonCategorySelect.disabled = false;
+        lessonCategorySelect.style.backgroundColor = '';
+        lessonCategorySelect.style.color = '';
     } else if (facilityType === 'TRAINING_FITNESS') {
         // 필라테스와 트레이닝만 표시
         lessonCategorySelect.innerHTML = '<option value="">레슨 종목 선택...</option>';
@@ -285,17 +440,33 @@ function filterLessonCategoryOptions() {
     // RENTAL이나 기타는 모든 옵션 유지
 }
 
+/** 예약 페이지 코치 목록 1회 공유 (필터·모달·범례가 같은 API를 세 번 치지 않도록) */
+let bookingPageCoachesPromise = null;
+
+function getBookingPageCoaches() {
+    if (!bookingPageCoachesPromise) {
+        const config = window.BOOKING_PAGE_CONFIG || {};
+        const branch = config.branch;
+        const url = branch ? '/coaches?branch=' + encodeURIComponent(branch) : '/coaches';
+        bookingPageCoachesPromise = App.api.get(url)
+            .then(list => Array.isArray(list) ? list : [])
+            .catch(err => {
+                bookingPageCoachesPromise = null;
+                throw err;
+            });
+    }
+    return bookingPageCoachesPromise;
+}
+
 // 필터용 코치 드롭다운 로드 (대관 제외 페이지: 해당 페이지 지정 코치만)
 async function loadFilterCoaches() {
     const select = document.getElementById('filter-coach');
     if (!select) return;
     try {
         const config = window.BOOKING_PAGE_CONFIG || {};
-        const branch = config.branch;
         const facilityType = config.facilityType;
         const lessonCategory = config.lessonCategory;
-        const url = branch ? '/coaches?branch=' + encodeURIComponent(branch) : '/coaches';
-        const coaches = await App.api.get(url);
+        const coaches = await getBookingPageCoaches();
         let activeCoaches = (Array.isArray(coaches) ? coaches : []).filter(c => c.active !== false);
         if (typeof App.filterCoachesForBookingCalendar === 'function') {
             activeCoaches = App.filterCoachesForBookingCalendar(activeCoaches, { facilityType, lessonCategory });
@@ -340,33 +511,13 @@ async function initializeBookings() {
             });
         });
         
-        // 필터용 코치 목록 로드 (해당 페이지 지정 코치만, 대관 제외)
-        try {
-            await loadFilterCoaches();
-        } catch (error) {
-            App.err('필터 코치 목록 로드 실패:', error);
-        }
-        
-        // 시설 목록 로드
-        try {
-            await loadFacilities();
-        } catch (error) {
-            App.err('시설 목록 로드 실패:', error);
-        }
-        
-        // 코치 목록 로드 (예약 모달용)
-        try {
-            await loadCoachesForBooking();
-        } catch (error) {
-            App.err('코치 목록 로드 실패:', error);
-        }
-        
-        // 코치 범례 로드
-        try {
-            await loadCoachLegend();
-        } catch (error) {
-            App.err('코치 범례 로드 실패:', error);
-        }
+        // 필터 코치·시설·예약 모달 코치·범례를 병렬 로드 (코치 API는 getBookingPageCoaches로 1회 공유)
+        await Promise.all([
+            loadFilterCoaches().catch(function(error) { App.err('필터 코치 목록 로드 실패:', error); }),
+            loadFacilities().catch(function(error) { App.err('시설 목록 로드 실패:', error); }),
+            loadCoachesForBooking().catch(function(error) { App.err('코치 목록 로드 실패:', error); }),
+            loadCoachLegend().catch(function(error) { App.err('코치 범례 로드 실패:', error); })
+        ]);
         
         if (currentView === 'calendar') {
             try {
@@ -1121,11 +1272,9 @@ async function loadAndSelectFacility() {
 async function loadCoachesForBooking() {
     try {
         const config = window.BOOKING_PAGE_CONFIG || {};
-        const branch = config.branch;
         const facilityType = config.facilityType;
         const lessonCategory = config.lessonCategory;
-        const url = branch ? '/coaches?branch=' + encodeURIComponent(branch) : '/coaches';
-        const coaches = await App.api.get(url);
+        const coaches = await getBookingPageCoaches();
         const select = document.getElementById('booking-coach');
         if (!select) return;
         
@@ -1140,6 +1289,13 @@ async function loadCoachesForBooking() {
         });
         if (typeof App.filterCoachesForBookingCalendar === 'function') {
             activeCoaches = App.filterCoachesForBookingCalendar(activeCoaches, { facilityType, lessonCategory });
+        }
+        if (typeof App.bookingFormBlocksOutdoorLessonPlaceholder === 'function'
+                && App.bookingFormBlocksOutdoorLessonPlaceholder()
+                && typeof App.isOutdoorLessonPlaceholderCoach === 'function') {
+            activeCoaches = activeCoaches.filter(function (c) {
+                return !App.isOutdoorLessonPlaceholderCoach(c);
+            });
         }
         activeCoaches.sort((a, b) => {
             const orderA = App.CoachSortOrder ? App.CoachSortOrder(a) : 6;
@@ -1159,6 +1315,9 @@ async function loadCoachesForBooking() {
         App.log(`코치 ${activeCoaches.length}명 로드됨:`, activeCoaches.map(c => c.name));
         if (typeof App.applyBookingCoachEditPolicy === 'function') {
             App.applyBookingCoachEditPolicy();
+        }
+        if (typeof App.applyOutdoorLessonPlaceholderCoachFilter === 'function') {
+            App.applyOutdoorLessonPlaceholderCoachFilter();
         }
     } catch (error) {
         App.err('코치 목록 로드 실패:', error);
@@ -1477,10 +1636,9 @@ async function loadMemberProducts(memberId) {
                 if (lessonCategory) {
                     // 목적이 레슨이 아니면 먼저 설정 (레슨 종목 필드가 표시되도록)
                     const purposeEl = document.getElementById('booking-purpose');
-                    if (purposeEl && purposeEl.value !== 'LESSON') {
+                    if (purposeEl && !usesTypedBaseballPurpose() && purposeEl.value !== 'LESSON') {
                         purposeEl.value = 'LESSON';
                         toggleLessonCategory();
-                        // 레슨 종목 필드가 표시될 때까지 대기
                         await new Promise(resolve => setTimeout(resolve, 150));
                     }
                     
@@ -1714,6 +1872,9 @@ async function loadMemberProducts(memberId) {
                 } else {
                     App.warn(`[상품 선택] ❌ 코치 선택 필드를 찾을 수 없음`);
                 }
+                if (typeof App.applyOutdoorLessonPlaceholderCoachFilter === 'function') {
+                    App.applyOutdoorLessonPlaceholderCoachFilter();
+                }
                 
                 // 상품 정보 표시
                 const productType = selectedOption.dataset.productType;
@@ -1742,6 +1903,12 @@ async function loadMemberProducts(memberId) {
                 if (productInfo) {
                     productInfo.style.display = 'none';
                 }
+                if (typeof App.bookingFormBlocksOutdoorLessonPlaceholder === 'function'
+                        && !App.bookingFormBlocksOutdoorLessonPlaceholder()) {
+                    await loadCoachesForBooking();
+                } else if (typeof App.applyOutdoorLessonPlaceholderCoachFilter === 'function') {
+                    App.applyOutdoorLessonPlaceholderCoachFilter();
+                }
             }
         };
         
@@ -1762,11 +1929,9 @@ async function loadMemberProducts(memberId) {
 async function loadCoachLegend() {
     try {
         const config = window.BOOKING_PAGE_CONFIG || {};
-        const branch = config.branch;
         const facilityType = config.facilityType;
         const lessonCategory = config.lessonCategory;
-        const url = branch ? '/coaches?branch=' + encodeURIComponent(branch) : '/coaches';
-        const coaches = await App.api.get(url);
+        const coaches = await getBookingPageCoaches();
         const legendContainer = document.getElementById('coach-legend');
         if (!legendContainer) return;
         
@@ -1976,15 +2141,6 @@ async function renderCalendar() {
         }
         grid.innerHTML = '';
     
-    // 요일 헤더 (일: 빨간색, 토: 파란색)
-    const days = ['일', '월', '화', '수', '목', '금', '토'];
-    days.forEach((day, idx) => {
-        const header = document.createElement('div');
-        header.className = 'calendar-day-header' + (idx === 0 ? ' calendar-day-header-sun' : idx === 6 ? ' calendar-day-header-sat' : '');
-        header.textContent = day;
-        grid.appendChild(header);
-    });
-    
     // 해당 월의 예약 데이터 로드
     // 캘린더에 표시되는 주 범위를 고려하여 앞뒤 일주일 추가
     
@@ -2113,6 +2269,11 @@ async function renderCalendar() {
 
     let calendarMarksMap = {};
     let branchClosuresSet = {};
+    let youthTrialDaysSet = {};
+    let socialOutdoorDaysSet = {};
+    let socialScrimmageDaysSet = {};
+    let socialRegularMeetingDaysSet = {};
+    let externalWorkDaysSet = {};
     try {
         const ymd = (d) =>
             `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -2125,8 +2286,37 @@ async function renderCalendar() {
         if (typeof App.loadBranchClosuresSet === 'function') {
             branchClosuresSet = await App.loadBranchClosuresSet(pageCfg, markStart, markEnd);
         }
+        if (typeof App.loadYouthTrialDaysSet === 'function') {
+            youthTrialDaysSet = await App.loadYouthTrialDaysSet(markStart, markEnd);
+        }
+        if (typeof App.loadSocialOutdoorDaysSet === 'function') {
+            socialOutdoorDaysSet = await App.loadSocialOutdoorDaysSet(markStart, markEnd);
+        }
+        if (typeof App.loadSocialScrimmageDaysSet === 'function') {
+            socialScrimmageDaysSet = await App.loadSocialScrimmageDaysSet(markStart, markEnd);
+        }
+        if (typeof App.loadSocialRegularMeetingDaysSet === 'function') {
+            socialRegularMeetingDaysSet = await App.loadSocialRegularMeetingDaysSet(markStart, markEnd);
+        }
+        if (typeof App.loadExternalWorkDaysSet === 'function') {
+            externalWorkDaysSet = await App.loadExternalWorkDaysSet(markStart, markEnd);
+        }
     } catch (e) {
-        App.warn('달력 표시(공휴일·휴무) 로드 생략:', e);
+        App.warn('달력 표시(공휴일·휴무·체험) 로드 생략:', e);
+    }
+
+    if (typeof App.appendCalendarWeekdayHeaders === 'function') {
+        App.appendCalendarWeekdayHeaders(grid, year, month, branchClosuresSet, function () {
+            return renderCalendar();
+        });
+    } else {
+        const days = ['일', '월', '화', '수', '목', '금', '토'];
+        days.forEach((day, idx) => {
+            const header = document.createElement('div');
+            header.className = 'calendar-day-header' + (idx === 0 ? ' calendar-day-header-sun' : idx === 6 ? ' calendar-day-header-sat' : '');
+            header.textContent = day;
+            grid.appendChild(header);
+        });
     }
     
     // 코치 필터 시 예약 없음 안내: 달력 그리기 전에 메시지 박스 먼저 표시 (범례 필터만; 운영 코치 서버 필터만 켠 경우는 제외)
@@ -2263,6 +2453,22 @@ async function renderCalendar() {
         }
         
         dayCell.appendChild(dayHeader);
+
+        if (typeof App.appendYouthTrialEvent === 'function') {
+            App.appendYouthTrialEvent(dayCell, dk, youthTrialDaysSet, renderCalendar);
+        }
+        if (typeof App.appendSocialOutdoorEvent === 'function') {
+            App.appendSocialOutdoorEvent(dayCell, dk, socialOutdoorDaysSet, renderCalendar);
+        }
+        if (typeof App.appendSocialScrimmageEvent === 'function') {
+            App.appendSocialScrimmageEvent(dayCell, dk, socialScrimmageDaysSet, renderCalendar);
+        }
+        if (typeof App.appendSocialRegularMeetingEvent === 'function') {
+            App.appendSocialRegularMeetingEvent(dayCell, dk, socialRegularMeetingDaysSet, renderCalendar);
+        }
+        if (typeof App.appendExternalWorkEvent === 'function') {
+            App.appendExternalWorkEvent(dayCell, dk, externalWorkDaysSet, renderCalendar);
+        }
         
         // 각 예약을 시간대별로 표시
         dayBookings.forEach(booking => {
@@ -2284,9 +2490,9 @@ async function renderCalendar() {
                 const facilityPart = facilityLabel ? ` / ${App.escapeHtml(facilityLabel)}` : '';
                 
                 const stripeCoach = getCoachForCalendarStripeColor(booking);
-                
-                // 코치별 색상 적용(스트라이프는 레슨 배정 기준). 미배정이면 통계의 (미배정) 라벨과 동일한 어두운 스타일
-                const coachColor = stripeCoach ? getCoachColor(stripeCoach) : null;
+                const coachColor = (typeof App.calendarColorForBooking === 'function')
+                    ? App.calendarColorForBooking(booking, stripeCoach)
+                    : (stripeCoach ? getCoachColor(stripeCoach) : null);
                 if (coachColor) {
                     event.style.backgroundColor = coachColor;
                     event.style.borderLeft = `3px solid ${coachColor}`;
@@ -2725,7 +2931,7 @@ function renderBookingsTable(bookings) {
             <td>${App.escapeHtml(memberName)}</td>
             <td>${coachHtml}</td>
             <td>${purpose}</td>
-            <td>${booking.purpose === 'LESSON' && booking.lessonCategory ? `<span class="badge badge-${getLessonCategoryBadge(booking.lessonCategory)}">${lessonCategory}</span>` : '-'}</td>
+            <td>${isLessonPurposeValue(booking.purpose) && booking.lessonCategory ? `<span class="badge badge-${getLessonCategoryBadge(booking.lessonCategory)}">${lessonCategory}</span>` : '-'}</td>
             <td>${booking.participants || 1}</td>
             <td>
                 <span class="badge badge-${getStatusBadge(status)}">${getStatusText(status)}</span>
@@ -2744,6 +2950,13 @@ function renderBookingsTable(bookings) {
 function getPurposeText(purpose) {
     const map = {
         'LESSON': '레슨',
+        'BASEBALL_LESSON': '엘리트',
+        'OUTDOOR_LESSON': '엘리트(야외)',
+        'TRAINING_LESSON': '트레이닝',
+        'PILATES_LESSON': '필라테스',
+        'SOCIAL_LESSON': '사회인',
+        'SOCIAL_OUTDOOR_LESSON': '사회인(야외)',
+        'YOUTH_LESSON': '유소년',
         'RENTAL': '대관',
         'PERSONAL_TRAINING': '개인훈련'
     };
@@ -2801,14 +3014,17 @@ async function loadMembersForSelect() {
         const facilityType = config.facilityType;
         const branch = config.branch;
         
-        // facilityType에 맞는 productCategory 매핑
+        // 사하/연산 야구 캘린더: 이용권·등급과 관계없이 전체 회원 이름 검색 (사회인 포함)
+        const regularBaseballSearch = facilityType === 'BASEBALL' && !config.lessonCategory && !config.memberGrade;
         let productCategory = null;
-        if (facilityType === 'BASEBALL') {
-            productCategory = 'BASEBALL';
-        } else if (facilityType === 'TRAINING_FITNESS') {
-            if (config.lessonCategory === 'PILATES') productCategory = 'PILATES';
-            else if (config.lessonCategory === 'TRAINING') productCategory = 'TRAINING';
-            else productCategory = 'TRAINING_FITNESS';
+        if (!regularBaseballSearch) {
+            if (facilityType === 'BASEBALL') {
+                productCategory = 'BASEBALL';
+            } else if (facilityType === 'TRAINING_FITNESS') {
+                if (config.lessonCategory === 'PILATES') productCategory = 'PILATES';
+                else if (config.lessonCategory === 'TRAINING') productCategory = 'TRAINING';
+                else productCategory = 'TRAINING_FITNESS';
+            }
         }
         
         // API 파라미터 구성
@@ -2821,23 +3037,17 @@ async function loadMembersForSelect() {
         if (branch && (productCategory === 'TRAINING_FITNESS' || productCategory === 'TRAINING' || productCategory === 'PILATES')) {
             params.append('branch', branch);
         }
-        if (config.memberGrade === 'SOCIAL') {
-            params.append('grade', 'SOCIAL');
-        } else if (config.lessonCategory === 'YOUTH_BASEBALL') {
-            params.append('grade', 'YOUTH');
+        if (!regularBaseballSearch) {
+            if (config.memberGrade === 'SOCIAL') {
+                params.append('grade', 'SOCIAL');
+            } else if (config.lessonCategory === 'YOUTH_BASEBALL') {
+                params.append('grade', 'YOUTH');
+            }
         }
         
         const url = params.toString() ? `/members?${params.toString()}` : '/members';
         let members = await App.api.get(url);
         if (!Array.isArray(members)) members = [];
-        if (facilityType === 'BASEBALL' && !config.lessonCategory && !config.memberGrade) {
-            members = members.filter(function(m) {
-                if (!m) return false;
-                if (m.grade === 'YOUTH') return false;
-                if (m.grade === 'SOCIAL') return false;
-                return true;
-            });
-        }
         renderMemberSelectTable(members);
         App.log(`회원 ${members.length}명 로드됨 (카테고리: ${productCategory || '전체'}, 지점: ${productCategory === 'TRAINING_FITNESS' ? (branch || '전체') : '모든 지점'}${config.memberGrade === 'SOCIAL' ? ', 등급: 사회인' : (config.lessonCategory === 'YOUTH_BASEBALL' ? ', 등급: 유소년' : '')})`);
     } catch (error) {
@@ -2947,11 +3157,13 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
         // selected-member-id도 설정 (하위 호환성)
         document.getElementById('selected-member-id').value = member.id || '';
         document.getElementById('selected-member-number').value = member.memberNumber || '';
+        window._selectedMemberCardCoachId = (member.coach && member.coach.id) ? member.coach.id : null;
         
         // 회원 정보 섹션 표시, 비회원 섹션 및 선택 섹션 숨기기
         document.getElementById('member-info-section').style.display = 'block';
         document.getElementById('non-member-section').style.display = 'none';
         document.getElementById('member-select-section').style.display = 'none';
+        syncGuestPurposeOptions(false);
         
         // 코치 목록 로드 (먼저 로드 완료 대기)
         let coachSelect = document.getElementById('booking-coach');
@@ -2966,6 +3178,9 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
             while (coachSelect.options.length <= 1 && attempts < 20) {
                 await new Promise(resolve => setTimeout(resolve, 50));
                 attempts++;
+            }
+            if (typeof App.applyOutdoorLessonPlaceholderCoachFilter === 'function') {
+                App.applyOutdoorLessonPlaceholderCoachFilter();
             }
         }
         
@@ -2994,7 +3209,19 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
         setFieldValue('booking-end-time', '');
         setFieldValue('booking-participants', '1');
         const newBookingPageConfig = window.BOOKING_PAGE_CONFIG || {};
-        if (newBookingPageConfig.facilityType === 'TRAINING_FITNESS' || newBookingPageConfig.facilityType === 'BASEBALL') {
+        if (isRegularBaseballBookingPage()) {
+            var baseballPurpose = '';
+            if (member && (member.grade === 'YOUTH' || String(member.name || '').indexOf('유소년') !== -1)) {
+                baseballPurpose = 'YOUTH_LESSON';
+            } else if (member && member.grade === 'SOCIAL') {
+                baseballPurpose = 'SOCIAL_LESSON';
+            }
+            setFieldValue('booking-purpose', baseballPurpose);
+            toggleLessonCategory();
+        } else if (isYouthBaseballBookingPage() || isSocialBookingPage()) {
+            setFieldValue('booking-purpose', defaultGuestPurpose());
+            toggleLessonCategory();
+        } else if (newBookingPageConfig.facilityType === 'TRAINING_FITNESS' || newBookingPageConfig.facilityType === 'BASEBALL') {
             setFieldValue('booking-purpose', 'LESSON');
             toggleLessonCategory();
         } else {
@@ -3054,15 +3281,16 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
             }
         }
         
-        // 회원의 등급에 따라 기본값 설정
-        // 유소년 회원은 기본적으로 레슨으로 설정
-        if (member.grade === 'YOUTH' && !document.getElementById('booking-purpose').value) {
-            document.getElementById('booking-purpose').value = 'LESSON';
-            toggleLessonCategory();
-        }
-        if (member.grade === 'SOCIAL' && !document.getElementById('booking-purpose').value) {
-            document.getElementById('booking-purpose').value = 'LESSON';
-            toggleLessonCategory();
+        // 회원의 등급에 따라 기본값 설정 (야구·유소년·사회인 캘린더는 분류 목적을 유지)
+        if (!usesTypedBaseballPurpose()) {
+            if (member.grade === 'YOUTH' && !document.getElementById('booking-purpose').value) {
+                document.getElementById('booking-purpose').value = 'LESSON';
+                toggleLessonCategory();
+            }
+            if (member.grade === 'SOCIAL' && !document.getElementById('booking-purpose').value) {
+                document.getElementById('booking-purpose').value = 'LESSON';
+                toggleLessonCategory();
+            }
         }
         
         // 회원 예약은 상태를 기본값 PENDING으로 설정
@@ -3209,7 +3437,7 @@ async function selectMemberForBooking(memberNumber, memberName, memberPhone) {
                             lessonCategoryEl.value = lessonCategory;
                         }
                         
-                        if (purposeEl && !purposeEl.value) {
+                        if (purposeEl && !purposeEl.value && !usesTypedBaseballPurpose()) {
                             purposeEl.value = 'LESSON';
                             toggleLessonCategory();
                         }
@@ -3323,6 +3551,7 @@ async function selectNonMember() {
     document.getElementById('booking-modal-title').textContent = '예약 등록 (비회원)';
     document.getElementById('selected-member-id').value = '';
     document.getElementById('selected-member-number').value = '';
+    window._selectedMemberCardCoachId = null;
     
     // 중요: booking-id를 빈 값으로 초기화 (기존 예약 수정 방지)
     document.getElementById('booking-id').value = '';
@@ -3342,6 +3571,12 @@ async function selectNonMember() {
     document.getElementById('non-member-section').style.display = 'block';
     document.getElementById('member-info-section').style.display = 'none';
     document.getElementById('member-select-section').style.display = 'none';
+    syncGuestPurposeOptions(true, defaultGuestPurpose());
+    var purposeSelect = document.getElementById('booking-purpose');
+    if (purposeSelect && !purposeSelect.value) {
+        purposeSelect.value = defaultGuestPurpose();
+    }
+    toggleLessonCategory();
     
     // 비회원 예약은 체크인 없이 자동 승인 → 기본 상태 '확정'
     const statusSelect = document.getElementById('booking-status');
@@ -3516,6 +3751,7 @@ async function openBookingModal(id = null) {
         document.getElementById('booking-id').value = '';
         document.getElementById('selected-member-id').value = '';
         document.getElementById('selected-member-number').value = '';
+        window._selectedMemberCardCoachId = null;
         document.getElementById('booking-date').value = selectedBookingDate || new Date().toISOString().split('T')[0];
         
         // 지점 필드 다시 설정 (reset 후)
@@ -3790,6 +4026,9 @@ async function loadBookingData(id) {
         }
         document.getElementById('selected-member-id').value = booking.member?.id || '';
         document.getElementById('selected-member-number').value = booking.member?.memberNumber || '';
+        window._selectedMemberCardCoachId = (booking.member && booking.member.coach && booking.member.coach.id)
+            ? booking.member.coach.id
+            : null;
         
         if (booking.member) {
             const showPriv = typeof App.shouldShowMemberNameOnBookingCalendar !== 'function' || App.shouldShowMemberNameOnBookingCalendar();
@@ -3807,19 +4046,21 @@ async function loadBookingData(id) {
             document.getElementById('member-info-section').style.display = 'block';
             document.getElementById('non-member-section').style.display = 'none';
             document.getElementById('member-select-section').style.display = 'none';
+            syncGuestPurposeOptions(false, purposeValueForBaseballForm(booking.purpose, booking));
             
             // 회원의 상품 목록 로드 후 예약에 연결된 상품 선택 (수정 시 상품이 보이도록)
             await loadMemberProducts(booking.member.id);
             
             // 코치 목록 로드
-            if (document.getElementById('booking-coach') && document.getElementById('booking-coach').options.length <= 1) {
-                await loadCoachesForBooking();
-            }
+            await loadCoachesForBooking();
             
             // 코치 선택 설정
             const coachSelect = document.getElementById('booking-coach');
             if (coachSelect && booking.coach && booking.coach.id) {
                 coachSelect.value = booking.coach.id;
+            }
+            if (typeof App.applyOutdoorLessonPlaceholderCoachFilter === 'function') {
+                App.applyOutdoorLessonPlaceholderCoachFilter();
             }
         } else {
             const showPriv = typeof App.shouldShowMemberNameOnBookingCalendar !== 'function' || App.shouldShowMemberNameOnBookingCalendar();
@@ -3843,6 +4084,7 @@ async function loadBookingData(id) {
             document.getElementById('member-info-section').style.display = 'none';
             document.getElementById('non-member-section').style.display = 'block';
             document.getElementById('member-select-section').style.display = 'none';
+            syncGuestPurposeOptions(true, purposeValueForBaseballForm(booking.purpose, booking));
         }
         
         const startDate = new Date(booking.startTime);
@@ -3853,7 +4095,7 @@ async function loadBookingData(id) {
         document.getElementById('booking-end-time').value = endDate.toTimeString().slice(0, 5);
         
         document.getElementById('booking-participants').value = booking.participants || 1;
-        document.getElementById('booking-purpose').value = booking.purpose || 'RENTAL';
+        document.getElementById('booking-purpose').value = purposeValueForBaseballForm(booking.purpose || '', booking) || booking.purpose || 'RENTAL';
         
         // 지점 필드 설정 (페이지별로 고정, hidden input)
         const branchInput = document.getElementById('booking-branch');
@@ -3869,7 +4111,12 @@ async function loadBookingData(id) {
         if (lessonCategoryEl) {
             // 야구 예약 페이지에서는 항상 야구로 고정
             const config = window.BOOKING_PAGE_CONFIG || {};
-            if (config.facilityType === 'BASEBALL') {
+            if (isRegularBaseballBookingPage()) {
+                lessonCategoryEl.value = 'BASEBALL';
+                lessonCategoryEl.disabled = false;
+                lessonCategoryEl.style.backgroundColor = '';
+                lessonCategoryEl.style.color = '';
+            } else if (config.facilityType === 'BASEBALL') {
                 lessonCategoryEl.value = 'BASEBALL';
                 lessonCategoryEl.disabled = true;
                 lessonCategoryEl.style.backgroundColor = 'var(--bg-secondary)';
@@ -4055,7 +4302,7 @@ async function saveBooking() {
     }
     const coachId = coachIdElement ? coachIdElement.value : '';
     const participants = document.getElementById('booking-participants').value;
-    const purpose = document.getElementById('booking-purpose').value;
+    let purpose = document.getElementById('booking-purpose').value;
     const lessonCategoryElement = document.getElementById('booking-lesson-category');
     const pageLessonCategory = (window.BOOKING_PAGE_CONFIG || {}).lessonCategory;
     const lessonCategory = (lessonCategoryElement && lessonCategoryElement.value)
@@ -4083,13 +4330,17 @@ async function saveBooking() {
         return;
     }
     
+    if (isRegularBaseballBookingPage() && !isBaseballGroupPurpose(purpose) && purpose !== 'PERSONAL_TRAINING') {
+        App.showNotification('엘리트, 엘리트(야외), 유소년, 사회인, 사회인(야외) 중 하나를 선택해야 예약할 수 있습니다.', 'warning');
+        return;
+    }
     if (!purpose) {
         App.err('[saveBooking] 목적이 선택되지 않음');
         App.showNotification('목적을 선택해주세요.', 'danger');
         return;
     }
     
-    // 레슨인 경우 레슨 카테고리 필수
+    // 레슨인 경우 레슨 카테고리 필수. 비회원 구분 목적은 목적에서 종목을 정한다.
     if (purpose === 'LESSON') {
         const selectedLessonCategory = (document.getElementById('booking-lesson-category')?.value)
             || pageLessonCategory;
@@ -4098,6 +4349,10 @@ async function saveBooking() {
             App.showNotification('레슨인 경우 레슨 종목을 선택해주세요.', 'danger');
             return;
         }
+    }
+    if (isGuestTypedPurpose(purpose) && !lessonCategoryForGuestPurpose(purpose)) {
+        App.showNotification('목적을 선택해주세요.', 'danger');
+        return;
     }
     
     // 회원/비회원 검증
@@ -4134,6 +4389,17 @@ async function saveBooking() {
         App.showNotification(passErr, 'danger');
         return;
     }
+    if (typeof App.bookingFormBlocksOutdoorLessonPlaceholder === 'function'
+            && App.bookingFormBlocksOutdoorLessonPlaceholder()
+            && typeof App.isOutdoorLessonPlaceholderCoach === 'function') {
+        const selectedCoachOpt = coachIdElement && coachIdElement.selectedIndex >= 0
+            ? coachIdElement.options[coachIdElement.selectedIndex]
+            : null;
+        if (selectedCoachOpt && App.isOutdoorLessonPlaceholderCoach(selectedCoachOpt.textContent)) {
+            App.showNotification('이용권이나 담당 코치가 있으면 야외레슨 코치를 지정할 수 없습니다. 담당 코치를 선택하세요.', 'danger');
+            return;
+        }
+    }
     
     // 종료 시간 재검증 (날짜와 시간 결합 전)
     if (!endTime || endTime.trim() === '') {
@@ -4165,6 +4431,7 @@ async function saveBooking() {
     
     // 비회원 예약 시 member/memberNumber 보내지 않음 → 서버에서 member_id null로 저장(체크인 목록 제외)
     const isNonMember = !(memberNumber && memberNumber.trim()) && !(memberId && memberId.trim());
+    const selectedPurpose = purpose;
     
     let bookingStatus = 'PENDING';
     
@@ -4215,12 +4482,16 @@ async function saveBooking() {
         participants: parseInt(participants) || 1,
         purpose: purpose,
         lessonCategory: (function() {
-            if (purpose === 'LESSON' && lessonCategory) return lessonCategory;
             const pageCfg = window.BOOKING_PAGE_CONFIG || {};
+            var fromGuest = lessonCategoryForGuestPurpose(selectedPurpose);
+            if (fromGuest) return fromGuest;
+            if (pageCfg.lessonCategory === 'YOUTH_BASEBALL') return 'YOUTH_BASEBALL';
+            if (purpose === 'LESSON' && lessonCategory) return lessonCategory;
             if (pageCfg.facilityType === 'BASEBALL' && pageCfg.memberGrade === 'SOCIAL') {
                 return pageCfg.lessonCategory || 'BASEBALL';
             }
-            return null;
+            if (isRegularBaseballBookingPage() && purpose === 'LESSON') return 'BASEBALL';
+            return (purpose === 'LESSON' && lessonCategory) ? lessonCategory : null;
         })(),
         status: bookingStatus, // 회원 예약은 기본적으로 PENDING
         branch: branchValue, // 시설의 지점 정보 우선 사용
@@ -4231,6 +4502,12 @@ async function saveBooking() {
     const pageMemberGrade = (window.BOOKING_PAGE_CONFIG || {}).memberGrade;
     if (pageMemberGrade) {
         data.memberGrade = pageMemberGrade;
+    }
+    if (isNonMember && (selectedPurpose === 'SOCIAL_LESSON' || selectedPurpose === 'SOCIAL_OUTDOOR_LESSON')) {
+        data.memberGrade = 'SOCIAL';
+    }
+    if (isNonMember && selectedPurpose === 'YOUTH_LESSON') {
+        data.memberGrade = 'YOUTH';
     }
     
     App.log('예약 저장 데이터:', JSON.stringify(data, null, 2));

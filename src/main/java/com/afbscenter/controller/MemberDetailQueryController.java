@@ -909,7 +909,16 @@ public class MemberDetailQueryController {
                 e.put("date", d);
                 e.put("label", "예약");
                 String facilityName = b.getFacility() != null ? b.getFacility().getName() : "";
-                String purposeKr = b.getPurpose() == null ? "" : (b.getPurpose() == Booking.BookingPurpose.RENTAL ? "대관" : b.getPurpose() == Booking.BookingPurpose.LESSON ? "레슨" : b.getPurpose() == Booking.BookingPurpose.PERSONAL_TRAINING ? "개인훈련" : b.getPurpose().name());
+                String purposeKr = b.getPurpose() == null ? "" : (b.getPurpose() == Booking.BookingPurpose.RENTAL ? "대관"
+                        : b.getPurpose() == Booking.BookingPurpose.LESSON ? "레슨"
+                        : b.getPurpose() == Booking.BookingPurpose.BASEBALL_LESSON ? "엘리트"
+                        : b.getPurpose() == Booking.BookingPurpose.OUTDOOR_LESSON ? "엘리트(야외)"
+                        : b.getPurpose() == Booking.BookingPurpose.TRAINING_LESSON ? "트레이닝"
+                        : b.getPurpose() == Booking.BookingPurpose.PILATES_LESSON ? "필라테스"
+                        : b.getPurpose() == Booking.BookingPurpose.SOCIAL_LESSON ? "사회인"
+                        : b.getPurpose() == Booking.BookingPurpose.SOCIAL_OUTDOOR_LESSON ? "사회인(야외)"
+                        : b.getPurpose() == Booking.BookingPurpose.YOUTH_LESSON ? "유소년"
+                        : b.getPurpose() == Booking.BookingPurpose.PERSONAL_TRAINING ? "개인훈련" : b.getPurpose().name());
                 String statusKr = b.getStatus() == null ? "" : (b.getStatus() == Booking.BookingStatus.CONFIRMED ? "확정" : b.getStatus() == Booking.BookingStatus.PENDING ? "대기" : b.getStatus() == Booking.BookingStatus.CANCELLED ? "취소" : b.getStatus().name());
                 String timeRange = "";
                 if (b.getStartTime() != null && b.getEndTime() != null) {

@@ -9,8 +9,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * 휴무 그룹 저장.
- * 사하=SAHA/BASEBALL, 연산=YEONSAN/BASEBALL, 비 야구파트=RENTAL/BASEBALL.
+ * 휴무 저장.
+ * 지점 전체는 calendar_part=ALL, 파트는 BASEBALL/TRAINING/PILATES/YOUTH/SOCIAL/RENTAL.
  */
 @Entity
 @Table(name = "branch_closures", uniqueConstraints = {
@@ -24,15 +24,27 @@ public class BranchClosure {
 
     public enum ClosureGroup {
         SAHA,
+        SAHA_BASEBALL,
+        SAHA_TRAINING,
+        SAHA_PILATES,
         YEONSAN,
-        NON_BASEBALL
+        YEONSAN_BASEBALL,
+        YEONSAN_PILATES,
+        NON_BASEBALL,
+        YOUTH,
+        SOCIAL,
+        RENTAL
     }
 
     public enum CalendarPart {
+        ALL,
         BASEBALL,
         NON_BASEBALL,
         TRAINING,
-        PILATES
+        PILATES,
+        YOUTH,
+        SOCIAL,
+        RENTAL
     }
 
     @Id
@@ -45,8 +57,8 @@ public class BranchClosure {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "calendar_part", nullable = false, length = 20,
-            columnDefinition = "VARCHAR(20) DEFAULT 'BASEBALL' NOT NULL")
-    private CalendarPart calendarPart = CalendarPart.BASEBALL;
+            columnDefinition = "VARCHAR(20) DEFAULT 'ALL' NOT NULL")
+    private CalendarPart calendarPart = CalendarPart.ALL;
 
     @Column(name = "closure_date", nullable = false)
     private LocalDate closureDate;
@@ -58,7 +70,7 @@ public class BranchClosure {
     @PreUpdate
     public void touch() {
         if (calendarPart == null) {
-            calendarPart = CalendarPart.BASEBALL;
+            calendarPart = CalendarPart.ALL;
         }
         updatedAt = LocalDateTime.now();
     }

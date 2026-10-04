@@ -68,6 +68,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 delete currentFilters.startDate;
                 delete currentFilters.endDate;
             }
+            var coachEl = document.getElementById('filter-coach');
+            if (coachEl && coachEl.value) currentFilters.coachId = coachEl.value;
+            else delete currentFilters.coachId;
             currentPage = 1;
             loadPayments();
             loadPaymentMethodStatistics();
@@ -75,6 +78,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     initPaymentPeriodAndLoad();
+    loadPaymentCoachFilterOptions();
+
+    var coachSel = document.getElementById('filter-coach');
+    if (coachSel) {
+        coachSel.addEventListener('change', function() {
+            applyFilters();
+        });
+    }
     
     // 검색 기능
     const searchInput = document.getElementById('payment-search');
@@ -100,6 +111,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 const memberId = link.getAttribute('data-member-id');
                 if (memberId) openMemberInfoModal(parseInt(memberId, 10));
             }
+        });
+        tableBody.addEventListener('change', function(e) {
+            var input = e.target.closest('.payment-net-input');
+            if (input) savePaymentSettlementNet(input);
+        });
+        tableBody.addEventListener('keydown', function(e) {
+            if (e.key !== 'Enter') return;
+            var input = e.target.closest('.payment-net-input');
+            if (!input) return;
+            e.preventDefault();
+            input.blur();
         });
     }
 });
@@ -160,6 +182,49 @@ async function loadPaymentSummary() {
     }
 }
 
+async function loadPaymentCoachFilterOptions() {
+    var sel = document.getElementById('filter-coach');
+    if (!sel) return;
+    var keep = sel.value || '';
+    try {
+        var list = await App.api.get('/coaches/active');
+        if (!Array.isArray(list)) list = [];
+        // 코치/레슨 관리 기본 명단과 동일: 근무 중만, 야외레슨은 목록에서 제외
+        list = list.filter(function (c) {
+            if (!c || c.id == null || c.active === false) return false;
+            var n = String(c.name || '').replace(/\s*\[.*?\]\s*/g, '').replace(/\s+/g, '');
+            return n.indexOf('야외레슨') === -1;
+        });
+        list.sort(function (a, b) {
+            var oa = (typeof App.CoachSortOrder === 'function') ? App.CoachSortOrder(a) : 9;
+            var ob = (typeof App.CoachSortOrder === 'function') ? App.CoachSortOrder(b) : 9;
+            if (oa !== ob) return oa - ob;
+            return String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'ko');
+        });
+        sel.innerHTML = '';
+        var allOpt = document.createElement('option');
+        allOpt.value = '';
+        allOpt.textContent = '전체 코치';
+        sel.appendChild(allOpt);
+        var unOpt = document.createElement('option');
+        unOpt.value = 'unassigned';
+        unOpt.textContent = '코치 미지정';
+        sel.appendChild(unOpt);
+        list.forEach(function (c) {
+            if (!c || c.id == null) return;
+            var opt = document.createElement('option');
+            opt.value = String(c.id);
+            opt.textContent = c.name || ('코치 ' + c.id);
+            sel.appendChild(opt);
+        });
+        if (keep && Array.from(sel.options).some(function (o) { return o.value === keep; })) {
+            sel.value = keep;
+        }
+    } catch (e) {
+        App.warn('코치 필터 목록 로드 실패:', e);
+    }
+}
+
 async function loadPayments() {
     try {
         const params = new URLSearchParams();
@@ -179,6 +244,9 @@ async function loadPayments() {
         }
         if (currentFilters.category) {
             params.append('category', currentFilters.category);
+        }
+        if (currentFilters.coachId) {
+            params.append('coachId', currentFilters.coachId);
         }
         if (currentFilters.startDate) {
             params.append('startDate', currentFilters.startDate);
@@ -211,7 +279,7 @@ async function loadPayments() {
         App.err('결제 목록 로드 실패:', error);
         const tbody = document.getElementById('payments-table-body');
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">결제 목록을 불러오는데 실패했습니다.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted);">결제 목록을 불러오는데 실패했습니다.</td></tr>';
         }
     }
 }
@@ -300,6 +368,7 @@ function renderPaymentsTableBody(payments) {
             <td>${getCategoryText(payment.category || payment.paymentCategory)}</td>
             <td>${getPaymentMethodText(payment.paymentMethod)}</td>
             <td style="font-weight: 600; color: var(--accent-primary);">${App.formatCurrency(payment.amount)}</td>
+            <td class="cell-settlement-net">${settlementNetInputHtml(payment)}</td>
             <td><span class="badge badge-${getPaymentStatusBadge(payment.status)}">${getPaymentStatusText(payment.status)}</span></td>
             <td>
                 <button class="btn btn-sm btn-info" onclick="openPaymentDetailModal(${payment.id})" style="margin-right: 5px;">상세</button>
@@ -352,16 +421,23 @@ function getPaymentStatusText(status) {
 }
 
 /** 이용권 상태 한글 */
-function applyFilters() {
+function readFiltersFromDom() {
     const searchInput = document.getElementById('payment-search');
     const searchVal = searchInput && searchInput.value ? searchInput.value.trim() : '';
     const periodEl = document.getElementById('filter-period');
     const period = periodEl ? periodEl.value : 'month';
-    const method = document.getElementById('filter-payment-method').value;
-    const status = document.getElementById('filter-status').value;
-    const category = document.getElementById('filter-category').value;
-    const startDate = document.getElementById('filter-date-start').value;
-    const endDate = document.getElementById('filter-date-end').value;
+    const methodEl = document.getElementById('filter-payment-method');
+    const method = methodEl ? methodEl.value : '';
+    const statusEl = document.getElementById('filter-status');
+    const status = statusEl ? statusEl.value : '';
+    const categoryEl = document.getElementById('filter-category');
+    const category = categoryEl ? categoryEl.value : '';
+    const coachEl = document.getElementById('filter-coach');
+    const coachId = coachEl ? coachEl.value : '';
+    const startDateEl = document.getElementById('filter-date-start');
+    const endDateEl = document.getElementById('filter-date-end');
+    const startDate = startDateEl ? startDateEl.value : '';
+    const endDate = endDateEl ? endDateEl.value : '';
 
     currentFilters = {};
     if (searchVal) currentFilters.search = searchVal;
@@ -369,6 +445,7 @@ function applyFilters() {
     if (method) currentFilters.paymentMethod = method;
     if (status) currentFilters.status = status;
     if (category) currentFilters.category = category;
+    if (coachId) currentFilters.coachId = coachId;
     if (period === 'month') {
         const mr = getMonthRangeStrings();
         currentFilters.startDate = mr.start;
@@ -381,10 +458,13 @@ function applyFilters() {
         if (startDate) currentFilters.startDate = startDate;
         if (endDate) currentFilters.endDate = endDate;
     }
+}
 
+function applyFilters() {
+    readFiltersFromDom();
     currentPage = 1;
     loadPayments();
-    loadPaymentMethodStatistics(); // 필터 변경 시 통계도 업데이트
+    loadPaymentMethodStatistics();
 }
 
 function openPaymentModal() {
@@ -441,26 +521,275 @@ async function processRefund() {
 }
 
 async function exportReport() {
+    readFiltersFromDom();
+    var contentEl = document.getElementById('settlement-report-content');
+    var excelBtn = document.getElementById('settlement-report-excel-btn');
+    var titleEl = document.querySelector('#settlement-report-modal .modal-title');
+    if (!contentEl) return;
+    if (titleEl) {
+        var coachEl = document.getElementById('filter-coach');
+        if (coachEl && coachEl.value) {
+            titleEl.textContent = '정산 리포트 · ' + (coachEl.options[coachEl.selectedIndex].text || '코치');
+        } else {
+            titleEl.textContent = '정산 리포트';
+        }
+    }
+    if (excelBtn) excelBtn.disabled = true;
+    contentEl.innerHTML = '<p class="payment-method-stats-loading">로딩 중...</p>';
+    App.Modal.open('settlement-report-modal');
     try {
-        const params = new URLSearchParams();
-        if (currentFilters.paymentMethod) {
-            params.append('paymentMethod', currentFilters.paymentMethod);
+        var payments = await fetchSettlementPayments();
+        renderSettlementReport(payments);
+        if (excelBtn) excelBtn.disabled = false;
+    } catch (error) {
+        App.err('정산 리포트 로드 실패:', error);
+        contentEl.innerHTML = '<p class="payment-method-stats-loading">정산 리포트를 불러오지 못했습니다.</p>';
+        App.showNotification('정산 리포트를 불러오지 못했습니다.', 'danger');
+    }
+}
+
+function buildSettlementFilterParams() {
+    const params = new URLSearchParams();
+    if (currentFilters.paymentMethod) params.append('paymentMethod', currentFilters.paymentMethod);
+    if (currentFilters.status) params.append('status', currentFilters.status);
+    if (currentFilters.category) params.append('category', currentFilters.category);
+    if (currentFilters.coachId) params.append('coachId', currentFilters.coachId);
+    if (currentFilters.period) params.append('period', currentFilters.period);
+    if (currentFilters.startDate) params.append('startDate', currentFilters.startDate);
+    if (currentFilters.endDate) params.append('endDate', currentFilters.endDate);
+    if (currentFilters.search) params.append('search', currentFilters.search);
+    params.append('sortBy', 'date');
+    params.append('sortOrder', 'desc');
+    return params;
+}
+
+async function fetchSettlementPayments() {
+    const params = buildSettlementFilterParams();
+    const list = await App.api.get('/payments?' + params.toString());
+    const payments = Array.isArray(list) ? list : [];
+    return payments.filter(function (p) { return !p || p.revenueExcluded !== true; });
+}
+
+function parseSettlementNumber(raw) {
+    if (raw == null) return 0;
+    var s = String(raw).replace(/[^\d-]/g, '');
+    if (s === '' || s === '-') return 0;
+    var n = parseInt(s, 10);
+    return isNaN(n) ? 0 : n;
+}
+
+function calculatedSettlementNet(p) {
+    var amount = (p && p.amount != null) ? Number(p.amount) : 0;
+    var refund = (p && p.refundAmount != null) ? Number(p.refundAmount) : 0;
+    return amount - refund;
+}
+
+function settlementNetAmount(p) {
+    if (p && p.settlementNetAmount != null && p.settlementNetAmount !== '') {
+        var n = Number(p.settlementNetAmount);
+        if (!isNaN(n)) return n;
+    }
+    return calculatedSettlementNet(p);
+}
+
+function settlementNetInputHtml(payment) {
+    var id = payment && payment.id != null ? payment.id : '';
+    var net = settlementNetAmount(payment);
+    return '<input type="text" inputmode="numeric" class="payment-net-input" data-payment-id="' +
+        App.escapeHtml(String(id)) + '" value="' + App.escapeHtml(String(net)) + '" title="순매출" aria-label="순매출">';
+}
+
+function savePaymentSettlementNet(input) {
+    if (!input) return;
+    var id = input.getAttribute('data-payment-id');
+    if (!id) return;
+    var net = parseSettlementNumber(input.value);
+    input.value = String(net);
+    var payment = (allPayments || []).find(function (p) { return String(p.id) === String(id); });
+    if (payment) {
+        var prev = payment.settlementNetAmount != null ? Number(payment.settlementNetAmount) : null;
+        if (prev === net) return;
+        payment.settlementNetAmount = net;
+    }
+    input.classList.remove('is-error', 'is-saved');
+    App.api.put('/payments/' + id + '/settlement-net', { settlementNetAmount: net }).then(function () {
+        input.classList.add('is-saved');
+        setTimeout(function () { input.classList.remove('is-saved'); }, 900);
+        loadPaymentMethodStatistics();
+    }).catch(function (error) {
+        App.err('순매출 저장 실패:', error);
+        input.classList.add('is-error');
+        App.showNotification('순매출 저장에 실패했습니다.', 'danger');
+    });
+}
+
+function settlementFilterLabel() {
+    var bits = [];
+    var periodEl = document.getElementById('filter-period');
+    var period = periodEl ? periodEl.options[periodEl.selectedIndex].text : '이번 달';
+    bits.push(period);
+    if (currentFilters.startDate || currentFilters.endDate) {
+        bits.push((currentFilters.startDate || '') + ' ~ ' + (currentFilters.endDate || ''));
+    }
+    var methodEl = document.getElementById('filter-payment-method');
+    if (methodEl && methodEl.value) bits.push(methodEl.options[methodEl.selectedIndex].text);
+    var statusEl = document.getElementById('filter-status');
+    if (statusEl && statusEl.value) bits.push(statusEl.options[statusEl.selectedIndex].text);
+    var catEl = document.getElementById('filter-category');
+    if (catEl && catEl.value) bits.push(catEl.options[catEl.selectedIndex].text);
+    var coachEl = document.getElementById('filter-coach');
+    if (coachEl && coachEl.value) bits.push(coachEl.options[coachEl.selectedIndex].text);
+    if (currentFilters.search) bits.push('검색: ' + currentFilters.search);
+    return bits.join(' · ');
+}
+
+function renderSettlementReport(payments) {
+    var contentEl = document.getElementById('settlement-report-content');
+    if (!contentEl) return;
+    var list = Array.isArray(payments) ? payments : [];
+    var count = list.length;
+    var amountSum = 0;
+    var refundSum = 0;
+    var netSum = 0;
+    var methodCount = {};
+    var methodNet = {};
+    list.forEach(function (p) {
+        var amount = (p && p.amount != null) ? Number(p.amount) : 0;
+        var refund = (p && p.refundAmount != null) ? Number(p.refundAmount) : 0;
+        var net = settlementNetAmount(p);
+        amountSum += amount;
+        refundSum += refund;
+        netSum += net;
+        var key = (p && p.paymentMethod) ? p.paymentMethod : 'UNKNOWN';
+        methodCount[key] = (methodCount[key] || 0) + 1;
+        methodNet[key] = (methodNet[key] || 0) + net;
+    });
+    var methodHtml = Object.keys(methodCount).map(function (key) {
+        return '<span class="settlement-report-method">' +
+            App.escapeHtml(getPaymentMethodText(key === 'UNKNOWN' ? '' : key)) +
+            ' ' + App.formatCurrency(methodNet[key]) +
+            ' · ' + methodCount[key] + '건</span>';
+    }).join('');
+    var coachSummaryHtml = renderCoachSettlementSummary(list);
+    var personal = !!(currentFilters && currentFilters.coachId);
+    var rowsHtml;
+    if (count === 0) {
+        rowsHtml = '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);">정산 대상 결제가 없습니다.</td></tr>';
+    } else {
+        rowsHtml = list.map(function (p) {
+            var refund = (p && p.refundAmount != null) ? Number(p.refundAmount) : 0;
+            return '<tr>' +
+                '<td>' + App.escapeHtml(String(p.id != null ? p.id : '')) + '</td>' +
+                '<td>' + App.escapeHtml(p.paidAt ? App.formatDateTime(p.paidAt) : '') + '</td>' +
+                '<td>' + App.escapeHtml(p.member && p.member.name ? p.member.name : '비회원') + '</td>' +
+                '<td>' + getCoachNameWithColor(p.coach) + '</td>' +
+                '<td>' + App.escapeHtml(getCategoryText(p.category || p.paymentCategory)) + '</td>' +
+                '<td>' + App.escapeHtml(getPaymentMethodText(p.paymentMethod)) + '</td>' +
+                '<td>' + App.formatCurrency(p.amount || 0) + '</td>' +
+                '<td>' + App.escapeHtml(getPaymentStatusText(p.status)) + '</td>' +
+                '<td>' + (refund > 0 ? App.formatCurrency(refund) : '-') + '</td>' +
+                '<td style="font-weight:600;">' + App.formatCurrency(settlementNetAmount(p)) + '</td>' +
+                '<td>' + App.escapeHtml(p.memo || '') + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+    contentEl.innerHTML =
+        '<p class="settlement-report-meta">' +
+            (personal ? '개인 정산 · ' : '') +
+            '조회 조건: ' + App.escapeHtml(settlementFilterLabel()) +
+        '</p>' +
+        '<div class="settlement-report-kpis">' +
+            '<div class="settlement-report-kpi"><div class="settlement-report-kpi-label">건수</div><div class="settlement-report-kpi-value">' + count + '건</div></div>' +
+            '<div class="settlement-report-kpi"><div class="settlement-report-kpi-label">결제금액</div><div class="settlement-report-kpi-value">' + App.formatCurrency(amountSum) + '</div></div>' +
+            '<div class="settlement-report-kpi"><div class="settlement-report-kpi-label">환불</div><div class="settlement-report-kpi-value">' + App.formatCurrency(refundSum) + '</div></div>' +
+            '<div class="settlement-report-kpi"><div class="settlement-report-kpi-label">순매출</div><div class="settlement-report-kpi-value">' + App.formatCurrency(netSum) + '</div></div>' +
+        '</div>' +
+        (methodHtml ? '<div class="settlement-report-methods">' + methodHtml + '</div>' : '') +
+        coachSummaryHtml +
+        '<div class="settlement-report-table-wrap"><table class="table"><thead><tr>' +
+            '<th>결제번호</th><th>날짜/시간</th><th>회원</th><th>코치</th><th>분류</th><th>결제수단</th>' +
+            '<th>결제금액</th><th>상태</th><th>환불금액</th><th>순매출</th><th>메모</th>' +
+        '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+}
+
+function renderCoachSettlementSummary(payments) {
+    var list = Array.isArray(payments) ? payments : [];
+    var by = {};
+    list.forEach(function (p) {
+        var c = p && p.coach;
+        var key = (c && c.id != null) ? String(c.id) : 'unassigned';
+        if (!by[key]) {
+            by[key] = { coach: c || null, count: 0, amount: 0, refund: 0, net: 0 };
         }
-        if (currentFilters.status) {
-            params.append('status', currentFilters.status);
+        var amount = (p && p.amount != null) ? Number(p.amount) : 0;
+        var refund = (p && p.refundAmount != null) ? Number(p.refundAmount) : 0;
+        by[key].count += 1;
+        by[key].amount += amount;
+        by[key].refund += refund;
+        by[key].net += settlementNetAmount(p);
+    });
+    var rows = Object.keys(by).map(function (k) { return by[k]; });
+    rows.sort(function (a, b) {
+        var oa = (typeof App.CoachSortOrder === 'function') ? App.CoachSortOrder(a.coach || {}) : 9;
+        var ob = (typeof App.CoachSortOrder === 'function') ? App.CoachSortOrder(b.coach || {}) : 9;
+        if (!a.coach) oa = 100;
+        if (!b.coach) ob = 100;
+        if (oa !== ob) return oa - ob;
+        var na = (a.coach && a.coach.name) || '코치 미지정';
+        var nb = (b.coach && b.coach.name) || '코치 미지정';
+        return String(na).localeCompare(String(nb), 'ko');
+    });
+    if (rows.length === 0) return '';
+    var personal = !!(currentFilters && currentFilters.coachId);
+    var body = rows.map(function (r) {
+        return '<tr>' +
+            '<td>' + (r.coach ? getCoachNameWithColor(r.coach) : '코치 미지정') + '</td>' +
+            '<td>' + r.count + '건</td>' +
+            '<td>' + App.formatCurrency(r.amount) + '</td>' +
+            '<td>' + App.formatCurrency(r.refund) + '</td>' +
+            '<td style="font-weight:600;">' + App.formatCurrency(r.net) + '</td>' +
+            '</tr>';
+    }).join('');
+    return '<h3 class="settlement-report-subtitle">' + (personal ? '개인 정산' : '코치별 정산') + '</h3>' +
+        '<div class="settlement-report-coach-wrap"><table class="table"><thead><tr>' +
+            '<th>코치</th><th>건수</th><th>결제금액</th><th>환불</th><th>순매출</th>' +
+        '</tr></thead><tbody>' + body + '</tbody></table></div>';
+}
+
+async function downloadSettlementExcel() {
+    try {
+        const params = buildSettlementFilterParams();
+        params.delete('sortBy');
+        params.delete('sortOrder');
+        params.delete('search');
+        const qs = params.toString();
+        const url = (App.apiBase || '/api') + '/payments/export/excel' + (qs ? '?' + qs : '');
+        const headers = App.getAuthHeaders();
+        const token = App.getAuthToken ? App.getAuthToken() : '';
+        if (token && !headers.Authorization) {
+            headers.Authorization = 'Bearer ' + token;
         }
-        if (currentFilters.category) {
-            params.append('category', currentFilters.category);
+        const response = await fetch(url, { headers: headers, credentials: 'same-origin' });
+        if (response.status === 401) {
+            App.handle401();
+            throw new Error('인증이 만료되었습니다.');
         }
-        if (currentFilters.startDate) {
-            params.append('startDate', currentFilters.startDate);
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
         }
-        if (currentFilters.endDate) {
-            params.append('endDate', currentFilters.endDate);
-        }
-        
-        const url = `/api/payments/export/excel?${params.toString()}`;
-        window.open(url, '_blank');
+        const blob = await response.blob();
+        const today = new Date();
+        const ymd = today.getFullYear() + '-' +
+            String(today.getMonth() + 1).padStart(2, '0') + '-' +
+            String(today.getDate()).padStart(2, '0');
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = '결제내역_' + ymd + '.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(objectUrl);
         App.showNotification('엑셀 파일 다운로드가 시작되었습니다.', 'success');
     } catch (error) {
         App.err('엑셀 다운로드 실패:', error);
@@ -481,6 +810,9 @@ async function loadPaymentMethodStatistics() {
         if (currentFilters.endDate) {
             params.append('endDate', currentFilters.endDate);
         }
+        if (currentFilters.coachId) {
+            params.append('coachId', currentFilters.coachId);
+        }
         
         const statistics = await App.api.get(`/payments/statistics/method?${params.toString()}`);
         if (statistics) {
@@ -499,6 +831,7 @@ function renderPaymentMethodStatistics(statistics) {
     const methodCount = statistics.methodCount || {};
     const methodAmount = statistics.methodAmount || {};
     const totalAmount = statistics.totalAmount || 0;
+    const totalSettlementNet = statistics.totalSettlementNet != null ? statistics.totalSettlementNet : totalAmount;
     
     const methodNames = {
         'CASH': '현금',
@@ -525,12 +858,17 @@ function renderPaymentMethodStatistics(statistics) {
     }
     
     let html = '';
-    // 총계 카드 (클릭 시 전체 목록)
+    var netCardHtml = `<div class="payment-method-stats-item payment-method-stats-item-clickable payment-method-stats-item--net" data-filter-method="" data-filter-label="순매출" role="button" tabindex="0" title="클릭하면 해당 결제 목록 보기">
+        <div class="payment-method-stats-item-label">순매출</div>
+        <div class="payment-method-stats-item-value">${App.formatCurrency(totalSettlementNet)}</div>
+        <div class="payment-method-stats-item-detail">${Object.values(methodCount).reduce((a, b) => a + b, 0)}건</div>
+    </div>`;
     html += `<div class="payment-method-stats-item payment-method-stats-item-clickable payment-method-stats-item--total" data-filter-method="" data-filter-label="총 결제" role="button" tabindex="0" title="클릭하면 해당 결제 목록 보기">
         <div class="payment-method-stats-item-label">총 결제</div>
         <div class="payment-method-stats-item-value">${App.formatCurrency(totalAmount)}</div>
         <div class="payment-method-stats-item-detail">${Object.values(methodCount).reduce((a, b) => a + b, 0)}건</div>
     </div>`;
+    var netInserted = false;
     for (const [method, count] of entries) {
         const amount = methodAmount[method] || 0;
         const percentage = totalAmount > 0 ? ((amount / totalAmount) * 100).toFixed(1) : 0;
@@ -543,7 +881,12 @@ function renderPaymentMethodStatistics(statistics) {
                 <div class="payment-method-stats-item-detail">${count}건 (${percentage}%)</div>
             </div>
         `;
+        if (method === 'CASH') {
+            html += netCardHtml;
+            netInserted = true;
+        }
     }
+    if (!netInserted) html += netCardHtml;
     container.innerHTML = html;
     container.className = 'payment-method-stats-body';
     
@@ -578,17 +921,18 @@ async function openPaymentMethodListModal(filterMethod, titleLabel) {
         if (currentFilters.startDate) params.append('startDate', currentFilters.startDate);
         if (currentFilters.endDate) params.append('endDate', currentFilters.endDate);
         if (filterMethod) params.append('paymentMethod', filterMethod);
+        if (currentFilters.coachId) params.append('coachId', currentFilters.coachId);
         var list = await App.api.get('/payments?' + params.toString());
         var payments = Array.isArray(list) ? list : (list && Array.isArray(list.content) ? list.content : []);
         if (payments.length === 0) {
             bodyEl.innerHTML = '<p style="color: var(--text-muted); padding: 16px;">해당 조건의 결제가 없습니다.</p>';
             return;
         }
-        var thead = '<thead><tr><th>날짜/시간</th><th>회원</th><th>분류</th><th>결제수단</th><th>금액</th><th>상태</th></tr></thead>';
+        var thead = '<thead><tr><th>날짜/시간</th><th>회원</th><th>분류</th><th>결제수단</th><th>금액</th><th>순매출</th><th>상태</th></tr></thead>';
         var tbody = '<tbody>' + payments.map(function(p) {
             var memberName = (p.member && (p.member.name || p.member.id)) ? p.member.name : (p.memberName || '-');
             var paidAt = p.paidAt ? App.formatDateTime(p.paidAt) : (p.createdAt ? App.formatDateTime(p.createdAt) : '-');
-            return '<tr><td>' + App.escapeHtml(paidAt) + '</td><td>' + App.escapeHtml(memberName) + '</td><td>' + App.escapeHtml(getCategoryText(p.category)) + '</td><td>' + App.escapeHtml(getPaymentMethodText(p.paymentMethod)) + '</td><td>' + App.formatCurrency(p.amount) + '</td><td><span class="badge badge-' + getPaymentStatusBadge(p.status) + '">' + App.escapeHtml(getPaymentStatusText(p.status)) + '</span></td></tr>';
+            return '<tr><td>' + App.escapeHtml(paidAt) + '</td><td>' + App.escapeHtml(memberName) + '</td><td>' + App.escapeHtml(getCategoryText(p.category)) + '</td><td>' + App.escapeHtml(getPaymentMethodText(p.paymentMethod)) + '</td><td>' + App.formatCurrency(p.amount) + '</td><td>' + App.formatCurrency(settlementNetAmount(p)) + '</td><td><span class="badge badge-' + getPaymentStatusBadge(p.status) + '">' + App.escapeHtml(getPaymentStatusText(p.status)) + '</span></td></tr>';
         }).join('') + '</tbody>';
         bodyEl.innerHTML = '<table class="table">' + thead + tbody + '</table>';
     } catch (error) {
@@ -644,6 +988,10 @@ function renderPaymentDetail(payment) {
                 <div class="detail-item">
                     <label>금액</label>
                     <div style="font-weight: 600; color: var(--accent-primary); font-size: 1.2em;">${App.formatCurrency(payment.amount)}</div>
+                </div>
+                <div class="detail-item">
+                    <label>순매출</label>
+                    <div style="font-weight: 600;">${App.formatCurrency(settlementNetAmount(payment))}</div>
                 </div>
                 <div class="detail-item">
                     <label>결제수단</label>
@@ -766,6 +1114,13 @@ function renderUnpaidDetails(details) {
         const memberName = detail.member ? detail.member.name : (detail.nonMemberName || '비회원');
         const purposeText = {
             'LESSON': '레슨',
+            'BASEBALL_LESSON': '엘리트',
+            'OUTDOOR_LESSON': '엘리트(야외)',
+            'TRAINING_LESSON': '트레이닝',
+            'PILATES_LESSON': '필라테스',
+            'SOCIAL_LESSON': '사회인',
+            'SOCIAL_OUTDOOR_LESSON': '사회인(야외)',
+            'YOUTH_LESSON': '유소년',
             'RENTAL': '대관',
             'PERSONAL_TRAINING': '개인훈련'
         }[detail.purpose] || detail.purpose || '-';

@@ -14,7 +14,8 @@
         '이원준': true,
         '김가영': true,
         '김유진': true,
-        '이소연': true
+        '이소연': true,
+        '야외레슨': true
     };
 
     function pad(n) {
@@ -83,6 +84,7 @@
         if (!rec) return 'empty';
         if (rec.dayType === 'OFF') return 'off';
         if (rec.dayType === 'OUTDOOR') return 'outdoor';
+        if (rec.dayType === 'EXTERNAL_WORK') return 'external';
         if (rec.dayType === 'SICK') return 'sick';
         if (rec.checkOutTime) return 'work';
         if (rec.checkInTime) return 'working';
@@ -91,7 +93,8 @@
     function cellLabel(rec, columnOutdoor) {
         var st = cellStatus(rec);
         if (st === 'off') return '휴무';
-        if (st === 'outdoor') return columnOutdoor ? '·' : '야외레슨';
+        if (st === 'outdoor') return '·';
+        if (st === 'external') return '외부업무';
         if (st === 'sick') return '병가';
         if (st === 'work') return fmtTime(rec.checkInTime) + '-' + fmtTime(rec.checkOutTime);
         if (st === 'working') return fmtTime(rec.checkInTime) + '~';
@@ -133,6 +136,9 @@
     function isHiddenFromStaffRoster(name) {
         return !!STAFF_ROSTER_HIDDEN_BASE_NAMES[staffBaseName(name)];
     }
+    function hideOutdoorFromStaff(group) {
+        return false;
+    }
     function rosterStaffVisible() {
         return ((roster && roster.staff) || []).filter(function(s) {
             return !isHiddenFromStaffRoster(s.coachName);
@@ -153,8 +159,9 @@
         '서정훈': 0,
         '박근엽': 1,
         '정진환': 2,
-        '이용준': 3,
-        '손희진': 4
+        '정태영': 3,
+        '이용준': 4,
+        '손희진': 5
     };
     function staffRosterRank(s) {
         var rank = STAFF_ROSTER_LEAD_ORDER[staffBaseName(s && s.coachName)];
@@ -165,7 +172,7 @@
     }
     function isLeadStaff(s) {
         var base = staffBaseName(s && s.coachName);
-        return base === '서정훈' || base === '박근엽' || base === '정진환' || base === '이용준';
+        return base === '서정훈' || base === '박근엽' || base === '정진환' || base === '정태영' || base === '이용준';
     }
     function sortStaffForRoster(list) {
         return (list || []).map(function(s, i) {
@@ -182,24 +189,49 @@
 
     function render() {
         if (!roster) return;
-        var visible = rosterStaffVisible();
-        var workingNow = 0;
-        var clockedOut = 0;
-        var offToday = 0;
-        var notIn = 0;
+        var visible = sortStaffForRoster(rosterStaffVisible());
+        var workingNow = [];
+        var clockedOut = [];
+        var offToday = [];
+        var notIn = [];
         visible.forEach(function(s) {
             var st = s.todayStatus;
-            if (st === '근무 중') workingNow++;
-            else if (st === '퇴근') clockedOut++;
-            else if (st === '휴무' || st === '병가' || st === '야외레슨') offToday++;
-            else notIn++;
+            var rec = s.todayRecord || dayMap(s)[roster.today] || {};
+            var name = displayName(s.coachName);
+            if (st === '근무 중') {
+                var inn = fmtTime(rec.checkInTime);
+                workingNow.push(inn ? (name + ' ' + inn + '~') : name);
+            } else if (st === '퇴근') {
+                var inT = fmtTime(rec.checkInTime);
+                var outT = fmtTime(rec.checkOutTime);
+                clockedOut.push((inT && outT) ? (name + ' ' + inT + '-' + outT) : name);
+            } else if (st === '휴무' || st === '병가' || st === '야외레슨' || st === '외부업무') {
+                offToday.push(name + ' ' + st);
+            } else {
+                notIn.push(name);
+            }
         });
-        setText('kpi-working-now', workingNow);
-        setText('kpi-clocked-out', clockedOut);
-        setText('kpi-off-today', offToday);
-        setText('kpi-not-in', notIn);
+        setText('kpi-working-now', workingNow.length);
+        setText('kpi-clocked-out', clockedOut.length);
+        setText('kpi-off-today', offToday.length);
+        setText('kpi-not-in', notIn.length);
         setText('kpi-staff-count', visible.length);
+        setKpiDetail('kpi-working-now-detail', workingNow);
+        setKpiDetail('kpi-clocked-out-detail', clockedOut);
+        setKpiDetail('kpi-off-today-detail', offToday);
+        setKpiDetail('kpi-not-in-detail', notIn);
+        setKpiDetail('kpi-staff-count-detail', visible.map(function(s) { return displayName(s.coachName); }));
         renderGrid();
+    }
+
+    function setKpiDetail(id, items) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        if (!items || !items.length) {
+            el.textContent = '';
+            return;
+        }
+        el.textContent = items.join(' · ');
     }
 
     function setText(id, v) {
@@ -237,7 +269,7 @@
         var staff = filteredStaff();
         if (!staff.length) {
             wrap.innerHTML = '<table class="staff-att-table"><thead><tr>'
-                + '<th class="staff-att-name">직원</th><th class="staff-att-month-sum">이번 달</th></tr></thead>'
+                + '<th class="staff-att-name">구분</th><th class="staff-att-month-sum">이번 달</th></tr></thead>'
                 + '<tbody><tr><td class="staff-att-name" colspan="2">표시할 직원이 없습니다.</td></tr></tbody></table>';
             return;
         }
@@ -278,7 +310,7 @@
 
     function buildDayHeader(last, todayStr, group) {
         var html = '<thead><tr>';
-        html += '<th class="staff-att-name">직원</th>';
+        html += '<th class="staff-att-name">구분</th>';
         html += '<th class="staff-att-month-sum">이번 달</th>';
         for (var d = 1; d <= last; d++) {
             var dt = new Date(year, month - 1, d);
@@ -297,10 +329,10 @@
             var titleBits = [formatDayLabel(dateStr)];
             if (memo) titleBits.push(memo);
             if (settingsClosed || allOff) titleBits.push('휴무');
-            if (outdoor) titleBits.push('야외레슨');
+            if (outdoor && !hideOutdoorFromStaff(group)) titleBits.push('야외레슨');
             titleBits.push('클릭하면 변경');
             var extra = '';
-            if (outdoor) {
+            if (outdoor && !hideOutdoorFromStaff(group)) {
                 extra += '<span class="staff-att-day-mark">야외레슨</span>';
             }
             if (memo) {
@@ -334,7 +366,8 @@
         html += '<td class="staff-att-name"><span class="staff-att-name-dot" style="background:' + color + '"></span>'
             + escapeHtml(displayName(s.coachName))
                 + '<span class="staff-att-name-sub">출근 ' + (s.workDays || 0) + ' · 휴무 ' + (s.offDays || 0)
-                + (s.outdoorDays ? ' · 야외 ' + s.outdoorDays : '')
+                + (!hideOutdoorFromStaff(group) && s.outdoorDays ? ' · 야외 ' + s.outdoorDays : '')
+                + (s.externalWorkDays ? ' · 외부 ' + s.externalWorkDays : '')
                 + (s.sickDays ? ' · 병가 ' + s.sickDays : '') + '</span></td>';
         html += '<td class="staff-att-month-sum">' + fmtMinutes(s.workedMinutes) + '</td>';
         for (var day = 1; day <= last; day++) {
@@ -351,6 +384,7 @@
             if (st === 'working') cls.push('is-working');
             if (st === 'off') cls.push('is-off');
             if (st === 'sick') cls.push('is-sick');
+            if (st === 'external') cls.push('is-external');
             if (isColumnAllOff(key, group)) cls.push('is-all-off');
             var text = cellLabel(rec, columnOutdoor);
             var labelCls = (st === 'empty' || text === '·') ? 'staff-att-empty' : 'staff-att-time';
@@ -405,7 +439,9 @@
                 : '손희진은 그대로 두고, 위쪽 출근부에만 적용됩니다. 휴무는 설정의 지점 휴무와 같이 반영됩니다.')
                 + extra;
         }
-        var current = isColumnOutdoor(dateStr, group) ? 'OUTDOOR'
+        var outdoorBtn = document.querySelector('#staff-att-day-mark-modal [data-mark="OUTDOOR"]');
+        if (outdoorBtn) outdoorBtn.style.display = hideOutdoorFromStaff(group) ? 'none' : '';
+        var current = (!hideOutdoorFromStaff(group) && isColumnOutdoor(dateStr, group)) ? 'OUTDOOR'
             : ((isColumnAllOff(dateStr, group) || isSettingsClosed(dateStr)) ? 'OFF' : '');
         document.querySelectorAll('#staff-att-day-mark-modal [data-mark]').forEach(function(btn) {
             if (btn.getAttribute('data-mark') === current) btn.classList.add('is-current');
@@ -438,6 +474,7 @@
         if (!selectedDayMark) return;
         var dateStr = selectedDayMark.date;
         var group = selectedDayMark.group;
+        if (hideOutdoorFromStaff(group) && mark === 'OUTDOOR') return;
         var label = formatDayLabel(dateStr);
         try {
             var res = await App.api.post('/coach-portal/work/roster/days/' + dateStr + '/all-off?group=' + group + '&mark=' + mark, {});
@@ -513,6 +550,8 @@
         var rec = dayMap(staff)[date] || {};
         selected = { coachId: coachId, date: date, name: staff.coachName };
         document.getElementById('staff-att-edit-title').textContent = displayName(staff.coachName) + ' · ' + date;
+        var outdoorOpt = document.querySelector('#staff-att-day-type option[value="OUTDOOR"]');
+        if (outdoorOpt) outdoorOpt.hidden = false;
         document.getElementById('staff-att-day-type').value = rec.dayType || 'WORK';
         document.getElementById('staff-att-in').value = fmtTime(rec.checkInTime);
         document.getElementById('staff-att-out').value = fmtTime(rec.checkOutTime);
@@ -528,7 +567,7 @@
 
     function toggleTimeFields() {
         var type = document.getElementById('staff-att-day-type').value;
-        var disabled = type === 'OFF' || type === 'SICK' || type === 'OUTDOOR';
+        var disabled = type === 'OFF' || type === 'SICK' || type === 'OUTDOOR' || type === 'EXTERNAL_WORK';
         var inEl = document.getElementById('staff-att-in');
         var outEl = document.getElementById('staff-att-out');
         inEl.disabled = disabled;

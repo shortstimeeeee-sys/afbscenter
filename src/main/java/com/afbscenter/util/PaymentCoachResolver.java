@@ -13,6 +13,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 결제/정산 목록의 코치 표시. 예약·회원 담당만 보면 상품(이용권) 결제는 항상 비어 보이므로,
@@ -51,6 +52,34 @@ public class PaymentCoachResolver {
             }
         }
         return out;
+    }
+
+    /**
+     * 목록에 표시되는 코치와 같은 기준으로 거른다. {@code unassigned}는 코치 미지정.
+     */
+    public List<Payment> filterByCoachId(List<Payment> payments, Map<Long, Coach> coachByPaymentId, String coachIdParam) {
+        if (payments == null || payments.isEmpty() || coachIdParam == null || coachIdParam.isBlank()) {
+            return payments;
+        }
+        String raw = coachIdParam.trim();
+        boolean unassigned = "unassigned".equalsIgnoreCase(raw);
+        Long wantId = null;
+        if (!unassigned) {
+            try {
+                wantId = Long.parseLong(raw);
+            } catch (NumberFormatException e) {
+                return payments;
+            }
+        }
+        final Long id = wantId;
+        return payments.stream().filter(p -> {
+            Coach c = (p != null && p.getId() != null && coachByPaymentId != null)
+                    ? coachByPaymentId.get(p.getId()) : null;
+            if (unassigned) {
+                return c == null || c.getId() == null;
+            }
+            return c != null && id.equals(c.getId());
+        }).collect(Collectors.toList());
     }
 
     private Coach resolveWithCache(Payment payment, Map<String, List<MemberProduct>> mpCache) {

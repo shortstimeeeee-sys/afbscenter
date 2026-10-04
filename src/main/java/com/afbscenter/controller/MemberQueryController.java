@@ -125,6 +125,7 @@ public class MemberQueryController {
             memberMap.put("joinDate", member.getJoinDate());
             memberMap.put("lastVisitDate", member.getLastVisitDate());
             memberMap.put("school", member.getSchool());
+            memberMap.put("schoolYear", member.getSchoolYear());
             memberMap.put("coachMemo", member.getCoachMemo());
             memberMap.put("coachMemoPitcher", member.getCoachMemoPitcher());
             memberMap.put("coachMemoBatter", member.getCoachMemoBatter());

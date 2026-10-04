@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,6 +18,10 @@ public interface BranchClosureRepository extends JpaRepository<BranchClosure, Lo
 
     List<BranchClosure> findByBranchAndCalendarPartAndClosureDateBetweenOrderByClosureDateAsc(
             Facility.Branch branch, BranchClosure.CalendarPart calendarPart, LocalDate start, LocalDate end);
+
+    List<BranchClosure> findByBranchAndCalendarPartInAndClosureDateBetweenOrderByClosureDateAsc(
+            Facility.Branch branch, Collection<BranchClosure.CalendarPart> calendarParts,
+            LocalDate start, LocalDate end);
 
     void deleteByBranchAndCalendarPartAndClosureDate(
             Facility.Branch branch, BranchClosure.CalendarPart calendarPart, LocalDate closureDate);

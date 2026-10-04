@@ -253,6 +253,18 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
     color: #1976d2;
     background-color: rgba(25, 118, 210, 0.12);
 }
+
+.calendar-day-header--clickable {
+    cursor: pointer;
+    user-select: none;
+}
+.calendar-day-header--clickable:hover {
+    filter: brightness(0.96);
+    box-shadow: inset 0 0 0 1px rgba(211, 47, 47, 0.35);
+}
+.calendar-day-header--closed {
+    outline: 1px solid rgba(211, 47, 47, 0.45);
+}
 .calendar-day.calendar-day-sat .calendar-day-number {
     color: #1976d2;
 }
@@ -328,6 +340,54 @@ body.booking-page .content-area > *:first-child { margin-top: 0 !important; }
     letter-spacing: 0.02em;
     line-height: 1.2;
     margin-top: 2px;
+}
+
+.calendar-event.calendar-event--youth-trial {
+    background-color: #2962ff;
+    border-left: 3px solid #1565c0;
+    color: #fff;
+    cursor: default;
+    font-weight: 700;
+}
+
+.calendar-event.calendar-event--social-outdoor {
+    background-color: #2962ff;
+    border-left: 3px solid #1565c0;
+    color: #fff;
+    cursor: default;
+    font-weight: 700;
+}
+
+.calendar-event.calendar-event--social-scrimmage {
+    background-color: #2962ff;
+    border-left: 3px solid #1565c0;
+    color: #fff;
+    cursor: default;
+    font-weight: 700;
+}
+
+.calendar-event.calendar-event--social-regular-meeting {
+    background-color: #2962ff;
+    border-left: 3px solid #1565c0;
+    color: #fff;
+    cursor: default;
+    font-weight: 700;
+}
+
+.calendar-event.calendar-event--external-work {
+    background-color: #ef6c00;
+    border-left: 3px solid #e65100;
+    color: #fff;
+    cursor: default;
+    font-weight: 700;
+}
+
+.calendar-event.calendar-event--youth-trial.calendar-event--weekday-cancelable,
+.calendar-event.calendar-event--social-outdoor.calendar-event--weekday-cancelable,
+.calendar-event.calendar-event--social-scrimmage.calendar-event--weekday-cancelable,
+.calendar-event.calendar-event--social-regular-meeting.calendar-event--weekday-cancelable,
+.calendar-event.calendar-event--external-work.calendar-event--weekday-cancelable {
+    cursor: pointer;
 }
 
 .calendar-day-header-wrapper {

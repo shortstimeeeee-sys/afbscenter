@@ -2,6 +2,7 @@ package com.afbscenter.util;
 
 import com.afbscenter.model.Booking;
 import com.afbscenter.model.Facility;
+import com.afbscenter.model.LessonCategory;
 import com.afbscenter.model.Member;
 
 import java.util.LinkedHashMap;
@@ -34,6 +35,26 @@ public final class DashboardBookingBreakdown {
         return map;
     }
 
+    /** 오늘 예약: 사하/연산 × 야구·유소년·사회인·필라테스·트레이닝 */
+    public static Map<String, Long> emptyPartCounts() {
+        Map<String, Long> row = new LinkedHashMap<>();
+        row.put("total", 0L);
+        row.put("baseball", 0L);
+        row.put("youth", 0L);
+        row.put("social", 0L);
+        row.put("pilates", 0L);
+        row.put("training", 0L);
+        row.put("rental", 0L);
+        return row;
+    }
+
+    public static Map<String, Map<String, Long>> emptyPartsByStudio() {
+        Map<String, Map<String, Long>> map = new LinkedHashMap<>();
+        map.put("SAHA", emptyPartCounts());
+        map.put("YEONSAN", emptyPartCounts());
+        return map;
+    }
+
     public static void add(Map<String, Map<String, Long>> byStudio, Booking booking) {
         if (byStudio == null || booking == null) {
             return;
@@ -42,6 +63,16 @@ public final class DashboardBookingBreakdown {
         Map<String, Long> row = byStudio.computeIfAbsent(studio, key -> emptyCounts());
         row.merge("total", 1L, Long::sum);
         row.merge(categoryOf(booking), 1L, Long::sum);
+    }
+
+    public static void addPart(Map<String, Map<String, Long>> byStudio, Booking booking) {
+        if (byStudio == null || booking == null) {
+            return;
+        }
+        String studio = studioOf(booking);
+        Map<String, Long> row = byStudio.computeIfAbsent(studio, key -> emptyPartCounts());
+        row.merge("total", 1L, Long::sum);
+        row.merge(partOf(booking), 1L, Long::sum);
     }
 
     static String studioOf(Booking booking) {
@@ -90,6 +121,27 @@ public final class DashboardBookingBreakdown {
             return "social";
         }
         return "elite";
+    }
+
+    static String partOf(Booking booking) {
+        if (isRentalNotBpa(booking)) {
+            return "rental";
+        }
+        LessonCategory lc = booking.getLessonCategory();
+        if (lc == null) {
+            lc = Booking.lessonCategoryForPurpose(booking.getPurpose());
+        }
+        if (lc == LessonCategory.PILATES) {
+            return "pilates";
+        }
+        if (lc == LessonCategory.TRAINING) {
+            return "training";
+        }
+        String category = categoryOf(booking);
+        if ("youth".equals(category) || "social".equals(category)) {
+            return category;
+        }
+        return "baseball";
     }
 
     private static boolean isRentalNotBpa(Booking booking) {

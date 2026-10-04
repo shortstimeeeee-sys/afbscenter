@@ -113,10 +113,16 @@ async function openMemberInfoModal(memberId) {
 /** 예약 목록 전체 (레슨 카테고리 필터용) */
 let _todayBookingsAll = [];
 
+function isAttendanceLessonPurpose(purpose) {
+    var p = String(purpose || '').toUpperCase();
+    return p === 'LESSON' || p === 'BASEBALL_LESSON' || p === 'OUTDOOR_LESSON' || p === 'TRAINING_LESSON'
+        || p === 'PILATES_LESSON' || p === 'SOCIAL_LESSON' || p === 'SOCIAL_OUTDOOR_LESSON' || p === 'YOUTH_LESSON';
+}
+
 function getTodayBookingCategoryKey(booking) {
     if (!booking) return null;
     if (booking.purpose === 'RENTAL') return 'RENTAL';
-    if (booking.purpose === 'LESSON' && booking.lessonCategory) return booking.lessonCategory;
+    if (isAttendanceLessonPurpose(booking.purpose) && booking.lessonCategory) return booking.lessonCategory;
     return null;
 }
 
@@ -254,7 +260,7 @@ function renderTodayBookings(bookings) {
         
         // 레슨 카테고리 (배지 + 고유색)
         let lessonCategoryHtml = '-';
-        if (booking.purpose === 'LESSON' && booking.lessonCategory) {
+        if (isAttendanceLessonPurpose(booking.purpose) && booking.lessonCategory) {
             const text = App.LessonCategory ? App.LessonCategory.getText(booking.lessonCategory) : booking.lessonCategory;
             const badge = getAttendanceLessonCategoryBadge(booking.lessonCategory, 'LESSON');
             lessonCategoryHtml = '<span class="badge badge-' + badge + '">' + App.escapeHtml(text) + '</span>';
@@ -842,7 +848,7 @@ let _uncheckedBookingsAll = [];
 function getUncheckedBookingCategoryKey(booking) {
     if (!booking) return null;
     if (booking.purpose === 'RENTAL') return 'RENTAL';
-    if (booking.purpose === 'LESSON' && booking.lessonCategory) return booking.lessonCategory;
+    if (isAttendanceLessonPurpose(booking.purpose) && booking.lessonCategory) return booking.lessonCategory;
     return null;
 }
 
@@ -1065,7 +1071,7 @@ function renderUncheckedBookings(bookings) {
         
         // 레슨 카테고리 추출
         let lessonCategoryHtml = '-';
-        if (booking.purpose === 'LESSON' && booking.lessonCategory) {
+        if (isAttendanceLessonPurpose(booking.purpose) && booking.lessonCategory) {
             const text = App.LessonCategory ? App.LessonCategory.getText(booking.lessonCategory) : booking.lessonCategory;
             const badge = getAttendanceLessonCategoryBadge(booking.lessonCategory, 'LESSON');
             lessonCategoryHtml = '<span class="badge badge-' + badge + '">' + App.escapeHtml(text) + '</span>';

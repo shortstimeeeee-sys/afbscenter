@@ -104,7 +104,8 @@ public class BookingStatsController {
             }
             if (branchEnum != null) {
                 final Booking.Branch b = branchEnum;
-                bookings = bookings.stream().filter(bk -> bk.getBranch() == b).collect(Collectors.toList());
+                bookings = bookings.stream().filter(bk -> BookingCalendarMemberGrade.matchesRequestedBranch(
+                        bk, b, facilityType, lessonCategory)).collect(Collectors.toList());
             }
             if (facilityType != null && !facilityType.trim().isEmpty()) {
                 try {
@@ -114,10 +115,11 @@ public class BookingStatsController {
                                 if (booking.getFacility() == null) return false;
                                 Facility.FacilityType ft = booking.getFacility().getFacilityType();
                                 if (ft == requestedType) return true;
-                                if (ft == Facility.FacilityType.ALL && booking.getLessonCategory() != null) {
+                                if (ft == Facility.FacilityType.ALL) {
                                     if (requestedType == Facility.FacilityType.BASEBALL)
                                         return BookingCalendarMemberGrade.includeAllFacilityOnBaseballCalendar(
-                                                booking.getLessonCategory(), memberGrade, lessonCategory);
+                                                booking, memberGrade, lessonCategory);
+                                    if (booking.getLessonCategory() == null) return false;
                                     if (requestedType == Facility.FacilityType.TRAINING_FITNESS)
                                         return booking.getLessonCategory() == LessonCategory.TRAINING
                                                 || booking.getLessonCategory() == LessonCategory.PILATES;
@@ -237,7 +239,8 @@ public class BookingStatsController {
             }
             if (branchEnum != null) {
                 final Booking.Branch b = branchEnum;
-                bookings = bookings.stream().filter(bk -> bk.getBranch() == b).collect(Collectors.toList());
+                bookings = bookings.stream().filter(bk -> BookingCalendarMemberGrade.matchesRequestedBranch(
+                        bk, b, facilityType, lessonCategory)).collect(Collectors.toList());
             }
             if (facilityType != null && !facilityType.trim().isEmpty()) {
                 try {
@@ -247,10 +250,11 @@ public class BookingStatsController {
                                 if (booking.getFacility() == null) return false;
                                 Facility.FacilityType ft = booking.getFacility().getFacilityType();
                                 if (ft == requestedType) return true;
-                                if (ft == Facility.FacilityType.ALL && booking.getLessonCategory() != null) {
+                                if (ft == Facility.FacilityType.ALL) {
                                     if (requestedType == Facility.FacilityType.BASEBALL)
                                         return BookingCalendarMemberGrade.includeAllFacilityOnBaseballCalendar(
-                                                booking.getLessonCategory(), memberGrade, lessonCategory);
+                                                booking, memberGrade, lessonCategory);
+                                    if (booking.getLessonCategory() == null) return false;
                                     if (requestedType == Facility.FacilityType.TRAINING_FITNESS)
                                         return booking.getLessonCategory() == LessonCategory.TRAINING
                                                 || booking.getLessonCategory() == LessonCategory.PILATES;

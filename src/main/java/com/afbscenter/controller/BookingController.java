@@ -20,6 +20,7 @@ import com.afbscenter.repository.MemberRepository;
 import com.afbscenter.repository.UserRepository;
 import com.afbscenter.service.MemberService;
 import com.afbscenter.service.OperationalCoachViewService;
+import com.afbscenter.constants.CoachColorPalette;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -232,7 +233,7 @@ public class BookingController {
 
     /** 무제한권 레슨 예약은 체크인 없이 자동 출석 처리(자동 승인) */
     private void createAutoAttendanceForUnlimitedPass(Booking booking) {
-        if (booking == null || booking.getPurpose() != Booking.BookingPurpose.LESSON) return;
+        if (booking == null || !booking.usesLessonCategory()) return;
         if (booking.getStatus() != Booking.BookingStatus.CONFIRMED && booking.getStatus() != Booking.BookingStatus.COMPLETED) return;
         if (booking.getMember() == null || booking.getFacility() == null) return;
         com.afbscenter.model.MemberProduct mp = booking.getMemberProduct();
@@ -375,15 +376,37 @@ public class BookingController {
             return true;
         }
         String u = purposeStr.trim().toUpperCase();
-        return "LESSON".equals(u) || "PERSONAL_TRAINING".equals(u);
+        return "LESSON".equals(u) || "BASEBALL_LESSON".equals(u) || "OUTDOOR_LESSON".equals(u)
+                || "TRAINING_LESSON".equals(u)
+                || "PILATES_LESSON".equals(u) || "SOCIAL_LESSON".equals(u)
+                || "SOCIAL_OUTDOOR_LESSON".equals(u) || "YOUTH_LESSON".equals(u)
+                || "PERSONAL_TRAINING".equals(u);
     }
 
     private static boolean isLessonLikePurposeOnBooking(Booking booking) {
         if (booking == null || booking.getPurpose() == null) {
             return true;
         }
-        Booking.BookingPurpose p = booking.getPurpose();
-        return p == Booking.BookingPurpose.LESSON || p == Booking.BookingPurpose.PERSONAL_TRAINING;
+        return Booking.isLessonLikePurpose(booking.getPurpose());
+    }
+
+    private static boolean isOutdoorLessonPlaceholderCoach(Coach coach) {
+        return CoachColorPalette.isOutdoorLessonPlaceholder(coach);
+    }
+
+    /** 야외레슨 자리 코치는 이용권·회원 담당 코치가 없을 때만. */
+    private Optional<String> validateOutdoorLessonPlaceholderCoach(Booking booking) {
+        if (booking == null || !isOutdoorLessonPlaceholderCoach(booking.getCoach())) {
+            return Optional.empty();
+        }
+        if (booking.getMemberProduct() != null) {
+            return Optional.of("이용권이 있으면 야외레슨 코치를 지정할 수 없습니다. 담당 코치(이용권 코치)를 선택하세요.");
+        }
+        Member member = booking.getMember();
+        if (member != null && member.getCoach() != null) {
+            return Optional.of("담당 코치가 있으면 야외레슨 코치를 지정할 수 없습니다. 회원 담당 코치를 선택하세요.");
+        }
+        return Optional.empty();
     }
 
     /** 회원 공개 예약(레슨·개인훈련): 클라이언트는 기본 1시간 구간(시작+60분) — 연장은 서버에서만 */
@@ -598,7 +621,7 @@ public class BookingController {
                 logger.debug("날짜별 예약 조회: 원본 {}건, 중복 제거 후 {}건", rawBookings.size(), bookings.size());
                 // 대관 예약 확인
                 long rentalCount = bookings.stream().filter(b -> b.getPurpose() == Booking.BookingPurpose.RENTAL).count();
-                long lessonCount = bookings.stream().filter(b -> b.getPurpose() == Booking.BookingPurpose.LESSON).count();
+                long lessonCount = bookings.stream().filter(b -> b.usesLessonCategory()).count();
                 logger.info("날짜별 예약 조회 결과: 전체 {}건 (레슨: {}건, 대관: {}건)", bookings.size(), lessonCount, rentalCount);
             } else if (start != null && end != null) {
                 // ISO 8601 형식 (Z 포함)을 LocalDateTime으로 변환
@@ -707,7 +730,8 @@ public class BookingController {
             if (branchEnum != null) {
                 final Booking.Branch finalBranchEnum = branchEnum;
                 bookings = bookings.stream()
-                        .filter(booking -> booking.getBranch() == finalBranchEnum)
+                        .filter(booking -> BookingCalendarMemberGrade.matchesRequestedBranch(
+                                booking, finalBranchEnum, facilityType, lessonCategory))
                         .collect(java.util.stream.Collectors.toList());
                 logger.info("지점 필터링 완료: {} - {}건", branchEnum, bookings.size());
             }
@@ -728,17 +752,17 @@ public class BookingController {
                                     return true;
                                 }
                                 
-                                // ALL 타입 시설의 경우, 예약의 lessonCategory를 기준으로 필터링
+                                // ALL 타입 시설의 경우, 예약의 lessonCategory·목적을 기준으로 필터링
                                 if (bookingFacilityType == Facility.FacilityType.ALL) {
+                                    if (requestedType == Facility.FacilityType.BASEBALL) {
+                                        // BASEBALL 캘린더: 야구 예약·개인훈련. 유소년 캘린더는 유소년 야구 종목도 포함
+                                        return BookingCalendarMemberGrade.includeAllFacilityOnBaseballCalendar(
+                                                booking, memberGrade, lessonCategory);
+                                    }
                                     if (booking.getLessonCategory() == null) {
                                         return false;
                                     }
-                                    
-                                    if (requestedType == Facility.FacilityType.BASEBALL) {
-                                        // BASEBALL 캘린더: 야구 예약. 유소년 캘린더는 유소년 야구 종목도 포함
-                                        return BookingCalendarMemberGrade.includeAllFacilityOnBaseballCalendar(
-                                                booking.getLessonCategory(), memberGrade, lessonCategory);
-                                    } else if (requestedType == Facility.FacilityType.TRAINING_FITNESS) {
+                                    if (requestedType == Facility.FacilityType.TRAINING_FITNESS) {
                                         // TRAINING_FITNESS 캘린더: lessonCategory가 TRAINING 또는 PILATES인 예약만
                                         return booking.getLessonCategory() == LessonCategory.TRAINING || 
                                                booking.getLessonCategory() == LessonCategory.PILATES;
@@ -1186,6 +1210,7 @@ public class BookingController {
             bookingMap.put("participants", booking.getParticipants());
             bookingMap.put("purpose", booking.getPurpose());
             bookingMap.put("lessonCategory", booking.getLessonCategory());
+            bookingMap.put("calendarGrade", booking.getCalendarGrade());
             Booking.BookingStatus s = booking.getStatus();
             if (booking.getMember() == null && s == Booking.BookingStatus.PENDING) {
                 s = Booking.BookingStatus.CONFIRMED;
@@ -1504,13 +1529,6 @@ public class BookingController {
                 try {
                     String endTimeStr = (String) requestData.get("endTime");
                     java.time.LocalDateTime endTime = java.time.LocalDateTime.parse(endTimeStr);
-                    
-                    // 종료 시간이 시작 시간보다 이전인지 확인
-                    if (booking.getStartTime() != null && endTime.isBefore(booking.getStartTime())) {
-                        logger.warn("종료 시간이 시작 시간보다 이전입니다. 시작: {}, 종료: {}", booking.getStartTime(), endTime);
-                        return ResponseEntity.badRequest().build();
-                    }
-                    
                     booking.setEndTime(endTime);
                 } catch (Exception e) {
                     logger.error("종료 시간 파싱 실패: {}", requestData.get("endTime"), e);
@@ -1556,12 +1574,25 @@ public class BookingController {
                 return ResponseEntity.badRequest().body(errBody);
             }
 
-            // 시설 운영 슬롯 내 예약인지 검증
-            Optional<String> slotError = validateBookingWithinFacilitySlot(booking.getFacility(), booking.getStartTime(), booking.getEndTime());
-            if (slotError.isPresent()) {
-                Map<String, Object> errBody = new HashMap<>();
-                errBody.put("message", slotError.get());
-                return ResponseEntity.badRequest().body(errBody);
+            boolean rentalCreate = "RENTAL".equalsIgnoreCase(purposeStrEarly);
+            if (rentalCreate && booking.getStartTime() != null && booking.getEndTime() != null
+                    && !booking.getEndTime().isAfter(booking.getStartTime())) {
+                booking.setEndTime(booking.getEndTime().plusDays(1));
+            } else if (booking.getStartTime() != null && booking.getEndTime() != null
+                    && !booking.getEndTime().isAfter(booking.getStartTime())) {
+                logger.warn("종료 시간이 시작 시간보다 이전이거나 같습니다. 시작: {}, 종료: {}",
+                        booking.getStartTime(), booking.getEndTime());
+                return ResponseEntity.badRequest().build();
+            }
+
+            // 대관은 시설 레슨 운영시간과 무관하게 등록한다.
+            if (!rentalCreate) {
+                Optional<String> slotError = validateBookingWithinFacilitySlot(booking.getFacility(), booking.getStartTime(), booking.getEndTime());
+                if (slotError.isPresent()) {
+                    Map<String, Object> errBody = new HashMap<>();
+                    errBody.put("message", slotError.get());
+                    return ResponseEntity.badRequest().body(errBody);
+                }
             }
             Optional<String> exactDupErr = validateExactDuplicateMemberBooking(booking, null);
             if (exactDupErr.isPresent()) {
@@ -1593,7 +1624,7 @@ public class BookingController {
                     booking.setPurpose(requestedPurpose);
                     logger.info("예약 생성 요청 purpose: {} (차감 여부는 이 값으로만 판단)", purposeStr);
                 } catch (IllegalArgumentException e) {
-                    logger.warn("예약 목적 파싱 실패: '{}', 허용값: LESSON, RENTAL", purposeStr);
+                    logger.warn("예약 목적 파싱 실패: '{}'", purposeStr);
                     return ResponseEntity.badRequest().build();
                 }
             } else {
@@ -1620,6 +1651,9 @@ public class BookingController {
                 err.put("message", "사회인 예약은 사회인 등급 회원만 가능합니다.");
                 return ResponseEntity.badRequest().body(err);
             }
+            BookingCalendarMemberGrade.applyCalendarGrade(booking,
+                    requestData.get("memberGrade") != null ? String.valueOf(requestData.get("memberGrade")) : null,
+                    member);
             
             // 상태 설정: 새 예약 생성 시에는 항상 PENDING으로 시작
             // (수정은 updateBooking 메서드에서 처리)
@@ -1755,20 +1789,31 @@ public class BookingController {
                             requestData.get("memberProductId"));
                 }
             }
+            Optional<String> outdoorCoachErr = validateOutdoorLessonPlaceholderCoach(booking);
+            if (outdoorCoachErr.isPresent()) {
+                return badRequestMessage(outdoorCoachErr.get());
+            }
 
             // 상태 기본값 설정
             if (booking.getStatus() == null) {
                 booking.setStatus(Booking.BookingStatus.PENDING);
             }
             
-            // 레슨 카테고리 설정 (레슨인 경우만)
-            if (booking.getPurpose() == Booking.BookingPurpose.LESSON) {
+            // 레슨 카테고리 설정 (레슨·사회인 레슨)
+            if (booking.usesLessonCategory()) {
                 // lessonCategory가 이미 설정되어 있으면 그대로 사용
-                if (booking.getLessonCategory() == null && assignedCoach != null) {
+                if (booking.getLessonCategory() == null && assignedCoach != null
+                        && !isOutdoorLessonPlaceholderCoach(assignedCoach)) {
                     // 코치의 담당 종목을 기반으로 레슨 카테고리 자동 설정
                     com.afbscenter.model.LessonCategory category = LessonCategoryUtil.fromCoachSpecialties(assignedCoach);
                     if (category != null) {
                         booking.setLessonCategory(category);
+                    }
+                }
+                if (booking.getLessonCategory() == null) {
+                    LessonCategory fromPurpose = Booking.lessonCategoryForPurpose(booking.getPurpose());
+                    if (fromPurpose != null) {
+                        booking.setLessonCategory(fromPurpose);
                     }
                 }
             } else {
@@ -1838,7 +1883,7 @@ public class BookingController {
             
             // 레슨 예약이 확정되거나 완료되면 회원의 최근 방문일 업데이트
             if (result.getMember() != null && 
-                result.getPurpose() == Booking.BookingPurpose.LESSON &&
+                result.usesLessonCategory() &&
                 (result.getStatus() == Booking.BookingStatus.CONFIRMED || 
                  result.getStatus() == Booking.BookingStatus.COMPLETED) &&
                 result.getStartTime() != null) {
@@ -2056,12 +2101,21 @@ public class BookingController {
                 errBody.put("message", durationCapErrUpdate.get());
                 return ResponseEntity.badRequest().body(errBody);
             }
-            // 시설 운영 슬롯 내 예약인지 검증 (시간/시설 변경 시)
-            Optional<String> slotError = validateBookingWithinFacilitySlot(booking.getFacility(), booking.getStartTime(), booking.getEndTime());
-            if (slotError.isPresent()) {
-                Map<String, Object> errBody = new HashMap<>();
-                errBody.put("message", slotError.get());
-                return ResponseEntity.badRequest().body(errBody);
+            // 대관은 시설 레슨 운영시간과 무관하게 등록·수정한다.
+            boolean rentalUpdate = (requestData.containsKey("purpose") && requestData.get("purpose") != null
+                    && "RENTAL".equalsIgnoreCase(requestData.get("purpose").toString().trim()))
+                    || booking.getPurpose() == Booking.BookingPurpose.RENTAL;
+            if (rentalUpdate && booking.getStartTime() != null && booking.getEndTime() != null
+                    && !booking.getEndTime().isAfter(booking.getStartTime())) {
+                booking.setEndTime(booking.getEndTime().plusDays(1));
+            } else if (!rentalUpdate) {
+                Optional<String> slotError = validateBookingWithinFacilitySlot(
+                        booking.getFacility(), booking.getStartTime(), booking.getEndTime());
+                if (slotError.isPresent()) {
+                    Map<String, Object> errBody = new HashMap<>();
+                    errBody.put("message", slotError.get());
+                    return ResponseEntity.badRequest().body(errBody);
+                }
             }
             Optional<String> exactDupErrUpdate = validateExactDuplicateMemberBooking(booking, booking.getId());
             if (exactDupErrUpdate.isPresent()) {
@@ -2091,7 +2145,7 @@ public class BookingController {
                 try {
                     String purposeStr = requestData.get("purpose").toString();
                     currentPurpose = Booking.BookingPurpose.valueOf(purposeStr);
-                    if (currentPurpose == Booking.BookingPurpose.LESSON) {
+                    if (Booking.isLessonLikePurpose(currentPurpose)) {
                         // 레슨인 경우
                         if (requestData.get("lessonCategory") != null && !requestData.get("lessonCategory").toString().trim().isEmpty()) {
                             try {
@@ -2106,11 +2160,17 @@ public class BookingController {
                             if (coach == null && booking.getMember() != null && booking.getMember().getCoach() != null) {
                                 coach = booking.getMember().getCoach();
                             }
-                            if (coach != null) {
+                            if (coach != null && !isOutdoorLessonPlaceholderCoach(coach)) {
                                 com.afbscenter.model.LessonCategory category = LessonCategoryUtil.fromCoachSpecialties(coach);
                                 if (category != null) {
                                     booking.setLessonCategory(category);
                                 }
+                            }
+                        }
+                        if (booking.getLessonCategory() == null) {
+                            LessonCategory fromPurpose = Booking.lessonCategoryForPurpose(currentPurpose);
+                            if (fromPurpose != null) {
+                                booking.setLessonCategory(fromPurpose);
                             }
                         }
                     } else {
@@ -2136,6 +2196,9 @@ public class BookingController {
                 err.put("message", "사회인 예약은 사회인 등급 회원만 가능합니다.");
                 return ResponseEntity.badRequest().body(err);
             }
+            BookingCalendarMemberGrade.applyCalendarGrade(booking,
+                    requestData.get("memberGrade") != null ? String.valueOf(requestData.get("memberGrade")) : null,
+                    booking.getMember());
             
             if (requestData.get("status") != null) {
                 Booking.BookingStatus oldStatus = booking.getStatus();
@@ -2148,7 +2211,7 @@ public class BookingController {
                     if (booking.getMember() != null && 
                         booking.getMemberProduct() == null &&
                         currentPurpose != null &&
-                        currentPurpose == Booking.BookingPurpose.LESSON &&
+                        Booking.isLessonLikePurpose(currentPurpose) &&
                         (newStatus == Booking.BookingStatus.CONFIRMED || 
                          newStatus == Booking.BookingStatus.COMPLETED)) {
                         try {
@@ -2178,7 +2241,7 @@ public class BookingController {
                     // 레슨 예약이 확정되거나 완료되면 회원의 최근 방문일 업데이트
                     if (booking.getMember() != null && 
                         currentPurpose != null &&
-                        currentPurpose == Booking.BookingPurpose.LESSON &&
+                        Booking.isLessonLikePurpose(currentPurpose) &&
                         (newStatus == Booking.BookingStatus.CONFIRMED || 
                          newStatus == Booking.BookingStatus.COMPLETED) &&
                         booking.getStartTime() != null) {
@@ -2386,6 +2449,10 @@ public class BookingController {
 
             String processedBy = request != null ? (String) request.getAttribute("username") : null;
             if (processedBy != null && !processedBy.isEmpty()) booking.setProcessedBy(processedBy);
+            Optional<String> outdoorCoachUpdateErr = validateOutdoorLessonPlaceholderCoach(booking);
+            if (outdoorCoachUpdateErr.isPresent()) {
+                return badRequestMessage(outdoorCoachUpdateErr.get());
+            }
             Booking saved = bookingRepository.save(booking);
             
             // 주의: 횟수권 차감은 수업 종료(체크아웃) 시 1회만 수행
@@ -2679,7 +2746,7 @@ public class BookingController {
             // 체크인 없이 예약만 삭제한 경우: 예약 등록 시 차감한 1회 복구 (레슨만. 대관은 예약 시 차감 안 하므로 복구 불필요)
             if (!wasCheckedIn && bookingToRestore != null && bookingToRestore.getMemberProduct() != null
                 && bookingToRestore.getMember() != null
-                && bookingToRestore.getPurpose() == Booking.BookingPurpose.LESSON) {
+                && bookingToRestore.usesLessonCategory()) {
                 try {
                     com.afbscenter.model.MemberProduct memberProduct = memberProductRepository
                         .findByIdWithMember(bookingToRestore.getMemberProduct().getId()).orElse(null);
@@ -2797,13 +2864,13 @@ public class BookingController {
         try {
             List<Booking> bookings = bookingRepository.findAllWithFacilityAndMember();
             for (Booking booking : bookings) {
-                if (booking.getPurpose() == Booking.BookingPurpose.LESSON && booking.getLessonCategory() == null) {
+                if (booking.usesLessonCategory() && booking.getLessonCategory() == null) {
                     Coach coach = booking.getCoach();
                     if (coach == null && booking.getMember() != null && booking.getMember().getCoach() != null) {
                         coach = booking.getMember().getCoach();
                     }
                     
-                    if (coach != null) {
+                    if (coach != null && !isOutdoorLessonPlaceholderCoach(coach)) {
                         com.afbscenter.model.LessonCategory category = LessonCategoryUtil.fromCoachSpecialties(coach);
                         if (category != null) {
                             booking.setLessonCategory(category);

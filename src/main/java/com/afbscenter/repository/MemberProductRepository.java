@@ -58,6 +58,10 @@ public interface MemberProductRepository extends JpaRepository<MemberProduct, Lo
     @Query("SELECT mp FROM MemberProduct mp JOIN FETCH mp.product p JOIN FETCH mp.member m WHERE p.type = 'COUNT_PASS' AND mp.deletedAt IS NULL")
     List<MemberProduct> findAllCountPassWithProductAndMember();
 
+    @Query("SELECT DISTINCT mp FROM MemberProduct mp JOIN FETCH mp.product p JOIN FETCH mp.member m "
+            + "WHERE mp.deletedAt IS NULL AND mp.status = 'ACTIVE' AND p.type = 'TEAM_PACKAGE'")
+    List<MemberProduct> findActiveTeamPackagesWithMember();
+
     /** 운영 코치 viewCoachIds: ACTIVE 이용권에 직접 배정된 코치만 (종료·소진 행은 목록·화면 담당 표시와 불일치 방지) */
     @Query("SELECT DISTINCT mp.member.id FROM MemberProduct mp WHERE mp.deletedAt IS NULL AND mp.status = 'ACTIVE' AND mp.coach IS NOT NULL AND mp.coach.id IN :coachIds")
     List<Long> findMemberIdsByMemberProductCoachIdIn(@Param("coachIds") List<Long> coachIds);

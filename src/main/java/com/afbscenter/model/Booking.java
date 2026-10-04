@@ -123,6 +123,11 @@ public class Booking {
     @Column(name = "booking_source", nullable = false, length = 32)
     private BookingSource bookingSource = BookingSource.ADMIN;
 
+    /** 사회인 캘린더에서 잡은 비회원 예약 등, 회원 등급이 없어도 사회인 캘린더에 둘 표시 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "calendar_grade", length = 32)
+    private Member.MemberGrade calendarGrade;
+
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private java.util.List<Payment> payments = new java.util.ArrayList<>();
@@ -137,9 +142,65 @@ public class Booking {
     }
 
     public enum BookingPurpose {
-        LESSON,         // 레슨
-        RENTAL,         // 대관
-        PERSONAL_TRAINING // 개인훈련
+        LESSON,            // 레슨 (회원)
+        BASEBALL_LESSON,   // 엘리트
+        OUTDOOR_LESSON,    // 엘리트(야외)
+        TRAINING_LESSON,   // 트레이닝
+        PILATES_LESSON,    // 필라테스
+        SOCIAL_LESSON,     // 사회인
+        SOCIAL_OUTDOOR_LESSON, // 사회인(야외)
+        YOUTH_LESSON,      // 유소년
+        RENTAL,            // 대관
+        PERSONAL_TRAINING  // 개인훈련
+    }
+
+    public static boolean isEliteTypedPurpose(BookingPurpose purpose) {
+        return purpose == BookingPurpose.BASEBALL_LESSON
+                || purpose == BookingPurpose.OUTDOOR_LESSON;
+    }
+
+    public static boolean isSocialTypedPurpose(BookingPurpose purpose) {
+        return purpose == BookingPurpose.SOCIAL_LESSON
+                || purpose == BookingPurpose.SOCIAL_OUTDOOR_LESSON;
+    }
+
+    public static boolean isOutdoorTypedPurpose(BookingPurpose purpose) {
+        return purpose == BookingPurpose.OUTDOOR_LESSON
+                || purpose == BookingPurpose.SOCIAL_OUTDOOR_LESSON;
+    }
+
+    public static boolean isLessonLikePurpose(BookingPurpose purpose) {
+        return purpose == BookingPurpose.LESSON
+                || purpose == BookingPurpose.BASEBALL_LESSON
+                || purpose == BookingPurpose.OUTDOOR_LESSON
+                || purpose == BookingPurpose.TRAINING_LESSON
+                || purpose == BookingPurpose.PILATES_LESSON
+                || purpose == BookingPurpose.SOCIAL_LESSON
+                || purpose == BookingPurpose.SOCIAL_OUTDOOR_LESSON
+                || purpose == BookingPurpose.YOUTH_LESSON
+                || purpose == BookingPurpose.PERSONAL_TRAINING;
+    }
+
+    public boolean usesLessonCategory() {
+        return isLessonLikePurpose(purpose);
+    }
+
+    public static LessonCategory lessonCategoryForPurpose(BookingPurpose purpose) {
+        if (purpose == BookingPurpose.TRAINING_LESSON) {
+            return LessonCategory.TRAINING;
+        }
+        if (purpose == BookingPurpose.PILATES_LESSON) {
+            return LessonCategory.PILATES;
+        }
+        if (purpose == BookingPurpose.BASEBALL_LESSON
+                || purpose == BookingPurpose.OUTDOOR_LESSON
+                || purpose == BookingPurpose.SOCIAL_LESSON
+                || purpose == BookingPurpose.SOCIAL_OUTDOOR_LESSON
+                || purpose == BookingPurpose.YOUTH_LESSON
+                || purpose == BookingPurpose.PERSONAL_TRAINING) {
+            return LessonCategory.BASEBALL;
+        }
+        return null;
     }
 
     public enum BookingStatus {

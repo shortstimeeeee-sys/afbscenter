@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>대시보드 - AFBS 센터</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <link rel="stylesheet" href="/css/common.css?v=dash-bk10">
+    <link rel="stylesheet" href="/css/common.css?v=dash-bk14">
     <link rel="stylesheet" href="/css/dashboard.css">
     <link rel="stylesheet" href="/css/members.css">
 </head>
@@ -200,14 +200,20 @@
                         <div class="kpi-change positive" id="kpi-bookings-by-branch"></div>
                     </div>
                     <div class="kpi-card kpi-card-clickable" data-kpi="bookings" title="클릭하여 상세 보기">
-                        <div class="kpi-label">오늘 예약 수</div>
+                        <div class="kpi-label-row">
+                            <div class="kpi-label">오늘 예약 수</div>
+                            <div class="kpi-change" id="kpi-bookings-change">-</div>
+                        </div>
                         <div class="kpi-value" id="kpi-bookings">-</div>
-                        <div class="kpi-change" id="kpi-bookings-change">-</div>
+                        <div class="kpi-change" id="kpi-bookings-today-by-studio"></div>
                     </div>
                     <div class="kpi-card kpi-card-clickable" data-kpi="monthly-new-members" title="클릭하여 상세 보기">
-                        <div class="kpi-label">월 가입 수</div>
+                        <div class="kpi-label-row">
+                            <div class="kpi-label">월 가입 수</div>
+                            <div class="kpi-change positive">이번 달</div>
+                        </div>
                         <div class="kpi-value" id="kpi-monthly-new-members">-</div>
-                        <div class="kpi-change positive">이번 달</div>
+                        <div class="kpi-change positive" id="kpi-monthly-new-members-by-studio"></div>
                     </div>
                     <div class="kpi-card kpi-card-clickable" data-kpi="monthly-revenue" title="클릭하여 상세 보기">
                         <div class="kpi-label">월 매출</div>
@@ -561,8 +567,8 @@
         </div>
     </div>
 
-    <script src="/js/common.js?v=branch-off3"></script>
+    <script src="/js/common.js?v=hide-ext-work1"></script>
     <script src="/js/members.js?v=timeline-desc1"></script>
-    <script src="/js/dashboard.js?v=studio-bk7"></script>
+    <script src="/js/dashboard.js?v=studio-bk11"></script>
 </body>
 </html>

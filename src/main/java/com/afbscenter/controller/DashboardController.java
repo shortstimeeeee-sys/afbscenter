@@ -16,6 +16,7 @@ import com.afbscenter.service.MemberApprovalService;
 import com.afbscenter.service.MemberEndedGraceService;
 import com.afbscenter.service.MemberProductDisplayService;
 import com.afbscenter.util.DashboardBookingBreakdown;
+import com.afbscenter.util.DashboardMemberJoinBreakdown;
 import com.afbscenter.util.LessonCategoryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -271,11 +272,15 @@ public class DashboardController {
             bookingsNonMemberByBranch.put("YEONSAN", 0L);
             bookingsNonMemberByBranch.put("RENTAL", 0L);
             Map<String, Map<String, Long>> bookingsByStudio = DashboardBookingBreakdown.emptyByStudio();
+            Map<String, Map<String, Long>> todayBookingsByStudio = DashboardBookingBreakdown.emptyPartsByStudio();
             try {
                 List<Booking> monthBookings = bookingRepository.findByDateRange(startOfMonth, endOfMonth);
                 totalBookingsMonth = monthBookings.size();
                 for (Booking b : monthBookings) {
                     DashboardBookingBreakdown.add(bookingsByStudio, b);
+                    if (b.getStartTime() != null && today.equals(b.getStartTime().toLocalDate())) {
+                        DashboardBookingBreakdown.addPart(todayBookingsByStudio, b);
+                    }
                     if (b.getBranch() != null) {
                         String key = b.getBranch().name();
                         bookingsByBranch.merge(key, 1L, Long::sum);
@@ -288,11 +293,29 @@ public class DashboardController {
                 logger.warn("이번 달 예약 건수 조회 실패: {}", e.getMessage());
             }
 
+            Map<String, Map<String, Long>> monthlyNewMembersByStudio = DashboardMemberJoinBreakdown.emptyByStudio();
+            try {
+                jdbcTemplate.query(
+                    "SELECT m.grade AS grade, c.available_branches AS branches FROM members m "
+                        + "LEFT JOIN coaches c ON m.coach_id = c.id "
+                        + "WHERE m.join_date >= ? AND m.join_date <= ? AND m.status <> 'PENDING_APPROVAL'",
+                    rs -> {
+                        DashboardMemberJoinBreakdown.add(
+                            monthlyNewMembersByStudio, rs.getString("grade"), rs.getString("branches"));
+                    },
+                    firstDayOfMonth, today
+                );
+            } catch (Exception e) {
+                logger.warn("월 가입자 지점 집계 실패: {}", e.getMessage());
+            }
+
             Map<String, Object> kpi = new HashMap<>();
             kpi.put("totalMembers", totalMembers);       // 활성 회원 수
             kpi.put("monthlyNewMembers", monthlyNewMembers); // 월 가입자 수
+            kpi.put("monthlyNewMembersByStudio", monthlyNewMembersByStudio);
             kpi.put("newMembers", todayNewMembers);      // 오늘 가입 수
             kpi.put("bookings", todayBookings);         // 오늘 예약 수
+            kpi.put("todayBookingsByStudio", todayBookingsByStudio);
             kpi.put("yesterdayBookings", yesterdayBookings); // 어제 예약 수 (어제 대비 계산용)
             kpi.put("revenue", todayRevenue);           // 오늘 매출
             kpi.put("yesterdayRevenue", yesterdayRevenue); // 어제 매출 (어제 대비 계산용)
@@ -433,7 +456,7 @@ public class DashboardController {
                             com.afbscenter.model.Booking booking = payment.getBooking();
                             if (booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.RENTAL) {
                                 category = "RENTAL";
-                            } else if (booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.LESSON) {
+                            } else if (booking.usesLessonCategory()) {
                                 category = "LESSON";
                             }
                         } catch (Exception e) {

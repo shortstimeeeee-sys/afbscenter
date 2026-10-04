@@ -1040,6 +1040,7 @@ public class MemberService {
         if (updatedMember.getSchool() != null) {
             member.setSchool(updatedMember.getSchool());
         }
+        member.setSchoolYear(updatedMember.getSchoolYear());
         // 훈련 기록 (투수/타자 기록)
         member.setSwingSpeed(updatedMember.getSwingSpeed());
         member.setExitVelocity(updatedMember.getExitVelocity());

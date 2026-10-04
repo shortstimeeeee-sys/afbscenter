@@ -31,6 +31,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final OperationalCoachViewService operationalCoachViewService;
     private final CoachHomeOperatorService coachHomeOperatorService;
+    private final ProfitSheetAccessService profitSheetAccessService;
     
     @Value("${admin.init.password:admin123}")
     private String adminInitPassword;
@@ -40,7 +41,8 @@ public class AuthService {
                        CoachRepository coachRepository,
                        JwtUtil jwtUtil, PasswordEncoder passwordEncoder,
                        OperationalCoachViewService operationalCoachViewService,
-                       CoachHomeOperatorService coachHomeOperatorService) {
+                       CoachHomeOperatorService coachHomeOperatorService,
+                       ProfitSheetAccessService profitSheetAccessService) {
         this.userRepository = userRepository;
         this.userAccessLogRepository = userAccessLogRepository;
         this.coachRepository = coachRepository;
@@ -48,6 +50,7 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.operationalCoachViewService = operationalCoachViewService;
         this.coachHomeOperatorService = coachHomeOperatorService;
+        this.profitSheetAccessService = profitSheetAccessService;
     }
 
     private String buildEmployeeCodeFromUserId(Long userId) {

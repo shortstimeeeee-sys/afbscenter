@@ -1,0 +1,307 @@
+body.profit-sheet-page .main-content {
+    min-width: 0;
+    width: calc(100% - 260px);
+    max-width: calc(100% - 260px);
+    height: 100vh;
+    min-height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
+}
+body.profit-sheet-page .content-area {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 0;
+    overflow: hidden;
+    padding: 10px 16px 12px;
+}
+body.profit-sheet-page .topbar {
+    min-width: 0;
+    max-width: 100%;
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+@media (max-width: 992px) {
+    body.profit-sheet-page .main-content {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
+.profit-sheet-card {
+    min-width: 0;
+    max-width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 10px 12px;
+}
+.profit-sheet-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+.profit-sheet-month {
+    font-weight: 700;
+    font-size: 14px;
+    min-width: 108px;
+    text-align: center;
+}
+.profit-sheet-hint {
+    color: var(--text-muted);
+    font-size: 12px;
+    flex: 1 1 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.profit-sheet-save-status {
+    font-size: 12px;
+    color: var(--text-muted);
+    min-width: 56px;
+}
+.profit-sheet-grand {
+    background: #1a3d2a;
+    color: #e8ffe9;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 4px 10px;
+    border: 1px solid #2e7d4a;
+    border-radius: 4px;
+    min-width: 110px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+.profit-sheet-table-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    display: flex;
+    flex-direction: column;
+    border-radius: 6px;
+}
+.profit-sheet-caption {
+    background: #1f4e79;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    text-align: center;
+    padding: 6px 8px;
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+}
+.profit-sheet-table {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+    font-family: "Malgun Gothic", "맑은 고딕", sans-serif;
+    font-size: 11px;
+    color: #fff;
+    background: var(--bg-secondary);
+}
+.profit-sheet-table th,
+.profit-sheet-table td {
+    border: 1px solid #3a4150;
+    padding: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #fff;
+    background: #1c2130;
+}
+.profit-sheet-table tbody tr:nth-child(even) td {
+    background: #181d2a;
+}
+.profit-sheet-table thead th {
+    background: #2a3144;
+    color: #fff;
+    font-weight: 700;
+    text-align: center;
+    padding: 3px 2px;
+    font-size: 11px;
+}
+.profit-sheet-table .col-date {
+    width: 36px;
+    background: #1a2030;
+    color: #fff;
+    text-align: center;
+    font-weight: 600;
+}
+.profit-sheet-table .col-coach {
+    font-size: 10px;
+    letter-spacing: -0.02em;
+    color: #fff;
+}
+.profit-sheet-table .col-sum,
+.profit-sheet-table .ps-day-total {
+    width: 64px;
+    text-align: center;
+    font-weight: 700;
+    padding: 1px 4px;
+    background: #1a2030;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+}
+.profit-sheet-table tbody td.col-date {
+    padding: 1px 2px;
+}
+.profit-sheet-table .ps-input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    text-align: right;
+    padding: 1px 3px;
+    height: 18px;
+    box-sizing: border-box;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    caret-color: #fff;
+    outline: none;
+}
+.profit-sheet-table .ps-input:focus {
+    background: rgba(94, 106, 210, 0.28);
+    box-shadow: inset 0 0 0 1px var(--accent-primary);
+}
+.profit-sheet-table .ps-amount {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    text-align: right;
+    padding: 1px 3px;
+    height: 18px;
+    box-sizing: border-box;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    cursor: pointer;
+    line-height: 16px;
+}
+.profit-sheet-table .ps-amount:hover,
+.profit-sheet-table .ps-amount:focus {
+    background: rgba(94, 106, 210, 0.22);
+    outline: none;
+}
+.profit-sheet-table .ps-amount.has-payers {
+    text-decoration: underline;
+    text-decoration-color: #9aa4f0;
+    text-underline-offset: 2px;
+}
+.ps-payer-meta {
+    margin: 0 0 6px;
+    font-size: 13px;
+}
+#ps-payer-cell-input {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.ps-payer-match {
+    min-height: 18px;
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.ps-payer-match.is-ok { color: #2e7d32; }
+.ps-payer-match.is-diff { color: #c62828; }
+.ps-payer-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 8px 0;
+}
+.ps-payer-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.ps-payer-row .ps-payer-name { flex: 1.2; }
+.ps-payer-row .ps-payer-amount { flex: 1; text-align: right; }
+.ps-payer-row .ps-payer-del { flex-shrink: 0; }
+#ps-payer-add { margin-top: 4px; }
+.profit-sheet-table .row-total td {
+    background: #3d2e28;
+    color: #fff;
+    font-weight: 700;
+}
+.profit-sheet-table .row-total .col-date {
+    background: #4a3530;
+    color: #fff;
+}
+.profit-sheet-table .row-total .ps-total-cell {
+    text-align: center;
+    padding: 1px 4px;
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+    color: #fff;
+}
+.profit-sheet-table .row-total .ps-grand-cell {
+    background: #1a3d2a;
+    color: #e8ffe9;
+}
+body.light-mode .profit-sheet-grand {
+    background: #c6efce;
+    color: #006100;
+    border-color: #70ad47;
+}
+body.light-mode .profit-sheet-table,
+body.light-mode .profit-sheet-table th,
+body.light-mode .profit-sheet-table td,
+body.light-mode .profit-sheet-table thead th,
+body.light-mode .profit-sheet-table .col-date,
+body.light-mode .profit-sheet-table .col-coach,
+body.light-mode .profit-sheet-table .col-sum,
+body.light-mode .profit-sheet-table .ps-day-total,
+body.light-mode .profit-sheet-table .ps-input,
+body.light-mode .profit-sheet-table .ps-amount {
+    color: #111;
+}
+body.light-mode .profit-sheet-table,
+body.light-mode .profit-sheet-table-wrap {
+    background: #fff;
+}
+body.light-mode .profit-sheet-table th,
+body.light-mode .profit-sheet-table td {
+    background: #fff;
+    border-color: #b0b0b0;
+}
+body.light-mode .profit-sheet-table thead th {
+    background: #d9d9d9;
+}
+body.light-mode .profit-sheet-table .col-date,
+body.light-mode .profit-sheet-table .col-sum,
+body.light-mode .profit-sheet-table .ps-day-total {
+    background: #f2f2f2;
+}
+body.light-mode .profit-sheet-table .ps-input:focus {
+    background: #fffde7;
+}
+body.light-mode .profit-sheet-table .ps-amount:hover,
+body.light-mode .profit-sheet-table .ps-amount:focus {
+    background: #e3f2fd;
+}
+body.light-mode .profit-sheet-table .row-total td {
+    background: #f8cbad;
+    color: #111;
+}
+body.light-mode .profit-sheet-table .row-total .col-date {
+    background: #f4b183;
+    color: #111;
+}
+body.light-mode .profit-sheet-table .row-total .ps-grand-cell {
+    background: #c6efce;
+    color: #006100;
+}
+.profit-sheet-empty {
+    padding: 32px;
+    text-align: center;
+    color: var(--text-muted);
+}

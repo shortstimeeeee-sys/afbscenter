@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>야구(사회인) 예약 - AFBS 센터</title>
-    <link rel="stylesheet" href="/css/common.css?v=miss-pass1">
-    <link rel="stylesheet" href="/css/bookings.css?v=branch-off3">
-    <link rel="stylesheet" href="/css/outdoor-lesson-roster.css?v=ol-mob1">
+    <link rel="stylesheet" href="/css/common.css?v=wm-place1">
+    <link rel="stylesheet" href="/css/bookings.css?v=wm-coach1">
+    <link rel="stylesheet" href="/css/outdoor-lesson-roster.css?v=ol-hist-fix2">
+    <link rel="stylesheet" href="/css/social-scrimmage-roster.css?v=ss10">
     <style>
         #filter-stats-card{border:1px solid #4A5568!important;border-radius:12px;}
     </style>
@@ -80,6 +81,7 @@
                     <button class="btn btn-secondary" data-view="list" id="btn-list">예약 목록</button>
                     <button class="btn btn-secondary" onclick="openBookingModal()" id="btn-booking-new">예약 등록</button>
                     <button type="button" class="btn btn-secondary" id="btn-outdoor-lesson-roster" onclick="openOutdoorLessonRosterModal()">야외 레슨 참가 인원</button>
+                    <button type="button" class="btn btn-secondary" id="btn-social-scrimmage-roster" onclick="openSocialScrimmageRosterModal()">사회인 청백전 명단</button>
                 </div>
                 <div id="coach-legend" class="coach-legend"></div>
                 
@@ -286,7 +288,7 @@
                         <label class="form-label">목적 <span style="color: var(--danger);">*</span></label>
                         <select class="form-control" id="booking-purpose" required onchange="toggleLessonCategory()">
                             <option value="">목적 선택...</option>
-                            <option value="LESSON">레슨</option>
+                            <option value="SOCIAL_LESSON">사회인</option>
                             <option value="PERSONAL_TRAINING">개인훈련</option>
                         </select>
                     </div>
@@ -452,6 +454,7 @@
                     <button type="button" class="btn btn-secondary" id="btn-outdoor-lesson-load">조회</button>
                     <button type="button" class="btn btn-success" id="btn-outdoor-lesson-add">추가</button>
                     <button type="button" class="btn btn-primary" id="btn-outdoor-lesson-attendance">출석</button>
+                    <button type="button" class="btn btn-secondary" id="btn-outdoor-lesson-history">누적 명단</button>
                 </div>
                 <p id="outdoor-lesson-date-hint" class="ol-date-hint"></p>
                 <div class="ol-main">
@@ -461,8 +464,10 @@
                             <tr>
                                 <th>순번</th>
                                 <th>이름</th>
+                                <th>팀</th>
                                 <th>소속 팀</th>
                                 <th>연락처</th>
+                                <th>인원</th>
                                 <th>요금제</th>
                                 <th>금액</th>
                                 <th>입금 확인</th>
@@ -497,10 +502,81 @@
         </div>
     </div>
 
-    <script src="/js/common.js?v=branch-off3"></script>
+    <div class="modal-overlay" id="social-scrimmage-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">사회인 청백전 명단</h2>
+                <button type="button" class="modal-close">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="ss-toolbar">
+                    <div class="form-group">
+                        <label class="form-label" for="social-scrimmage-date">경기 날짜</label>
+                        <input type="date" class="form-control" id="social-scrimmage-date" style="width:160px;">
+                    </div>
+                    <button type="button" class="btn btn-secondary" id="btn-social-scrimmage-load">조회</button>
+                    <button type="button" class="btn btn-success" id="btn-social-scrimmage-add">추가</button>
+                    <button type="button" class="btn btn-secondary" id="btn-social-scrimmage-fill-hoped">희망→배치</button>
+                    <button type="button" class="btn btn-secondary" id="btn-social-scrimmage-history">누적 명단</button>
+                </div>
+                <div class="ss-main">
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>순번</th>
+                                    <th>이름</th>
+                                    <th>소속 팀</th>
+                                    <th>연락처</th>
+                                    <th>금액</th>
+                                    <th>입금</th>
+                                    <th>희망 포지션</th>
+                                    <th>청/백</th>
+                                    <th>배치 포지션</th>
+                                    <th>삭제</th>
+                                </tr>
+                            </thead>
+                            <tbody id="social-scrimmage-tbody"></tbody>
+                        </table>
+                    </div>
+                    <div class="ss-side">
+                        <div class="ss-info">
+                            <h3 class="ss-settle-title">참가 현황</h3>
+                            <div class="ss-settle-row ss-info-hero"><span>전체</span><strong id="ss-count-total">0명</strong></div>
+                            <div class="ss-settle-row"><span>청팀</span><strong id="ss-count-blue" class="ss-blue">0명</strong></div>
+                            <div class="ss-settle-row"><span>백팀</span><strong id="ss-count-white" class="ss-white">0명</strong></div>
+                            <div class="ss-settle-row"><span>미배정</span><strong id="ss-count-unset">0명</strong></div>
+                        </div>
+                        <div class="ss-grounds">
+                            <div class="ss-grounds-title">
+                                <h3 class="ss-settle-title" style="margin:0;">그라운드 배치</h3>
+                            </div>
+                            <div class="ss-grounds-grid">
+                                <div class="ss-diamond-wrap is-blue" id="ss-ground-blue"></div>
+                                <div class="ss-diamond-wrap is-white" id="ss-ground-white"></div>
+                            </div>
+                        </div>
+                        <div class="ss-settle">
+                            <h3 class="ss-settle-title">입금</h3>
+                            <div class="ss-settle-row"><span>입금 확인</span><strong id="ss-count-confirmed">0명</strong></div>
+                            <div class="ss-settle-row"><span>미입금</span><strong id="ss-count-pending">0명</strong></div>
+                            <div class="ss-settle-row ss-settle-total"><span>입금 금액</span><strong id="ss-amount-deposit">₩0</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="btn-social-scrimmage-close">닫기</button>
+                <button type="button" class="btn btn-primary" id="btn-social-scrimmage-save">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/common.js?v=wm-br2"></script>
     <script src="/js/members.js?v=timeline-desc1"></script>
-    <script src="/js/bookings.js?v=bpa-label1"></script>
-    <script src="/js/outdoor-lesson-roster.js?v=ol-mob1"></script>
+    <script src="/js/bookings.js?v=wm-coach1"></script>
+    <script src="/js/outdoor-lesson-roster.js?v=ol-hist-fix2"></script>
+    <script src="/js/social-scrimmage-roster.js?v=ss8"></script>
 </body>
 </html>
 

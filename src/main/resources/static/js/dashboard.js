@@ -34,25 +34,61 @@ function formatStudioBookingStatsHtml(row, extraNonMemberAttrs) {
     return html;
 }
 
-function formatStudioBookingCompactRow(kind, label, row) {
+function formatKpiStudioLine(kind, label, row, parts, joiner, always) {
     row = row || {};
     var escape = (typeof App !== 'undefined' && App.escapeHtml) ? App.escapeHtml : function(s) { return String(s || ''); };
-    var parts = [
+    joiner = joiner == null ? ' · ' : joiner;
+    var bits = (parts || []).filter(function(part) {
+        return always || studioBookingCount(row, part[1]) > 0;
+    }).map(function(part) {
+        return escape(part[0]) + ' ' + studioBookingCount(row, part[1]);
+    }).join(joiner);
+    return '<div class="kpi-studio-line kpi-studio-line--' + kind + '">'
+        + '<b>' + escape(label) + ' ' + studioBookingCount(row, 'total') + '</b>'
+        + (bits ? '<span class="kpi-studio-sep">|</span><span class="kpi-studio-detail">' + bits + '</span>' : '')
+        + '</div>';
+}
+
+function formatStudioBookingCompactRow(kind, label, row) {
+    return formatKpiStudioLine(kind, label, row, [
         ['엘리트', 'elite'],
         ['유소년', 'youth'],
         ['사회인', 'social'],
         ['대관', 'rental'],
         ['비회원', 'nonMember']
+    ], ' · ', false);
+}
+
+function formatTodayBookingBreakdown(byStudio) {
+    byStudio = byStudio || {};
+    var parts = [
+        ['야구', 'baseball'],
+        ['유소년', 'youth'],
+        ['사회인', 'social'],
+        ['필라테스', 'pilates'],
+        ['트레이닝', 'training']
     ];
-    var bits = parts.filter(function(part) {
-        return studioBookingCount(row, part[1]) > 0;
-    }).map(function(part) {
-        return escape(part[0]) + ' ' + studioBookingCount(row, part[1]);
-    }).join(' · ');
-    return '<div class="kpi-studio-line kpi-studio-line--' + kind + '">'
-        + '<b>' + escape(label) + ' ' + studioBookingCount(row, 'total') + '</b>'
-        + (bits ? '<span class="kpi-studio-sep">|</span><span class="kpi-studio-detail">' + bits + '</span>' : '')
-        + '</div>';
+    var sahaRental = studioBookingCount(byStudio.SAHA, 'rental');
+    var yeonsanRental = studioBookingCount(byStudio.YEONSAN, 'rental');
+    if (sahaRental > 0 || yeonsanRental > 0) {
+        parts = parts.concat([['대관', 'rental']]);
+    }
+    return formatKpiStudioLine('saha', '사하', byStudio.SAHA, parts, ' · ', true)
+        + formatKpiStudioLine('yeonsan', '연산', byStudio.YEONSAN, parts, ' · ', true);
+}
+
+function formatMonthlyJoinBreakdown(byStudio) {
+    byStudio = byStudio || {};
+    var parts = [
+        ['엘리트', 'elite'],
+        ['유소년', 'youth'],
+        ['사회인', 'social']
+    ];
+    if (studioBookingCount(byStudio.SAHA, 'other') > 0 || studioBookingCount(byStudio.YEONSAN, 'other') > 0) {
+        parts = parts.concat([['기타', 'other']]);
+    }
+    return formatKpiStudioLine('saha', '사하', byStudio.SAHA, parts, ' · ', true)
+        + formatKpiStudioLine('yeonsan', '연산', byStudio.YEONSAN, parts, ' · ', true);
 }
 
 function formatStudioBookingBreakdown(byStudio) {
@@ -308,6 +344,8 @@ async function loadDashboardData() {
         }
         
         const todayRevenue = kpiData.revenue || 0;
+        const todayStudioEl = document.getElementById('kpi-bookings-today-by-studio');
+        if (todayStudioEl) todayStudioEl.innerHTML = formatTodayBookingBreakdown(kpiData.todayBookingsByStudio);
         const yesterdayRevenue = kpiData.yesterdayRevenue || 0;
         updateElement('kpi-revenue', hideRevenueOnly ? '-' : App.formatCurrency(todayRevenue));
         

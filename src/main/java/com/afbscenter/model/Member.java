@@ -113,6 +113,10 @@ public class Member {
     @Column(name = "school", length = 200)
     private String school; // 학교/소속
 
+    /** 유소년 학년 (초등 1~6). null이면 미지정 */
+    @Column(name = "school_year")
+    private Integer schoolYear;
+
     @Column(name = "swing_speed")
     private Double swingSpeed; // 스윙 속도 (mph) - 소수점 한자리
 

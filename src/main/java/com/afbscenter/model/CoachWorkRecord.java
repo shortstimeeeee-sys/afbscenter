@@ -51,6 +51,7 @@ public class CoachWorkRecord {
         WORK,
         OFF,
         SICK,
-        OUTDOOR
+        OUTDOOR,
+        EXTERNAL_WORK
     }
 }

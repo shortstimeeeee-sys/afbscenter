@@ -456,10 +456,10 @@ function addPackageItem(itemName = '', itemCount = '') {
     const productType = document.getElementById('product-type')?.value;
     const isMonthlyPass = productType === 'MONTHLY_PASS' || productType === 'DAY_PASS';
     
-    // itemCount를 숫자로 변환하여 비교
-    const countValue = itemCount ? parseInt(itemCount) : '';
-    const isSelected1 = (countValue === 1 || countValue === '1');
-    const isSelected10 = (countValue === 10 || countValue === '10');
+    const countValue = itemCount ? parseInt(itemCount, 10) : NaN;
+    const countOptionsHtml = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(function(n) {
+        return '<option value="' + n + '"' + (countValue === n ? ' selected' : '') + '>' + n + '회권</option>';
+    }).join('');
     
     const itemDiv = document.createElement('div');
     itemDiv.className = 'package-item';
@@ -476,8 +476,7 @@ function addPackageItem(itemName = '', itemCount = '') {
         </select>
         <select class="form-control package-item-count" style="flex: 1;" ${isMonthlyPass ? 'disabled' : ''}>
             <option value="">횟수 선택</option>
-            <option value="1" ${isSelected1 ? 'selected' : ''}>1회권</option>
-            <option value="10" ${isSelected10 ? 'selected' : ''}>10회권</option>
+            ${countOptionsHtml}
         </select>
         <button type="button" class="btn btn-sm btn-danger" onclick="removePackageItem(this)" style="padding: 8px 12px;">삭제</button>
     `;

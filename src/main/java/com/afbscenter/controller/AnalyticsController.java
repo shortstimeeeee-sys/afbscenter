@@ -618,7 +618,7 @@ public class AnalyticsController {
                         com.afbscenter.model.Booking booking = payment.getBooking();
                         if (booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.RENTAL) {
                             category = "RENTAL";
-                        } else if (booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.LESSON) {
+                        } else if (booking.usesLessonCategory()) {
                             category = "LESSON";
                         }
                     } catch (Exception e) {
@@ -665,7 +665,7 @@ public class AnalyticsController {
                         com.afbscenter.model.Booking booking = payment.getBooking();
                         if (booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.RENTAL) {
                             category = "RENTAL";
-                        } else if (booking.getPurpose() == com.afbscenter.model.Booking.BookingPurpose.LESSON) {
+                        } else if (booking.usesLessonCategory()) {
                             category = "LESSON";
                         }
                     } catch (Exception e) {

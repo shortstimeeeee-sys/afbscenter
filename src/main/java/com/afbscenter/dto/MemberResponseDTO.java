@@ -40,6 +40,7 @@ public class MemberResponseDTO {
     private String guardianName;
     private String guardianPhone;
     private String school;
+    private Integer schoolYear;
     private Double swingSpeed;
     private Double exitVelocity;
     private Double pitchingSpeed;
@@ -94,6 +95,7 @@ public class MemberResponseDTO {
         dto.guardianName = member.getGuardianName();
         dto.guardianPhone = member.getGuardianPhone();
         dto.school = member.getSchool();
+        dto.schoolYear = member.getSchoolYear();
         dto.swingSpeed = member.getSwingSpeed();
         dto.exitVelocity = member.getExitVelocity();
         dto.pitchingSpeed = member.getPitchingSpeed();
@@ -323,6 +325,7 @@ public class MemberResponseDTO {
         map.put("guardianName", guardianName);
         map.put("guardianPhone", guardianPhone);
         map.put("school", school);
+        map.put("schoolYear", schoolYear);
         map.put("swingSpeed", swingSpeed);
         map.put("exitVelocity", exitVelocity);
         map.put("pitchingSpeed", pitchingSpeed);

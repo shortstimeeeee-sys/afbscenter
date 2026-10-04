@@ -44,12 +44,20 @@
         } catch (e) { /* ignore */ }
     }
 
+    function rowHeadcount(p) {
+        if (!p || !p.teamBooking) return 1;
+        var n = Number(p.headcount);
+        if (!isNaN(n) && n >= 1) return Math.min(99, Math.floor(n));
+        return 1;
+    }
+
     function notesFor(p) {
         if (p && Array.isArray(p.notes) && p.notes.length) return p.notes;
         var notes = [];
         if (!p || !p.depositConfirmed) notes.push('입금 확인 할 것');
+        var teamMode = !!(p && p.teamBooking);
         var phone = String((p && p.phone) || '').replace(/\D/g, '');
-        if (!phone) notes.push('연락처 확인 할 것');
+        if (!teamMode && !phone) notes.push('연락처 확인 할 것');
         if (!p || p.productId == null || p.productId === '') notes.push('요금제 확인 할 것');
         return notes;
     }
@@ -64,13 +72,16 @@
         var list = namedRows();
         var present = 0;
         var needNote = 0;
+        var total = 0;
         list.forEach(function(p) {
-            if (p.attended) present++;
-            if (notesFor(p).length) needNote++;
+            var people = rowHeadcount(p);
+            total += people;
+            if (p.attended) present += people;
+            if (notesFor(p).length) needNote += people;
         });
-        setText('ol-att-total', list.length + '명');
+        setText('ol-att-total', total + '명');
         setText('ol-att-present', present + '명');
-        setText('ol-att-absent', (list.length - present) + '명');
+        setText('ol-att-absent', (total - present) + '명');
         setText('ol-att-notes', needNote + '명');
         setText('ol-att-date-label', formatKoDate(dateInput().value) || '-');
         document.title = '야외 레슨 출석 ' + (formatKoDate(dateInput().value) || '') + ' - AFBS 센터';
@@ -109,6 +120,7 @@
                 '<td class="ol-att-name" data-label="이름">' + escapeHtml(p.name) + '</td>' +
                 '<td class="ol-att-team" data-label="팀">' + escapeHtml(p.team || '-') + '</td>' +
                 '<td class="ol-att-phone" data-label="연락처">' + escapeHtml(p.phone || '-') + '</td>' +
+                '<td class="ol-att-count" data-label="인원">' + rowHeadcount(p) + '명</td>' +
                 '<td class="ol-att-check" data-label="출석"><button type="button" class="ol-att-toggle' + (attended ? ' is-on' : '') + '" aria-pressed="' + (attended ? 'true' : 'false') + '">' +
                 (attended ? '출석' : '미출석') + '</button></td>' +
                 '<td class="ol-att-note-cell" data-label="비고"><div class="ol-att-notes">' + noteHtml + '</div></td>' +
@@ -117,7 +129,7 @@
         host.innerHTML =
             '<div class="table-container" style="max-height:none;overflow:visible;">' +
             '<table class="ol-att-table">' +
-            '<thead><tr><th class="ol-att-seq">순번</th><th>이름</th><th>팀</th><th>연락처</th><th>출석</th><th>비고</th></tr></thead>' +
+            '<thead><tr><th class="ol-att-seq">순번</th><th>이름</th><th>팀</th><th>연락처</th><th>인원</th><th>출석</th><th>비고</th></tr></thead>' +
             '<tbody>' + body + '</tbody></table></div>';
         updateSummary();
     }

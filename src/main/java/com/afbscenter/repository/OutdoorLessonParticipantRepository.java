@@ -19,6 +19,13 @@ public interface OutdoorLessonParticipantRepository extends JpaRepository<Outdoo
 
     List<OutdoorLessonParticipant> findByLessonDateOrderBySeqNoAscIdAsc(LocalDate lessonDate);
 
+    List<OutdoorLessonParticipant> findAllByOrderByLessonDateAscSeqNoAscIdAsc();
+
+    List<OutdoorLessonParticipant> findByProductIdAndLessonDateBefore(Long productId, LocalDate date);
+
+    @Query("select max(p.lessonDate) from OutdoorLessonParticipant p where p.lessonDate < :date")
+    java.util.Optional<LocalDate> findLatestLessonDateBefore(@Param("date") LocalDate date);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from OutdoorLessonParticipant p where p.lessonDate = :lessonDate and p.branch = :branch")
     int deleteByLessonDateAndBranch(@Param("lessonDate") LocalDate lessonDate,

@@ -186,6 +186,8 @@
             statusEl.textContent = '병가';
         } else if (today.dayType === 'OUTDOOR') {
             statusEl.textContent = '야외레슨';
+        } else if (today.dayType === 'EXTERNAL_WORK') {
+            statusEl.textContent = '외부업무';
         } else if (clockedOut) {
             statusEl.textContent = '퇴근';
         } else if (clockedIn) {
@@ -202,7 +204,7 @@
         renderCalendar(workYear, workMonth, month.days || []);
         var inBtn = document.getElementById('btn-clock-in');
         var outBtn = document.getElementById('btn-clock-out');
-        if (inBtn) inBtn.disabled = clockedIn || today.dayType === 'OFF' || today.dayType === 'SICK' || today.dayType === 'OUTDOOR';
+        if (inBtn) inBtn.disabled = clockedIn || today.dayType === 'OFF' || today.dayType === 'SICK' || today.dayType === 'OUTDOOR' || today.dayType === 'EXTERNAL_WORK';
         if (outBtn) outBtn.disabled = !clockedIn || clockedOut;
         var name = data.coachName ? data.coachName + ' 코치 홈' : '코치 홈';
         if (currentTab() === 'work') {
@@ -249,6 +251,9 @@
                 } else if (rec.dayType === 'OUTDOOR') {
                     cls += ' is-work';
                     meta = '야외레슨';
+                } else if (rec.dayType === 'EXTERNAL_WORK') {
+                    cls += ' is-work';
+                    meta = '외부업무';
                 } else if (rec.checkInTime || rec.checkOutTime) {
                     cls += ' is-work';
                     var times = [];
@@ -335,7 +340,7 @@
     function openDayModal(dateStr, rec) {
         selectedWorkDate = dateStr;
         document.getElementById('work-day-modal-title').textContent = dateStr + ' 일정';
-        document.getElementById('work-day-type').value = (rec && (rec.dayType === 'SICK' || rec.dayType === 'OFF' || rec.dayType === 'OUTDOOR')) ? rec.dayType : 'OFF';
+        document.getElementById('work-day-type').value = (rec && (rec.dayType === 'SICK' || rec.dayType === 'OFF' || rec.dayType === 'OUTDOOR' || rec.dayType === 'EXTERNAL_WORK')) ? rec.dayType : 'OFF';
         document.getElementById('work-day-memo').value = (rec && rec.memo) ? rec.memo : '';
         App.Modal.open('work-day-modal');
     }

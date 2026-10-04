@@ -55,7 +55,7 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     @Query("SELECT b FROM Booking b WHERE b.purpose = 'LESSON' AND b.lessonCategory = :category")
     List<Booking> findByLessonCategory(@Param("category") com.afbscenter.model.LessonCategory category);
     
-    @Query("SELECT b FROM Booking b WHERE b.member.id = :memberId AND b.purpose = 'LESSON' AND b.status IN ('CONFIRMED', 'COMPLETED') ORDER BY b.startTime DESC")
+    @Query("SELECT b FROM Booking b WHERE b.member.id = :memberId AND b.purpose IN ('LESSON', 'BASEBALL_LESSON', 'OUTDOOR_LESSON', 'TRAINING_LESSON', 'PILATES_LESSON', 'SOCIAL_LESSON', 'SOCIAL_OUTDOOR_LESSON', 'YOUTH_LESSON') AND b.status IN ('CONFIRMED', 'COMPLETED') ORDER BY b.startTime DESC")
     List<Booking> findLatestLessonByMemberId(@Param("memberId") Long memberId);
 
     /** 같은 회원의 시간 겹침 예약 수 (취소 건 제외) */

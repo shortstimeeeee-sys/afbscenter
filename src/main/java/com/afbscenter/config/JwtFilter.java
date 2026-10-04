@@ -47,38 +47,32 @@ public class JwtFilter extends OncePerRequestFilter {
 
         // API 요청에 대한 JWT 검증
         if (path.startsWith("/api/")) {
-            String authHeader = request.getHeader("Authorization");
+            String token = extractToken(request);
             logger.debug("JWT 필터 - 요청 경로: {}", path);
-            logger.debug("JWT 필터 - Authorization 헤더: {}", authHeader != null ? "존재함" : "없음");
-            
-            if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                String token = authHeader.substring(7);
+            logger.debug("JWT 필터 - 토큰: {}", token != null ? "존재함" : "없음");
+
+            if (token != null && !token.isBlank()) {
                 logger.debug("JWT 필터 - 토큰 추출 성공, 길이: {}", token.length());
-                
                 try {
                     String username = jwtUtil.extractUsername(token);
                     logger.debug("JWT 필터 - 사용자명 추출: {}", username);
-                    
+
                     if (jwtUtil.validateToken(token, username)) {
-                        // 토큰이 유효하면 요청 속성에 사용자 정보 저장
                         String role = jwtUtil.extractRole(token);
                         logger.debug("JWT 필터 - 토큰 검증 성공: username={}, role={}", username, role);
                         request.setAttribute("username", username);
                         request.setAttribute("role", role);
                         filterChain.doFilter(request, response);
                         return;
-                    } else {
-                        logger.warn("JWT 필터 - 토큰 검증 실패: validateToken 반환 false");
                     }
+                    logger.warn("JWT 필터 - 토큰 검증 실패: validateToken 반환 false");
                 } catch (Exception e) {
-                    // 토큰 검증 실패 - 로그 출력
                     logger.error("JWT 필터 - 토큰 검증 예외: {}", e.getMessage(), e);
                 }
             } else {
-                logger.debug("JWT 필터 - Authorization 헤더가 없거나 Bearer 형식이 아님");
+                logger.debug("JWT 필터 - Authorization 헤더·인증 쿠키가 없음");
             }
 
-            // 토큰이 없거나 유효하지 않은 경우
             logger.warn("JWT 필터 - 401 Unauthorized 반환");
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");
@@ -118,5 +112,27 @@ public class JwtFilter extends OncePerRequestFilter {
         }
         
         return false;
+    }
+
+    /** Bearer 헤더 우선, 없으면 로그인 쿠키(엑셀 등 새 탭 다운로드용). */
+    private String extractToken(HttpServletRequest request) {
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String bearer = authHeader.substring(7).trim();
+            if (!bearer.isEmpty()) {
+                return bearer;
+            }
+        }
+        jakarta.servlet.http.Cookie[] cookies = request.getCookies();
+        if (cookies == null) {
+            return null;
+        }
+        for (jakarta.servlet.http.Cookie cookie : cookies) {
+            if (cookie != null && "afbs_auth".equals(cookie.getName())
+                    && cookie.getValue() != null && !cookie.getValue().isBlank()) {
+                return java.net.URLDecoder.decode(cookie.getValue(), java.nio.charset.StandardCharsets.UTF_8);
+            }
+        }
+        return null;
     }
 }

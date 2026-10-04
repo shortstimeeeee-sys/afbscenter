@@ -51,6 +51,14 @@ public class OutdoorLessonParticipant {
     @Column(length = 20)
     private String phone;
 
+    /** 팀 예약 시 참가 인원. 개인은 1. */
+    @Column(name = "headcount")
+    private Integer headcount = 1;
+
+    /** 팀으로 체크한 예약. 이때만 인원 숫자·팀 이용권 차감을 쓴다. */
+    @Column(name = "team_booking", nullable = false)
+    private boolean teamBooking = false;
+
     @Column(name = "product_id")
     private Long productId;
 
@@ -62,6 +70,18 @@ public class OutdoorLessonParticipant {
 
     @Column(name = "attended", nullable = false)
     private boolean attended = false;
+
+    /** 횟수권 잔여. 이 날짜 레슨을 시작하기 직전 기준. */
+    @Column(name = "remaining_count")
+    private Integer remainingCount;
+
+    /** 이 날짜 이전에 쓴 차수를 아직 빼지 못한 경우, 차감 기준 날짜 */
+    @Column(name = "pending_deduct_date")
+    private LocalDate pendingDeductDate;
+
+    /** 이 날짜 참여분(팀이면 인원 수)을 이용권에서 이미 뺀 경우 */
+    @Column(name = "count_pass_applied", nullable = false)
+    private boolean countPassApplied = false;
 
     /** 날짜 변경 요청으로 이 날짜로 넘어온 경우, 직전 레슨 날짜 */
     @Column(name = "carried_from_date")

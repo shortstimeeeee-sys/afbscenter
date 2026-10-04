@@ -14,13 +14,37 @@ async function loadCoaches() {
         // 기본: 활성 코치만 표시 (퇴사 처리한 코치는 목록에서 제외)
         const showInactive = document.getElementById('show-inactive-coaches') && document.getElementById('show-inactive-coaches').checked;
         const coaches = showInactive ? allCoaches : (allCoaches || []).filter(c => c.active !== false);
-        await renderCoachesTable(coaches);
-        renderCoachSelect(coaches);
-        updateCoachCount(coaches.length);
-        renderCoachStats(coaches);
+        const sortedCoaches = sortCoachesOnPage(coaches);
+        const visibleCoaches = sortedCoaches.filter(function(c) { return !isOutdoorLessonCoach(c); });
+        await renderCoachesTable(visibleCoaches);
+        renderCoachSelect(sortedCoaches);
+        updateCoachCount(visibleCoaches.length);
+        renderCoachStats(visibleCoaches);
     } catch (error) {
         App.err('코치 목록 로드 실패:', error);
     }
+}
+
+function outdoorLessonCoachName(name) {
+    return String(name || '').replace(/\s*\[.*?\]\s*/g, '').replace(/\s+/g, '').indexOf('야외레슨') !== -1;
+}
+
+function isOutdoorLessonCoach(coach) {
+    return outdoorLessonCoachName(coach && coach.name);
+}
+
+function sortCoachesOnPage(coaches) {
+    return (coaches || []).slice().sort(function(a, b) {
+        var aOut = isOutdoorLessonCoach(a);
+        var bOut = isOutdoorLessonCoach(b);
+        if (aOut !== bOut) return aOut ? 1 : -1;
+        var orderA = App.CoachSortOrder ? App.CoachSortOrder(a) : 6;
+        var orderB = App.CoachSortOrder ? App.CoachSortOrder(b) : 6;
+        if (orderA !== orderB) return orderA - orderB;
+        var aName = (a.name || '').replace(/\s*\[.*?\]\s*/g, '').trim();
+        var bName = (b.name || '').replace(/\s*\[.*?\]\s*/g, '').trim();
+        return aName.localeCompare(bName, 'ko');
+    });
 }
 
 function updateCoachCount(count) {
@@ -101,7 +125,7 @@ async function openStatsCoachModal(filterType, titleLabel) {
     try {
         var list = await App.api.get('/coaches');
         var coaches = Array.isArray(list) ? list : [];
-        coaches = coaches.filter(function(c) { return c.active !== false; });
+        coaches = coaches.filter(function(c) { return c.active !== false && !isOutdoorLessonCoach(c); });
         if (filterType && filterType !== 'all') {
             coaches = coaches.filter(function(c) {
                 var cat = classifyCoachCategories(c);
@@ -121,15 +145,7 @@ async function openStatsCoachModal(filterType, titleLabel) {
                 return Object.assign({}, c, { studentCount: 0 });
             }
         }));
-        // 코치 정렬: 대표 → 이사 → 센터장 → 지점장 → 투수 → 유소년 → 재활 → 트레이너 → 강사
-        coachesWithCount.sort(function(a, b) {
-            var orderA = App.CoachSortOrder ? App.CoachSortOrder(a) : 6;
-            var orderB = App.CoachSortOrder ? App.CoachSortOrder(b) : 6;
-            if (orderA !== orderB) return orderA - orderB;
-            var aName = (a.name || '').replace(/\s*\[.*?\]\s*/g, '').trim();
-            var bName = (b.name || '').replace(/\s*\[.*?\]\s*/g, '').trim();
-            return aName.localeCompare(bName, 'ko');
-        });
+        coachesWithCount = sortCoachesOnPage(coachesWithCount);
         var tableHtml = '<div class="table-container stats-coaches-modal-table"><table class="table"><thead><tr><th>이름</th><th>담당 종목</th><th>배정 지점</th><th>수강 인원</th></tr></thead><tbody>';
         var branchConfig = { 'SAHA': { label: '사하점', class: 'branch-label--saha' }, 'YEONSAN': { label: '연산점', class: 'branch-label--yeonsan' }, 'RENTAL': { label: '대관', class: 'branch-label--rental' } };
         function formatBranchesWithColors(availableBranches) {
@@ -299,15 +315,7 @@ async function renderCoachesTable(coaches) {
         return;
     }
     
-    // 코치 정렬: 대표 → 이사 → 센터장 → 지점장 → 투수 → 유소년 → 재활 → 트레이너 → 강사
-    const sortedCoaches = coaches.sort((a, b) => {
-        const orderA = App.CoachSortOrder ? App.CoachSortOrder(a) : 6;
-        const orderB = App.CoachSortOrder ? App.CoachSortOrder(b) : 6;
-        if (orderA !== orderB) return orderA - orderB;
-        const aName = (a.name || '').replace(/\s*\[.*?\]\s*/g, '').trim();
-        const bName = (b.name || '').replace(/\s*\[.*?\]\s*/g, '').trim();
-        return aName.localeCompare(bName, 'ko');
-    });
+    const sortedCoaches = sortCoachesOnPage(coaches);
     
     // 각 코치의 수강 인원 수를 가져오기
     const coachesWithCount = await Promise.all(sortedCoaches.map(async (coach) => {
@@ -401,7 +409,7 @@ async function renderCoachesTable(coaches) {
 function renderCoachSelect(coaches) {
     const select = document.getElementById('coach-select');
     select.innerHTML = '<option value="">전체 코치</option>';
-    coaches.forEach(coach => {
+    sortCoachesOnPage(coaches).forEach(coach => {
         const option = document.createElement('option');
         option.value = coach.id;
         option.textContent = coach.name;

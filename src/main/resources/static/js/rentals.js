@@ -929,15 +929,6 @@ async function renderCalendar() {
     const grid = document.getElementById('calendar-grid');
     grid.innerHTML = '';
     
-    // 요일 헤더 (일: 빨간색, 토: 파란색)
-    const days = ['일', '월', '화', '수', '목', '금', '토'];
-    days.forEach((day, idx) => {
-        const header = document.createElement('div');
-        header.className = 'calendar-day-header' + (idx === 0 ? ' calendar-day-header-sun' : idx === 6 ? ' calendar-day-header-sat' : '');
-        header.textContent = day;
-        grid.appendChild(header);
-    });
-    
     // 해당 월의 예약 데이터 로드
     // 캘린더에 표시되는 주 범위를 고려하여 앞뒤 일주일 추가
     
@@ -1047,6 +1038,20 @@ async function renderCalendar() {
         }
     } catch (e) {
         App.warn('대관 휴무일 로드 생략:', e);
+    }
+
+    if (typeof App.appendCalendarWeekdayHeaders === 'function') {
+        App.appendCalendarWeekdayHeaders(grid, year, month, branchClosuresSet, function () {
+            return renderCalendar();
+        });
+    } else {
+        const days = ['일', '월', '화', '수', '목', '금', '토'];
+        days.forEach((day, idx) => {
+            const header = document.createElement('div');
+            header.className = 'calendar-day-header' + (idx === 0 ? ' calendar-day-header-sun' : idx === 6 ? ' calendar-day-header-sat' : '');
+            header.textContent = day;
+            grid.appendChild(header);
+        });
     }
     
     // 날짜 셀
@@ -1664,6 +1669,10 @@ function renderBookingsTable(bookings) {
 function getPurposeText(purpose) {
     const map = {
         'LESSON': '레슨',
+        'BASEBALL_LESSON': '엘리트',
+        'OUTDOOR_LESSON': '엘리트(야외)',
+        'SOCIAL_LESSON': '사회인',
+        'SOCIAL_OUTDOOR_LESSON': '사회인(야외)',
         'RENTAL': '대관',
         'PERSONAL_TRAINING': '개인훈련'
     };
@@ -2574,7 +2583,13 @@ async function saveQuickBooking() {
         await renderCalendar();
     } catch (error) {
         App.err('빠른 예약 저장 실패:', error);
-        App.showNotification(isEditMode ? '대관 수정에 실패했습니다.' : '대관 등록에 실패했습니다.', 'danger');
+        var msg = typeof App.getApiErrorMessage === 'function'
+            ? App.getApiErrorMessage(error)
+            : (isEditMode ? '대관 수정에 실패했습니다.' : '대관 등록에 실패했습니다.');
+        if (!msg || msg === '요청 처리 중 오류가 발생했습니다.') {
+            msg = isEditMode ? '대관 수정에 실패했습니다.' : '대관 등록에 실패했습니다.';
+        }
+        App.showNotification(msg, 'danger');
     }
 }
 

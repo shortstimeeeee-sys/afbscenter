@@ -1,5 +1,6 @@
 package com.afbscenter.constants;
 
+import com.afbscenter.model.Coach;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -56,7 +57,7 @@ public final class CoachColorPalette {
             "#558B2F", // 올리브
             "#6D4C41", // 커피
             "#E65100", // 딥오렌지2
-            "#1B5E20", // 딥그린
+            "#2962FF", // 선명 로열블루 (야외레슨)
             "#880E4F", // 딥핑크
             "#311B92", // 딥인디고
             "#006064", // 딥시안
@@ -86,6 +87,7 @@ public final class CoachColorPalette {
         m.put("김유진", "#4ECDC4");
         m.put("박근엽", "#C0CA33"); // 라임 — 빨강보다 부드럽고 다른 코치와 다른 계열
         m.put("이유진", "#8E24AA");
+        m.put("야외레슨", "#2962FF"); // 선명 로열블루 — 공인욱 남색·조장우 초록과 구분
         PREFERRED_BY_BASE_NAME = Collections.unmodifiableMap(m);
     }
 
@@ -126,6 +128,15 @@ public final class CoachColorPalette {
             return null;
         }
         return PREFERRED_BY_BASE_NAME.get(base);
+    }
+
+    /** 이용권·담당 코치가 없을 때만 쓰는 자리 코치. */
+    public static boolean isOutdoorLessonPlaceholder(Coach coach) {
+        return coach != null && isOutdoorLessonPlaceholderName(coach.getName());
+    }
+
+    public static boolean isOutdoorLessonPlaceholderName(String name) {
+        return "야외레슨".equals(normalizeBaseName(name));
     }
 
     /**

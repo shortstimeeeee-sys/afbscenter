@@ -56,6 +56,17 @@ body.staff-attendance-page .topbar {
     font-weight: 700;
     color: var(--text-primary);
 }
+.staff-att-kpi-detail {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--success);
+    font-weight: 500;
+    word-break: keep-all;
+}
+.staff-att-kpi-detail:empty {
+    display: none;
+}
 .staff-att-kpi.is-work .staff-att-kpi-value { color: var(--success); }
 .staff-att-kpi.is-out .staff-att-kpi-value { color: var(--info); }
 .staff-att-kpi.is-off .staff-att-kpi-value { color: var(--warning); }
@@ -244,6 +255,7 @@ body.staff-attendance-page .topbar {
 .staff-att-table thead .staff-att-name {
     z-index: 4;
     background: var(--bg-tertiary);
+    text-align: center !important;
 }
 .staff-att-name-dot {
     display: inline-block;
@@ -285,6 +297,7 @@ body.staff-attendance-page .topbar {
 }
 .staff-att-cell.is-off { background: rgba(211, 47, 47, 0.22); }
 .staff-att-cell.is-sick { background: rgba(231, 76, 60, 0.14); }
+.staff-att-cell.is-external { background: rgba(239, 108, 0, 0.22); }
 .staff-att-cell.is-today { outline: 1px solid var(--accent-primary); }
 .staff-att-time {
     font-variant-numeric: tabular-nums;

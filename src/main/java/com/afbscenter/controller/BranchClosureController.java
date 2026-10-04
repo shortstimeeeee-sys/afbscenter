@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 관리자 전용 — 휴무 그룹(사하 / 연산 / 비야구 파트) 등록·삭제
+ * 관리자 전용 — 지점 전체·파트별 휴무 등록·삭제
  */
 @RestController
 @RequestMapping("/api/branch-closures")
@@ -53,7 +53,7 @@ public class BranchClosureController {
         }
         BranchClosure.ClosureGroup g = resolveGroup(group, branch, calendarPart);
         if (g == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "그룹은 사하·연산·비야구 파트만 지정할 수 있습니다."));
+            return ResponseEntity.badRequest().body(Map.of("error", "휴무 대상을 확인하세요."));
         }
         if (endDate.isBefore(startDate)) {
             return ResponseEntity.badRequest().body(Map.of("error", "기간이 올바르지 않습니다."));
@@ -79,7 +79,7 @@ public class BranchClosureController {
             String partRaw = body != null && body.get("calendarPart") != null ? body.get("calendarPart").toString() : null;
             BranchClosure.ClosureGroup g = resolveGroup(groupRaw, branchRaw, partRaw);
             if (g == null) {
-                return ResponseEntity.badRequest().body(Map.of("error", "그룹은 사하·연산·비야구 파트만 지정할 수 있습니다."));
+                return ResponseEntity.badRequest().body(Map.of("error", "휴무 대상을 확인하세요."));
             }
             String dateStr = body.get("closureDate") != null ? body.get("closureDate").toString().trim() : null;
             if (dateStr == null || dateStr.isEmpty()) {
@@ -114,7 +114,7 @@ public class BranchClosureController {
         try {
             BranchClosure.ClosureGroup g = resolveGroup(group, null, null);
             if (g == null) {
-                return ResponseEntity.badRequest().body(Map.of("error", "그룹은 사하·연산·비야구 파트만 지정할 수 있습니다."));
+                return ResponseEntity.badRequest().body(Map.of("error", "휴무 대상을 확인하세요."));
             }
             LocalDate d = LocalDate.parse(closureDate);
             branchClosureRepository.deleteByBranchAndCalendarPartAndClosureDate(
@@ -132,7 +132,7 @@ public class BranchClosureController {
         }
         if (calendarPart != null && !calendarPart.isBlank()) {
             BranchClosure.ClosureGroup fromPart = BranchStudio.parseGroup(calendarPart);
-            if (fromPart == BranchClosure.ClosureGroup.NON_BASEBALL) {
+            if (fromPart != null) {
                 return fromPart;
             }
         }
@@ -143,6 +143,7 @@ public class BranchClosureController {
         Map<String, Object> map = new HashMap<>();
         BranchClosure.ClosureGroup g = BranchStudio.fromStored(m.getBranch(), m.getCalendarPart());
         map.put("group", g != null ? g.name() : "");
+        map.put("calendarPart", m.getCalendarPart() != null ? m.getCalendarPart().name() : "");
         map.put("closureDate", m.getClosureDate() != null ? m.getClosureDate().toString() : "");
         return map;
     }

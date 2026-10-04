@@ -22,12 +22,26 @@ public final class AccountingPolicy {
     private AccountingPolicy() {
     }
 
-    /** 순매출: 결제액 − 환불액 (null 안전). */
+    /** 순매출: 결제액 − 환불액 (null 안전). 대시보드·통계는 이 값을 사용한다. */
     public static int netAmount(Payment p) {
         if (p == null) {
             return 0;
         }
         return netAmount(p.getAmount(), p.getRefundAmount());
+    }
+
+    /**
+     * 정산 리포트·정산 엑셀용 순매출.
+     * 직접 수정값이 있으면 그 값, 없으면 {@link #netAmount(Payment)}.
+     */
+    public static int settlementNetAmount(Payment p) {
+        if (p == null) {
+            return 0;
+        }
+        if (p.getSettlementNetAmount() != null) {
+            return p.getSettlementNetAmount();
+        }
+        return netAmount(p);
     }
 
     /**

@@ -72,6 +72,27 @@
         return App.loadBranchClosuresSet(cfg, startYmd, endYmd);
     }
 
+    function mbLoadYouthTrialDaysSet(startYmd, endYmd) {
+        if (typeof App !== 'undefined' && App && typeof App.loadYouthTrialDaysSet === 'function') {
+            return App.loadYouthTrialDaysSet(startYmd, endYmd);
+        }
+        return Promise.resolve({});
+    }
+
+    function mbLoadSocialOutdoorDaysSet(startYmd, endYmd) {
+        if (typeof App !== 'undefined' && App && typeof App.loadSocialOutdoorDaysSet === 'function') {
+            return App.loadSocialOutdoorDaysSet(startYmd, endYmd);
+        }
+        return Promise.resolve({});
+    }
+
+    function mbLoadExternalWorkDaysSet(startYmd, endYmd) {
+        if (typeof App !== 'undefined' && App && typeof App.loadExternalWorkDaysSet === 'function') {
+            return App.loadExternalWorkDaysSet(startYmd, endYmd);
+        }
+        return Promise.resolve({});
+    }
+
     /** 이용권이 없을 때 달력 조회용 기본 필터 (사하 야구 캘린더와 동일) */
     var DEFAULT_PASS_VIEW = {
         facilityType: 'BASEBALL',
@@ -97,6 +118,8 @@
     /** 설정(공휴일·메모) — 달력 셀에 반영 */
     var mbCalendarMarksMap = null;
     var mbBranchClosuresSet = {};
+    var mbYouthTrialDaysSet = {};
+    var mbSocialOutdoorDaysSet = {};
     var mbLastStatsData = null;
     var mbCalGridState = null;
     var mbStatsEventsBound = false;
@@ -1962,7 +1985,17 @@
             mbCalendarMarksMap = m;
             return mbLoadBranchClosuresSet(ymd(st.startDate), ymd(endD)).then(function (c) {
                 mbBranchClosuresSet = c || {};
-                mbPaintCalendarCells(grid, filtered, st.startDate, st.month, st.totalCells, m, mbBranchClosuresSet);
+                return mbLoadYouthTrialDaysSet(ymd(st.startDate), ymd(endD)).then(function (t) {
+                    mbYouthTrialDaysSet = t || {};
+                    return mbLoadSocialOutdoorDaysSet(ymd(st.startDate), ymd(endD)).then(function (o) {
+                        mbSocialOutdoorDaysSet = o || {};
+                        mbPaintCalendarCells(grid, filtered, st.startDate, st.month, st.totalCells, m, mbBranchClosuresSet);
+                        return mbLoadExternalWorkDaysSet(ymd(st.startDate), ymd(endD)).then(function (w) {
+                            mbExternalWorkDaysSet = w || {};
+                            mbPaintCalendarCells(grid, filtered, st.startDate, st.month, st.totalCells, m, mbBranchClosuresSet);
+                        });
+                    });
+                });
             });
         });
     }
@@ -2211,6 +2244,15 @@
                 }
                 dayHeader.appendChild(dayNumCol);
                 dayCell.appendChild(dayHeader);
+                if (typeof App !== 'undefined' && App && typeof App.appendYouthTrialEvent === 'function') {
+                    App.appendYouthTrialEvent(dayCell, dk, mbYouthTrialDaysSet);
+                }
+                if (typeof App !== 'undefined' && App && typeof App.appendSocialOutdoorEvent === 'function') {
+                    App.appendSocialOutdoorEvent(dayCell, dk, mbSocialOutdoorDaysSet);
+                }
+                if (typeof App !== 'undefined' && App && typeof App.appendExternalWorkEvent === 'function') {
+                    App.appendExternalWorkEvent(dayCell, dk, mbExternalWorkDaysSet);
+                }
 
                 dayBookings.sort(function (a, b) {
                     return new Date(a.startTime) - new Date(b.startTime);
@@ -2263,7 +2305,9 @@
                     }
 
                     var coach = mbResolveCoachForBooking(booking);
-                    var coachColor = mbGetCoachColor(coach);
+                    var coachColor = (typeof App !== 'undefined' && typeof App.calendarColorForBooking === 'function')
+                        ? App.calendarColorForBooking(booking, coach)
+                        : mbGetCoachColor(coach);
                     if (coachColor) {
                         /* bookings.css .booking-event--unassigned 가 background !important 이므로 동일 우선순위로 덮음 */
                         ev.style.setProperty('background-color', coachColor, 'important');
@@ -2755,15 +2799,19 @@
                     mbCalendarMarksMap = m;
                     return mbLoadBranchClosuresSet(ymdForMarks(startDate), ymdForMarks(endD)).then(function (c) {
                         mbBranchClosuresSet = c || {};
-                        mbPaintCalendarCells(grid, filtered, startDate, month, totalCells, m, mbBranchClosuresSet);
+                        return mbLoadYouthTrialDaysSet(ymdForMarks(startDate), ymdForMarks(endD)).then(function (t) {
+                            mbYouthTrialDaysSet = t || {};
+                            return mbLoadSocialOutdoorDaysSet(ymdForMarks(startDate), ymdForMarks(endD)).then(function (o) {
+                                mbSocialOutdoorDaysSet = o || {};
+                                return mbLoadExternalWorkDaysSet(ymdForMarks(startDate), ymdForMarks(endD)).then(function (w) {
+                                    mbExternalWorkDaysSet = w || {};
+                                    mbPaintCalendarCells(grid, filtered, startDate, month, totalCells, m, mbBranchClosuresSet);
+                                });
+                        });
                     });
                 });
             })
             .catch(function (err) {
-                if (stc) {
-                    stc.innerHTML =
-                        '<p class="bookings-stats-loading">' + (err.message || '달력을 불러오지 못했습니다.') + '</p>';
-                }
                 if (App.showNotification) App.showNotification(err.message || '달력 로드 실패', 'error');
                 else alert(err.message || '달력 로드 실패');
             });

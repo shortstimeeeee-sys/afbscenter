@@ -81,7 +81,8 @@ public class PaymentController {
             @RequestParam(required = false) String endDate,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String sortBy,
-            @RequestParam(required = false) String sortOrder) {
+            @RequestParam(required = false) String sortOrder,
+            @RequestParam(required = false) String coachId) {
         try {
             // 기간: month(이번 달 기본), all(전체), custom(시작·종료일)
             List<Payment> payments = new java.util.ArrayList<>(paymentPeriodQueryHelper.loadPayments(period, startDate, endDate));
@@ -192,6 +193,7 @@ public class PaymentController {
 
             java.util.Map<Long, com.afbscenter.model.Coach> coachByPaymentId =
                     paymentCoachResolver.resolveCoachesForPayments(payments);
+            payments = paymentCoachResolver.filterByCoachId(payments, coachByPaymentId, coachId);
             
             // JSON 직렬화를 위해 Map으로 변환 (순환 참조 방지)
             List<Map<String, Object>> result = payments.stream().map(payment -> {
@@ -208,6 +210,7 @@ public class PaymentController {
                 map.put("refundAmount", payment.getRefundAmount());
                 map.put("refundReason", payment.getRefundReason());
                 map.put("refundApprovedBy", payment.getRefundApprovedBy());
+                map.put("settlementNetAmount", payment.getSettlementNetAmount());
                 
                 // Member 정보
                 if (payment.getMember() != null) {
@@ -326,6 +329,7 @@ public class PaymentController {
             map.put("refundAmount", payment.getRefundAmount());
             map.put("refundReason", payment.getRefundReason());
             map.put("refundApprovedBy", payment.getRefundApprovedBy());
+            map.put("settlementNetAmount", payment.getSettlementNetAmount());
             
             // Member 정보
             if (payment.getMember() != null) {
@@ -529,6 +533,41 @@ public class PaymentController {
             return ResponseEntity.notFound().build();
         } catch (Exception e) {
             logger.error("결제 수정 중 오류 발생. ID: {}", id, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @PutMapping("/{id}/settlement-net")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updateSettlementNetAmount(@PathVariable Long id,
+                                                                         @RequestBody Map<String, Object> body) {
+        try {
+            Payment payment = paymentRepository.findById(id)
+                    .orElseThrow(() -> new IllegalArgumentException("결제를 찾을 수 없습니다."));
+            if (body == null || !body.containsKey("settlementNetAmount")) {
+                return ResponseEntity.badRequest().build();
+            }
+            Object raw = body.get("settlementNetAmount");
+            if (raw == null || "".equals(String.valueOf(raw).trim())) {
+                payment.setSettlementNetAmount(null);
+            } else {
+                String digits = String.valueOf(raw).trim().replaceAll("[^0-9-]", "");
+                if (digits.isEmpty() || "-".equals(digits)) {
+                    payment.setSettlementNetAmount(0);
+                } else {
+                    payment.setSettlementNetAmount(Integer.parseInt(digits));
+                }
+            }
+            Payment saved = paymentRepository.save(payment);
+            Map<String, Object> result = new HashMap<>();
+            result.put("id", saved.getId());
+            result.put("settlementNetAmount", saved.getSettlementNetAmount());
+            return ResponseEntity.ok(result);
+        } catch (IllegalArgumentException e) {
+            logger.warn("결제를 찾을 수 없습니다. ID: {}", id, e);
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            logger.error("정산 순매출 수정 중 오류. ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

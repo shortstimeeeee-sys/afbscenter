@@ -110,12 +110,24 @@ App.loadCalendarMarksMap = async function(startYmd, endYmd) {
 
 /**
  * 휴무 그룹 — 사이드바와 동일.
- * 사하: 야구·트레이닝·필라테스 / 연산: 야구·필라테스 / 비 야구파트: 유소년·사회인·대관
+ * 지점 전체(사하 / 연산 / 비 야구파트)와 파트(야구·트레이닝·필라테스·유소년·사회인·대관)
  */
 App.studioBranchCode = function(branch) {
     var b = String(branch || '').trim().toUpperCase();
     if (b === 'SAHA' || b === 'YEONSAN') return b;
     return '';
+};
+
+App.CLOSURE_GROUP_CODES = [
+    'SAHA', 'SAHA_BASEBALL', 'SAHA_TRAINING', 'SAHA_PILATES',
+    'YEONSAN', 'YEONSAN_BASEBALL', 'YEONSAN_PILATES',
+    'NON_BASEBALL', 'YOUTH', 'SOCIAL', 'RENTAL'
+];
+
+App.normalizeClosureGroup = function(group) {
+    var g = String(group || '').trim().toUpperCase();
+    if (App.CLOSURE_GROUP_CODES.indexOf(g) >= 0) return g;
+    return 'SAHA';
 };
 
 App.closureGroupFromConfig = function(config) {
@@ -124,11 +136,18 @@ App.closureGroupFromConfig = function(config) {
     var lc = String(config.lessonCategory || '').trim().toUpperCase();
     var grade = String(config.memberGrade || '').trim().toUpperCase();
     var b = String(config.branch || '').trim().toUpperCase();
-    if (ft === 'RENTAL' || b === 'RENTAL' || lc === 'YOUTH_BASEBALL' || lc === 'YOUTH'
-            || grade === 'SOCIAL' || lc === 'SOCIAL') {
-        return 'NON_BASEBALL';
+    if (ft === 'RENTAL' || b === 'RENTAL') return 'RENTAL';
+    if (lc === 'YOUTH_BASEBALL' || lc === 'YOUTH' || grade === 'YOUTH') return 'YOUTH';
+    if (grade === 'SOCIAL' || lc === 'SOCIAL') return 'SOCIAL';
+    if (b === 'YEONSAN') {
+        if (lc === 'PILATES' || ft === 'TRAINING_FITNESS') return 'YEONSAN_PILATES';
+        return 'YEONSAN_BASEBALL';
     }
-    if (b === 'YEONSAN') return 'YEONSAN';
+    if (b === 'SAHA') {
+        if (lc === 'TRAINING') return 'SAHA_TRAINING';
+        if (lc === 'PILATES') return 'SAHA_PILATES';
+        return 'SAHA_BASEBALL';
+    }
     return 'SAHA';
 };
 
@@ -148,8 +167,9 @@ App.loadBranchClosuresSet = async function(groupOrConfig, startYmd, endYmd) {
             ? App.closureGroupFromConfig(groupOrConfig)
             : 'SAHA';
     }
-    group = String(group || 'SAHA').trim().toUpperCase();
-    if (group !== 'YEONSAN' && group !== 'NON_BASEBALL') group = 'SAHA';
+    group = typeof App.normalizeClosureGroup === 'function'
+        ? App.normalizeClosureGroup(group)
+        : String(group || 'SAHA').trim().toUpperCase();
     if (!startYmd || !endYmd) return set;
     try {
         var base = App.apiBase || '/api';
@@ -182,6 +202,1149 @@ App.markBranchClosedDay = function(dayCell, ymd, closuresSet) {
     label.textContent = '휴무';
     label.title = '지점 휴무';
     return label;
+};
+
+App._weekdayMarkInfo = function(row, dateKey) {
+    if (!row || !row[dateKey]) return null;
+    return {
+        timeText: row.timeText != null ? String(row.timeText) : '',
+        branch: App.normalizeWeekdayMarkBranch(row.branch),
+        place: row.place != null ? String(row.place) : '',
+        coachId: row.coachId != null && row.coachId !== '' ? Number(row.coachId) : null
+    };
+};
+
+App.normalizeWeekdayMarkBranch = function(branch) {
+    var v = String(branch || '').trim().toUpperCase();
+    if (v === 'YEONSAN') return 'YEONSAN';
+    if (v === 'SAHA') return 'SAHA';
+    return '';
+};
+
+App.weekdayMarkBranchLabel = function(branch) {
+    var b = App.normalizeWeekdayMarkBranch(branch);
+    if (b === 'YEONSAN') return '연산';
+    if (b === 'SAHA') return '사하';
+    return '';
+};
+
+/** 지점이 지정된 요일 일정은 해당 지점 캘린더에만 표시 (미지정은 공통). */
+App.weekdayMarkMatchesPageBranch = function(info) {
+    var markBranch = App.normalizeWeekdayMarkBranch(info && info.branch);
+    if (!markBranch) return true;
+    var pageBranch = '';
+    try {
+        pageBranch = App.normalizeWeekdayMarkBranch((window.BOOKING_PAGE_CONFIG || {}).branch);
+    } catch (e) { /* ignore */ }
+    if (!pageBranch) return true;
+    return markBranch === pageBranch;
+};
+
+App.formatWeekdayMarkTimeDigits = function(raw) {
+    var digits = String(raw || '').replace(/\D/g, '').slice(0, 8);
+    var out = '';
+    if (digits.length <= 2) {
+        out = digits;
+    } else if (digits.length <= 4) {
+        out = digits.slice(0, 2) + ':' + digits.slice(2);
+    } else if (digits.length <= 6) {
+        out = digits.slice(0, 2) + ':' + digits.slice(2, 4) + ' ~ ' + digits.slice(4);
+    } else {
+        out = digits.slice(0, 2) + ':' + digits.slice(2, 4) + ' ~ ' + digits.slice(4, 6) + ':' + digits.slice(6);
+    }
+    return out;
+};
+
+App.normalizeWeekdayMarkTimeText = function(raw) {
+    var formatted = App.formatWeekdayMarkTimeDigits(raw);
+    if (!formatted) return '';
+    if (/^\d{2}:\d{2} ~ \d{2}:\d{2}$/.test(formatted)) return formatted;
+    return formatted;
+};
+
+App.bindWeekdayMarkTimeInput = function(el) {
+    if (!el || el.getAttribute('data-weekday-time-bound') === '1') return;
+    el.setAttribute('data-weekday-time-bound', '1');
+    el.setAttribute('inputmode', 'numeric');
+    el.setAttribute('placeholder', '00:00 ~ 00:00');
+    el.setAttribute('maxlength', '13');
+    el.addEventListener('input', function () {
+        var next = App.formatWeekdayMarkTimeDigits(el.value);
+        if (el.value !== next) el.value = next;
+    });
+    el.addEventListener('blur', function () {
+        el.value = App.normalizeWeekdayMarkTimeText(el.value);
+    });
+};
+
+App.formatWeekdayMarkEventLabel = function(contentLabel, info) {
+    var parts = [];
+    var time = info && info.timeText ? String(info.timeText).trim() : '';
+    var place = info && info.place ? String(info.place).trim() : '';
+    var branch = info ? App.weekdayMarkBranchLabel(info.branch) : '';
+    var mid = place || branch;
+    if (time) parts.push(time);
+    if (mid) parts.push(mid);
+    parts.push(contentLabel || '');
+    return parts.filter(Boolean).join(' / ');
+};
+
+App.loadYouthTrialDaysSet = async function(startYmd, endYmd) {
+    var set = {};
+    if (!startYmd || !endYmd) return set;
+    try {
+        var base = App.apiBase || '/api';
+        var qs =
+            'startDate=' +
+            encodeURIComponent(startYmd) +
+            '&endDate=' +
+            encodeURIComponent(endYmd);
+        var res = await fetch(base + '/public/youth-trial-days?' + qs, {
+            headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        if (!res.ok) return set;
+        var arr = await res.json();
+        (arr || []).forEach(function (m) {
+            if (m && m.trialDate) set[String(m.trialDate)] = App._weekdayMarkInfo(m, 'trialDate') || { timeText: '', branch: '' };
+        });
+    } catch (e) {
+        App.err('유소년 체험일 로드 실패:', e);
+    }
+    return set;
+};
+
+App.appendYouthTrialEvent = function(dayCell, ymd, trialSet, onChanged) {
+    return App.appendWeekdayMarkEvent(dayCell, ymd, trialSet, 'trial', 'calendar-event--youth-trial', onChanged);
+};
+
+App.loadSocialOutdoorDaysSet = async function(startYmd, endYmd) {
+    var set = {};
+    if (!startYmd || !endYmd) return set;
+    try {
+        var base = App.apiBase || '/api';
+        var qs =
+            'startDate=' +
+            encodeURIComponent(startYmd) +
+            '&endDate=' +
+            encodeURIComponent(endYmd);
+        var res = await fetch(base + '/public/social-outdoor-days?' + qs, {
+            headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        if (!res.ok) return set;
+        var arr = await res.json();
+        (arr || []).forEach(function (m) {
+            if (m && m.outdoorDate) set[String(m.outdoorDate)] = App._weekdayMarkInfo(m, 'outdoorDate') || { timeText: '', branch: '' };
+        });
+    } catch (e) {
+        App.err('사회인 야외일 로드 실패:', e);
+    }
+    return set;
+};
+
+App.appendSocialOutdoorEvent = function(dayCell, ymd, outdoorSet, onChanged) {
+    return App.appendWeekdayMarkEvent(dayCell, ymd, outdoorSet, 'social-outdoor', 'calendar-event--social-outdoor', onChanged);
+};
+
+App.loadSocialScrimmageDaysSet = async function(startYmd, endYmd) {
+    var set = {};
+    if (!startYmd || !endYmd) return set;
+    try {
+        var base = App.apiBase || '/api';
+        var qs =
+            'startDate=' +
+            encodeURIComponent(startYmd) +
+            '&endDate=' +
+            encodeURIComponent(endYmd);
+        var res = await fetch(base + '/public/social-scrimmage-days?' + qs, {
+            headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        if (!res.ok) return set;
+        var arr = await res.json();
+        (arr || []).forEach(function (m) {
+            if (m && m.scrimmageDate) set[String(m.scrimmageDate)] = App._weekdayMarkInfo(m, 'scrimmageDate') || { timeText: '', branch: '' };
+        });
+    } catch (e) {
+        App.err('사회인 청·백전일 로드 실패:', e);
+    }
+    return set;
+};
+
+App.appendSocialScrimmageEvent = function(dayCell, ymd, scrimmageSet, onChanged) {
+    return App.appendWeekdayMarkEvent(dayCell, ymd, scrimmageSet, 'social-scrimmage', 'calendar-event--social-scrimmage', onChanged);
+};
+
+App.loadSocialRegularMeetingDaysSet = async function(startYmd, endYmd) {
+    var set = {};
+    if (!startYmd || !endYmd) return set;
+    try {
+        var base = App.apiBase || '/api';
+        var qs =
+            'startDate=' +
+            encodeURIComponent(startYmd) +
+            '&endDate=' +
+            encodeURIComponent(endYmd);
+        var res = await fetch(base + '/public/social-regular-meeting-days?' + qs, {
+            headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        if (!res.ok) return set;
+        var arr = await res.json();
+        (arr || []).forEach(function (m) {
+            if (m && m.meetingDate) set[String(m.meetingDate)] = App._weekdayMarkInfo(m, 'meetingDate') || { timeText: '', branch: '' };
+        });
+    } catch (e) {
+        App.err('사회인 정회원 모임일 로드 실패:', e);
+    }
+    return set;
+};
+
+App.appendSocialRegularMeetingEvent = function(dayCell, ymd, meetingSet, onChanged) {
+    return App.appendWeekdayMarkEvent(dayCell, ymd, meetingSet, 'social-regular-meeting', 'calendar-event--social-regular-meeting', onChanged);
+};
+
+App.loadExternalWorkDaysSet = async function(startYmd, endYmd) {
+    var set = {};
+    if (!startYmd || !endYmd) return set;
+    try {
+        var base = App.apiBase || '/api';
+        var qs =
+            'startDate=' +
+            encodeURIComponent(startYmd) +
+            '&endDate=' +
+            encodeURIComponent(endYmd);
+        var res = await fetch(base + '/public/external-work-days?' + qs, {
+            headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        if (!res.ok) return set;
+        var arr = await res.json();
+        (arr || []).forEach(function (m) {
+            if (m && m.workDate) set[String(m.workDate)] = true;
+        });
+    } catch (e) {
+        App.err('외부업무일 로드 실패:', e);
+    }
+    return set;
+};
+
+App.appendExternalWorkEvent = function(dayCell, ymd, workSet, onCancelled) {
+    if (!dayCell || !ymd || !workSet || !workSet[ymd]) return null;
+    var ev = document.createElement('div');
+    ev.className = 'calendar-event calendar-event--external-work';
+    ev.textContent = '외부업무';
+    ev.title = '외부업무';
+    App.bindWeekdayMarkCancel(ev, 'external-work', ymd, onCancelled);
+    dayCell.appendChild(ev);
+    return ev;
+};
+
+App.weekdayMarkMeta = function(kind) {
+    if (kind === 'trial') {
+        return { label: '유소년 체험', particle: '을', path: '/youth-trial-days/', dateKey: 'trialDate', putPath: '/youth-trial-days' };
+    }
+    if (kind === 'external-work') {
+        return { label: '외부업무', particle: '를', path: '/external-work-days/', dateKey: 'workDate', putPath: '/external-work-days' };
+    }
+    if (kind === 'social-scrimmage') {
+        return { label: '청·백전', particle: '을', path: '/social-scrimmage-days/', dateKey: 'scrimmageDate', putPath: '/social-scrimmage-days' };
+    }
+    if (kind === 'social-regular-meeting') {
+        return { label: '사회인 정회원 모임', particle: '을', path: '/social-regular-meeting-days/', dateKey: 'meetingDate', putPath: '/social-regular-meeting-days' };
+    }
+    return { label: '사회인 야외', particle: '를', path: '/social-outdoor-days/', dateKey: 'outdoorDate', putPath: '/social-outdoor-days' };
+};
+
+App.appendWeekdayMarkEvent = function(dayCell, ymd, markSet, kind, className, onChanged) {
+    if (!dayCell || !ymd || !markSet || !markSet[ymd]) return null;
+    var info = typeof markSet[ymd] === 'object' ? markSet[ymd] : { timeText: '', branch: '', coachId: null };
+    var pageBranch = '';
+    try {
+        pageBranch = App.normalizeWeekdayMarkBranch((window.BOOKING_PAGE_CONFIG || {}).branch);
+    } catch (e) { /* ignore */ }
+    // 연산 캘린더에는 사회인 청·백전 표시 안 함
+    if (kind === 'social-scrimmage' && pageBranch === 'YEONSAN') return null;
+    if (!App.weekdayMarkMatchesPageBranch(info)) return null;
+    var meta = App.weekdayMarkMeta(kind);
+    var label = App.formatWeekdayMarkEventLabel(meta.label, info);
+    var ev = document.createElement('div');
+    ev.className = 'calendar-event ' + className;
+    ev.textContent = label;
+    ev.title = label;
+    ev.setAttribute('data-weekday-kind', kind);
+    ev.setAttribute('data-ymd', ymd);
+    ev.setAttribute('data-time-text', info.timeText || '');
+    ev.setAttribute('data-branch', info.branch || '');
+    if (info.coachId) ev.setAttribute('data-coach-id', String(info.coachId));
+    App.applyWeekdayMarkCoachColor(ev, info);
+    App.bindWeekdayMarkOpen(ev, kind, ymd, info, onChanged);
+    dayCell.appendChild(ev);
+    return ev;
+};
+
+App.applyWeekdayMarkCoachColor = function(ev, info) {
+    if (!ev || !info || !info.coachId) return;
+    if (!(App.CoachColors && typeof App.CoachColors.getColor === 'function')) return;
+    var hex = App.CoachColors.getColor({ id: info.coachId });
+    if (!hex) return;
+    ev.style.backgroundColor = hex;
+    ev.style.borderLeft = '3px solid ' + hex;
+    ev.classList.add('calendar-event--weekday-coach-color');
+};
+
+App.loadWeekdayMarkCoachOptions = async function() {
+    if (App._weekdayMarkCoachOptions && App._weekdayMarkCoachOptions.length) {
+        return App._weekdayMarkCoachOptions;
+    }
+    try {
+        var list = await App.api.get('/coaches/active');
+        App._weekdayMarkCoachOptions = Array.isArray(list) ? list : [];
+        if (App.CoachColors && typeof App.CoachColors.registerFromCoaches === 'function') {
+            App.CoachColors.registerFromCoaches(App._weekdayMarkCoachOptions);
+        }
+    } catch (e) {
+        App.err('요일 일정 코치 목록 로드 실패:', e);
+        App._weekdayMarkCoachOptions = [];
+    }
+    return App._weekdayMarkCoachOptions;
+};
+
+App.fillWeekdayMarkCoachSelect = async function(selectEl, selectedId) {
+    if (!selectEl) return;
+    var coaches = await App.loadWeekdayMarkCoachOptions();
+    var cur = selectedId != null && selectedId !== '' ? String(selectedId) : '';
+    var html = '<option value="">미지정</option>';
+    coaches.forEach(function (coach) {
+        if (!coach || coach.id == null) return;
+        var id = String(coach.id);
+        var name = coach.name || ('코치 #' + id);
+        html += '<option value="' + id + '"' + (id === cur ? ' selected' : '') + '>' +
+            String(name).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</option>';
+    });
+    selectEl.innerHTML = html;
+    if (cur) selectEl.value = cur;
+};
+
+App.bindWeekdayMarkOpen = function(ev, kind, ymd, info, onChanged) {
+    if (!ev || !ymd) return;
+    var canEdit = typeof App.canEditCalendarClosures === 'function' && App.canEditCalendarClosures();
+    if (!canEdit) return;
+    var meta = App.weekdayMarkMeta(kind);
+    ev.classList.add('calendar-event--weekday-cancelable');
+    ev.title = App.formatWeekdayMarkEventLabel(meta.label, info) + ' · 클릭하면 수정합니다';
+    ev.setAttribute('role', 'button');
+    ev.tabIndex = 0;
+    var run = function (e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        App.openWeekdayMarkEditModal(kind, ymd, info, onChanged);
+    };
+    ev.addEventListener('click', run);
+    ev.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') run(e);
+    });
+};
+
+App.bindWeekdayMarkCancel = function(ev, kind, ymd, onCancelled) {
+    if (!ev || !ymd) return;
+    var canEdit = typeof App.canEditCalendarClosures === 'function' && App.canEditCalendarClosures();
+    if (!canEdit) return;
+    var meta = App.weekdayMarkMeta(kind);
+    ev.classList.add('calendar-event--weekday-cancelable');
+    ev.title = meta.label + ' · 클릭하면 이 날짜를 취소합니다';
+    ev.setAttribute('role', 'button');
+    ev.tabIndex = 0;
+    var run = function (e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        App.cancelWeekdayCalendarMark(kind, ymd, onCancelled);
+    };
+    ev.addEventListener('click', run);
+    ev.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') run(e);
+    });
+};
+
+App.cancelWeekdayCalendarMark = async function(kind, ymd, onCancelled) {
+    if (typeof App.canEditCalendarClosures === 'function' && !App.canEditCalendarClosures()) return;
+    if (App._weekdayMarkCancelBusy) return;
+    var meta = App.weekdayMarkMeta(kind);
+    if (!confirm(ymd + ' ' + meta.label + meta.particle + ' 취소할까요?')) return;
+    App._weekdayMarkCancelBusy = true;
+    try {
+        await App.api.delete(meta.path + encodeURIComponent(ymd));
+        if (App.showNotification) App.showNotification(meta.label + meta.particle + ' 취소했습니다.', 'success');
+        if (typeof onCancelled === 'function') await onCancelled();
+        else if (typeof window.renderCalendar === 'function') await window.renderCalendar();
+    } catch (e) {
+        App.err('요일 일정 취소 실패:', e);
+        if (typeof App.showApiError === 'function') App.showApiError(e);
+        else if (App.showNotification) App.showNotification('취소에 실패했습니다.', 'danger');
+    } finally {
+        App._weekdayMarkCancelBusy = false;
+    }
+};
+
+App.ensureWeekdayMarkEditModal = function() {
+    var el = document.getElementById('weekday-mark-edit-modal');
+    if (el && (!el.querySelector('#weekday-mark-edit-coach') || !el.querySelector('#weekday-mark-edit-place'))) {
+        el.remove();
+        el = null;
+    }
+    if (el) return el;
+    el = document.createElement('div');
+    el.className = 'modal-overlay';
+    el.id = 'weekday-mark-edit-modal';
+    el.innerHTML =
+        '<div class="modal" style="max-width: 420px; width: 92vw;">' +
+            '<div class="modal-header">' +
+                '<h2 class="modal-title" id="weekday-mark-edit-title">요일 일정</h2>' +
+                '<button type="button" class="modal-close" id="weekday-mark-edit-x">×</button>' +
+            '</div>' +
+            '<div class="modal-body">' +
+                '<p id="weekday-mark-edit-date" class="weekday-picker-lead"></p>' +
+                '<div class="form-group">' +
+                    '<label class="form-label" for="weekday-mark-edit-time">사용시간</label>' +
+                    '<input type="text" class="form-control" id="weekday-mark-edit-time" placeholder="00:00 ~ 00:00" maxlength="13" inputmode="numeric">' +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label class="form-label" for="weekday-mark-edit-branch">지점</label>' +
+                    '<select class="form-control" id="weekday-mark-edit-branch">' +
+                        '<option value="">선택</option>' +
+                        '<option value="SAHA">사하</option>' +
+                        '<option value="YEONSAN">연산</option>' +
+                    '</select>' +
+                '</div>' +
+                '<div class="form-group" id="weekday-mark-edit-place-wrap" hidden>' +
+                    '<label class="form-label" for="weekday-mark-edit-place">장소</label>' +
+                    '<select class="form-control" id="weekday-mark-edit-place">' +
+                        '<option value="">선택</option>' +
+                        '<option value="BPA 야구장">BPA 야구장</option>' +
+                    '</select>' +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label class="form-label" for="weekday-mark-edit-coach">담당 코치</label>' +
+                    '<select class="form-control" id="weekday-mark-edit-coach">' +
+                        '<option value="">미지정</option>' +
+                    '</select>' +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label class="form-label">내용</label>' +
+                    '<input type="text" class="form-control" id="weekday-mark-edit-content" readonly>' +
+                '</div>' +
+            '</div>' +
+            '<div class="modal-footer" style="flex-wrap:wrap;gap:8px;">' +
+                '<button type="button" class="btn btn-danger" id="weekday-mark-edit-delete">삭제</button>' +
+                '<span style="flex:1;"></span>' +
+                '<button type="button" class="btn btn-secondary" id="weekday-mark-edit-cancel">닫기</button>' +
+                '<button type="button" class="btn btn-primary" id="weekday-mark-edit-save">저장</button>' +
+            '</div>' +
+        '</div>';
+    document.body.appendChild(el);
+    var close = function () { App.Modal.close('weekday-mark-edit-modal'); };
+    el.querySelector('#weekday-mark-edit-x').addEventListener('click', close);
+    el.querySelector('#weekday-mark-edit-cancel').addEventListener('click', close);
+    el.addEventListener('click', function (e) {
+        if (e.target === el) close();
+    });
+    el.querySelector('#weekday-mark-edit-save').addEventListener('click', function () {
+        App.saveWeekdayMarkEditModal();
+    });
+    el.querySelector('#weekday-mark-edit-delete').addEventListener('click', function () {
+        App.deleteWeekdayMarkEditModal();
+    });
+    App.bindWeekdayMarkTimeInput(el.querySelector('#weekday-mark-edit-time'));
+    return el;
+};
+
+App.openWeekdayMarkEditModal = async function(kind, ymd, info, onChanged) {
+    if (typeof App.canEditCalendarClosures === 'function' && !App.canEditCalendarClosures()) return;
+    var meta = App.weekdayMarkMeta(kind);
+    App.ensureWeekdayMarkEditModal();
+    App._weekdayMarkEdit = { kind: kind, ymd: ymd, onChanged: onChanged };
+    document.getElementById('weekday-mark-edit-title').textContent = meta.label;
+    document.getElementById('weekday-mark-edit-date').textContent = ymd;
+    var editTimeEl = document.getElementById('weekday-mark-edit-time');
+    App.bindWeekdayMarkTimeInput(editTimeEl);
+    editTimeEl.value = App.formatWeekdayMarkTimeDigits((info && info.timeText) ? String(info.timeText) : '');
+    document.getElementById('weekday-mark-edit-branch').value = App.normalizeWeekdayMarkBranch(info && info.branch) || '';
+    var placeWrap = document.getElementById('weekday-mark-edit-place-wrap');
+    var placeEl = document.getElementById('weekday-mark-edit-place');
+    var showPlace = kind === 'social-outdoor' || kind === 'social-scrimmage';
+    if (placeWrap) placeWrap.hidden = !showPlace;
+    if (placeEl) placeEl.value = showPlace && info && info.place ? String(info.place) : '';
+    document.getElementById('weekday-mark-edit-content').value = meta.label;
+    await App.fillWeekdayMarkCoachSelect(
+        document.getElementById('weekday-mark-edit-coach'),
+        info && info.coachId
+    );
+    App.Modal.open('weekday-mark-edit-modal');
+};
+
+App.saveWeekdayMarkEditModal = async function() {
+    var ctx = App._weekdayMarkEdit;
+    if (!ctx || App._weekdayMarkCancelBusy) return;
+    var meta = App.weekdayMarkMeta(ctx.kind);
+    var timeText = App.normalizeWeekdayMarkTimeText(document.getElementById('weekday-mark-edit-time').value);
+    var branch = App.normalizeWeekdayMarkBranch(document.getElementById('weekday-mark-edit-branch').value);
+    var coachRaw = document.getElementById('weekday-mark-edit-coach').value;
+    var coachId = coachRaw ? Number(coachRaw) : null;
+    if (!(coachId > 0)) coachId = null;
+    var body = {};
+    body[meta.dateKey] = ctx.ymd;
+    body.timeText = timeText;
+    body.branch = branch || null;
+    body.coachId = coachId;
+    if (ctx.kind === 'social-outdoor' || ctx.kind === 'social-scrimmage') {
+        var placeEl = document.getElementById('weekday-mark-edit-place');
+        body.place = placeEl ? String(placeEl.value || '').trim() : '';
+        if (!body.place) body.place = null;
+    }
+    App._weekdayMarkCancelBusy = true;
+    try {
+        await App.api.put(meta.putPath, body);
+        if (App.showNotification) App.showNotification(meta.label + '을(를) 저장했습니다.', 'success');
+        App.Modal.close('weekday-mark-edit-modal');
+        if (typeof ctx.onChanged === 'function') await ctx.onChanged();
+        else if (typeof window.renderCalendar === 'function') await window.renderCalendar();
+    } catch (e) {
+        App.err('요일 일정 저장 실패:', e);
+        if (typeof App.showApiError === 'function') App.showApiError(e);
+        else if (App.showNotification) App.showNotification('저장에 실패했습니다.', 'danger');
+    } finally {
+        App._weekdayMarkCancelBusy = false;
+    }
+};
+
+App.deleteWeekdayMarkEditModal = async function() {
+    var ctx = App._weekdayMarkEdit;
+    if (!ctx) return;
+    App.Modal.close('weekday-mark-edit-modal');
+    await App.cancelWeekdayCalendarMark(ctx.kind, ctx.ymd, ctx.onChanged);
+};
+
+App.canEditCalendarClosures = function() {
+    var role = String(App.currentRole || (App.currentUser && App.currentUser.role) || '').toUpperCase();
+    return role === 'ADMIN' || role === 'MANAGER';
+};
+
+App.closureTargetLabel = function(group) {
+    var labels = {
+        SAHA: '사하 (전체)',
+        SAHA_BASEBALL: '사하 야구',
+        SAHA_TRAINING: '사하 트레이닝',
+        SAHA_PILATES: '사하 필라테스',
+        YEONSAN: '연산 (전체)',
+        YEONSAN_BASEBALL: '연산 야구',
+        YEONSAN_PILATES: '연산 필라테스',
+        NON_BASEBALL: '비 야구파트 (전체)',
+        YOUTH: '유소년',
+        SOCIAL: '사회인',
+        RENTAL: '대관'
+    };
+    var g = typeof App.normalizeClosureGroup === 'function'
+        ? App.normalizeClosureGroup(group)
+        : String(group || 'SAHA').trim().toUpperCase();
+    return labels[g] || '이 캘린더';
+};
+
+App.ymdDatesForWeekdayInMonth = function(year, monthIndex, dayOfWeek) {
+    var dates = [];
+    var d = new Date(year, monthIndex, 1);
+    while (d.getMonth() === monthIndex) {
+        if (d.getDay() === dayOfWeek) {
+            dates.push(
+                d.getFullYear() +
+                    '-' +
+                    String(d.getMonth() + 1).padStart(2, '0') +
+                    '-' +
+                    String(d.getDate()).padStart(2, '0')
+            );
+        }
+        d.setDate(d.getDate() + 1);
+    }
+    return dates;
+};
+
+App.appendCalendarWeekdayHeaders = function(grid, year, monthIndex, closuresSet, onChanged) {
+    if (!grid) return;
+    var days = ['일', '월', '화', '수', '목', '금', '토'];
+    var canEdit = typeof App.canEditCalendarClosures === 'function' && App.canEditCalendarClosures();
+    days.forEach(function (day, idx) {
+        var header = document.createElement('div');
+        header.className =
+            'calendar-day-header' +
+            (idx === 0 ? ' calendar-day-header-sun' : idx === 6 ? ' calendar-day-header-sat' : '');
+        header.textContent = day;
+        var dates = App.ymdDatesForWeekdayInMonth(year, monthIndex, idx);
+        var allClosed = dates.length > 0 && dates.every(function (ymd) {
+            return closuresSet && closuresSet[ymd];
+        });
+        if (allClosed) header.classList.add('calendar-day-header--closed');
+        if (canEdit) {
+            header.classList.add('calendar-day-header--clickable');
+            header.setAttribute('role', 'button');
+            header.tabIndex = 0;
+            header.title =
+                year +
+                '년 ' +
+                (monthIndex + 1) +
+                '월 ' +
+                day +
+                '요일(' +
+                dates.map(function (ymd) { return String(parseInt(ymd.slice(8), 10)); }).join(', ') +
+                '일) 중 유소년 체험·사회인 야외·청·백전·정회원 모임·휴무 날짜를 고릅니다.';
+            var run = function () {
+                App.openCalendarWeekdayClosurePicker(year, monthIndex, idx, onChanged);
+            };
+            header.addEventListener('click', run);
+            header.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    run();
+                }
+            });
+        }
+        grid.appendChild(header);
+    });
+};
+
+App._fillWeekdayPickerChips = function(wrap, dates, owned, chipClass) {
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    dates.forEach(function (ymd) {
+        var on = !!(owned && owned[ymd]);
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = chipClass + (on ? ' is-on' : '');
+        btn.setAttribute('data-ymd', ymd);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        btn.textContent = String(parseInt(ymd.slice(8), 10)) + '일';
+        btn.addEventListener('click', function () {
+            var next = !btn.classList.contains('is-on');
+            btn.classList.toggle('is-on', next);
+            btn.setAttribute('aria-pressed', next ? 'true' : 'false');
+        });
+        wrap.appendChild(btn);
+    });
+};
+
+App._setAllWeekdayPickerChips = function(root, selector, on) {
+    if (!root) return;
+    root.querySelectorAll(selector).forEach(function (btn) {
+        btn.classList.toggle('is-on', !!on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+};
+
+App._weekdayPickerMetaHtml = function(prefix, opt) {
+    opt = opt || {};
+    var placeHtml = '';
+    if (opt.withPlace) {
+        placeHtml =
+            '<div class="form-group weekday-picker-meta-field">' +
+                '<label class="form-label" for="' + prefix + '-place">장소</label>' +
+                '<select class="form-control" id="' + prefix + '-place">' +
+                    '<option value="">선택</option>' +
+                    '<option value="BPA 야구장">BPA 야구장</option>' +
+                '</select>' +
+            '</div>';
+    }
+    return (
+        '<div class="weekday-picker-meta">' +
+            '<div class="form-group weekday-picker-meta-field">' +
+                '<label class="form-label" for="' + prefix + '-time">사용시간</label>' +
+                '<input type="text" class="form-control" id="' + prefix + '-time" placeholder="00:00 ~ 00:00" maxlength="13" inputmode="numeric">' +
+            '</div>' +
+            '<div class="form-group weekday-picker-meta-field">' +
+                '<label class="form-label" for="' + prefix + '-branch">지점</label>' +
+                '<select class="form-control" id="' + prefix + '-branch">' +
+                    '<option value="">선택</option>' +
+                    '<option value="SAHA">사하</option>' +
+                    '<option value="YEONSAN">연산</option>' +
+                '</select>' +
+            '</div>' +
+            placeHtml +
+            '<div class="form-group weekday-picker-meta-field weekday-picker-meta-field--coach">' +
+                '<label class="form-label" for="' + prefix + '-coach">담당 코치</label>' +
+                '<select class="form-control" id="' + prefix + '-coach">' +
+                    '<option value="">미지정</option>' +
+                '</select>' +
+            '</div>' +
+        '</div>'
+    );
+};
+
+App._setWeekdayPickerMetaFields = async function(prefix, ownedMap) {
+    var timeEl = document.getElementById(prefix + '-time');
+    App.bindWeekdayMarkTimeInput(timeEl);
+    var branchEl = document.getElementById(prefix + '-branch');
+    var coachEl = document.getElementById(prefix + '-coach');
+    if (!timeEl || !branchEl) return;
+    var sample = null;
+    if (ownedMap) {
+        Object.keys(ownedMap).some(function (ymd) {
+            if (ownedMap[ymd] && typeof ownedMap[ymd] === 'object') {
+                sample = ownedMap[ymd];
+                return true;
+            }
+            return false;
+        });
+    }
+    timeEl.value = App.formatWeekdayMarkTimeDigits(sample && sample.timeText ? String(sample.timeText) : '');
+    branchEl.value = App.normalizeWeekdayMarkBranch(sample && sample.branch) || '';
+    var placeEl = document.getElementById(prefix + '-place');
+    if (placeEl) placeEl.value = sample && sample.place ? String(sample.place) : '';
+    await App.fillWeekdayMarkCoachSelect(coachEl, sample && sample.coachId);
+};
+
+App._readWeekdayPickerMetaFields = function(prefix) {
+    var timeEl = document.getElementById(prefix + '-time');
+    App.bindWeekdayMarkTimeInput(timeEl);
+    var branchEl = document.getElementById(prefix + '-branch');
+    var coachEl = document.getElementById(prefix + '-coach');
+    var coachId = coachEl && coachEl.value ? Number(coachEl.value) : null;
+    if (!(coachId > 0)) coachId = null;
+    var placeEl = document.getElementById(prefix + '-place');
+    return {
+        timeText: timeEl ? App.normalizeWeekdayMarkTimeText(timeEl.value) : '',
+        branch: App.normalizeWeekdayMarkBranch(branchEl && branchEl.value),
+        place: placeEl ? String(placeEl.value || '').trim() : '',
+        coachId: coachId
+    };
+};
+
+App._ownedMapFromList = function(list, dateKey) {
+    var owned = {};
+    (list || []).forEach(function (row) {
+        if (!row || !row[dateKey]) return;
+        owned[String(row[dateKey])] = {
+            timeText: row.timeText != null ? String(row.timeText) : '',
+            branch: App.normalizeWeekdayMarkBranch(row.branch),
+            place: row.place != null ? String(row.place) : '',
+            coachId: row.coachId != null && row.coachId !== '' ? Number(row.coachId) : null
+        };
+    });
+    return owned;
+};
+
+App.ensureWeekdayClosurePickerModal = function() {
+    var el = document.getElementById('weekday-closure-picker-modal');
+    if (el && (!el.querySelector('#weekday-trial-picker-dates')
+            || !el.querySelector('#weekday-social-outdoor-picker-dates')
+            || !el.querySelector('#weekday-social-scrimmage-picker-dates')
+            || !el.querySelector('#weekday-social-regular-meeting-picker-dates')
+            || !el.querySelector('#weekday-trial-time')
+            || !el.querySelector('#weekday-trial-coach')
+            || !el.querySelector('#weekday-social-outdoor-place')
+            || !el.querySelector('#weekday-social-scrimmage-place')
+            || !el.querySelector('#weekday-social-outdoor-time')
+            || !el.querySelector('#weekday-external-work-picker-dates')
+            || !el.querySelector('.weekday-picker-section--external-work[hidden]'))) {
+        el.remove();
+        el = null;
+    }
+    if (el) return el;
+    el = document.createElement('div');
+    el.className = 'modal-overlay';
+    el.id = 'weekday-closure-picker-modal';
+    el.innerHTML =
+        '<div class="modal" style="max-width: 480px; width: 94vw;">' +
+            '<div class="modal-header">' +
+                '<h2 class="modal-title" id="weekday-closure-picker-title">요일 일정</h2>' +
+                '<button type="button" class="modal-close" id="weekday-closure-picker-x">×</button>' +
+            '</div>' +
+            '<div class="modal-body">' +
+                '<p id="weekday-closure-picker-hint" class="weekday-picker-lead"></p>' +
+                '<section class="weekday-picker-section weekday-picker-section--trial">' +
+                    '<h3 class="weekday-picker-section-title">유소년 체험</h3>' +
+                    '<p class="weekday-picker-section-hint">전 지점 공통 반복 일정입니다. 파란 칸이 체험일입니다.</p>' +
+                    '<div id="weekday-trial-picker-dates" class="weekday-closure-dates"></div>' +
+                    App._weekdayPickerMetaHtml('weekday-trial') +
+                    '<div class="weekday-picker-section-actions">' +
+                        '<button type="button" class="btn btn-secondary weekday-picker-mini-btn" id="weekday-trial-picker-all">모두 선택</button>' +
+                        '<button type="button" class="btn btn-secondary weekday-picker-mini-btn" id="weekday-trial-picker-none">모두 해제</button>' +
+                    '</div>' +
+                '</section>' +
+                '<section class="weekday-picker-section weekday-picker-section--social-outdoor">' +
+                    '<h3 class="weekday-picker-section-title">사회인 야외</h3>' +
+                    '<p class="weekday-picker-section-hint">전 지점 공통 반복 일정입니다. 파란 칸이 사회인 야외일입니다.</p>' +
+                    '<div id="weekday-social-outdoor-picker-dates" class="weekday-closure-dates"></div>' +
+                    App._weekdayPickerMetaHtml('weekday-social-outdoor', { withPlace: true }) +
+                    '<div class="weekday-picker-section-actions">' +
+                        '<button type="button" class="btn btn-secondary weekday-picker-mini-btn" id="weekday-social-outdoor-picker-all">모두 선택</button>' +
+                        '<button type="button" class="btn btn-secondary weekday-picker-mini-btn" id="weekday-social-outdoor-picker-none">모두 해제</button>' +
+                    '</div>' +
+                '</section>' +
+                '<section class="weekday-picker-section weekday-picker-section--social-scrimmage">' +
+                    '<h3 class="weekday-picker-section-title">청·백전</h3>' +
+                    '<p class="weekday-picker-section-hint">전 지점 공통 반복 일정입니다. 파란 칸이 청·백전일입니다.</p>' +
+                    '<div id="weekday-social-scrimmage-picker-dates" class="weekday-closure-dates"></div>' +
+                    App._weekdayPickerMetaHtml('weekday-social-scrimmage', { withPlace: true }) +
+                    '<div class="weekday-picker-section-actions">' +
+                        '<button type="button" class="btn btn-secondary weekday-picker-mini-btn" id="weekday-social-scrimmage-picker-all">모두 선택</button>' +
+                        '<button type="button" class="btn btn-secondary weekday-picker-mini-btn" id="weekday-social-scrimmage-picker-none">모두 해제</button>' +
+                    '</div>' +
+                '</section>' +
+                '<section class="weekday-picker-section weekday-picker-section--social-regular-meeting">' +
+                    '<h3 class="weekday-picker-section-title">사회인 정회원 모임</h3>' +
+                    '<p class="weekday-picker-section-hint">전 지점 공통 반복 일정입니다. 파란 칸이 정회원 모임일입니다.</p>' +
+                    '<div id="weekday-social-regular-meeting-picker-dates" class="weekday-closure-dates"></div>' +
+                    App._weekdayPickerMetaHtml('weekday-social-regular-meeting') +
+                    '<div class="weekday-picker-section-actions">' +
+                        '<button type="button" class="btn btn-secondary weekday-picker-mini-btn" id="weekday-social-regular-meeting-picker-all">모두 선택</button>' +
+                        '<button type="button" class="btn btn-secondary weekday-picker-mini-btn" id="weekday-social-regular-meeting-picker-none">모두 해제</button>' +
+                    '</div>' +
+                '</section>' +
+                '<section class="weekday-picker-section weekday-picker-section--external-work" hidden>' +
+                    '<h3 class="weekday-picker-section-title">외부업무</h3>' +
+                    '<p class="weekday-picker-section-hint">전 지점 공통 반복 일정입니다. 주황 칸이 외부업무일입니다.</p>' +
+                    '<div id="weekday-external-work-picker-dates" class="weekday-closure-dates"></div>' +
+                    '<div class="weekday-picker-section-actions">' +
+                        '<button type="button" class="btn btn-secondary weekday-picker-mini-btn" id="weekday-external-work-picker-all">모두 선택</button>' +
+                        '<button type="button" class="btn btn-secondary weekday-picker-mini-btn" id="weekday-external-work-picker-none">모두 해제</button>' +
+                    '</div>' +
+                '</section>' +
+                '<section class="weekday-picker-section weekday-picker-section--closure">' +
+                    '<h3 class="weekday-picker-section-title">휴무</h3>' +
+                    '<p class="weekday-picker-section-hint" id="weekday-closure-picker-group-hint"></p>' +
+                    '<div id="weekday-closure-picker-dates" class="weekday-closure-dates"></div>' +
+                    '<div class="weekday-picker-section-actions">' +
+                        '<button type="button" class="btn btn-secondary weekday-picker-mini-btn" id="weekday-closure-picker-all">모두 선택</button>' +
+                        '<button type="button" class="btn btn-secondary weekday-picker-mini-btn" id="weekday-closure-picker-none">모두 해제</button>' +
+                    '</div>' +
+                '</section>' +
+            '</div>' +
+            '<div class="modal-footer">' +
+                '<button type="button" class="btn btn-primary" id="weekday-closure-picker-save">저장</button>' +
+                '<button type="button" class="btn btn-secondary" id="weekday-closure-picker-cancel">취소</button>' +
+            '</div>' +
+        '</div>';
+    document.body.appendChild(el);
+    var close = function () { App.Modal.close('weekday-closure-picker-modal'); };
+    el.querySelector('#weekday-closure-picker-x').addEventListener('click', close);
+    el.querySelector('#weekday-closure-picker-cancel').addEventListener('click', close);
+    el.addEventListener('click', function (e) {
+        if (e.target === el) close();
+    });
+    el.querySelector('#weekday-trial-picker-all').addEventListener('click', function () {
+        App._setAllWeekdayPickerChips(el, '#weekday-trial-picker-dates .weekday-trial-date', true);
+    });
+    el.querySelector('#weekday-trial-picker-none').addEventListener('click', function () {
+        App._setAllWeekdayPickerChips(el, '#weekday-trial-picker-dates .weekday-trial-date', false);
+    });
+    el.querySelector('#weekday-social-outdoor-picker-all').addEventListener('click', function () {
+        App._setAllWeekdayPickerChips(el, '#weekday-social-outdoor-picker-dates .weekday-social-outdoor-date', true);
+    });
+    el.querySelector('#weekday-social-outdoor-picker-none').addEventListener('click', function () {
+        App._setAllWeekdayPickerChips(el, '#weekday-social-outdoor-picker-dates .weekday-social-outdoor-date', false);
+    });
+    el.querySelector('#weekday-social-scrimmage-picker-all').addEventListener('click', function () {
+        App._setAllWeekdayPickerChips(el, '#weekday-social-scrimmage-picker-dates .weekday-social-scrimmage-date', true);
+    });
+    el.querySelector('#weekday-social-scrimmage-picker-none').addEventListener('click', function () {
+        App._setAllWeekdayPickerChips(el, '#weekday-social-scrimmage-picker-dates .weekday-social-scrimmage-date', false);
+    });
+    el.querySelector('#weekday-social-regular-meeting-picker-all').addEventListener('click', function () {
+        App._setAllWeekdayPickerChips(el, '#weekday-social-regular-meeting-picker-dates .weekday-social-regular-meeting-date', true);
+    });
+    el.querySelector('#weekday-social-regular-meeting-picker-none').addEventListener('click', function () {
+        App._setAllWeekdayPickerChips(el, '#weekday-social-regular-meeting-picker-dates .weekday-social-regular-meeting-date', false);
+    });
+    el.querySelector('#weekday-external-work-picker-all').addEventListener('click', function () {
+        App._setAllWeekdayPickerChips(el, '#weekday-external-work-picker-dates .weekday-external-work-date', true);
+    });
+    el.querySelector('#weekday-external-work-picker-none').addEventListener('click', function () {
+        App._setAllWeekdayPickerChips(el, '#weekday-external-work-picker-dates .weekday-external-work-date', false);
+    });
+    el.querySelector('#weekday-closure-picker-all').addEventListener('click', function () {
+        App._setAllWeekdayPickerChips(el, '#weekday-closure-picker-dates .weekday-closure-date', true);
+    });
+    el.querySelector('#weekday-closure-picker-none').addEventListener('click', function () {
+        App._setAllWeekdayPickerChips(el, '#weekday-closure-picker-dates .weekday-closure-date', false);
+    });
+    el.querySelector('#weekday-closure-picker-save').addEventListener('click', function () {
+        App.saveCalendarWeekdayClosurePicker();
+    });
+    return el;
+};
+
+App.openCalendarWeekdayClosurePicker = async function(year, monthIndex, dayOfWeek, onChanged) {
+    if (App._weekdayClosureBusy) return;
+    if (!App.canEditCalendarClosures || !App.canEditCalendarClosures()) {
+        if (App.showNotification) App.showNotification('관리자·매니저만 요일 일정을 지정할 수 있습니다.', 'warning');
+        return;
+    }
+    var names = ['일', '월', '화', '수', '목', '금', '토'];
+    var dates = App.ymdDatesForWeekdayInMonth(year, monthIndex, dayOfWeek);
+    if (!dates.length) return;
+    var group = typeof App.closureGroupFromConfig === 'function'
+        ? App.closureGroupFromConfig(window.BOOKING_PAGE_CONFIG || {})
+        : 'SAHA';
+    group = typeof App.normalizeClosureGroup === 'function' ? App.normalizeClosureGroup(group) : group;
+    var start = year + '-' + String(monthIndex + 1).padStart(2, '0') + '-01';
+    var last = new Date(year, monthIndex + 1, 0).getDate();
+    var end = year + '-' + String(monthIndex + 1).padStart(2, '0') + '-' + String(last).padStart(2, '0');
+    var label = App.closureTargetLabel(group);
+    var weekdayName = names[dayOfWeek] || '';
+    App._weekdayClosureBusy = true;
+    try {
+        var closureUrl =
+            '/branch-closures?group=' +
+            encodeURIComponent(group) +
+            '&startDate=' +
+            encodeURIComponent(start) +
+            '&endDate=' +
+            encodeURIComponent(end);
+        var trialUrl =
+            '/youth-trial-days?startDate=' +
+            encodeURIComponent(start) +
+            '&endDate=' +
+            encodeURIComponent(end);
+        var socialOutdoorUrl =
+            '/social-outdoor-days?startDate=' +
+            encodeURIComponent(start) +
+            '&endDate=' +
+            encodeURIComponent(end);
+        var socialScrimmageUrl =
+            '/social-scrimmage-days?startDate=' +
+            encodeURIComponent(start) +
+            '&endDate=' +
+            encodeURIComponent(end);
+        var socialRegularMeetingUrl =
+            '/social-regular-meeting-days?startDate=' +
+            encodeURIComponent(start) +
+            '&endDate=' +
+            encodeURIComponent(end);
+        var externalWorkUrl =
+            '/external-work-days?startDate=' +
+            encodeURIComponent(start) +
+            '&endDate=' +
+            encodeURIComponent(end);
+        var results = await Promise.all([
+            App.api.get(closureUrl),
+            App.api.get(trialUrl).catch(function () { return []; }),
+            App.api.get(socialOutdoorUrl).catch(function () { return []; }),
+            App.api.get(socialScrimmageUrl).catch(function () { return []; }),
+            App.api.get(socialRegularMeetingUrl).catch(function () { return []; }),
+            App.api.get(externalWorkUrl).catch(function () { return []; })
+        ]);
+        var list = results[0];
+        var trialOwned = App._ownedMapFromList(results[1], 'trialDate');
+        var socialOutdoorOwned = App._ownedMapFromList(results[2], 'outdoorDate');
+        var socialScrimmageOwned = App._ownedMapFromList(results[3], 'scrimmageDate');
+        var socialRegularMeetingOwned = App._ownedMapFromList(results[4], 'meetingDate');
+        var externalWorkOwned = {};
+        (results[5] || []).forEach(function (row) {
+            if (row && row.workDate) externalWorkOwned[String(row.workDate)] = true;
+        });
+        var owned = {};
+        (list || []).forEach(function (row) {
+            if (row && row.closureDate) owned[String(row.closureDate)] = true;
+        });
+        App.ensureWeekdayClosurePickerModal();
+        document.getElementById('weekday-closure-picker-title').textContent =
+            year + '년 ' + (monthIndex + 1) + '월 ' + weekdayName + '요일';
+        document.getElementById('weekday-closure-picker-hint').textContent =
+            weekdayName + '요일 날짜·사용시간·지점을 구역별로 고르세요. 체험·야외·청·백전·정회원 모임은 전 지점 공통입니다.';
+        document.getElementById('weekday-closure-picker-group-hint').textContent =
+            label + '에서 휴무로 둘 날짜만 고르세요. 빨간 칸이 휴무입니다.';
+        App._fillWeekdayPickerChips(
+            document.getElementById('weekday-trial-picker-dates'),
+            dates,
+            trialOwned,
+            'weekday-closure-date weekday-trial-date'
+        );
+        App._fillWeekdayPickerChips(
+            document.getElementById('weekday-social-outdoor-picker-dates'),
+            dates,
+            socialOutdoorOwned,
+            'weekday-closure-date weekday-social-outdoor-date'
+        );
+        App._fillWeekdayPickerChips(
+            document.getElementById('weekday-social-scrimmage-picker-dates'),
+            dates,
+            socialScrimmageOwned,
+            'weekday-closure-date weekday-social-scrimmage-date'
+        );
+        App._fillWeekdayPickerChips(
+            document.getElementById('weekday-social-regular-meeting-picker-dates'),
+            dates,
+            socialRegularMeetingOwned,
+            'weekday-closure-date weekday-social-regular-meeting-date'
+        );
+        App._fillWeekdayPickerChips(
+            document.getElementById('weekday-external-work-picker-dates'),
+            dates,
+            externalWorkOwned,
+            'weekday-closure-date weekday-external-work-date'
+        );
+        App._fillWeekdayPickerChips(
+            document.getElementById('weekday-closure-picker-dates'),
+            dates,
+            owned,
+            'weekday-closure-date'
+        );
+        await App._setWeekdayPickerMetaFields('weekday-trial', trialOwned);
+        await App._setWeekdayPickerMetaFields('weekday-social-outdoor', socialOutdoorOwned);
+        await App._setWeekdayPickerMetaFields('weekday-social-scrimmage', socialScrimmageOwned);
+        await App._setWeekdayPickerMetaFields('weekday-social-regular-meeting', socialRegularMeetingOwned);
+        App._weekdayClosurePicker = {
+            group: group,
+            dates: dates,
+            owned: owned,
+            trialOwned: trialOwned,
+            socialOutdoorOwned: socialOutdoorOwned,
+            socialScrimmageOwned: socialScrimmageOwned,
+            socialRegularMeetingOwned: socialRegularMeetingOwned,
+            externalWorkOwned: externalWorkOwned,
+            label: label,
+            weekdayName: weekdayName,
+            onChanged: onChanged
+        };
+        App.Modal.open('weekday-closure-picker-modal');
+    } catch (e) {
+        App.err('요일 일정 목록 로드 실패:', e);
+        if (App.showNotification) App.showNotification('요일 일정을 불러오지 못했습니다.', 'danger');
+    } finally {
+        App._weekdayClosureBusy = false;
+    }
+};
+
+App.saveCalendarWeekdayClosurePicker = async function() {
+    var ctx = App._weekdayClosurePicker;
+    if (!ctx || App._weekdayClosureBusy) return;
+    var selected = {};
+    document.querySelectorAll('#weekday-closure-picker-dates .weekday-closure-date.is-on').forEach(function (btn) {
+        var ymd = btn.getAttribute('data-ymd');
+        if (ymd) selected[ymd] = true;
+    });
+    var selectedTrial = {};
+    document.querySelectorAll('#weekday-trial-picker-dates .weekday-trial-date.is-on').forEach(function (btn) {
+        var ymd = btn.getAttribute('data-ymd');
+        if (ymd) selectedTrial[ymd] = true;
+    });
+    var selectedSocialOutdoor = {};
+    document.querySelectorAll('#weekday-social-outdoor-picker-dates .weekday-social-outdoor-date.is-on').forEach(function (btn) {
+        var ymd = btn.getAttribute('data-ymd');
+        if (ymd) selectedSocialOutdoor[ymd] = true;
+    });
+    var selectedSocialScrimmage = {};
+    document.querySelectorAll('#weekday-social-scrimmage-picker-dates .weekday-social-scrimmage-date.is-on').forEach(function (btn) {
+        var ymd = btn.getAttribute('data-ymd');
+        if (ymd) selectedSocialScrimmage[ymd] = true;
+    });
+    var selectedSocialRegularMeeting = {};
+    document.querySelectorAll('#weekday-social-regular-meeting-picker-dates .weekday-social-regular-meeting-date.is-on').forEach(function (btn) {
+        var ymd = btn.getAttribute('data-ymd');
+        if (ymd) selectedSocialRegularMeeting[ymd] = true;
+    });
+    var trialOwned = ctx.trialOwned || {};
+    var socialOutdoorOwned = ctx.socialOutdoorOwned || {};
+    var socialScrimmageOwned = ctx.socialScrimmageOwned || {};
+    var socialRegularMeetingOwned = ctx.socialRegularMeetingOwned || {};
+    var trialMeta = App._readWeekdayPickerMetaFields('weekday-trial');
+    var outdoorMeta = App._readWeekdayPickerMetaFields('weekday-social-outdoor');
+    var scrimmageMeta = App._readWeekdayPickerMetaFields('weekday-social-scrimmage');
+    var meetingMeta = App._readWeekdayPickerMetaFields('weekday-social-regular-meeting');
+    var toAdd = ctx.dates.filter(function (ymd) { return selected[ymd] && !ctx.owned[ymd]; });
+    var toDel = ctx.dates.filter(function (ymd) { return !selected[ymd] && ctx.owned[ymd]; });
+    var trialKeep = ctx.dates.filter(function (ymd) { return selectedTrial[ymd]; });
+    var trialDel = ctx.dates.filter(function (ymd) { return !selectedTrial[ymd] && trialOwned[ymd]; });
+    var socialKeep = ctx.dates.filter(function (ymd) { return selectedSocialOutdoor[ymd]; });
+    var socialDel = ctx.dates.filter(function (ymd) { return !selectedSocialOutdoor[ymd] && socialOutdoorOwned[ymd]; });
+    var scrimmageKeep = ctx.dates.filter(function (ymd) { return selectedSocialScrimmage[ymd]; });
+    var scrimmageDel = ctx.dates.filter(function (ymd) { return !selectedSocialScrimmage[ymd] && socialScrimmageOwned[ymd]; });
+    var meetingKeep = ctx.dates.filter(function (ymd) { return selectedSocialRegularMeeting[ymd]; });
+    var meetingDel = ctx.dates.filter(function (ymd) { return !selectedSocialRegularMeeting[ymd] && socialRegularMeetingOwned[ymd]; });
+    if (!toAdd.length && !toDel.length && !trialKeep.length && !trialDel.length
+            && !socialKeep.length && !socialDel.length
+            && !scrimmageKeep.length && !scrimmageDel.length
+            && !meetingKeep.length && !meetingDel.length) {
+        App.Modal.close('weekday-closure-picker-modal');
+        return;
+    }
+    App._weekdayClosureBusy = true;
+    try {
+        var jobs = toAdd.map(function (ymd) {
+            return App.api.put('/branch-closures', { group: ctx.group, closureDate: ymd });
+        }).concat(toDel.map(function (ymd) {
+            return App.api.delete(
+                '/branch-closures/' + encodeURIComponent(ctx.group) + '/' + encodeURIComponent(ymd)
+            );
+        })).concat(trialKeep.map(function (ymd) {
+            return App.api.put('/youth-trial-days', {
+                trialDate: ymd,
+                timeText: trialMeta.timeText,
+                branch: trialMeta.branch || null,
+                coachId: trialMeta.coachId
+            });
+        })).concat(trialDel.map(function (ymd) {
+            return App.api.delete('/youth-trial-days/' + encodeURIComponent(ymd));
+        })).concat(socialKeep.map(function (ymd) {
+            return App.api.put('/social-outdoor-days', {
+                outdoorDate: ymd,
+                timeText: outdoorMeta.timeText,
+                branch: outdoorMeta.branch || null,
+                place: outdoorMeta.place || null,
+                coachId: outdoorMeta.coachId
+            });
+        })).concat(socialDel.map(function (ymd) {
+            return App.api.delete('/social-outdoor-days/' + encodeURIComponent(ymd));
+        })).concat(scrimmageKeep.map(function (ymd) {
+            return App.api.put('/social-scrimmage-days', {
+                scrimmageDate: ymd,
+                timeText: scrimmageMeta.timeText,
+                branch: scrimmageMeta.branch || null,
+                place: scrimmageMeta.place || null,
+                coachId: scrimmageMeta.coachId
+            });
+        })).concat(scrimmageDel.map(function (ymd) {
+            return App.api.delete('/social-scrimmage-days/' + encodeURIComponent(ymd));
+        })).concat(meetingKeep.map(function (ymd) {
+            return App.api.put('/social-regular-meeting-days', {
+                meetingDate: ymd,
+                timeText: meetingMeta.timeText,
+                branch: meetingMeta.branch || null,
+                coachId: meetingMeta.coachId
+            });
+        })).concat(meetingDel.map(function (ymd) {
+            return App.api.delete('/social-regular-meeting-days/' + encodeURIComponent(ymd));
+        }));
+        await Promise.all(jobs);
+        var parts = [];
+        if (trialKeep.length || trialDel.length) {
+            parts.push('유소년 체험 ' + (trialKeep.length + trialDel.length) + '일');
+        }
+        if (socialKeep.length || socialDel.length) {
+            parts.push('사회인 야외 ' + (socialKeep.length + socialDel.length) + '일');
+        }
+        if (scrimmageKeep.length || scrimmageDel.length) {
+            parts.push('청·백전 ' + (scrimmageKeep.length + scrimmageDel.length) + '일');
+        }
+        if (meetingKeep.length || meetingDel.length) {
+            parts.push('사회인 정회원 모임 ' + (meetingKeep.length + meetingDel.length) + '일');
+        }
+        if (toAdd.length || toDel.length) {
+            parts.push(ctx.label + ' 휴무 ' + (toAdd.length + toDel.length) + '일');
+        }
+        if (App.showNotification) {
+            App.showNotification(
+                ctx.weekdayName + '요일 일정을 저장했습니다. (' + parts.join(' · ') + ')',
+                'success'
+            );
+        }
+        App.Modal.close('weekday-closure-picker-modal');
+        if (typeof ctx.onChanged === 'function') await ctx.onChanged();
+    } catch (e) {
+        App.err('요일 일정 저장 실패:', e);
+        var err = '일정 저장에 실패했습니다.';
+        if (e && e.response && e.response.data && e.response.data.error) err = e.response.data.error;
+        if (App.showNotification) App.showNotification(err, 'danger');
+    } finally {
+        App._weekdayClosureBusy = false;
+    }
 };
 
 /**
@@ -285,13 +1448,25 @@ App.applyMissingPassCalendarStyle = function(eventEl, booking) {
     eventEl.title = eventEl.title ? (eventEl.title + ' · ' + hint) : hint;
 };
 
+App.syncAuthCookie = function(token) {
+    try {
+        if (token) {
+            document.cookie = 'afbs_auth=' + encodeURIComponent(token) + '; path=/; SameSite=Lax';
+        } else {
+            document.cookie = 'afbs_auth=; path=/; max-age=0; SameSite=Lax';
+        }
+    } catch (e) { /* ignore */ }
+};
+
 // 인증 토큰 관리
 App.setAuthToken = function(token) {
     this.authToken = token;
     if (token) {
         localStorage.setItem('authToken', token);
+        this.syncAuthCookie(token);
     } else {
         localStorage.removeItem('authToken');
+        this.syncAuthCookie(null);
     }
 };
 
@@ -308,6 +1483,7 @@ App.clearAuth = function() {
     this.currentRole = null;
     localStorage.removeItem('authToken');
     localStorage.removeItem('currentUser');
+    this.syncAuthCookie(null);
     // 로그인·공개 페이지에서는 리다이렉트하지 않음 (401 프리로드 등으로 무한 새로고침 방지)
     if (!isLoginPagePath()) {
         window.location.href = '/login.html';
@@ -334,6 +1510,7 @@ App.restoreAuth = function() {
     var token = this.getAuthToken();
 
     if (token) {
+        this.syncAuthCookie(token);
         var userStr = localStorage.getItem('currentUser');
         if (!onLoginPage) App.log('인증 정보 복원 시도, 토큰 존재:', true);
         if (userStr) {
@@ -378,6 +1555,7 @@ App.handle401 = function() {
         try {
             localStorage.removeItem('authToken');
             localStorage.removeItem('currentUser');
+            this.syncAuthCookie(null);
         } catch (e) { /* ignore */ }
         return;
     }
@@ -641,6 +1819,20 @@ App.isCoachHomeOperator = function() {
     return App.getLoginUsername().toLowerCase() === 'xorhko12';
 };
 
+/** 수기 수익 정산표. 관리자 또는 xorho12 / xorhko12 */
+App.canSeeProfitSheet = function() {
+    var u = App.currentUser || {};
+    if (u.profitSheetAllowed === true) {
+        return true;
+    }
+    var role = String((u.role || App.currentRole || '')).toUpperCase();
+    if (role === 'ADMIN') {
+        return true;
+    }
+    var name = App.getLoginUsername().toLowerCase();
+    return name === 'xorho12' || name === 'xorhko12';
+};
+
 App.canPilatesCoachAssignUnassignedCoach = function(booking) {
     if ((App.currentRole || (App.currentUser && App.currentUser.role) || '').toUpperCase() === 'ADMIN') {
         return false;
@@ -667,6 +1859,63 @@ App.canPilatesCoachAssignUnassignedCoach = function(booking) {
         return false;
     }
     return true;
+};
+
+App.isOutdoorLessonPlaceholderCoach = function(coachOrName) {
+    var name = '';
+    if (!coachOrName) return false;
+    if (typeof coachOrName === 'string') name = coachOrName;
+    else name = coachOrName.name || coachOrName.textContent || '';
+    name = String(name).replace(/\s*\[[^\]]*\]\s*/g, '').replace(/\s+/g, '');
+    return name.indexOf('야외레슨') !== -1;
+};
+
+App.bookingFormBlocksOutdoorLessonPlaceholder = function() {
+    var pass = document.getElementById('booking-member-product');
+    var hasPass = !!(pass && String(pass.value || '').trim());
+    var hasCardCoach = !!window._selectedMemberCardCoachId;
+    return hasPass || hasCardCoach;
+};
+
+App.applyOutdoorLessonPlaceholderCoachFilter = function() {
+    var select = document.getElementById('booking-coach');
+    if (!select || typeof App.isOutdoorLessonPlaceholderCoach !== 'function') return;
+    if (!App.bookingFormBlocksOutdoorLessonPlaceholder()) return;
+    var current = String(select.value || '');
+    var toRemove = [];
+    var currentWasPlaceholder = false;
+    Array.from(select.options).forEach(function (opt) {
+        if (!opt.value) return;
+        if (!App.isOutdoorLessonPlaceholderCoach(opt.textContent)) return;
+        if (String(opt.value) === current) currentWasPlaceholder = true;
+        toRemove.push(opt);
+    });
+    toRemove.forEach(function (opt) { opt.remove(); });
+    if (currentWasPlaceholder) select.value = '';
+};
+
+App.outdoorLessonCalendarColor = function() {
+    if (App.CoachColors && typeof App.CoachColors.getColor === 'function') {
+        var hex = App.CoachColors.getColor({ name: '야외레슨' });
+        if (hex) return hex;
+    }
+    return '#2962FF';
+};
+
+App.isOutdoorTypedPurpose = function(purposeOrBooking) {
+    var p = purposeOrBooking;
+    if (p && typeof p === 'object') p = p.purpose;
+    return String(p || '').toUpperCase().indexOf('OUTDOOR') !== -1;
+};
+
+App.calendarColorForBooking = function(booking, coach) {
+    if (App.isOutdoorTypedPurpose(booking)) {
+        return App.outdoorLessonCalendarColor();
+    }
+    if (coach && App.CoachColors && typeof App.CoachColors.getColor === 'function') {
+        return App.CoachColors.getColor(coach);
+    }
+    return null;
 };
 
 App.applyBookingCoachEditPolicy = function(booking) {
@@ -2770,7 +4019,8 @@ App.CoachColors = {
         '박근엽 [투수코치]': '#C0CA33',
         '이유진': '#8E24AA',
         '이유진[강사]': '#8E24AA',
-        '이유진 [강사]': '#8E24AA'
+        '이유진 [강사]': '#8E24AA',
+        '야외레슨': '#2962FF'
     },
 
     // 코치별 색상 캐시 (ID / 이름 → 색상). DB color 등록 시 채워짐
@@ -3037,6 +4287,7 @@ App.CoachColors = {
 // 코치 표시 순서: 대표 → 이사 → 센터장 → 지점장 → 투수 → 유소년 → 재활 → 트레이너 → 강사
 App.CoachSortOrder = function(coach) {
     var name = (coach.name || '') + ' ' + (coach.specialties || '');
+    if (/야외레슨/.test(name)) return 99;
     if (/대표/.test(name)) return 0;
     if (/이사/.test(name)) return 1;
     if (/센터장/.test(name)) return 2;
@@ -3966,6 +5217,7 @@ App.addDarkModeToggle = function() {
     App.addAdminMemoButton();
     App.addOrgChartButton();
     App.addAdminCoachHomeButton();
+    App.addProfitSheetButton();
     App.addCoachHomeDashboardButton();
 };
 
@@ -4078,6 +5330,57 @@ App.addAdminCoachHomeButton = function() {
     }
     btn.addEventListener('click', function() {
         window.location.href = '/coach-home.html';
+    });
+};
+
+/** 관리자·지정 아이디 전용: 코치 홈 오른쪽 수기 정산표 */
+App.addProfitSheetButton = function() {
+    const path = (window.location.pathname || '').replace(/\/$/, '') || '/';
+    if (path === '/login.html' || path === '/login') return;
+    if (path.indexOf('member-booking') !== -1) return;
+    if (path === '/profit-sheet.html' || path.endsWith('/profit-sheet.html')) return;
+    var subtitle = document.querySelector('.sidebar-subtitle');
+    var isOps = subtitle && String(subtitle.textContent || '').indexOf('운영 관리') !== -1;
+    if (!isOps) return;
+    if (typeof App.canSeeProfitSheet !== 'function' || !App.canSeeProfitSheet()) return;
+    if (document.getElementById('admin-profit-sheet-btn')) return;
+    const topbarRight = document.querySelector('.topbar-right');
+    if (!topbarRight) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'admin-memo-container admin-profit-sheet-container';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'admin-memo-btn';
+    btn.id = 'admin-profit-sheet-btn';
+    btn.title = '정산표';
+    btn.innerHTML = '&#128212;';
+    btn.setAttribute('aria-label', '정산표');
+    const label = document.createElement('span');
+    label.className = 'admin-memo-label';
+    label.textContent = '정산표';
+    wrap.appendChild(btn);
+    wrap.appendChild(label);
+    const homeWrap = document.querySelector('.admin-coach-home-container');
+    if (homeWrap && homeWrap.parentNode === topbarRight) {
+        homeWrap.insertAdjacentElement('afterend', wrap);
+    } else {
+        const orgContainer = document.querySelector('.org-chart-container');
+        const memoContainer = document.querySelector('.admin-memo-container:not(.org-chart-container):not(.admin-coach-home-container):not(.admin-profit-sheet-container)');
+        if (orgContainer && orgContainer.parentNode === topbarRight) {
+            topbarRight.insertBefore(wrap, orgContainer);
+        } else if (memoContainer && memoContainer.parentNode === topbarRight) {
+            topbarRight.insertBefore(wrap, memoContainer);
+        } else {
+            const themeContainer = document.querySelector('.theme-toggle-container');
+            if (themeContainer && themeContainer.parentNode === topbarRight) {
+                topbarRight.insertBefore(wrap, themeContainer);
+            } else {
+                topbarRight.prepend(wrap);
+            }
+        }
+    }
+    btn.addEventListener('click', function() {
+        window.location.href = '/profit-sheet.html';
     });
 };
 
@@ -5360,6 +6663,12 @@ document.addEventListener('DOMContentLoaded', function() {
             && (App.currentRole || '').toUpperCase() !== 'ADMIN') {
         var scrRole = (App.currentRole || '').toUpperCase();
         window.location.href = scrRole === 'COACH' ? '/bookings.html' : '/';
+        return;
+    }
+    if ((pathNow === '/profit-sheet.html' || pathNow.endsWith('/profit-sheet.html'))
+            && typeof App.canSeeProfitSheet === 'function' && !App.canSeeProfitSheet()) {
+        var psRole = (App.currentRole || '').toUpperCase();
+        window.location.href = psRole === 'COACH' ? '/bookings.html' : '/';
         return;
     }
 

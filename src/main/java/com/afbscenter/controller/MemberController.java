@@ -260,6 +260,7 @@ public class MemberController {
             memberMap.put("guardianName", member.getGuardianName());
             memberMap.put("guardianPhone", member.getGuardianPhone());
             memberMap.put("school", member.getSchool());
+            memberMap.put("schoolYear", member.getSchoolYear());
             memberMap.put("swingSpeed", member.getSwingSpeed());
             memberMap.put("exitVelocity", member.getExitVelocity());
             memberMap.put("pitchingSpeed", member.getPitchingSpeed());
@@ -516,6 +517,21 @@ public class MemberController {
             
             String school = (String) requestData.get("school");
             member.setSchool(school != null && !school.trim().isEmpty() ? school : null);
+
+            Object schoolYearObj = requestData.get("schoolYear");
+            if (schoolYearObj != null && !schoolYearObj.toString().trim().isEmpty()) {
+                try {
+                    int year = schoolYearObj instanceof Number
+                            ? ((Number) schoolYearObj).intValue()
+                            : Integer.parseInt(schoolYearObj.toString().trim());
+                    member.setSchoolYear(year >= 1 && year <= 6 ? year : null);
+                } catch (Exception e) {
+                    logger.warn("학년 파싱 실패: {}", schoolYearObj);
+                    member.setSchoolYear(null);
+                }
+            } else {
+                member.setSchoolYear(null);
+            }
             
             String guardianName = (String) requestData.get("guardianName");
             member.setGuardianName(guardianName != null && !guardianName.trim().isEmpty() ? guardianName : null);
@@ -790,6 +806,7 @@ public class MemberController {
             memberMap.put("guardianName", createdMember.getGuardianName());
             memberMap.put("guardianPhone", createdMember.getGuardianPhone());
             memberMap.put("school", createdMember.getSchool());
+            memberMap.put("schoolYear", createdMember.getSchoolYear());
             memberMap.put("swingSpeed", createdMember.getSwingSpeed());
             memberMap.put("exitVelocity", createdMember.getExitVelocity());
             memberMap.put("pitchingSpeed", createdMember.getPitchingSpeed());
@@ -879,6 +896,7 @@ public class MemberController {
             memberMap.put("guardianName", updatedMember.getGuardianName());
             memberMap.put("guardianPhone", updatedMember.getGuardianPhone());
             memberMap.put("school", updatedMember.getSchool());
+            memberMap.put("schoolYear", updatedMember.getSchoolYear());
             memberMap.put("swingSpeed", updatedMember.getSwingSpeed());
             memberMap.put("exitVelocity", updatedMember.getExitVelocity());
             memberMap.put("pitchingSpeed", updatedMember.getPitchingSpeed());

@@ -198,15 +198,28 @@ async function deleteCalendarDayMark() {
 function selectedBranchClosureTarget() {
     var el = document.getElementById('branch-closures-branch');
     var v = el && el.value ? String(el.value).toUpperCase() : 'SAHA';
-    if (v !== 'YEONSAN' && v !== 'NON_BASEBALL') v = 'SAHA';
+    if (typeof App.normalizeClosureGroup === 'function') {
+        v = App.normalizeClosureGroup(v);
+    }
     return { group: v };
 }
 
 function branchClosureTargetLabel(target) {
     var g = (target && target.group) || selectedBranchClosureTarget().group;
-    if (g === 'YEONSAN') return '연산';
-    if (g === 'NON_BASEBALL') return '비 야구파트';
-    return '사하';
+    var labels = {
+        SAHA: '사하 (전체)',
+        SAHA_BASEBALL: '사하 야구',
+        SAHA_TRAINING: '사하 트레이닝',
+        SAHA_PILATES: '사하 필라테스',
+        YEONSAN: '연산 (전체)',
+        YEONSAN_BASEBALL: '연산 야구',
+        YEONSAN_PILATES: '연산 필라테스',
+        NON_BASEBALL: '비 야구파트 (전체)',
+        YOUTH: '유소년',
+        SOCIAL: '사회인',
+        RENTAL: '대관'
+    };
+    return labels[g] || '사하 (전체)';
 }
 
 function initBranchClosuresAdminSection() {
